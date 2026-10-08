@@ -190,6 +190,30 @@ describe('агент: архив и прерывание', () => {
 		assert.equal(ctx.orch.resolveAgent(id).sessionId, session)
 	})
 
+	it('вытеснение свободного агента: переподключение не сразу, а при следующем сообщении (/load той же сессии)', async () => {
+		const ctx = setup()
+		const id = await startTurn(ctx)
+		const session = ctx.orch.resolveAgent(id).sessionId
+		ctx.gw.emit({ kind: 'text', text: 'готово', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
+		const before = { creates: ctx.gw.creates, resumes: ctx.gw.resumes }
+		ctx.gw.emit({ kind: 'evicted' })
+		await new Promise(r => setTimeout(r, 20))
+		assert.deepEqual({ creates: ctx.gw.creates, resumes: ctx.gw.resumes }, before, 'без лавины newSession/load')
+		await ctx.orch.send(id, { text: 'ещё' })
+		await until(() => ctx.gw.prompts.length === 2, 1000, 'второй промпт')
+		assert.equal(ctx.gw.resumes, before.resumes + 1, 'сессия поднята через /load')
+		assert.equal(ctx.gw.creates, before.creates, 'новая сессия не создавалась')
+		assert.equal(ctx.orch.resolveAgent(id).sessionId, session)
+	})
+
+	it('вытеснение во время хода: переподключаемся сразу', async () => {
+		const ctx = setup()
+		await startTurn(ctx)
+		const resumes = ctx.gw.resumes
+		ctx.gw.emit({ kind: 'evicted' })
+		await until(() => ctx.gw.resumes === resumes + 1, 1000, 'сессия поднята сразу')
+	})
+
 	it('interrupt: следующий промпт уходит только после подтверждения отмены, срочное — первым', async () => {
 		const ctx = setup()
 		const id = await startTurn(ctx)

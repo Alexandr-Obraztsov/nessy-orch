@@ -61,10 +61,15 @@ export class FakeGateway implements NessyGateway {
 	health(): Promise<boolean> {
 		return Promise.resolve(true)
 	}
+	/** сколько раз создавали и поднимали (/load) сессии */
+	creates = 0
+	resumes = 0
 	createSession(): Promise<{ sessionId: string }> {
+		this.creates++
 		return Promise.resolve({ sessionId: `s-${++this.n}` })
 	}
 	resumeSession(): Promise<boolean> {
+		this.resumes++
 		return Promise.resolve(true)
 	}
 	/** пока задан — ответ на prompt задерживается (промпт «летит» в nessy) */

@@ -18,10 +18,17 @@ import { NessyEventMapper } from './event-mapper'
 import type { NessyResponse } from './protocol.types'
 
 const RECONNECT_MS = 1000
+/** Пауза перед повтором создания/загрузки сессии, если nessy не успел (таймаут, 5xx). */
+const SESSION_RETRY_MS = 3000
 
 export class NessyClient implements NessyGateway {
 	private readonly host: string
 	private readonly port: number
+	/**
+	 * Создание и загрузка сессий идут строго по одной: параллельные newSession перегружают
+	 * мост ACP внутри nessy serve («AcpSessionBridge newSession timeout»).
+	 */
+	private sessionQueue: Promise<unknown> = Promise.resolve()
 
 	constructor(readonly baseUrl: string) {
 		const u = new URL(baseUrl)
@@ -80,21 +87,42 @@ export class NessyClient implements NessyGateway {
 		}
 	}
 
-	/** Создать независимую сессию (один субагент = одна сессия). */
-	async createSession(cwd: string): Promise<{ sessionId: string }> {
-		const j = await this.ok('POST', '/session', { cwd, sessionScope: 'thread' }, 60000)
+	/** Выполнить операцию с сессией в общей очереди этого serve. */
+	private serial<T>(fn: () => Promise<T>): Promise<T> {
+		const run = this.sessionQueue.then(fn, fn)
+		this.sessionQueue = run.catch(() => undefined)
+		return run
+	}
+
+	/** Создать независимую сессию (один субагент = одна сессия). Один повтор, если nessy не успел. */
+	createSession(cwd: string): Promise<{ sessionId: string }> {
+		return this.serial(async () => {
+			try {
+				return await this.newSession(cwd)
+			} catch (e) {
+				if (!isRetryable(e)) throw e
+				await sleep(SESSION_RETRY_MS)
+				return this.newSession(cwd)
+			}
+		})
+	}
+
+	private async newSession(cwd: string): Promise<{ sessionId: string }> {
+		const j = await this.ok('POST', '/session', { cwd, sessionScope: 'thread' }, 90000)
 		const sessionId = strOrNull(j['sessionId'])
 		if (!sessionId) throw new AppError(502, 'nessy_error', 'nessy не вернул sessionId: ' + clip(JSON.stringify(j)))
 		return { sessionId }
 	}
 
-	async resumeSession(sessionId: string, cwd: string): Promise<boolean> {
-		try {
-			const r = await this.request('POST', `/session/${sessionId}/load`, { cwd })
-			return r.status < 300
-		} catch {
-			return false
-		}
+	resumeSession(sessionId: string, cwd: string): Promise<boolean> {
+		return this.serial(async () => {
+			try {
+				const r = await this.request('POST', `/session/${sessionId}/load`, { cwd }, 90000)
+				return r.status < 300
+			} catch {
+				return false
+			}
+		})
 	}
 
 	/** Отправить промпт (асинхронно: результат придёт событиями). */
@@ -174,4 +202,12 @@ export class NessyClient implements NessyGateway {
 			},
 		}
 	}
+}
+
+const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms))
+
+/** Таймаут или 5xx от nessy — имеет смысл повторить; 4xx — нет. */
+function isRetryable(e: unknown): boolean {
+	if (e instanceof AppError) return /→ 5\d\d|timeout|timed out|таймаут/i.test(e.message)
+	return e instanceof Error && /timeout|таймаут|ECONNRESET|socket hang up/i.test(e.message)
 }
