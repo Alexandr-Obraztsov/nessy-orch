@@ -1,0 +1,134 @@
+.scroll {
+	min-height: 0;
+	overflow: auto;
+	padding: var(--sp-3) var(--sp-4) var(--sp-5);
+}
+.emptyBig {
+	padding: 48px 16px;
+	color: var(--text-faint);
+	text-align: center;
+}
+.emptyBig b {
+	display: block;
+	margin-bottom: 6px;
+	color: var(--text);
+	font-size: var(--fs-lg);
+}
+.emptyBig p {
+	max-width: 380px;
+	margin: 0 auto 14px;
+}
+.table {
+	overflow: hidden;
+	border: 1px solid var(--border);
+	border-radius: var(--r-md);
+	background: var(--bg-card);
+}
+.tr {
+	display: grid;
+	grid-template-columns: minmax(100px, 160px) minmax(0, 1fr) 150px 120px 150px auto;
+	align-items: center;
+	gap: 12px;
+	min-height: 40px;
+	padding: 6px 12px;
+	border-top: 1px solid var(--border);
+}
+.th {
+	min-height: 32px;
+	border-top: 0;
+	color: var(--text-faint);
+	font-size: var(--fs-xs);
+	font-weight: 600;
+	letter-spacing: 0.6px;
+	text-transform: uppercase;
+}
+.spName {
+	overflow: hidden;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.spPath {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--text-muted);
+	font-size: var(--fs-sm);
+}
+.spStatus {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	color: var(--text-muted);
+}
+.spErr {
+	flex-basis: 100%;
+	overflow: hidden;
+	color: var(--danger);
+	font-size: var(--fs-xs);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.spMode,
+.spAgents {
+	color: var(--text-muted);
+	font-size: var(--fs-sm);
+}
+.spWorking {
+	color: var(--accent-text);
+}
+.spActs {
+	display: flex;
+	justify-content: flex-end;
+	gap: 2px;
+}
+.del:hover:not(:disabled) {
+	color: var(--danger);
+}
+.dlgText {
+	margin: 0;
+	color: var(--text-muted);
+}
+.dlgError {
+	margin: var(--sp-2) 0 0;
+	color: var(--danger);
+	font-size: var(--fs-sm);
+}
+@media (max-width: 1099px) {
+	.tr {
+		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-areas:
+			'name acts'
+			'path path'
+			'status status';
+		row-gap: 2px;
+	}
+	.th {
+		display: none;
+	}
+	.spName {
+		grid-area: name;
+	}
+	.spPath {
+		grid-area: path;
+	}
+	.spStatus {
+		grid-area: status;
+		font-size: var(--fs-sm);
+	}
+	.spMode,
+	.spAgents {
+		display: none;
+	}
+	.spActs {
+		grid-area: acts;
+	}
+}
+@media (max-width: 899px) {
+	.scroll {
+		padding: 10px 12px 16px;
+	}
+	.hideNarrow {
+		display: none;
+	}
+}

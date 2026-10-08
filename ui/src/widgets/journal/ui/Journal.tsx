@@ -51,7 +51,11 @@ export function Journal({ mode }: JournalProps) {
 	}, [open, entries, type, agent, taskIds, query, agents])
 
 	const latest = entries.slice(-3).reverse()
-	const who = (from: string, to: string): string => (to === 'system' || to === from ? label(from) : `${label(from)} → ${label(to)}`)
+	// служебное событие «про агента» подписываем именем агента, без «система →»
+	const who = (from: string, to: string): string => {
+		if (from === 'system') return to === 'system' ? label(from) : label(to)
+		return to === 'system' || to === from ? label(from) : `${label(from)} → ${label(to)}`
+	}
 
 	return (
 		<section className={[s.drawer, open && s.open, mode === 'full' && s.full].filter(Boolean).join(' ')} aria-label="Журнал">

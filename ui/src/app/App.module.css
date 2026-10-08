@@ -1,114 +1,14 @@
 /*
- * Каркас:
- *   ≥ 900px — [рейка 44 | левая панель 264 | вкладки + содержимое], строка состояния во всю ширину
- *   < 900px — верхняя панель 48 + содержимое; левая панель выезжает поверх (со scrim)
+ * Каркас: верхняя строка 48px, ниже — страница на всю оставшуюся высоту.
+ * Раскладка рабочего экрана (колонки, журнал, мобильные вкладки) — в pages/main.
  */
 .app {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
 	height: 100vh;
 	height: 100dvh;
-	width: 100%;
+	min-width: 0;
 	overflow: hidden;
-	display: grid;
-	grid-template-columns: var(--ribbon-w) var(--sidebar-w) minmax(0, 1fr);
-	grid-template-rows: minmax(0, 1fr) var(--statusbar-h);
-	grid-template-areas:
-		'ribbon side main'
-		'status status status';
 	background: var(--bg);
-}
-.app > :first-child {
-	grid-area: ribbon;
-}
-.side {
-	grid-area: side;
-	min-height: 0;
-	min-width: 0;
-	border-right: 1px solid var(--border);
-}
-.main {
-	grid-area: main;
-	min-height: 0;
-	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	background: var(--bg);
-}
-.app > footer {
-	grid-area: status;
-}
-.pane {
-	flex: 1;
-	min-height: 0;
-	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	animation: paneIn 120ms var(--ease);
-}
-.pane > * {
-	flex: 1;
-	min-height: 0;
-}
-.scrim {
-	display: none;
-}
-
-@media (min-width: 1600px) {
-	.app {
-		grid-template-columns: var(--ribbon-w) calc(var(--sidebar-w) + 24px) minmax(0, 1fr);
-	}
-}
-
-.narrow {
-	grid-template-columns: minmax(0, 1fr);
-	grid-template-rows: auto minmax(0, 1fr);
-	grid-template-areas:
-		'bar'
-		'main';
-}
-.narrow > :first-child {
-	grid-area: bar;
-}
-/* строка состояния на узких экранах скрыта (соединение — в верхней панели) */
-.narrow > footer {
-	display: none;
-}
-.narrow .side {
-	position: fixed;
-	z-index: 60;
-	top: 0;
-	bottom: 0;
-	left: 0;
-	width: min(320px, 86vw);
-	border-right: 1px solid var(--border);
-	box-shadow: var(--shadow-3);
-	padding-top: env(safe-area-inset-top);
-	transform: translateX(-102%);
-	visibility: hidden;
-	transition:
-		transform 180ms var(--ease),
-		visibility 0s linear 180ms;
-}
-.narrow .sideOpen {
-	transform: none;
-	visibility: visible;
-	transition: transform 180ms var(--ease);
-}
-.narrow .scrim {
-	display: block;
-	position: fixed;
-	z-index: 55;
-	inset: 0;
-	background: var(--overlay);
-	animation: fade 180ms var(--ease);
-}
-
-@keyframes paneIn {
-	from {
-		opacity: 0.6;
-	}
-}
-@keyframes fade {
-	from {
-		opacity: 0;
-	}
 }

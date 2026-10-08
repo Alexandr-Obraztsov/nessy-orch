@@ -13,7 +13,7 @@ function resolution(ev: PermissionEvent): { text: string; tone: 'ok' | 'no' | 'w
 }
 
 /** Запрос разрешения: компактная строка; кнопки — пока ждёт, итог — когда решён. */
-export const PermissionRow = memo(function PermissionRow({ ev, agent, enter, durationMs }: PermissionRowProps) {
+export const PermissionRow = memo(function PermissionRow({ ev, agent, enter, durationMs, buttons = true }: PermissionRowProps) {
 	const pending = !ev.resolved && agent.pendingPermissions.some(p => p.requestId === ev.requestId)
 	const r = resolution(ev)
 	return (
@@ -23,7 +23,11 @@ export const PermissionRow = memo(function PermissionRow({ ev, agent, enter, dur
 				{ev.title}
 			</span>
 			{durationMs !== undefined && durationMs !== null && <span className={t.toolTime}>{formatMs(durationMs)}</span>}
-			{pending ? <PermissionButtons agentId={agent.id} requestId={ev.requestId} /> : <span className={t.permResult}>{r.text}</span>}
+			{pending && buttons ? (
+				<PermissionButtons agentId={agent.id} requestId={ev.requestId} />
+			) : (
+				<span className={t.permResult}>{pending ? 'ждёт вас' : r.text}</span>
+			)}
 		</div>
 	)
 })

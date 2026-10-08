@@ -60,18 +60,16 @@ export function AttentionBanner({ agent, attention, onRetry, onSeen, onOpenResul
 			<div className={s.bannerHead}>
 				<Icon name="check" size={15} />
 				<span>Готов результат</span>
+				<button type="button" className={s.bannerBtn} onClick={() => onSeen(attention.msgId)} title="Убрать отметку «новое»">
+					<Icon name="eye" size={13} />
+					Отметить просмотренным
+				</button>
 			</div>
 			{attention.preview && !resultShown && (
 				<button type="button" className={s.bannerPreview} onClick={onOpenResult} title="Открыть результат">
 					{attention.preview}
 				</button>
 			)}
-			<div className={s.bannerActs}>
-				<button type="button" className={s.bannerBtn} onClick={() => onSeen(attention.msgId)}>
-					<Icon name="eye" size={13} />
-					Отметить просмотренным
-				</button>
-			</div>
 		</section>
 	)
 }

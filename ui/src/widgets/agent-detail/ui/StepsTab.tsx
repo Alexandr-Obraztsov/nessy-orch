@@ -45,7 +45,7 @@ export function StepsTab({ agent, turn }: StepsTabProps) {
 					st.kind === 'tool' ? (
 						<ToolRow key={st.key} ev={st.ev} durationMs={st.ms} n={i + 1} forceOpen={picked.key === st.key ? picked.n : 0} />
 					) : (
-						<PermissionRow key={st.key} ev={st.ev} agent={agent} durationMs={st.ms} />
+						<PermissionRow key={st.key} ev={st.ev} agent={agent} durationMs={st.ms} buttons={false} />
 					),
 				)}
 			</div>

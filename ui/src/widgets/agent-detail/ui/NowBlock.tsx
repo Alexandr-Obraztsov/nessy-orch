@@ -27,6 +27,17 @@ export function NowBlock({ agent, events, live }: NowProps) {
 		}
 	}
 	const run = live[live.length - 1]
+	// ожидание разрешения: момент запроса — из события permission
+	const perm = agent.pendingPermissions[0]
+	let permTs: number | null = null
+	if (perm)
+		for (let i = events.length - 1; i >= 0; i--) {
+			const ev = events[i]
+			if (ev?.kind === 'permission' && ev.requestId === perm.requestId) {
+				permTs = ev.ts
+				break
+			}
+		}
 
 	return (
 		<section className={s.blk} aria-label="Сейчас">
@@ -38,6 +49,12 @@ export function NowBlock({ agent, events, live }: NowProps) {
 				<div className={s.nowRow}>
 					<span className={s.spinStart} />
 					<span className={s.nowText}>Запуск агента…</span>
+				</div>
+			) : working && perm ? (
+				<div className={s.nowRow}>
+					<Icon name="alert" size={13} className={s.nowWait} />
+					<span className={s.nowText}>ждёт вашего разрешения</span>
+					{permTs !== null && <LiveFor since={permTs} />}
 				</div>
 			) : working ? (
 				tool ? (

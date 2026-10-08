@@ -306,3 +306,7 @@ button.rowBtn:hover {
 		height: 36px;
 	}
 }
+.permPending .permResult {
+	color: var(--warn);
+	font-weight: 500;
+}

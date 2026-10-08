@@ -5,12 +5,12 @@
 import { useMemo, useRef } from 'react'
 import { Composer } from '@/features/compose-message'
 import { useAgentStream } from '@/entities/agent'
+import { markDone, useMarks } from '@/entities/attention'
 import { useNow } from '@/shared/lib/useNow'
 import { useStore } from '@/shared/model'
 import { Icon } from '@/shared/ui'
 import { attentionOf, defaultTab } from '../lib/attention'
 import { lastTurn } from '../lib/turn'
-import { markSeen, useSeen } from '../model/seen'
 import { useTabMemory } from '../model/tabMemory'
 import type { AgentDetailProps, CloseProps, DetailTab, DetailViewProps, StepsPaneProps } from '../model/types'
 import { useBottomStick } from '../model/useBottomStick'
@@ -56,8 +56,8 @@ function Detail({ agent, stream, onClose }: DetailViewProps) {
 	const scroll = useRef<HTMLDivElement>(null)
 	const [chosen, choose] = useTabMemory(agent.id)
 	const tab = chosen ?? defaultTab(agent)
-	const seen = useSeen()
-	const attention = attentionOf(agent, seen)
+	const marks = useMarks()
+	const attention = attentionOf(agent, marks)
 	const retry = useRetry(agent, stream.events)
 	const resultText = useResultText(agent, stream.events)
 	const durations = useToolDurations(stream.events, stream.ready)
@@ -88,7 +88,7 @@ function Detail({ agent, stream, onClose }: DetailViewProps) {
 							agent={agent}
 							attention={attention}
 							onRetry={retry}
-							onSeen={markSeen}
+							onSeen={markDone}
 							onOpenResult={() => openTab('result')}
 							resultShown={tab === 'result'}
 						/>

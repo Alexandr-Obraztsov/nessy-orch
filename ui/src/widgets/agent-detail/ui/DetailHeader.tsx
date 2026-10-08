@@ -77,7 +77,13 @@ export function DetailHeader({ agent, onClose }: HeaderProps) {
 					className={[s.pill, waiting ? s.pillWait : agent.status === 'error' ? s.pillErr : working ? s.pillWork : undefined].filter(Boolean).join(' ')}
 					title={agent.error ?? st.label}
 				>
-					{waiting ? <Icon name="alert" size={12} /> : <StatusDot color={st.color} pulse={st.pulse} size={7} />}
+					{waiting ? (
+						<Icon name="alert" size={12} />
+					) : agent.status === 'working' && !agent.archived ? (
+						<span className={s.pillSpin} aria-hidden="true" />
+					) : (
+						<StatusDot color={st.color} pulse={st.pulse} size={7} />
+					)}
 					{waiting ? 'ждёт вас' : st.label}
 				</span>
 				{working && agent.turnStartedAt ? (

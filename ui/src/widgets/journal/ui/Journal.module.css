@@ -207,7 +207,14 @@
 		height: 32px;
 		flex: 1;
 	}
+	.types {
+		flex-wrap: nowrap;
+		width: 100%;
+		overflow-x: auto;
+		scrollbar-width: none;
+	}
 	.chip {
+		flex: none;
 		height: 30px;
 	}
 	.list {

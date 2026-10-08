@@ -141,4 +141,6 @@ export interface PermissionRowProps {
 	agent: AgentView
 	enter?: boolean
 	durationMs?: number | null
+	/** кнопки «Разрешить / Отклонить» у ожидающего запроса (в «Шагах» их заменяет баннер сверху) */
+	buttons?: boolean
 }

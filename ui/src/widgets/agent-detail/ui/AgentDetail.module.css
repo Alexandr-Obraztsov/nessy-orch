@@ -154,10 +154,18 @@
 	background: var(--danger-soft);
 	color: var(--danger);
 }
+.pillSpin {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	border: 1.5px solid color-mix(in srgb, currentColor 35%, transparent);
+	border-top-color: currentColor;
+	animation: spin 0.9s linear infinite;
+}
 .timer {
 	flex: none;
-	font-family: var(--font-mono);
 	font-size: var(--fs-sm);
+	font-weight: 500;
 	font-variant-numeric: tabular-nums;
 	color: var(--text);
 }
@@ -258,6 +266,11 @@
 }
 .bannerHead svg {
 	flex: none;
+}
+.bannerHead .bannerBtn {
+	margin-left: auto;
+	color: var(--text);
+	font-weight: 400;
 }
 .bannerMore {
 	flex: none;
@@ -386,6 +399,10 @@
 	flex: none;
 	color: var(--text-faint);
 }
+.nowWait {
+	flex: none;
+	color: var(--warn);
+}
 .nowText {
 	flex: 0 1 auto;
 	min-width: 0;
@@ -411,7 +428,6 @@
 	flex: none;
 	margin-left: auto;
 	color: var(--text-muted);
-	font-family: var(--font-mono);
 	font-size: var(--fs-sm);
 	font-variant-numeric: tabular-nums;
 }
@@ -763,6 +779,7 @@
 	.spinWork,
 	.spinStart,
 	.spin,
+	.pillSpin,
 	.thinking,
 	.bannerWarn {
 		animation: none;

@@ -1,72 +1,107 @@
 import { useEffect } from 'react'
-import { activeTab, closeTab, getView, openDialog, openFeed, openGraph, openRole, setView, toggleSidebar } from '@/shared/model'
+import { api, errorText } from '@/shared/api'
+import { agentById, closeAgent, getView, openAgent, openDialog, openPage, setMobileTab } from '@/shared/model'
+import { toast } from '@/shared/ui'
 
 const isField = (t: EventTarget | null): boolean =>
 	t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
 
+/** Строки агентов в порядке на экране (видимые). */
+function rows(): HTMLElement[] {
+	return [...document.querySelectorAll<HTMLElement>('[data-row]')].filter(el => el.offsetParent !== null)
+}
+
+/** Агент, к которому относится действие с клавиатуры: строка в фокусе, иначе открытый. */
+function targetAgent(): string | null {
+	const el = document.activeElement
+	if (el instanceof HTMLElement && el.dataset['row']) return el.dataset['row']
+	return getView().selectedAgentId
+}
+
+function move(dir: 1 | -1): void {
+	const list = rows()
+	if (list.length === 0) return
+	const cur = document.activeElement instanceof HTMLElement ? list.indexOf(document.activeElement) : -1
+	let i: number
+	if (cur === -1) {
+		const sel = getView().selectedAgentId
+		const at = sel ? list.findIndex(el => el.dataset['row'] === sel) : -1
+		i = at === -1 ? (dir === 1 ? 0 : list.length - 1) : at + dir
+	} else i = cur + dir
+	const el = list[Math.max(0, Math.min(list.length - 1, i))]
+	el?.focus()
+	el?.scrollIntoView({ block: 'nearest' })
+}
+
 /**
- * Глобальные горячие клавиши:
- *   N — новый агент, R — новая роль, G — граф, F — лента, / — фокус в поле ввода (вне полей ввода);
- *   Ctrl/Cmd+W — закрыть вкладку; Esc — закрыть выезжающую панель (диалоги закрываются сами).
+ * Глобальные горячие клавиши (вне полей ввода и диалогов):
+ *   j / k — вниз / вверх по строкам агентов; Enter — открыть (обрабатывает сама строка);
+ *   a — разрешить первый запрос агента; x — прервать ход; / — поиск; n — новое поручение;
+ *   Esc — закрыть детали агента.
  */
 export function useHotkeys(): void {
 	useEffect(() => {
 		const onKey = (e: KeyboardEvent): void => {
 			if (e.defaultPrevented) return
 			const v = getView()
-			// Ctrl/Cmd+W — работает и из поля ввода (браузер иначе закроет вкладку целиком)
-			if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.code === 'KeyW' || e.key === 'w')) {
-				if (v.dialog) return
-				const t = activeTab(v)
-				if (t.kind === 'feed') return
-				e.preventDefault()
-				closeTab(v.active)
-				return
-			}
+			if (v.dialog) return
 			if (e.key === 'Escape') {
-				if (v.sidebarOpen && !v.dialog) {
+				if (isField(e.target)) return
+				if (v.selectedAgentId) {
 					e.preventDefault()
-					toggleSidebar(false)
-				}
+					closeAgent()
+				} else if (v.page.kind !== 'main') openPage({ kind: 'main' })
 				return
 			}
-			if (e.metaKey || e.ctrlKey || e.altKey || isField(e.target) || v.dialog) return
+			if (e.metaKey || e.ctrlKey || e.altKey || isField(e.target)) return
 			// раскладка не важна: e.code — физическая клавиша
 			switch (e.code) {
 				case 'KeyN':
 					e.preventDefault()
 					openDialog('spawn')
 					return
-				case 'KeyR':
-					e.preventDefault()
-					openRole(null)
-					return
-				case 'KeyG':
-					e.preventDefault()
-					openGraph()
-					return
-				case 'KeyF':
-					e.preventDefault()
-					openFeed()
-					return
 				case 'Slash': {
-					const input = document.querySelector<HTMLTextAreaElement>('[data-composer]')
+					const input = document.querySelector<HTMLInputElement>('[data-search]')
 					if (input) {
 						e.preventDefault()
+						if (v.page.kind === 'main') setMobileTab('tasks')
 						input.focus()
+						input.select()
 					}
 					return
 				}
 			}
-			// переключение вкладок: Ctrl+Tab браузер не отдаёт — [ и ]
-			if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
-				const n = v.tabs.length
-				setView({ active: (v.active + (e.code === 'BracketRight' ? 1 : -1) + n) % n })
-			} else if (e.key === '/') {
-				const input = document.querySelector<HTMLTextAreaElement>('[data-composer]')
-				if (input) {
+			if (v.page.kind !== 'main') return
+			switch (e.code) {
+				case 'KeyJ':
 					e.preventDefault()
-					input.focus()
+					move(1)
+					return
+				case 'KeyK':
+					e.preventDefault()
+					move(-1)
+					return
+				case 'KeyO': {
+					const id = targetAgent()
+					if (id) openAgent(id)
+					return
+				}
+				case 'KeyA': {
+					const id = targetAgent()
+					const a = id ? agentById(id) : undefined
+					const req = a?.pendingPermissions[0]
+					if (!a || !req) return
+					e.preventDefault()
+					api.permission(a.id, req.requestId, true).catch((err: unknown) => toast(`Не удалось разрешить: ${errorText(err)}`, 'error'))
+					return
+				}
+				case 'KeyX': {
+					const id = targetAgent()
+					const a = id ? agentById(id) : undefined
+					if (!a || (a.status !== 'working' && a.status !== 'starting')) return
+					e.preventDefault()
+					api.cancel(a.id).catch((err: unknown) => toast(`Не удалось прервать: ${errorText(err)}`, 'error'))
+					return
 				}
 			}
 		}
