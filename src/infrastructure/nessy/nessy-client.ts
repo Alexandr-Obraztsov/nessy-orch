@@ -23,10 +23,18 @@ export class NessyClient implements NessyGateway {
 	private readonly host: string
 	private readonly port: number
 
-	constructor(readonly baseUrl: string) {
+	/** @param token NESSY_SERVER_TOKEN — передаётся как `Authorization: Bearer` (иначе serve с токеном отвечает 401) */
+	constructor(
+		readonly baseUrl: string,
+		private readonly token: string | null = null,
+	) {
 		const u = new URL(baseUrl)
 		this.host = u.hostname
 		this.port = parseInt(u.port, 10) || 80
+	}
+
+	private auth(): Record<string, string> {
+		return this.token ? { Authorization: `Bearer ${this.token}` } : {}
 	}
 
 	// ---------- низкий уровень ----------
@@ -41,6 +49,7 @@ export class NessyClient implements NessyGateway {
 					path,
 					headers: {
 						Accept: 'application/json',
+						...this.auth(),
 						...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
 					},
 				},
@@ -135,7 +144,7 @@ export class NessyClient implements NessyGateway {
 
 		const connect = (): void => {
 			if (closed) return
-			const headers: Record<string, string> = { Accept: 'text/event-stream' }
+			const headers: Record<string, string> = { Accept: 'text/event-stream', ...this.auth() }
 			if (lastId !== null) headers['Last-Event-ID'] = String(lastId)
 			req = http.request({ host: this.host, port: this.port, method: 'GET', path: `/session/${sessionId}/events`, headers }, res => {
 				if (res.statusCode !== 200) {

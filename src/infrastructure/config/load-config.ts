@@ -30,6 +30,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		home: env['NESSY_ORCH_HOME'] ?? path.join(os.homedir(), '.nessy-orch'),
 		nessyBin: env['NESSY_BIN'] ?? path.join(os.homedir(), '.local', 'bin', 'nessy'),
 		nessyServeArgs: (env['NESSY_SERVE_ARGS'] ?? '').split(/\s+/).filter(Boolean),
+		nessyToken: env['NESSY_SERVER_TOKEN'] || null,
 		serveBasePort: int(env['SERVE_BASE_PORT'], 4360),
 		maxSessionsPerSpace: int(env['MAX_SESSIONS'], 20),
 		autoApprove: flag(env['ORCH_AUTO_APPROVE'], true),
