@@ -5,6 +5,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { buildApp } from './app'
+import { loadEnvFiles } from './infrastructure/config/env-file'
 import { loadConfig } from './infrastructure/config/load-config'
 import { errMsg } from './lib/json'
 
@@ -19,6 +20,8 @@ function version(root: string): string {
 }
 
 async function main(): Promise<void> {
+	// секреты и настройки из ~/.nessy-orch/.env и <проект>/.env (дочерние nessy serve их наследуют)
+	const envFiles = loadEnvFiles()
 	const config = loadConfig()
 	const app = buildApp(config, version(config.root))
 	try {
@@ -30,6 +33,7 @@ async function main(): Promise<void> {
 		process.exit(1)
 	}
 	console.log(`[nessy-orch] http://${config.host}:${config.port}  home=${config.home}  autoApprove=${config.autoApprove}`)
+	if (envFiles.length) console.log(`[nessy-orch] переменные из ${envFiles.join(', ')}${config.nessyToken ? ' (NESSY_SERVER_TOKEN задан)' : ''}`)
 	// любой выход (в т.ч. падение) гасит запущенные nessy serve, чтобы они не остались висеть
 	process.on('exit', () => app.killChildrenSync())
 	process.on('uncaughtException', e => {
