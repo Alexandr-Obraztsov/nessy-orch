@@ -460,12 +460,9 @@ export class Agent implements AgentIdentity {
 				else this.setStatus('error', ev.reason)
 				return
 			case 'evicted':
-				// nessy вытеснил сессию (лимит --max-sessions). Сразу переподключаемся, только если идёт ход:
-				// иначе вытесненный агент вытеснит следующего — получится лавина newSession и таймауты
-				// в nessy. Свободный агент поднимет сессию (/load) при следующем сообщении.
 				this.detach()
 				this.resume = true
-				if (this.current) void this.ensureAttached().catch(() => undefined)
+				void this.ensureAttached().catch(() => undefined)
 				return
 		}
 	}
