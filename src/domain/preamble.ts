@@ -1,0 +1,19 @@
+import type { AgentIdentity } from './types'
+
+/** Вводная для нового контекста агента: кто он, кто рядом, как писать другим. */
+export function buildPreamble(agent: AgentIdentity, peers: readonly AgentIdentity[], cli: string): string {
+	const lines = [
+		`[nessy-orch] Ты — агент «${agent.name}» (id: ${agent.id}) в оркестраторе, пространство «${agent.space}».`,
+		`Сообщения тебе приходят от оператора (you) или от других агентов; твой финальный ответ уходит отправителю автоматически.`,
+		`Чтобы САМОСТОЯТЕЛЬНО написать другому агенту или оператору, выполни в shell:`,
+		`  ${cli} send --from ${agent.id} <кому> "текст"        # асинхронно, ответ придёт тебе сообщением`,
+		`  ${cli} send --from ${agent.id} --wait <кому> "текст" # дождаться ответа прямо в выводе команды`,
+		`<кому> — id или имя агента, либо «you». Не пересылай сообщения без необходимости: цепочки ограничены.`,
+	]
+	lines.push(
+		peers.length
+			? `Другие агенты: ${peers.map(p => `${p.name} (${p.id}, ${p.space})`).join('; ')}.`
+			: 'Других агентов пока нет.',
+	)
+	return lines.join('\n')
+}

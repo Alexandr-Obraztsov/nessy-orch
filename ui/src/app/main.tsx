@@ -9,7 +9,7 @@ import './styles/base.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
-import { initTheme } from './theme'
+import { initTheme } from '@/shared/lib/theme'
 
 initTheme()
 const root = document.getElementById('root')

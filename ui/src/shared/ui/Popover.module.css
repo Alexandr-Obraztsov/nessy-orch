@@ -1,0 +1,20 @@
+.pop {
+	position: fixed;
+	z-index: 90;
+	min-width: 220px;
+	max-width: calc(100vw - 16px);
+	overflow: auto;
+	overscroll-behavior: contain;
+	background: var(--surface);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--r-md);
+	box-shadow: var(--shadow-2);
+	animation: pop 180ms var(--ease);
+	transform-origin: top center;
+}
+@keyframes pop {
+	from {
+		opacity: 0;
+		transform: translateY(-4px) scale(0.98);
+	}
+}
