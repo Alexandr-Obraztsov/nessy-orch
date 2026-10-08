@@ -1,0 +1,168 @@
+/*
+ * Дизайн-токены nessy-orch. Стиль — как в Obsidian: спокойная нейтральная палитра,
+ * один фиолетовый акцент, плотная компактная типографика, тонкие границы, минимум декора.
+ * Все компоненты используют только эти переменные.
+ */
+:root {
+	--font-ui: 'Onest', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+	--fs-xs: 11px;
+	--fs-sm: 12px;
+	--fs-md: 13px;
+	--fs-lg: 15px;
+	--fs-xl: 18px;
+	--lh: 1.5;
+
+	--r-xs: 4px;
+	--r-sm: 5px;
+	--r-md: 8px;
+	--r-lg: 12px;
+	--r-full: 999px;
+
+	--sp-1: 4px;
+	--sp-2: 8px;
+	--sp-3: 12px;
+	--sp-4: 16px;
+	--sp-5: 24px;
+	--sp-6: 32px;
+
+	--ease: cubic-bezier(0.25, 0.8, 0.25, 1);
+	--dur: 140ms;
+
+	/* размеры каркаса */
+	--ribbon-w: 44px;
+	--sidebar-w: 264px;
+	--tabs-h: 38px;
+	--statusbar-h: 24px;
+	--row-h: 28px;
+	--mobile-bar-h: 48px;
+
+	color-scheme: dark;
+	/* поверхности (тёмная — как Obsidian default) */
+	--bg: #1e1e1e;
+	--bg-alt: #262626;
+	--bg-sidebar: #262626;
+	--bg-ribbon: #202020;
+	--bg-hover: rgba(255, 255, 255, 0.06);
+	--bg-active: rgba(255, 255, 255, 0.1);
+	--bg-input: #2a2a2a;
+	--bg-card: #252525;
+	--bg-code: #171717;
+	--overlay: rgba(0, 0, 0, 0.55);
+	--border: #333333;
+	--border-strong: #404040;
+	/* текст */
+	--text: #dadada;
+	--text-muted: #a3a3a3;
+	--text-faint: #6f6f6f;
+	--text-on-accent: #ffffff;
+	/* акцент */
+	--accent: #8a5cf5;
+	--accent-hover: #9b73f7;
+	--accent-text: #a88bfa;
+	--accent-soft: rgba(138, 92, 245, 0.16);
+	--accent-ring: rgba(138, 92, 245, 0.45);
+	/* статусы */
+	--st-working: #e0a43a;
+	--st-idle: #5bb98c;
+	--st-starting: #6aa1f0;
+	--st-error: #e5534b;
+	--st-archived: #6f6f6f;
+	--danger: #e5534b;
+	--danger-soft: rgba(229, 83, 75, 0.14);
+	--warn: #e0a43a;
+	--warn-soft: rgba(224, 164, 58, 0.14);
+	--success: #5bb98c;
+	/* граф */
+	--graph-line: rgba(255, 255, 255, 0.14);
+	--graph-line-active: var(--accent);
+	--graph-node: #a3a3a3;
+	--graph-label: #a3a3a3;
+
+	--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+	--shadow-2: 0 8px 24px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+	--shadow-3: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-color-scheme: light) {
+	:root:not([data-theme='dark']) {
+		color-scheme: light;
+		--bg: #ffffff;
+		--bg-alt: #f6f6f6;
+		--bg-sidebar: #f6f6f6;
+		--bg-ribbon: #efefef;
+		--bg-hover: rgba(0, 0, 0, 0.05);
+		--bg-active: rgba(0, 0, 0, 0.08);
+		--bg-input: #ffffff;
+		--bg-card: #fafafa;
+		--bg-code: #f3f3f3;
+		--overlay: rgba(0, 0, 0, 0.3);
+		--border: #e3e3e3;
+		--border-strong: #d0d0d0;
+		--text: #222222;
+		--text-muted: #5c5c5c;
+		--text-faint: #9a9a9a;
+		--accent: #7c4dff;
+		--accent-hover: #6a3ae8;
+		--accent-text: #6a3ae8;
+		--accent-soft: rgba(124, 77, 255, 0.1);
+		--accent-ring: rgba(124, 77, 255, 0.35);
+		--st-working: #c7841a;
+		--st-idle: #2f9a68;
+		--st-starting: #3b7ddd;
+		--st-error: #d1372f;
+		--st-archived: #9a9a9a;
+		--danger: #d1372f;
+		--danger-soft: rgba(209, 55, 47, 0.1);
+		--warn: #c7841a;
+		--warn-soft: rgba(199, 132, 26, 0.1);
+		--success: #2f9a68;
+		--graph-line: rgba(0, 0, 0, 0.14);
+		--graph-node: #7a7a7a;
+		--graph-label: #5c5c5c;
+		--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+		--shadow-2: 0 8px 24px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
+		--shadow-3: 0 24px 60px rgba(0, 0, 0, 0.18);
+	}
+}
+
+:root[data-theme='light'] {
+	color-scheme: light;
+	--bg: #ffffff;
+	--bg-alt: #f6f6f6;
+	--bg-sidebar: #f6f6f6;
+	--bg-ribbon: #efefef;
+	--bg-hover: rgba(0, 0, 0, 0.05);
+	--bg-active: rgba(0, 0, 0, 0.08);
+	--bg-input: #ffffff;
+	--bg-card: #fafafa;
+	--bg-code: #f3f3f3;
+	--overlay: rgba(0, 0, 0, 0.3);
+	--border: #e3e3e3;
+	--border-strong: #d0d0d0;
+	--text: #222222;
+	--text-muted: #5c5c5c;
+	--text-faint: #9a9a9a;
+	--accent: #7c4dff;
+	--accent-hover: #6a3ae8;
+	--accent-text: #6a3ae8;
+	--accent-soft: rgba(124, 77, 255, 0.1);
+	--accent-ring: rgba(124, 77, 255, 0.35);
+	--st-working: #c7841a;
+	--st-idle: #2f9a68;
+	--st-starting: #3b7ddd;
+	--st-error: #d1372f;
+	--st-archived: #9a9a9a;
+	--danger: #d1372f;
+	--danger-soft: rgba(209, 55, 47, 0.1);
+	--warn: #c7841a;
+	--warn-soft: rgba(199, 132, 26, 0.1);
+	--success: #2f9a68;
+	--graph-line: rgba(0, 0, 0, 0.14);
+	--graph-node: #7a7a7a;
+	--graph-label: #5c5c5c;
+	--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+	--shadow-2: 0 8px 24px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.06);
+	--shadow-3: 0 24px 60px rgba(0, 0, 0, 0.18);
+}
