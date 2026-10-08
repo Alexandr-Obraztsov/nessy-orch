@@ -17,11 +17,11 @@
     "dev:ui": "vite",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ui/tsconfig.json",
     "lint": "eslint .",
-    "test": "npm run build:server && node --test --test-force-exit \"dist/test/*.test.js\"",
+    "test": "npm run build:server && node --test --test-force-exit \"dist/test/**/*.test.js\"",
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm test",
     "start": "npm run build && node dist/src/main.js",
-    "demo": "npm run build && NESSY_BIN=$PWD/dist/test/fake-nessy.js NESSY_ORCH_HOME=${TMPDIR:-/tmp}/nessy-orch-demo node dist/src/main.js"
+    "demo": "npm run build && NESSY_BIN=$PWD/dist/test/support/fake-nessy.js NESSY_ORCH_HOME=${TMPDIR:-/tmp}/nessy-orch-demo node dist/src/main.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

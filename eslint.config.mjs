@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
 	{
-		ignores: ['dist/**', 'ui/dist/**', 'node_modules/**', 'scripts/**', 'eslint.config.mjs', 'vite.config.ts', 'playwright.config.ts', 'e2e/**'],
+		ignores: ['dist/**', 'docs/**', 'ui/dist/**', 'node_modules/**', 'scripts/**', 'eslint.config.mjs', 'vite.config.ts', 'playwright.config.ts', 'e2e/**'],
 	},
 	js.configs.recommended,
 	...tseslint.configs.strictTypeChecked,
