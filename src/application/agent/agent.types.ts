@@ -2,15 +2,11 @@
 import type { AgentEvent, AgentStatus, Message } from '../../../shared/types'
 import type { AgentIdentity, PermissionOption, TurnOutcome } from '../../domain/types'
 import type { Hub } from '../hub'
-import type { Clock, NessyGateway, SpaceRuntime, StorePort } from '../ports'
+import type { Clock, SpaceRuntime, StorePort } from '../ports'
 
 /** Что агент требует от оркестратора. */
 export interface AgentHost {
 	getSpace(name: string): SpaceRuntime | undefined
-	/** Поднять serve пространства (с учётом лимита одновременно запущенных serve). */
-	ensureSpaceReady(space: SpaceRuntime): Promise<NessyGateway>
-	/** В пространстве что-то произошло (событие, сообщение, подключение) — serve не простаивает. */
-	noteActivity(space: string): void
 	labelOf(id: string): string
 	preambleFor(agent: AgentIdentity): string
 	/** Ход завершён: опубликовать ответ отправителю. Возвращает опубликованный ответ (или null). */

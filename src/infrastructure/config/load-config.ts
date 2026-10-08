@@ -1,18 +1,11 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { DEFAULT_MAX_SERVES, DEFAULT_SERVE_IDLE_MIN } from '../../domain/constants'
 import type { Config } from './config.types'
 
 const int = (v: string | undefined, d: number): number => {
 	const n = parseInt(v ?? '', 10)
 	return Number.isFinite(n) ? n : d
-}
-
-/** Неотрицательное целое (отрицательное и мусор — значение по умолчанию). */
-const nonNeg = (v: string | undefined, d: number): number => {
-	const n = int(v, d)
-	return n >= 0 ? n : d
 }
 
 const flag = (v: string | undefined, d: boolean): boolean => (v === undefined || v === '' ? d : !/^(0|false|no|off)$/i.test(v))
@@ -42,8 +35,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		autoApprove: flag(env['ORCH_AUTO_APPROVE'], true),
 		maxHops: int(env['ORCH_MAX_HOPS'], 8),
 		rateLimitPerMinute: int(env['ORCH_RATE_LIMIT'], 30),
-		serveIdleMin: nonNeg(env['ORCH_SERVE_IDLE_MIN'], DEFAULT_SERVE_IDLE_MIN),
-		maxServes: nonNeg(env['ORCH_MAX_SERVES'], DEFAULT_MAX_SERVES),
 		healthTimeoutMs: int(env['ORCH_HEALTH_TIMEOUT_MS'], 60000),
 		uiDir: env['ORCH_UI_DIR'] ?? path.join(root, 'ui', 'dist'),
 		seedRoles: flag(env['ORCH_SEED_ROLES'], true),

@@ -187,7 +187,6 @@ export class Agent implements AgentIdentity {
 
 	private touch(): void {
 		this.lastActivityAt = this.isoNow()
-		this.deps.host.noteActivity(this.space)
 	}
 
 	private setStatus(status: AgentStatus, error: string | null = null): void {
@@ -234,7 +233,7 @@ export class Agent implements AgentIdentity {
 	private async attach(): Promise<void> {
 		const space = this.deps.host.getSpace(this.space)
 		if (!space) throw new Error(`пространство «${this.space}» не найдено`)
-		const client = await this.deps.host.ensureSpaceReady(space)
+		const client = await space.ensureReady()
 		const prev = this.resume ? this.sessionId : null
 		const tryResume = prev !== null
 		const resumed = prev !== null && (await client.resumeSession(prev, space.path))
@@ -265,28 +264,6 @@ export class Agent implements AgentIdentity {
 		this.clearCancelTimer()
 	}
 
-	/**
-	 * Агент держит serve пространства: идёт ход или подключение, есть очередь или неотвеченный запрос
-	 * разрешения. Такой serve нельзя останавливать по простою.
-	 */
-	get holdsServe(): boolean {
-		return (
-			this.current !== null ||
-			this.pumping ||
-			this.attaching !== null ||
-			this.queue.length > 0 ||
-			this.pending.size > 0 ||
-			this.status === 'working' ||
-			this.status === 'starting'
-		)
-	}
-
-	/** serve пространства останавливается по простою: отцепиться, сессия поднимется (/load) при следующем сообщении. */
-	suspend(): void {
-		this.detach()
-		if (this.sessionId !== null) this.resume = true
-	}
-
 	// ---------- архив ----------
 	/** Убрать в архив или вернуть из него (проверки занятости — в сервисе). */
 	setArchived(archived: boolean): void {
@@ -302,7 +279,6 @@ export class Agent implements AgentIdentity {
 	 */
 	deliver(msg: Message, interrupt = false): void {
 		this.archived = false
-		this.deps.host.noteActivity(this.space)
 		if (interrupt) {
 			this.queue.splice(this.urgent, 0, msg)
 			this.urgent++
@@ -427,7 +403,6 @@ export class Agent implements AgentIdentity {
 
 	// ---------- события nessy ----------
 	private onSessionEvent(ev: SessionEvent, eventId: number | null): void {
-		this.deps.host.noteActivity(this.space)
 		if (eventId !== null) {
 			this.lastEventId = eventId
 			this.deps.host.saveSoon()

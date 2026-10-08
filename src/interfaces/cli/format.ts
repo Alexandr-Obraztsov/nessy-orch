@@ -90,31 +90,11 @@ export function rolesTable(roles: readonly RoleView[]): string {
 	)
 }
 
-/** Длительность коротко: 45с, 12м, 3ч 5м. */
-export function duration(sec: number): string {
-	if (sec < 60) return `${sec}с`
-	const m = Math.floor(sec / 60)
-	if (m < 60) return `${m}м`
-	return `${Math.floor(m / 60)}ч ${m % 60}м`
-}
-
-/** Пространства; agents — агентов по пространствам (активных и в архиве), если известно. */
-export function spacesTable(spaces: readonly SpaceView[], agents?: readonly AgentView[]): string {
+export function spacesTable(spaces: readonly SpaceView[]): string {
 	if (!spaces.length) return dim('пространств нет. Добавьте: nessy-orch space add <путь>')
-	const count = (name: string): string => {
-		if (!agents) return '—'
-		const own = agents.filter(a => a.space === name)
-		const archived = own.filter(a => a.archived).length
-		return archived ? `${own.length - archived} +${archived} в архиве` : String(own.length)
-	}
-	const serve = (s: SpaceView): string => {
-		const running = s.status === 'ready' || s.status === 'starting'
-		const label = running ? green('running') : dim('stopped')
-		return s.idleSec != null ? `${label} ${dim(`простой ${duration(s.idleSec)}`)}` : label
-	}
 	return table(
-		spaces.map(s => [bold(s.name), status(s.status), serve(s), count(s.name), s.mode, s.path, s.error ? red(s.error.slice(0, 60)) : '']),
-		['ИМЯ', 'СТАТУС', 'SERVE', 'АГЕНТОВ', 'РЕЖИМ', 'ПУТЬ', 'ОШИБКА'],
+		spaces.map(s => [bold(s.name), status(s.status), s.mode, s.path, s.error ? red(s.error.slice(0, 60)) : '']),
+		['ИМЯ', 'СТАТУС', 'РЕЖИМ', 'ПУТЬ', 'ОШИБКА'],
 	)
 }
 

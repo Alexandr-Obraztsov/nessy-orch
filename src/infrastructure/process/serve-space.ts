@@ -30,8 +30,6 @@ export class ServeSpace implements SpaceRuntime {
 	private proc: ChildProcess | null = null
 	private tail: string[] = []
 	private starting: Promise<void> | null = null
-	/** идущая остановка: ensureReady дожидается её и поднимает serve заново */
-	private stopped: Promise<void> | null = null
 	private stopping = false
 
 	constructor(
@@ -68,7 +66,6 @@ export class ServeSpace implements SpaceRuntime {
 	}
 
 	async ensureReady(): Promise<NessyGateway> {
-		if (this.stopped) await this.stopped
 		if (this.status === 'ready' && this.client) return this.client
 		this.starting ??= this.start().finally(() => {
 			this.starting = null
@@ -174,14 +171,7 @@ export class ServeSpace implements SpaceRuntime {
 		}, KILL_GRACE_MS).unref()
 	}
 
-	stop(): Promise<void> {
-		this.stopped ??= this.doStop().finally(() => {
-			this.stopped = null
-		})
-		return this.stopped
-	}
-
-	private async doStop(): Promise<void> {
+	async stop(): Promise<void> {
 		this.stopping = true
 		const p = this.proc
 		if (p && p.exitCode === null && p.signalCode === null) {

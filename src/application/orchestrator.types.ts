@@ -9,6 +9,4 @@ export interface OrchestratorDeps {
 	clock?: Clock
 	/** по умолчанию — короткие случайные id */
 	ids?: IdGenerator
-	/** служебные сообщения (остановка serve по простою и т.п.); по умолчанию — console.warn */
-	log?: (line: string) => void
 }

@@ -81,8 +81,6 @@ export interface SpaceRuntime {
 	readonly path: string
 	readonly url: string | null
 	readonly color: number
-	/** true — процесс serve запускает и останавливает оркестратор (нет url) */
-	readonly managed: boolean
 	readonly status: SpaceStatus
 	readonly client: NessyGateway | null
 	/** Гарантировать, что nessy serve поднят. */

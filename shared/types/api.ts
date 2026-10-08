@@ -85,12 +85,6 @@ export interface StatusResponse {
 	agents: number
 	working: number
 	roles: number
-	/** простой управляемого serve до остановки, мин (0 — не останавливать) */
-	serveIdleMin?: number
-	/** лимит одновременно запущенных управляемых serve (0 — без лимита) */
-	maxServes?: number
-	/** запущено управляемых serve сейчас */
-	runningServes?: number
 }
 
 export interface ApiError {
