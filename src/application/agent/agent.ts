@@ -293,9 +293,9 @@ export class Agent implements AgentIdentity {
 		void this.pump()
 	}
 
-	/** Продолжить доставку очереди (после восстановления из состояния). */
-	resumeQueue(): void {
-		if (this.queue.length) void this.pump()
+	/** Продолжить доставку очереди (после восстановления из состояния). Завершается, когда ход начат или не удался. */
+	resumeQueue(): Promise<void> {
+		return this.queue.length ? this.pump() : Promise.resolve()
 	}
 
 	private async pump(): Promise<void> {

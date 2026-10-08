@@ -53,4 +53,4 @@ color: 210
 | `writer` | Технический писатель | Документация, README, ADR, инструкции с проверенными примерами | oh-my-claudecode (writer, document-specialist) |
 | `simplifier` | Упрощатель кода | Упрощение и рефакторинг без изменения поведения | oh-my-claudecode (code-simplifier), VoltAgent (refactoring-specialist) |
 | `performance` | Инженер по производительности | Профилирование, замеры до и после, точечная оптимизация | своя; VoltAgent (performance-engineer) только как чек-лист тем |
-| `code-explorer` | Исследователь кода | Клонирует репозиторий, индексирует codegraph, отвечает на вопрос по коду | своя |
+| `code-explorer` | Исследователь кода | Клонирует репозиторий, ищет по коду (`rg`), отвечает на вопрос и удаляет клон | своя |

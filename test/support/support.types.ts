@@ -27,4 +27,6 @@ export interface HarnessOptions {
 	config?: Partial<Config>
 	/** переиспользовать каталог предыдущего стенда (рестарт) */
 	base?: string
+	/** вызвать app.start() после listen (по умолчанию да) */
+	start?: boolean
 }

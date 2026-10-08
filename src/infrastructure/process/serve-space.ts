@@ -134,6 +134,7 @@ export class ServeSpace implements SpaceRuntime {
 		log.on('error', () => undefined) // каталог логов мог исчезнуть — не роняем процесс
 		log.write(`\n--- ${new Date().toISOString()} spawn ${settings.nessyBin} ${args.join(' ')}\n`)
 		const proc = spawn(settings.nessyBin, args, { cwd: this.path, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+		this.deps.processes?.track(proc, { port, workspace: this.path })
 		const onData = (d: Buffer | string): void => {
 			log.write(d)
 			for (const l of String(d).split('\n')) if (l.trim()) this.tail.push(l.trim())

@@ -52,6 +52,7 @@ export class Orchestrator implements AgentHost {
 	private readonly rolesSvc: RolesService
 	private readonly ctx: ServiceContext
 	private shuttingDown = false
+	private started = false
 
 	constructor(private readonly deps: OrchestratorDeps) {
 		const clock = deps.clock ?? { now: () => Date.now() }
@@ -89,6 +90,7 @@ export class Orchestrator implements AgentHost {
 	}
 
 	// ---------- загрузка / сохранение ----------
+	/** Восстановить состояние из хранилища. Без побочных эффектов: процессы serve не запускаются. */
 	load(): void {
 		const st = this.store.loadState()
 		this.rolesSvc.load()
@@ -98,8 +100,19 @@ export class Orchestrator implements AgentHost {
 			if (!this.registry.spaces.has(p.space)) continue
 			this.registry.agents.set(p.id, Agent.restore(p, this.ctx.agentDeps))
 		}
-		// сообщения, ждавшие в очереди до рестарта, доставляются сразу (агент поднимет serve и сессию)
-		for (const a of this.registry.agents.values()) a.resumeQueue()
+	}
+
+	/**
+	 * Фоновая работа после того, как HTTP-сервер начал слушать: доставить сообщения, ждавшие в очереди
+	 * до рестарта (агент поднимет serve и сессию). По одному агенту — чтобы не поднимать разом десятки сессий.
+	 */
+	async start(): Promise<void> {
+		if (this.started) return
+		this.started = true
+		for (const a of [...this.registry.agents.values()]) {
+			if (this.shuttingDown) return
+			await a.resumeQueue().catch(() => undefined)
+		}
 	}
 
 	private persistState(): PersistedState {

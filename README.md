@@ -57,6 +57,9 @@ bin/nessy-orch install              # --print — только показать 
 bin/nessy-orch uninstall
 ```
 
+Под launchd не запускайте второй экземпляр руками: он увидит `~/.nessy-orch/orch.lock` и сразу выйдет
+(`уже запущен (pid …)`). Для ручного запуска сначала остановите сервис (`bin/nessy-orch uninstall`).
+
 Первые шаги из терминала:
 
 ```sh
@@ -115,6 +118,7 @@ nessy-orch feed [-n 30] [--follow]
 nessy-orch inbox [--wait СЕК] [--peek]
 nessy-orch space add <путь> [--name N] [--url URL] | space ls | space rm <имя> [--force]
 nessy-orch status | open | install [--print] | uninstall
+nessy-orch doctor [--fix]                     # диагностика процессов nessy serve; --fix — остановить осиротевшие
 ```
 
 Полезный результат (ответ агента, JSON) выводится в stdout, служебные сообщения — в stderr. Флаг `--json` есть у всех
@@ -160,8 +164,8 @@ bash scripts/install-skill.sh --uninstall
 
 Готовые роли лежат в [`roles/`](roles/) markdown-файлами (формат описан в [roles/README.md](roles/README.md)).
 При первом запуске оркестратор загружает их сам, потом их можно обновить командой `nessy-orch role import --force`.
-Одна из них, `code-explorer`, изучает чужой репозиторий: клонирует его во временный каталог, индексирует
-[codegraph](https://github.com/colbymchenry/codegraph), отвечает со ссылками `файл:строка` и удаляет клон.
+Одна из них, `code-explorer`, изучает чужой репозиторий: клонирует его во временный каталог, ищет по коду (`rg`, `git grep`),
+отвечает со ссылками `файл:строка` и удаляет клон.
 
 ## HTTP API
 
@@ -221,7 +225,7 @@ src/
   infrastructure/        адаптеры портов
     nessy/               клиент nessy serve и чистый маппер событий — единственное место, знающее протокол nessy
     persistence/         state.json и roles.json (атомарно) + JSONL-журналы
-    process/             запуск и контроль процессов nessy serve
+    process/             запуск и контроль процессов nessy serve, serve-pids.json, orch.lock, таблица процессов (ps)
     sse/, config/        SSE-парсер и форматтер, загрузка конфигурации
   interfaces/
     http/                HTTP-сервер: роутер, guard (Host/Origin), валидация тел, SSE, статика UI, routes/*
@@ -235,7 +239,7 @@ ui/src/                  React + Vite, Feature-Sliced Design
   shared/                api-клиент, стор (SSE /stream), утилиты, UI-примитивы
 test/
   unit/                  lib, domain, application, infrastructure, interfaces
-  integration/           api, messaging, lifecycle, archive, roles, plan, streams, persistence
+  integration/           api, messaging, lifecycle, archive, roles, plan, streams, persistence, startup
   support/               тестовый стенд, фейковый nessy serve
 e2e/                     Playwright: дымовые проверки UI (десктоп и телефон)
 docs/                    требования и контракт nessy serve (ACP)
@@ -246,7 +250,7 @@ docs/                    требования и контракт nessy serve (A
 ## Разработка
 
 ```sh
-npm run build          # сервер (tsc) + UI (vite)
+npm run build          # сервер (очистка dist + tsc) + UI (vite)
 npm run typecheck      # строгая типизация сервера и UI
 npm run lint           # ESLint strictTypeChecked, запрет any
 npm test               # unit + интеграционные тесты сервера (node:test, фейковый nessy)
@@ -263,3 +267,23 @@ npm run dev:ui         # Vite dev-сервер на :5173 с прокси на �
 - Если оркестратор перезапустится посреди хода, обрабатываемое сообщение теряется: сохраняется только очередь.
 - Форматы `nessy/error` и `prompt_cancelled` взяты из референсного кода nessy и живьём ещё не проверены.
 - Аутентификации нет, доступ только с loopback.
+
+### Если сессии не создаются (newSession timeout)
+
+Ошибка `AcpSessionBridge newSession timeout` обычно означает, что машина перегружена лишними процессами
+`nessy serve` (у каждого свои сессии и MCP-серверы). Раньше их оставлял второй экземпляр оркестратора, запущенный рядом
+с launchd: он падал на занятом порту, launchd перезапускал его каждые несколько секунд, и каждый раз оставался
+«осиротевший» serve. Теперь оркестратор сначала занимает порт и только потом поднимает serve, гасит своих детей
+при любом выходе, при старте останавливает осиротевшие serve из `~/.nessy-orch/serve-pids.json`, а второй экземпляр
+не стартует вовсе (`~/.nessy-orch/orch.lock`).
+
+```sh
+nessy-orch doctor          # оркестратор, lock, все nessy serve на машине («осиротевший» — кандидаты на остановку),
+                           # агенты по пространствам против MAX_SESSIONS, подсказки; работает и без оркестратора
+nessy-orch doctor --fix    # остановить осиротевшие serve (SIGTERM, через 3 с SIGKILL)
+launchctl list | grep nessy            # запущен ли сервис launchd
+```
+
+Не запускайте `node dist/src/main.js` руками, пока работает сервис launchd: либо `nessy-orch uninstall`
+(или `launchctl bootout gui/$(id -u)/com.nessy.orch`), либо только launchd. `doctor --fix` не трогает serve,
+запущенные не оркестратором (родитель — не оркестратор и не launchd, pid не записан).

@@ -1,4 +1,5 @@
 import type { NessyGateway } from '../../application/ports'
+import type { ServeTracker } from './process.types'
 
 /** Параметры запуска `nessy serve` (подмножество Config). */
 export interface ServeSettings {
@@ -16,4 +17,6 @@ export interface ServeSpaceDeps {
 	/** файл лога serve для пространства */
 	logPath: (spaceName: string) => string
 	makeClient: (baseUrl: string) => NessyGateway
+	/** учёт pid запущенных serve (осиротевшие процессы, остановка при выходе) */
+	processes?: ServeTracker
 }
