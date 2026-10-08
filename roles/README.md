@@ -31,3 +31,26 @@ color: 210
 - Первый запуск оркестратора (пока нет `~/.nessy-orch/roles.json`): роли из этой папки заливаются сами; отключить — `ORCH_SEED_ROLES=0`.
 - Вручную: `nessy-orch role import [путь] [--force] [--dry-run]` — существующие роли пропускаются, `--force` их перезаписывает.
 - Обратно в файл: `nessy-orch role export <id> [--out файл]`.
+
+## Встроенные роли
+
+Лицензии и источники адаптаций: [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). Все роли заканчивают ответ строкой
+`Статус: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT` и причиной.
+
+| id | Название | Назначение | Источник |
+|---|---|---|---|
+| `analyst` | Аналитик | Разбор задачи: требования, критерии приёмки, пробелы, риски, план. Код не меняет | oh-my-claudecode (analyst, planner) |
+| `architect` | Архитектор | Дизайн и ревью архитектуры, trade-offs, миграция. Код не меняет | oh-my-claudecode (architect), wshobson/agents (architect-review) |
+| `code-reviewer` | Ревьюер кода | Ревью ветки или правок: сначала соответствие задаче, затем качество, severity и уверенность | oh-my-claudecode (code-reviewer), wshobson/agents (team-reviewer) |
+| `gitlab-mr-reviewer` | Ревьюер MR в GitLab | Ревью MR по ссылке: диф, pipeline, комментарии, тикет. По умолчанию ничего не публикует | своя, по oh-my-claudecode (code-reviewer) |
+| `debugger` | Отладчик | Воспроизведение, гипотезы, корневая причина, минимальный фикс (если разрешён) | oh-my-claudecode (debugger, tracer), wshobson/agents (team-debugger) |
+| `executor` | Исполнитель | Реализация задачи малыми проверяемыми шагами с тестами, без коммитов и пушей | oh-my-claudecode (executor), obra/superpowers (implementer-prompt) |
+| `test-engineer` | Тест-инженер | Стратегия тестирования, написание тестов, лечение флаки | oh-my-claudecode (test-engineer) |
+| `verifier` | Верификатор | Независимая проверка чужого результата с доказательствами, без доверия отчёту | oh-my-claudecode (verifier), obra/superpowers (verification-before-completion, task-reviewer-prompt) |
+| `security-reviewer` | Ревьюер безопасности | Поиск уязвимостей, секретов, проблем зависимостей, оценка риска | oh-my-claudecode (security-reviewer) |
+| `jira-analyst` | Аналитик Jira | Поиск и сводка задач, связи, требования, пробелы. Только чтение | своя, по oh-my-claudecode (analyst) |
+| `wiki-researcher` | Исследователь Wiki | Поиск в Wiki и Sage, синтез со ссылками и уверенностью. Только чтение | своя, по oh-my-claudecode (document-specialist), VoltAgent (research-analyst, knowledge-synthesizer) |
+| `writer` | Технический писатель | Документация, README, ADR, инструкции с проверенными примерами | oh-my-claudecode (writer, document-specialist) |
+| `simplifier` | Упрощатель кода | Упрощение и рефакторинг без изменения поведения | oh-my-claudecode (code-simplifier), VoltAgent (refactoring-specialist) |
+| `performance` | Инженер по производительности | Профилирование, замеры до и после, точечная оптимизация | своя; VoltAgent (performance-engineer) только как чек-лист тем |
+| `code-explorer` | Исследователь кода | Клонирует репозиторий, индексирует codegraph, отвечает на вопрос по коду | своя |
