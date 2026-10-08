@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+/**
+ * nessy-ask <cwd> "<промпт>" [--bg]
+ * Отправить задачу nessy через оркестратор.
+ * По умолчанию ждёт завершения и печатает живой лог + финальный ответ.
+ * С --bg печатает job_id сразу и завершается.
+ */
+'use strict';
+const http = require('http');
+const ORCH = { host: '127.0.0.1', port: parseInt(process.env.ORCH_PORT || '4337', 10) };
+
+const args = process.argv.slice(2);
+const bg = args.includes('--bg');
+const rest = args.filter((a) => a !== '--bg');
+const cwd = rest[0] || process.cwd();
+const prompt = rest.slice(1).join(' ').replace(/^"|"$/g, '');
+
+if (!prompt) { console.error('usage: nessy-ask <cwd> "<промпт>" [--bg]'); process.exit(2); }
+
+function httpReq(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const payload = body ? JSON.stringify(body) : null;
+    const r = http.request({ ...ORCH, method, path, headers: { 'Content-Type': 'application/json', ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}) } }, (res) => {
+      let d = ''; res.on('data', (c) => (d += c)); res.on('end', () => { try { resolve({ status: res.statusCode, json: JSON.parse(d) }); } catch { resolve({ status: res.statusCode, raw: d }); } });
+    });
+    r.on('error', reject); if (payload) r.write(payload); r.end();
+  });
+}
+
+async function main() {
+  let job;
+  try { const r = await httpReq('POST', '/ask', { cwd, prompt }); job = r.json; if (r.status !== 200) { console.error('err:', JSON.stringify(r.json)); process.exit(1); } }
+  catch (e) { console.error('оркестратор недоступен. запусти: node ~/Projects/nessy-orch/orchestrator.js'); process.exit(1); }
+
+  if (bg) { console.log(job.job_id); return; }
+
+  // живой SSE-лог
+  console.log(`[job ${job.job_id}] workspace=${cwd}`);
+  let answer = '';
+  let done = false;
+  const req = http.request({ ...ORCH, path: `/job/${job.job_id}/events`, headers: { Accept: 'text/event-stream' } }, (res) => {
+    let buf = '';
+    res.on('data', (chunk) => {
+      buf += chunk.toString('utf8');
+      let i;
+      while ((i = buf.indexOf('\n\n')) !== -1) {
+        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+        let data = '';
+        for (const ln of frame.split('\n')) if (ln.startsWith('data:')) data += ln.slice(5).trim();
+        if (!data) continue;
+        let m; try { m = JSON.parse(data); } catch { continue; }
+        const d = m.data || {}; const u = (d.update || {}); const su = u.sessionUpdate; const c = u.content || {};
+        if (su === 'agent_message_chunk' && c.text) { process.stdout.write(c.text); answer += c.text; }
+        else if (su === 'agent_thought_chunk' && c.text) { process.stderr.write('\x1b[90m… ' + c.text + '\x1b[0m'); }
+        else if (su === 'tool_call') { process.stderr.write(`\n\x1b[33m⚙ ${(u._meta||{}).toolName || '?'} ${JSON.stringify(u.rawInput||{}).slice(0,200)}\x1b[0m\n`); }
+        else if (su === 'tool_call_update') { process.stderr.write(`\x1b[33m✔ ${(u._meta||{}).toolName||'?'}${(u.content||[]).length? ' ✓':''}\x1b[0m\n`); }
+        else if (m.type === 'turn_complete') { done = true; }
+      }
+    });
+    res.on('end', () => { if (!answer) process.stdout.write('\n'); });
+  });
+  req.on('error', () => { console.error('\nошибка соединения'); process.exit(1); });
+  req.end();
+  // дождаться done или таймаут
+  const t0 = Date.now();
+  await new Promise((resolve) => {
+    const iv = setInterval(() => {
+      if (done || Date.now() - t0 > 30 * 60 * 1000) { clearInterval(iv); resolve(); }
+    }, 300);
+  });
+  console.log('\n[done]');
+  req.destroy();          // оборвать SSE, иначе процесс не завершится
+  process.exit(done ? 0 : 1);
+}
+main();
