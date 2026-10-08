@@ -1,0 +1,25 @@
+.dot {
+	position: relative;
+	display: inline-block;
+	flex: none;
+	border-radius: 50%;
+	background: var(--c);
+}
+.pulse::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	background: var(--c);
+	animation: ping 1.6s var(--ease) infinite;
+}
+@keyframes ping {
+	0% {
+		transform: scale(1);
+		opacity: 0.7;
+	}
+	100% {
+		transform: scale(2.8);
+		opacity: 0;
+	}
+}

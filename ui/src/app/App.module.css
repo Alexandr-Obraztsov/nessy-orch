@@ -1,0 +1,75 @@
+/*
+ * Раскладка:
+ *   ≥ 1280px — ростер | граф | панель (лента / чат агента)
+ *   900–1279 — граф | панель; ростер — выдвижной поверх графа
+ *   < 900    — одна колонка + нижние вкладки (граф / агенты / лента / чат)
+ */
+.app {
+	height: 100dvh;
+	display: grid;
+	grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+	grid-template-columns: minmax(0, 1fr);
+}
+.main {
+	min-height: 0;
+	display: grid;
+	grid-template-columns: 272px minmax(0, 1fr) var(--panel-w);
+}
+.roster,
+.graph,
+.panel {
+	min-width: 0;
+	min-height: 0;
+	position: relative;
+}
+.roster {
+	border-right: 1px solid var(--line);
+	background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.panel {
+	border-left: 1px solid var(--line);
+	background: var(--surface);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+@media (max-width: 1279px) {
+	.main {
+		grid-template-columns: minmax(0, 1fr) var(--panel-w);
+	}
+	.roster {
+		display: none;
+	}
+}
+
+@media (max-width: 899px) {
+	.app {
+		grid-template-rows: var(--topbar-h) minmax(0, 1fr) calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+	}
+	.main {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.roster,
+	.graph,
+	.panel {
+		display: none;
+		border: none;
+		grid-area: 1 / 1;
+	}
+	.show {
+		display: flex;
+		flex-direction: column;
+		animation: tabIn 220ms var(--ease);
+	}
+	.graph.show {
+		display: block;
+	}
+}
+
+@keyframes tabIn {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+}
