@@ -9,20 +9,18 @@ import type { GraphView, StatusResponse } from '../../../../shared/types'
 import { loadConfig } from '../../../infrastructure/config/load-config'
 import { readText, writeAtomic } from '../../../infrastructure/persistence/jsonl'
 import { LOCK_FILE, readLockPid } from '../../../infrastructure/process/instance-lock'
-import { aliveMatching, isOrchCommand, isServeCommand, listProcesses, rssMb, serveWorkspace, terminate } from '../../../infrastructure/process/process-table'
+import { aliveMatching, isOrchCommand, isServeCommand, listProcesses, terminate } from '../../../infrastructure/process/process-table'
 import { readServePids, SERVE_PIDS_FILE } from '../../../infrastructure/process/serve-processes'
 import type { ProcessInfo } from '../../../infrastructure/process/process.types'
 import { arr, bool, isObject, parseJson, str } from '../../../lib/json'
 import { flagBool } from '../args'
 import type { Parsed } from '../args.types'
-import { bold, dim, duration, green, red, yellow } from '../format'
+import { bold, dim, green, red, yellow } from '../format'
 import { ep, get, json, out } from '../io'
 import type { CommandTable } from './command.types'
 import type { DoctorReport, DoctorServe, DoctorSpace, ServeOwnership } from './doctor.types'
 
 const MAX_CMD = 140
-/** больше стольких пространств — подсказка «используйте одно-два» */
-const MANY_SPACES = 2
 
 /** Классификация процессов serve (чистая функция — проверяется тестами). */
 export function classifyServes(procs: readonly ProcessInfo[], ownerPid: number | null, recorded: ReadonlySet<number>): DoctorServe[] {
@@ -70,15 +68,6 @@ async function collect(): Promise<DoctorReport> {
 	const procs = listProcesses()
 	const records = readServePids(path.join(home, SERVE_PIDS_FILE)).map(r => ({ ...r, alive: aliveMatching(r.pid, isServeCommand) }))
 	const serves = classifyServes(procs, ownerPid, new Set(records.map(r => r.pid)))
-	// память и простой: пространство serve — по каталогу --workspace
-	const byPath = new Map((graph?.spaces ?? []).map(s => [s.path, s]))
-	for (const s of serves) {
-		s.rssMb = rssMb(s.pid)
-		const ws = serveWorkspace(s.command)
-		const space = ws ? byPath.get(ws) : undefined
-		s.space = space?.name ?? null
-		s.idleSec = space?.idleSec ?? null
-	}
 	const orchestrators = procs.filter(p => isOrchCommand(p.command))
 	const spaces = spaceCounts(graph, home)
 	const report: DoctorReport = {
@@ -91,9 +80,6 @@ async function collect(): Promise<DoctorReport> {
 		records,
 		serves,
 		maxSessions: config.maxSessionsPerSpace,
-		// настройки живого оркестратора (его окружение может отличаться от окружения CLI)
-		serveIdleMin: status?.serveIdleMin ?? config.serveIdleMin ?? 0,
-		maxServes: status?.maxServes ?? config.maxServes ?? 0,
 		spaces,
 		hints: [],
 	}
@@ -125,11 +111,6 @@ function hints(r: DoctorReport): string[] {
 					'удалите ненужных (`nessy-orch kill <агент>`) или увеличьте MAX_SESSIONS',
 			)
 	}
-	const running = r.serves.filter(s => s.owner === 'owned').length
-	if (r.maxServes > 0 && running > r.maxServes)
-		h.push(`запущено nessy serve: ${running} при ORCH_MAX_SERVES=${r.maxServes} — все пространства заняты работой`)
-	if (r.spaces.length > MANY_SPACES)
-		h.push(`пространств ${r.spaces.length}: каждое пространство — отдельный nessy serve; используйте одно-два пространства`)
 	if (!h.length) h.push('проблем не найдено')
 	return h
 }
@@ -158,17 +139,7 @@ function print(r: DoctorReport): void {
 
 	out('')
 	out(bold(`Процессы nessy serve на машине: ${r.serves.length}`))
-	for (const s of r.serves) {
-		const mem = s.rssMb != null ? `  ${s.rssMb} МБ` : ''
-		const space = s.space ? `  «${s.space}»${s.idleSec != null ? ` простой ${duration(s.idleSec)}` : ''}` : ''
-		out(`  pid ${s.pid}  ppid ${s.ppid}  ${s.etime}${mem}  ${OWNER_LABEL[s.owner]}${space}  ${dim(trim(s.command))}`)
-	}
-	const total = r.serves.reduce((sum, s) => sum + (s.rssMb ?? 0), 0)
-	if (r.serves.length) out(dim(`  всего памяти serve: ${total} МБ`))
-	out(
-		`  ORCH_SERVE_IDLE_MIN=${r.serveIdleMin}${r.serveIdleMin ? '' : dim(' (не останавливать)')}  ` +
-			`ORCH_MAX_SERVES=${r.maxServes}${r.maxServes ? '' : dim(' (без лимита)')}`,
-	)
+	for (const s of r.serves) out(`  pid ${s.pid}  ppid ${s.ppid}  ${s.etime}  ${OWNER_LABEL[s.owner]}  ${dim(trim(s.command))}`)
 
 	out('')
 	out(bold(`Пространства (MAX_SESSIONS=${r.maxSessions}):`))
