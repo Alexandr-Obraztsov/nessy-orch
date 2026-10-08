@@ -1,0 +1,77 @@
+/** Рестарт оркестратора: состояние, лента, история и очередь восстанавливаются из home. */
+import assert from 'node:assert/strict'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { after, describe, it } from 'node:test'
+import type { InboxResponse, SendResponse, SpawnResponse } from '../../shared/types'
+import { startHarness, type Harness } from '../support/harness'
+import { until } from '../support/wait'
+
+const T = { timeout: 30000 }
+
+describe('рестарт и восстановление', () => {
+	let first: Harness | null = null
+	let second: Harness | null = null
+	after(async () => {
+		await first?.close({ keepFiles: true })
+		await second?.close()
+	})
+
+	it('после shutdown состояние читается заново; агенты спят и поднимаются по первому сообщению', T, async () => {
+		first = await startHarness()
+		await first.api('POST', '/spaces', { path: first.ws, name: 'main' })
+		const sp = await first.api<SpawnResponse>('POST', '/agents', { space: 'main', name: 'keeper', prompt: 'запомни', wait: true })
+		const id = sp.body.agent.id
+		const sessionBefore = first.orch.resolveAgent(id).sessionId
+		await first.api('POST', '/agents', { space: 'main', name: 'doomed', prompt: '#fail', wait: true, waitTimeoutSec: 8 })
+		await first.api('GET', '/inbox') // сдвинуть курсор
+		const seqBefore = first.orch.listMessages({ limit: 1000 }).at(-1)?.seq ?? 0
+		const base = first.base
+		await first.close({ keepFiles: true })
+		first = null
+
+		const state: unknown = JSON.parse(fs.readFileSync(path.join(base, 'home', 'state.json'), 'utf8'))
+		assert.ok(typeof state === 'object' && state !== null && 'agents' in state)
+
+		second = await startHarness({ base })
+		const keeper = second.orch.getAgent('keeper')
+		assert.equal(keeper.id, id)
+		assert.equal(keeper.status, 'sleeping')
+		assert.equal(keeper.preview, 'ответ: запомни')
+		assert.equal(second.orch.getAgent('doomed').status, 'dead')
+		assert.equal(second.orch.graph().spaces[0]?.name, 'main')
+		assert.equal(second.orch.listMessages({ limit: 1000 }).at(-1)?.seq, seqBefore)
+		assert.ok(second.orch.agentHistory('keeper').some(e => e.kind === 'text' && e.text === 'ответ: запомни'))
+		assert.deepEqual((await second.api<InboxResponse>('GET', '/inbox?peek=1')).body.messages, [], 'курсор inbox сохранён')
+
+		// serve новый — старой сессии в нём нет: создаётся новая с пометкой о сбросе контекста
+		const r = await second.api<SendResponse>('POST', '/agents/keeper/send', { text: 'снова', wait: true, waitTimeoutSec: 10 })
+		assert.equal(r.body.reply?.text, 'ответ: снова')
+		assert.ok((r.body.message.seq ?? 0) > seqBefore, 'нумерация ленты продолжается')
+		assert.notEqual(second.orch.resolveAgent(id).sessionId, sessionBefore)
+		assert.ok(second.orch.agentHistory('keeper').some(e => e.kind === 'system' && /контекст диалога сброшен/.test(e.text)))
+		const seqs = second.orch.agentHistory('keeper', 1000).map(e => e.seq)
+		assert.equal(new Set(seqs).size, seqs.length, 'seq событий не повторяются после рестарта')
+	})
+
+	it('очередь переживает рестарт', T, async () => {
+		const h = second
+		assert.ok(h)
+		await h.api('POST', '/agents/keeper/send', { text: '#slow' })
+		await until(() => h.orch.getAgent('keeper').status === 'working', 4000, 'working')
+		await h.api('POST', '/agents/keeper/send', { text: 'отложенное' })
+		const base = h.base
+		await h.close({ keepFiles: true })
+		second = await startHarness({ base })
+		const restored = second.orch.getAgent('keeper')
+		assert.equal(restored.queued, 1)
+		// очередь доставляется при следующем обращении
+		const r = await second.api<SendResponse>('POST', '/agents/keeper/send', { text: 'после рестарта', wait: true, waitTimeoutSec: 10 })
+		assert.equal(r.body.reply?.text, 'ответ: после рестарта')
+		const users = second.orch
+			.agentHistory('keeper', 1000)
+			.filter(e => e.kind === 'user')
+			.map(e => (e.kind === 'user' ? e.text : ''))
+		assert.deepEqual(users.slice(-2), ['отложенное', 'после рестарта'])
+	})
+})
