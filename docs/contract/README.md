@@ -60,13 +60,16 @@
 | POST | /sessions/delete | | из кода |
 | GET | /workspace/{settings,env,tools,agents,skills,hooks,memory,preflight,providers,init,auth/*} | | из кода |
 
-## Что поправить в `src/core/nessy-client.ts`
+## Правки клиента (выполнены)
 
-1. **`tool_call_update` output** — вместо «rawOutput если строка» собрать `rawOutput + content` с дедупликацией (как `buildToolOutput`); учесть `content.type` = content/diff/terminal.
-2. **`agent_message_chunk` error-meta** — если `content._meta['nessy/error']` есть → событие `{kind:'error'|'died'}` с message/retryable/code, не текст.
-3. **`messageId`** — пробрасывать для корректной группировки chunks.
-4. **`tool_call`/`tool_call_update` буфер по `toolCallId`** — мержить title/rawInput/status/content (как `mergeToolCallBuffer`); иначе в update теряется title.
-5. **`status`** — мапить `failed` (отдельный статус), не только completed.
-6. **`prompt_cancelled`** — добавить `{kind:'cancelled'}`.
-7. **`followup_suggestion`** — добавить обработку (опционально).
-8. Доки `docs/nessy-contract.md` обновить под факт `rawOutput=""` + `content`.
+Реализация переехала из `src/core/nessy-client.ts` в `src/infrastructure/nessy/`: `event-mapper.ts` (кадры → `SessionEvent`,
+буфер инструментов), `tool-output.ts` (`buildToolOutput`), `nessy-client.ts` (HTTP/SSE-клиент, `Last-Event-ID`).
+
+1. [x] **`tool_call_update` output** — `rawOutput + content` с дедупликацией, `content.type` = content/diff/terminal (`tool-output.ts`).
+2. [x] **`agent_message_chunk` error-meta** — `content._meta['nessy/error']` → событие `turn_error` (message/retryable/code), не текст.
+3. [x] **`messageId`** — пробрасывается в `text`/`thought` для группировки chunks.
+4. [x] **Буфер `tool_call`/`tool_call_update` по `toolCallId`** — мерж title/rawInput/status/content (`mergeToolCall`).
+5. [x] **`status`** — только `pending|in_progress|completed|failed`; `cancelled`/`error` отображаются в `failed`.
+6. [x] **`prompt_cancelled`** — событие `cancelled`.
+7. [x] **`followup_suggestion`** — событие `followup` (оркестратор его не использует).
+8. [x] Факт `rawOutput=""` + `content` учтён (см. выше) — отдельного `docs/nessy-contract.md` нет, актуален этот файл.
