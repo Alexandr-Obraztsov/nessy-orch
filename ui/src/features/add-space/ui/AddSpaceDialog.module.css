@@ -1,0 +1,41 @@
+.form {
+	display: flex;
+	flex-direction: column;
+}
+.note {
+	color: var(--warn);
+}
+.external {
+	margin-bottom: var(--sp-4);
+	padding: var(--sp-2) var(--sp-3);
+	border-radius: var(--r-md);
+	border: 1px solid var(--line);
+	background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+}
+.reveal {
+	padding-top: var(--sp-2);
+	animation: reveal 220ms var(--ease);
+}
+.reveal > label {
+	margin-bottom: var(--sp-2);
+}
+@keyframes reveal {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+}
+.banner {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--sp-2);
+	padding: var(--sp-3);
+	border-radius: var(--r-md);
+	background: var(--danger-soft);
+	color: var(--danger);
+	font-size: var(--fs-sm);
+}
+.banner svg {
+	flex: none;
+	margin-top: 1px;
+}

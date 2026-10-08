@@ -12,7 +12,9 @@ body,
 }
 
 body {
-	background: radial-gradient(1200px 800px at 30% 20%, var(--bg-grad-1), var(--bg-grad-2) 70%) fixed, var(--bg);
+	background:
+		radial-gradient(1200px 800px at 30% 20%, var(--bg-grad-1), var(--bg-grad-2) 70%) fixed,
+		var(--bg);
 	color: var(--text);
 	font-family: var(--font-ui);
 	font-size: var(--fs-md);

@@ -1,0 +1,9 @@
+/** Ошибка CLI с кодом выхода (2 — неверное использование, 3 — таймаут ожидания). */
+export class CliError extends Error {
+	constructor(
+		message: string,
+		readonly exitCode = 1,
+	) {
+		super(message)
+	}
+}

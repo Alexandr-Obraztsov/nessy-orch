@@ -102,6 +102,8 @@ export interface StorePort {
 	readEvents(agentId: string, limit: number): AgentEvent[]
 	/** Историю не удаляем: архивируем. */
 	archiveAgent(agentId: string): void
+	/** Записать отложенное и больше ничего не писать (остановка). */
+	close(): void
 }
 
 // ---------- время и идентификаторы ----------

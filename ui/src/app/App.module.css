@@ -1,19 +1,25 @@
 /*
  * Раскладка:
  *   ≥ 1280px — ростер | граф | панель (лента / чат агента)
- *   900–1279 — граф | панель; ростер — выдвижной поверх графа
+ *   900–1279 — граф | панель; ростер — выдвижной поверх графа (кнопка в верхней панели)
  *   < 900    — одна колонка + нижние вкладки (граф / агенты / лента / чат)
  */
 .app {
+	height: 100vh;
 	height: 100dvh;
+	width: 100%;
+	overflow: hidden;
 	display: grid;
-	grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+	grid-template-rows: auto minmax(0, 1fr);
 	grid-template-columns: minmax(0, 1fr);
 }
 .main {
+	position: relative;
 	min-height: 0;
+	min-width: 0;
 	display: grid;
-	grid-template-columns: 272px minmax(0, 1fr) var(--panel-w);
+	grid-template-columns: 288px minmax(0, 1fr) var(--panel-w);
+	grid-template-rows: minmax(0, 1fr);
 }
 .roster,
 .graph,
@@ -23,8 +29,12 @@
 	position: relative;
 }
 .roster {
+	display: flex;
 	border-right: 1px solid var(--line);
-	background: color-mix(in srgb, var(--surface) 70%, transparent);
+	background: var(--surface);
+}
+.graph {
+	overflow: hidden;
 }
 .panel {
 	border-left: 1px solid var(--line);
@@ -33,19 +43,64 @@
 	flex-direction: column;
 	overflow: hidden;
 }
+.scrim {
+	display: none;
+}
+
+@media (min-width: 1600px) {
+	.main {
+		grid-template-columns: 312px minmax(0, 1fr) calc(var(--panel-w) + 40px);
+	}
+}
 
 @media (max-width: 1279px) {
 	.main {
 		grid-template-columns: minmax(0, 1fr) var(--panel-w);
 	}
+	/* выдвижной ростер поверх графа */
 	.roster {
-		display: none;
+		position: absolute;
+		z-index: 20;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		width: min(320px, 46%);
+		background: var(--surface);
+		box-shadow: var(--shadow-3);
+		transform: translateX(-102%);
+		visibility: hidden;
+		transition:
+			transform 300ms var(--ease),
+			visibility 0s linear 300ms;
+	}
+	.drawerOpen {
+		transform: none;
+		visibility: visible;
+		transition: transform 300ms var(--ease);
+	}
+	.scrim {
+		display: block;
+		position: absolute;
+		z-index: 19;
+		inset: 0;
+		background: var(--overlay);
+		opacity: 0.5;
+		animation: fade 300ms var(--ease);
+	}
+	.graph {
+		grid-column: 1;
+	}
+}
+
+@media (max-width: 1100px) and (min-width: 900px) {
+	.main {
+		grid-template-columns: minmax(0, 1fr) min(var(--panel-w), 46vw);
 	}
 }
 
 @media (max-width: 899px) {
 	.app {
-		grid-template-rows: var(--topbar-h) minmax(0, 1fr) calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+		grid-template-rows: auto minmax(0, 1fr) auto;
 	}
 	.main {
 		grid-template-columns: minmax(0, 1fr);
@@ -53,17 +108,26 @@
 	.roster,
 	.graph,
 	.panel {
+		position: relative;
 		display: none;
 		border: none;
 		grid-area: 1 / 1;
+		width: auto;
+		transform: none;
+		visibility: visible;
+		box-shadow: none;
+		transition: none;
 	}
 	.show {
 		display: flex;
 		flex-direction: column;
-		animation: tabIn 220ms var(--ease);
+		animation: tabIn 240ms var(--ease);
 	}
 	.graph.show {
 		display: block;
+	}
+	.scrim {
+		display: none;
 	}
 }
 
@@ -71,5 +135,10 @@
 	from {
 		opacity: 0;
 		transform: translateY(6px);
+	}
+}
+@keyframes fade {
+	from {
+		opacity: 0;
 	}
 }

@@ -1,0 +1,61 @@
+/**
+ * Сборка приложения из слоёв (composition root): конфигурация → хранилище → пространства →
+ * ядро → HTTP. Используется точкой входа src/main.ts и интеграционными тестами.
+ */
+import type * as http from 'node:http'
+import { Orchestrator } from './application/orchestrator'
+import type { AppInstance } from './app.types'
+import type { Config } from './infrastructure/config/config.types'
+import { NessyClient } from './infrastructure/nessy/nessy-client'
+import { FileStore } from './infrastructure/persistence/file-store'
+import { ServeSpace } from './infrastructure/process/serve-space'
+import { createServer } from './interfaces/http/server'
+
+export function buildApp(config: Config, version: string): AppInstance {
+	const store = new FileStore(config.home)
+	const usedPorts = new Set<number>()
+	const orch = new Orchestrator({
+		settings: config,
+		store,
+		spaceFactory: (init, listener) =>
+			new ServeSpace(
+				init,
+				{
+					settings: config,
+					usedPorts,
+					logPath: name => store.logPath(name),
+					makeClient: url => new NessyClient(url),
+				},
+				listener,
+			),
+	})
+	orch.load()
+	const server = createServer(orch, { version, uiDir: config.uiDir, port: config.port, host: config.host })
+
+	return {
+		orch,
+		server,
+		listen: () =>
+			new Promise<void>((resolve, reject) => {
+				const onError = (e: Error): void => reject(e)
+				server.once('error', onError)
+				server.listen(config.port, config.host, () => {
+					server.off('error', onError)
+					resolve()
+				})
+			}),
+		close: async () => {
+			server.closeAllConnections()
+			await new Promise<void>(r => closeServer(server, r))
+			await orch.shutdown()
+		},
+	}
+}
+
+function closeServer(server: http.Server, done: () => void): void {
+	if (!server.listening) {
+		done()
+		return
+	}
+	server.close(() => done())
+}

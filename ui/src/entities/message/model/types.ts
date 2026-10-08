@@ -6,6 +6,8 @@ export interface MarkdownBodyProps {
 	collapseAt?: number
 	/** markdown на акцентном фоне (свои сообщения) */
 	onAccent?: boolean
+	/** текст ещё дописывается — мигающая каретка в конце */
+	streaming?: boolean
 	className?: string
 }
 

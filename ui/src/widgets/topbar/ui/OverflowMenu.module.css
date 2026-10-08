@@ -1,0 +1,123 @@
+.anchorWrap {
+	position: relative;
+	display: inline-flex;
+}
+.alertDot {
+	position: absolute;
+	top: 7px;
+	right: 7px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--warn);
+	box-shadow: 0 0 0 2px var(--surface);
+	pointer-events: none;
+}
+.menu {
+	width: min(340px, calc(100vw - 16px));
+}
+.section {
+	padding: var(--sp-2);
+	border-bottom: 1px solid var(--line);
+}
+.section:last-child {
+	border-bottom: none;
+}
+.heading {
+	display: flex;
+	align-items: center;
+	gap: var(--sp-2);
+	padding: var(--sp-1) var(--sp-2) var(--sp-2);
+	color: var(--text-3);
+	font-size: var(--fs-xs);
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+.count {
+	font-family: var(--font-mono);
+}
+.empty {
+	margin: 0;
+	padding: 0 var(--sp-2) var(--sp-2);
+	color: var(--text-3);
+	font-size: var(--fs-sm);
+}
+.space {
+	--c: hsl(var(--hue, 170) 70% 60%);
+}
+.item {
+	display: flex;
+	align-items: center;
+	gap: var(--sp-3);
+	width: 100%;
+	min-height: 44px;
+	padding: 0 var(--sp-2);
+	border: none;
+	border-radius: var(--r-sm);
+	background: transparent;
+	color: var(--text);
+	text-align: left;
+	transition: background var(--dur) var(--ease);
+}
+.item:hover {
+	background: var(--surface-2);
+}
+.item svg {
+	flex: none;
+	color: var(--text-2);
+}
+.hue {
+	flex: none;
+	width: 10px;
+	height: 10px;
+	margin: 0 4px;
+	border-radius: 50%;
+	background: var(--c);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent);
+}
+.label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.chev {
+	transition: transform var(--dur) var(--ease);
+}
+.chevOpen {
+	transform: rotate(180deg);
+}
+.details {
+	margin: 0 0 var(--sp-2);
+	border-radius: var(--r-md);
+	background: var(--surface-2);
+	animation: open 200ms var(--ease);
+}
+.details > div {
+	width: 100%;
+}
+@keyframes open {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+}
+.foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--sp-2);
+	padding: var(--sp-2) var(--sp-4) var(--sp-3);
+	color: var(--text-3);
+	font-family: var(--font-mono);
+	font-size: var(--fs-xs);
+}
+.auto {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--warn);
+	font-family: var(--font-ui);
+}

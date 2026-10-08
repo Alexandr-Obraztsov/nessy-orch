@@ -1,0 +1,219 @@
+.composer {
+	position: relative;
+	z-index: 6;
+	flex: none;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding: var(--sp-2) var(--sp-3) var(--sp-3);
+	border-top: 1px solid var(--line);
+	background: color-mix(in srgb, var(--surface) 92%, transparent);
+	backdrop-filter: blur(10px);
+}
+
+/* ---- адресаты ---- */
+.picker {
+	display: flex;
+	align-items: center;
+	gap: var(--sp-2);
+	min-width: 0;
+}
+.pickerLabel {
+	flex: none;
+	font-size: var(--fs-xs);
+	font-weight: 600;
+	color: var(--text-3);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+.chips {
+	display: flex;
+	gap: 6px;
+	min-width: 0;
+	overflow-x: auto;
+	scrollbar-width: none;
+	padding: 2px 16px 2px 2px;
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+	mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+}
+.chips::-webkit-scrollbar {
+	display: none;
+}
+.chip {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 24px;
+	padding: 0 10px 0 8px;
+	border-radius: var(--r-full);
+	border: 1px solid var(--line);
+	background: var(--surface-2);
+	color: var(--text-2);
+	font-size: var(--fs-sm);
+	font-weight: 550;
+	transition:
+		background var(--dur) var(--ease),
+		color var(--dur) var(--ease),
+		border-color var(--dur) var(--ease);
+}
+.chip:hover {
+	color: var(--text);
+	border-color: var(--line-strong);
+}
+.chipOn {
+	background: hsl(var(--h) 70% 55% / 0.16);
+	border-color: hsl(var(--h) 70% 58% / 0.6);
+	color: var(--text);
+}
+
+/* ---- ввод ---- */
+.row {
+	display: flex;
+	align-items: flex-end;
+	gap: var(--sp-2);
+}
+.input {
+	flex: 1;
+	min-width: 0;
+	min-height: 40px;
+	max-height: 168px;
+	padding: 9px 14px;
+	border-radius: 20px;
+	border: 1px solid var(--line-strong);
+	background: var(--surface-2);
+	color: var(--text);
+	line-height: 1.45;
+	resize: none;
+	outline: none;
+	overflow-y: hidden;
+	transition:
+		border-color var(--dur) var(--ease),
+		box-shadow var(--dur) var(--ease);
+}
+.input:focus {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.input::placeholder {
+	color: var(--text-3);
+}
+.input:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+.send {
+	flex: none;
+	display: grid;
+	place-items: center;
+	width: 40px;
+	height: 40px;
+	border-radius: 50%;
+	border: none;
+	background: var(--accent);
+	color: var(--text-inv);
+	transition:
+		transform 140ms var(--ease),
+		box-shadow var(--dur) var(--ease),
+		opacity var(--dur) var(--ease);
+}
+.send:hover:not(:disabled) {
+	box-shadow: 0 0 0 4px var(--accent-soft), 0 6px 18px -6px var(--accent-glow);
+}
+.send:active:not(:disabled) {
+	transform: scale(0.92);
+}
+.send:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+.spinner {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	border: 2px solid currentColor;
+	border-right-color: transparent;
+	animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+.note {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0 4px;
+	font-size: var(--fs-xs);
+	color: var(--text-3);
+}
+
+/* ---- подсказки «@» ---- */
+.suggest {
+	position: absolute;
+	left: var(--sp-3);
+	right: var(--sp-3);
+	bottom: calc(100% - 4px);
+	z-index: 5;
+	margin: 0;
+	padding: 4px;
+	list-style: none;
+	border-radius: var(--r-md);
+	border: 1px solid var(--line-strong);
+	background: var(--surface-2);
+	box-shadow: var(--shadow-2);
+	animation: pop 160ms var(--ease);
+}
+.suggest button {
+	display: flex;
+	align-items: baseline;
+	gap: var(--sp-2);
+	width: 100%;
+	padding: 6px 10px;
+	border: none;
+	border-radius: var(--r-sm);
+	background: none;
+	text-align: left;
+	font-size: var(--fs-sm);
+}
+.suggest span {
+	color: var(--text-3);
+}
+.suggest code {
+	margin-left: auto;
+	font-size: var(--fs-xs);
+	color: var(--text-3);
+}
+.suggest button:hover,
+.sugOn {
+	background: var(--accent-soft) !important;
+}
+@keyframes pop {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+	}
+}
+
+/* ---- нет агентов ---- */
+.cta {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--sp-3);
+	padding: var(--sp-3) var(--sp-4);
+	border-top: 1px solid var(--line);
+	background: var(--surface);
+}
+.ctaText {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	font-size: var(--fs-sm);
+}
+.ctaText span {
+	color: var(--text-3);
+	font-size: var(--fs-xs);
+}

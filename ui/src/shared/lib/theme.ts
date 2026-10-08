@@ -42,16 +42,13 @@ export function toggleTheme(): void {
 }
 
 export function useTheme(): Theme {
-	return useSyncExternalStore(
-		fn => {
-			listeners.add(fn)
-			const m = window.matchMedia('(prefers-color-scheme: light)')
-			m.addEventListener('change', fn)
-			return () => {
-				listeners.delete(fn)
-				m.removeEventListener('change', fn)
-			}
-		},
-		currentTheme,
-	)
+	return useSyncExternalStore(fn => {
+		listeners.add(fn)
+		const m = window.matchMedia('(prefers-color-scheme: light)')
+		m.addEventListener('change', fn)
+		return () => {
+			listeners.delete(fn)
+			m.removeEventListener('change', fn)
+		}
+	}, currentTheme)
 }

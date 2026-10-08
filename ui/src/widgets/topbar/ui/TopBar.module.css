@@ -1,0 +1,337 @@
+.bar {
+	position: relative;
+	z-index: 30;
+	display: flex;
+	align-items: center;
+	gap: var(--sp-3);
+	min-width: 0;
+	height: calc(var(--topbar-h) + env(safe-area-inset-top));
+	padding: env(safe-area-inset-top) var(--sp-4) 0;
+	padding-left: max(var(--sp-4), env(safe-area-inset-left));
+	padding-right: max(var(--sp-4), env(safe-area-inset-right));
+	border-bottom: 1px solid var(--line);
+	background: color-mix(in srgb, var(--surface) 82%, transparent);
+	backdrop-filter: blur(12px) saturate(1.2);
+}
+/* тонкая «фосфорная» линия снизу */
+.bar::after {
+	content: '';
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: -1px;
+	height: 1px;
+	background: linear-gradient(90deg, transparent, var(--accent-glow) 20%, transparent 60%);
+	opacity: 0.6;
+	pointer-events: none;
+}
+.grow {
+	flex: 1;
+}
+.toggled {
+	background: var(--accent-soft);
+	color: var(--accent);
+}
+
+/* ---------- бренд ---------- */
+.brand {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	cursor: default;
+	user-select: none;
+}
+.word {
+	font-size: 16px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	white-space: nowrap;
+}
+.sep {
+	margin: 0 1px;
+	color: var(--accent);
+}
+.orch {
+	font-weight: 500;
+	color: var(--text-2);
+}
+
+/* ---------- связь ---------- */
+.conn {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	height: 28px;
+	padding: 0 10px;
+	border-radius: var(--r-full);
+	border: 1px solid var(--line);
+	background: var(--surface-2);
+	color: var(--text-2);
+	font-size: var(--fs-sm);
+	white-space: nowrap;
+	transition:
+		background var(--dur) var(--ease),
+		border-color var(--dur) var(--ease),
+		color var(--dur) var(--ease);
+}
+.offline {
+	border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+	background: var(--danger-soft);
+	color: var(--danger);
+	padding-right: 3px;
+}
+.connCompact {
+	padding: 0 8px;
+	height: 26px;
+	border-color: transparent;
+	background: transparent;
+}
+.connCompact.offline {
+	padding-right: 0;
+}
+.reconnect {
+	height: 22px;
+	padding: 0 8px;
+	color: inherit;
+	font-size: var(--fs-xs);
+	border-radius: var(--r-full);
+}
+.connCompact .reconnect {
+	height: 36px;
+	width: 36px;
+	padding: 0;
+}
+.auto {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 24px;
+	padding: 0 8px;
+	border-radius: var(--r-full);
+	background: var(--warn-soft);
+	color: var(--warn);
+	font-size: var(--fs-xs);
+	font-weight: 600;
+	cursor: help;
+}
+.divider {
+	flex: none;
+	width: 1px;
+	height: 22px;
+	background: var(--line);
+}
+
+/* ---------- счётчики ---------- */
+.counters {
+	flex: none;
+	display: flex;
+	align-items: center;
+	gap: var(--sp-1);
+}
+.countersCol {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.counter {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 28px;
+	padding: 0 8px;
+	border: none;
+	border-radius: var(--r-sm);
+	background: transparent;
+	color: var(--text-3);
+	font-size: var(--fs-sm);
+	white-space: nowrap;
+	transition:
+		color var(--dur) var(--ease),
+		background var(--dur) var(--ease);
+}
+.counter b {
+	font-family: var(--font-mono);
+	font-weight: 600;
+	color: var(--text);
+	font-variant-numeric: tabular-nums;
+}
+.countersCol .counter {
+	height: 36px;
+	font-size: var(--fs-md);
+}
+.cDot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--st-sleeping);
+	transition:
+		background var(--dur) var(--ease),
+		box-shadow var(--dur) var(--ease);
+}
+.cWorking.on {
+	color: var(--st-working);
+}
+.cWorking.on b {
+	color: var(--st-working);
+}
+.cWorking.on .cDot {
+	background: var(--st-working);
+	animation: breathe 1.6s var(--ease) infinite;
+}
+.cPerm {
+	color: var(--warn);
+	background: var(--warn-soft);
+	animation: attention 2.4s var(--ease) infinite;
+}
+.cPerm b {
+	color: var(--warn);
+}
+.cPerm:hover {
+	background: color-mix(in srgb, var(--warn) 22%, transparent);
+}
+@keyframes breathe {
+	50% {
+		box-shadow: 0 0 0 4px color-mix(in srgb, var(--st-working) 25%, transparent);
+	}
+}
+@keyframes attention {
+	0%,
+	70%,
+	100% {
+		box-shadow: 0 0 0 0 transparent;
+	}
+	35% {
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 25%, transparent);
+	}
+}
+
+/* ---------- пространства ---------- */
+.strip {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	overflow-x: auto;
+	scrollbar-width: none;
+	padding: 4px 2px;
+	mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+}
+.strip::-webkit-scrollbar {
+	display: none;
+}
+.stripItem {
+	flex: none;
+	display: flex;
+}
+.space {
+	--c: hsl(var(--hue, 170) 70% 60%);
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	max-width: 200px;
+	height: 30px;
+	padding: 0 10px;
+	border-radius: var(--r-full);
+	border: 1px solid var(--line);
+	background: color-mix(in srgb, var(--c) 6%, var(--surface-2));
+	color: var(--text-2);
+	font-size: var(--fs-sm);
+	font-weight: 550;
+	animation: chipIn 260ms var(--ease) both;
+	transition:
+		border-color var(--dur) var(--ease),
+		color var(--dur) var(--ease),
+		background var(--dur) var(--ease);
+}
+.space:hover,
+.spaceOpen {
+	border-color: color-mix(in srgb, var(--c) 60%, transparent);
+	color: var(--text);
+}
+.spaceOpen {
+	background: color-mix(in srgb, var(--c) 14%, var(--surface-2));
+}
+.spaceFailed {
+	border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+}
+.spaceHue {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--c);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent);
+}
+.spaceName {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.spaceCount {
+	font-family: var(--font-mono);
+	font-size: var(--fs-xs);
+	color: var(--text-3);
+}
+.spaceExt {
+	flex: none;
+	color: var(--text-3);
+}
+@keyframes chipIn {
+	from {
+		opacity: 0;
+		transform: scale(0.9);
+	}
+}
+
+/* ---------- действия ---------- */
+.addSpace {
+	flex: none;
+}
+.kbd {
+	display: inline-flex;
+	margin-left: 2px;
+	margin-right: -4px;
+}
+
+@media (max-width: 1180px) {
+	.addSpaceLabel,
+	.counters .cLabel,
+	.kbd {
+		display: none;
+	}
+	.addSpace {
+		width: 36px;
+		padding: 0;
+	}
+}
+@media (max-width: 1023px) {
+	.orch,
+	.sep {
+		display: none;
+	}
+}
+@media (max-width: 899px) {
+	.bar {
+		gap: var(--sp-2);
+		padding-left: max(var(--sp-3), env(safe-area-inset-left));
+		padding-right: max(var(--sp-2), env(safe-area-inset-right));
+	}
+	.orch,
+	.sep {
+		display: inline;
+	}
+	.bar :global(button) {
+		min-height: 40px;
+		min-width: 40px;
+	}
+}
+@media (max-width: 359px) {
+	.word {
+		display: none;
+	}
+}

@@ -1,0 +1,67 @@
+.bubble {
+	position: relative;
+	min-width: 72px;
+	padding: 7px 11px 5px;
+	border-radius: 14px;
+	font-size: var(--fs-md);
+	box-shadow: var(--shadow-1);
+	transform-origin: bottom left;
+}
+.in {
+	background: var(--bubble-agent);
+	border: 1px solid var(--line);
+	color: var(--text);
+}
+.out {
+	background: var(--bubble-you);
+	border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+	color: var(--bubble-you-text);
+	transform-origin: bottom right;
+}
+.in.tail {
+	border-top-left-radius: 4px;
+}
+.out.tail {
+	border-top-right-radius: 4px;
+}
+.failed {
+	background: color-mix(in srgb, var(--danger-soft) 70%, var(--surface-2));
+	border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+	color: var(--text);
+}
+.head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	margin-bottom: 2px;
+	font-size: var(--fs-sm);
+	line-height: 1.35;
+}
+.body {
+	min-width: 0;
+}
+.meta {
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 6px;
+	margin-top: 2px;
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	color: var(--text-3);
+	line-height: 1.4;
+	white-space: nowrap;
+}
+.out .meta {
+	color: color-mix(in srgb, var(--bubble-you-text) 55%, transparent);
+}
+.enter {
+	animation: bubbleIn 320ms var(--ease) both;
+}
+@keyframes bubbleIn {
+	from {
+		opacity: 0;
+		transform: translateY(10px) scale(0.97);
+	}
+}

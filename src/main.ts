@@ -4,23 +4,14 @@
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { createServer } from './api/server'
-import { loadConfig } from './core/config'
-import { errMsg } from './core/json'
-import { Orchestrator } from './core/orchestrator'
+import { buildApp } from './app'
+import { loadConfig } from './infrastructure/config/load-config'
+import { errMsg } from './lib/json'
 
 function version(root: string): string {
 	try {
-		const raw: unknown = JSON.parse(
-			fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
-		)
-		if (
-			typeof raw === 'object' &&
-			raw !== null &&
-			'version' in raw &&
-			typeof raw.version === 'string'
-		)
-			return raw.version
+		const raw: unknown = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+		if (typeof raw === 'object' && raw !== null && 'version' in raw && typeof raw.version === 'string') return raw.version
 	} catch {
 		/* нет package.json — не критично */
 	}
@@ -29,41 +20,25 @@ function version(root: string): string {
 
 async function main(): Promise<void> {
 	const config = loadConfig()
-	const orch = new Orchestrator(config)
-	orch.load()
-
-	const server = createServer(orch, {
-		version: version(config.root),
-		uiDir: config.uiDir,
-		port: config.port,
-		host: config.host,
-	})
-
-	server.on('error', (e: NodeJS.ErrnoException) => {
-		if (e.code === 'EADDRINUSE')
-			console.error(
-				`[nessy-orch] порт ${config.port} занят — оркестратор уже запущен?`,
-			)
+	const app = buildApp(config, version(config.root))
+	try {
+		await app.listen()
+	} catch (e) {
+		const code = e instanceof Error && 'code' in e ? e.code : undefined
+		if (code === 'EADDRINUSE') console.error(`[nessy-orch] порт ${config.port} занят — оркестратор уже запущен?`)
 		else console.error('[nessy-orch] ошибка сервера:', errMsg(e))
 		process.exit(1)
-	})
-
-	server.listen(config.port, config.host, () => {
-		console.log(
-			`[nessy-orch] http://${config.host}:${config.port}  home=${config.home}  autoApprove=${config.autoApprove}`,
-		)
-		if (!fs.existsSync(path.join(config.uiDir, 'index.html')))
-			console.log('[nessy-orch] UI не найден в ' + config.uiDir + ' (API работает; см. ui/README.md)')
-	})
+	}
+	console.log(`[nessy-orch] http://${config.host}:${config.port}  home=${config.home}  autoApprove=${config.autoApprove}`)
+	if (!fs.existsSync(path.join(config.uiDir, 'index.html')))
+		console.log('[nessy-orch] UI не найден в ' + config.uiDir + ' (API работает; см. ui/README.md)')
 
 	let closing = false
 	const stop = (sig: string): void => {
 		if (closing) return
 		closing = true
 		console.log(`[nessy-orch] ${sig}: останавливаюсь`)
-		server.closeAllConnections()
-		server.close()
-		void orch.shutdown().finally(() => process.exit(0))
+		void app.close().finally(() => process.exit(0))
 		setTimeout(() => process.exit(0), 10000).unref()
 	}
 	process.on('SIGINT', () => stop('SIGINT'))

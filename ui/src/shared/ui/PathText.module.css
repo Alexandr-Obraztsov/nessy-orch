@@ -1,0 +1,10 @@
+.path {
+	display: block;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	direction: rtl;
+	text-align: left;
+	font-family: var(--font-mono);
+}

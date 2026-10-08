@@ -86,3 +86,12 @@
 		transform: rotate(360deg);
 	}
 }
+/* сенсорные экраны: цели касания не меньше 40px */
+@media (max-width: 899px) {
+	.btn:not(.sm) {
+		min-height: 40px;
+	}
+	.icon:not(.sm) {
+		min-width: 40px;
+	}
+}

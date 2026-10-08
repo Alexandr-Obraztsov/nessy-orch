@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-for (const f of ['dist/src/main.js', 'dist/src/cli/main.js', 'dist/test/fake-nessy.js']) {
+for (const f of ['dist/src/main.js', 'dist/src/interfaces/cli/main.js', 'dist/test/support/fake-nessy.js']) {
 	const p = join(root, f)
 	if (existsSync(p)) chmodSync(p, 0o755)
 }

@@ -1,0 +1,384 @@
+#!/usr/bin/env node
+/**
+ * fake-nessy — имитация `nessy serve` для тестов и демо UI (без модели и без сети).
+ * Повторяет контракт docs/contract/README.md: /health, POST /session (независимые сессии), POST /prompt,
+ * GET /events (SSE с Last-Event-ID), cancel (→ prompt_cancelled), permission, load, DELETE.
+ *
+ * События как у настоящего serve: чанки с messageId, мысли, tool_call (title/rawInput) →
+ * tool_call_update (in_progress) → tool_call_update (completed, rawOutput "" + content[]).
+ *
+ * Поведение по последней строке промпта (без вводной оркестратора):
+ *   «#shell <cmd>»     → вызов run_shell_command (без реального запуска)
+ *   «#perm <cmd>»      → то же, но сначала permission_request; продолжает только после голосования
+ *   «#slow»            → долгий ответ (~1.5 с), можно прервать cancel
+ *   «#long»            → ответ с markdown (заголовки, список, код, таблица), стримится ~3 с
+ *   «#tools»           → три инструмента подряд: read_file, grep, run_shell_command
+ *   «#error»           → ошибка хода (agent_message_chunk с _meta['nessy/error']) + turn_complete
+ *   «#fail»            → аварийное завершение сессии (session_died)
+ *   «#relay <args>»    → выполнить shell `$FAKE_NESSY_CLI send <args>` (как сделал бы реальный агент)
+ *   иначе              → эхо: «ответ: <текст>»
+ *
+ * FAKE_NESSY_DELAY_MS — шаг стриминга (по умолчанию 20 мс).
+ */
+import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import * as http from 'node:http'
+
+interface Frame {
+	id: number
+	event: string
+	data: string
+}
+interface Turn {
+	promptId: string
+	timers: Set<NodeJS.Timeout>
+	done: boolean
+	/** ожидающий запрос разрешения: requestId → продолжение */
+	permission: Map<string, (approved: boolean) => void>
+}
+interface Session {
+	id: string
+	seq: number
+	ring: Frame[]
+	subs: Set<http.ServerResponse>
+	turn: Turn | null
+	named: boolean
+}
+type Json = Record<string, unknown>
+
+const argv = process.argv.slice(2)
+const flag = (name: string): string | undefined => {
+	const i = argv.indexOf(name)
+	return i === -1 ? undefined : argv[i + 1]
+}
+if (argv[0] !== 'serve') {
+	console.error('fake-nessy: поддерживается только `serve`')
+	process.exit(2)
+}
+const port = parseInt(flag('--port') ?? '0', 10)
+const workspace = flag('--workspace') ?? process.cwd()
+const sessions = new Map<string, Session>()
+const STEP = parseInt(process.env['FAKE_NESSY_DELAY_MS'] ?? '20', 10)
+
+// ---------- события ----------
+const write = (r: http.ServerResponse, f: Frame): void => {
+	r.write(`id: ${f.id}\nevent: ${f.event}\ndata: ${f.data}\n\n`)
+}
+function emit(s: Session, event: string, payload: Json): void {
+	const id = ++s.seq
+	const f: Frame = { id, event, data: JSON.stringify({ id, v: 1, type: event, data: { sessionId: s.id, ...payload } }) }
+	s.ring.push(f)
+	for (const r of s.subs) write(r, f)
+}
+const update = (s: Session, u: Json): void => emit(s, 'session_update', { update: u })
+
+/** Сценарий одного хода: последовательность шагов со своими задержками; отменяется целиком. */
+class Script {
+	private t = 0
+	constructor(
+		private readonly s: Session,
+		private readonly turn: Turn,
+	) {}
+
+	at(delay: number, fn: () => void): this {
+		this.t += delay
+		const timer = setTimeout(() => {
+			this.turn.timers.delete(timer)
+			if (!this.turn.done) fn()
+		}, this.t)
+		this.turn.timers.add(timer)
+		return this
+	}
+
+	/** Продолжить сценарий с нуля по времени (после асинхронного шага). */
+	restart(): this {
+		this.t = 0
+		return this
+	}
+
+	text(str: string, messageId: string, step = STEP, size = 12): this {
+		for (const part of str.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g')) ?? [])
+			this.at(step, () => update(this.s, { sessionUpdate: 'agent_message_chunk', messageId, content: { type: 'text', text: part } }))
+		return this
+	}
+
+	thought(str: string, messageId: string): this {
+		return this.at(STEP, () => update(this.s, { sessionUpdate: 'agent_thought_chunk', messageId, content: { type: 'text', text: str } }))
+	}
+
+	/** tool_call (pending, с title/rawInput) → update in_progress → update completed (rawOutput "" + content). */
+	tool(name: string, kind: string, title: string, input: Json, output: string): this {
+		const toolCallId = 'call_' + randomUUID().slice(0, 8)
+		this.at(STEP, () =>
+			update(this.s, { sessionUpdate: 'tool_call', toolCallId, title, kind, status: 'pending', rawInput: input, content: [], locations: [], _meta: { toolName: name } }),
+		)
+		this.at(STEP, () => update(this.s, { sessionUpdate: 'tool_call_update', toolCallId, status: 'in_progress' }))
+		this.at(STEP * 3, () =>
+			update(this.s, {
+				sessionUpdate: 'tool_call_update',
+				toolCallId,
+				status: 'completed',
+				rawOutput: '',
+				content: [{ type: 'content', content: { type: 'text', text: output } }],
+			}),
+		)
+		return this
+	}
+
+	finish(stopReason = 'end_turn'): this {
+		return this.at(STEP, () => endTurn(this.s, this.turn, stopReason))
+	}
+}
+
+function endTurn(s: Session, turn: Turn, stopReason: string): void {
+	if (turn.done) return
+	turn.done = true
+	for (const t of turn.timers) clearTimeout(t)
+	turn.timers.clear()
+	if (s.turn === turn) s.turn = null
+	emit(s, 'turn_complete', { stopReason, promptId: turn.promptId })
+}
+
+const LONG_ANSWER = `## План проверки
+
+Нашёл три места, которые стоит посмотреть:
+
+1. **Парсер SSE** — разбирает кадры по \`\\n\\n\`.
+2. **Маппер событий** — сливает \`tool_call\` и \`tool_call_update\`.
+3. *Очередь сообщений* — порядок сохраняется.
+
+### Пример
+
+\`\`\`ts
+const parser = new SseParser(f => frames.push(f))
+parser.push('data: {"a":1}\\n\\n')
+\`\`\`
+
+| Компонент | Статус | Комментарий |
+|---|---|---|
+| sse | ✅ | покрыт тестами |
+| mapper | ✅ | все события контракта |
+| queue | ⚠️ | нужен тест на рестарт |
+
+> Итог: можно мержить после зелёного прогона.
+`
+
+function runPrompt(s: Session, promptId: string, text: string): void {
+	const turn: Turn = { promptId, timers: new Set(), done: false, permission: new Map() }
+	s.turn = turn
+	const body = text.split('\n').filter(Boolean).pop() ?? ''
+	const msgId = 'msg_' + randomUUID().slice(0, 8)
+	const sc = new Script(s, turn)
+	update(s, { sessionUpdate: 'user_message_chunk', messageId: 'user_' + promptId.slice(0, 8), content: { type: 'text', text } })
+	if (!s.named) {
+		s.named = true
+		sc.at(STEP, () => emit(s, 'session_metadata_updated', { displayName: body.slice(0, 40), titleSource: 'auto' }))
+	}
+
+	if (body.startsWith('#fail')) {
+		sc.at(STEP, () => {
+			turn.done = true
+			emit(s, 'session_died', { reason: 'crash' })
+			for (const r of s.subs) r.end()
+			sessions.delete(s.id)
+		})
+		return
+	}
+	if (body.startsWith('#error')) {
+		sc.thought('пробую ответить', msgId).at(STEP, () =>
+			update(s, {
+				sessionUpdate: 'agent_message_chunk',
+				messageId: msgId,
+				content: { type: 'text', text: 'Rate limit exceeded', _meta: { 'nessy/error': { message: 'Rate limit exceeded', retryable: true, code: 429 } } },
+			}),
+		)
+		sc.finish('end_turn')
+		return
+	}
+	if (body.startsWith('#slow')) {
+		sc.thought('думаю долго…', msgId).text('медленный ответ', msgId).at(1500, () => endTurn(s, turn, 'end_turn'))
+		return
+	}
+	if (body.startsWith('#long')) {
+		sc.thought('Собираю обзор: посмотрю парсер, маппер и очередь, потом сведу в таблицу.', msgId)
+		const step = Math.max(5, Math.floor(3000 / Math.ceil(LONG_ANSWER.length / 8)))
+		sc.text(LONG_ANSWER, msgId, step, 8).finish()
+		return
+	}
+	if (body.startsWith('#tools')) {
+		sc.thought('Сначала прочитаю README, потом поищу TODO и запущу тесты.', msgId)
+			.tool('read_file', 'read', 'Read: README.md', { path: 'README.md' }, '# nessy-orch\nОркестратор агентов nessy.')
+			.tool('grep', 'search', 'Grep: TODO', { pattern: 'TODO', path: 'src' }, 'src/app.ts:12: // TODO: метрики\nsrc/main.ts:40: // TODO: graceful reload')
+			.tool('run_shell_command', 'execute', 'Shell: npm test', { command: 'npm test' }, 'tests 42\npass 42\nfail 0')
+			.text('Готово: README прочитан, найдено 2 TODO, тесты зелёные.', 'msg_' + randomUUID().slice(0, 8))
+			.finish()
+		return
+	}
+	if (body.startsWith('#shell') || body.startsWith('#perm')) {
+		const cmd = body.replace(/^#(shell|perm)\s*/, '') || 'echo ok'
+		const runTool = (): void => {
+			sc.restart().tool('run_shell_command', 'execute', `Shell: ${cmd}`, { command: cmd }, `вывод команды: ${cmd}`).text(`выполнено: ${cmd}`, msgId).finish()
+		}
+		sc.thought('нужно выполнить команду', msgId)
+		if (!body.startsWith('#perm')) {
+			sc.at(0, runTool)
+			return
+		}
+		const requestId = 'perm_' + randomUUID().slice(0, 8)
+		sc.at(STEP, () => {
+			turn.permission.set(requestId, approved => {
+				if (approved) runTool()
+				else sc.restart().text('пользователь отклонил команду', msgId).finish()
+			})
+			emit(s, 'permission_request', {
+				requestId,
+				toolCall: { toolCallId: 'call_' + requestId, title: `Shell: ${cmd}`, _meta: { toolName: 'run_shell_command' } },
+				options: [
+					{ optionId: 'proceed_once', kind: 'allow_once', name: 'Разрешить' },
+					{ optionId: 'proceed_always', kind: 'allow_always', name: 'Разрешать всегда' },
+					{ optionId: 'cancel', kind: 'reject_once', name: 'Отклонить' },
+				],
+			})
+		})
+		return
+	}
+	if (body.startsWith('#relay')) {
+		const cmd = `${process.env['FAKE_NESSY_CLI'] ?? 'nessy-orch'} send ${body.replace(/^#relay\s+/, '')}`
+		const toolCallId = 'call_' + randomUUID().slice(0, 8)
+		sc.thought('напишу другому агенту', msgId).at(STEP, () => {
+			update(s, { sessionUpdate: 'tool_call', toolCallId, kind: 'execute', status: 'in_progress', title: `Shell: ${cmd}`, rawInput: { command: cmd }, _meta: { toolName: 'run_shell_command' } })
+			const p = spawn('/bin/sh', ['-c', cmd], { env: process.env })
+			let buf = ''
+			p.stdout.on('data', (d: Buffer) => (buf += d.toString()))
+			p.stderr.on('data', (d: Buffer) => (buf += d.toString()))
+			p.on('close', code => {
+				if (turn.done) return
+				const out = buf.trim() || '(пусто)'
+				update(s, {
+					sessionUpdate: 'tool_call_update',
+					toolCallId,
+					status: code === 0 ? 'completed' : 'failed',
+					rawOutput: '',
+					content: [{ type: 'content', content: { type: 'text', text: out } }],
+				})
+				sc.restart().text(`выполнено: ${out.slice(0, 80)}`, msgId).finish()
+			})
+		})
+		return
+	}
+	sc.thought('обдумываю запрос', msgId).text(`ответ: ${body}`, msgId).finish()
+}
+
+function cancelTurn(s: Session): void {
+	const turn = s.turn
+	if (!turn || turn.done) return
+	for (const t of turn.timers) clearTimeout(t)
+	turn.timers.clear()
+	turn.permission.clear()
+	emit(s, 'prompt_cancelled', { promptId: turn.promptId })
+	endTurn(s, turn, 'cancelled')
+}
+
+// ---------- HTTP ----------
+function readJson(req: http.IncomingMessage): Promise<Json> {
+	return new Promise(resolve => {
+		let d = ''
+		req.on('data', (c: Buffer) => (d += c.toString()))
+		req.on('end', () => {
+			try {
+				const v: unknown = JSON.parse(d || '{}')
+				resolve(typeof v === 'object' && v !== null ? (v as Json) : {})
+			} catch {
+				resolve({})
+			}
+		})
+	})
+}
+const json = (res: http.ServerResponse, code: number, body?: unknown): void => {
+	if (body === undefined) {
+		res.writeHead(code)
+		res.end()
+		return
+	}
+	res.writeHead(code, { 'Content-Type': 'application/json' })
+	res.end(JSON.stringify(body))
+}
+
+async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+	const url = new URL(req.url ?? '/', 'http://x')
+	const seg = url.pathname.split('/').filter(Boolean)
+	if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { status: 'ok' })
+	if (req.method === 'POST' && url.pathname === '/session') {
+		const b = await readJson(req)
+		if (typeof b['cwd'] === 'string' && b['cwd'] !== workspace) return json(res, 400, { code: 'workspace_mismatch', error: 'workspace mismatch' })
+		const s: Session = { id: randomUUID(), seq: 0, ring: [], subs: new Set(), turn: null, named: false }
+		sessions.set(s.id, s)
+		return json(res, 200, { sessionId: s.id, workspaceCwd: workspace, attached: false, clientId: randomUUID(), createdAt: new Date().toISOString() })
+	}
+	const s = seg[0] === 'session' && seg[1] ? sessions.get(seg[1]) : undefined
+	if (seg[0] === 'session' && !s) return json(res, 404, { error: 'session not found' })
+	if (!s) return json(res, 404, { error: 'not found' })
+	const action = seg[2]
+	if (req.method === 'GET' && action === 'events') {
+		res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' })
+		res.write(': connected\n\n')
+		const last = parseInt(String(req.headers['last-event-id'] ?? '0'), 10) || 0
+		for (const f of s.ring) if (f.id > last) write(res, f)
+		s.subs.add(res)
+		req.on('close', () => s.subs.delete(res))
+		return
+	}
+	if (req.method === 'POST' && action === 'prompt') {
+		const b = await readJson(req)
+		const parts = Array.isArray(b['prompt']) ? (b['prompt'] as Json[]) : []
+		const text = parts.map(p => (typeof p['text'] === 'string' ? p['text'] : '')).join('\n')
+		if (s.turn && !s.turn.done) return json(res, 409, { error: 'prompt already running' })
+		const promptId = randomUUID()
+		json(res, 200, { promptId, lastEventId: s.seq })
+		runPrompt(s, promptId, text)
+		return
+	}
+	if (req.method === 'POST' && action === 'cancel') {
+		cancelTurn(s)
+		return json(res, 204)
+	}
+	if (req.method === 'POST' && action === 'permission' && seg[3]) {
+		const b = await readJson(req)
+		const outcome = typeof b['outcome'] === 'object' && b['outcome'] !== null ? (b['outcome'] as Json) : {}
+		const cont = s.turn?.permission.get(seg[3])
+		if (!cont) return json(res, 404, { error: 'no such request' })
+		s.turn?.permission.delete(seg[3])
+		const approved = outcome['outcome'] === 'selected' && typeof outcome['optionId'] === 'string' && outcome['optionId'].startsWith('proceed')
+		cont(approved)
+		return json(res, 200, { ok: true })
+	}
+	if (req.method === 'POST' && action === 'load') return json(res, 200, {})
+	if (req.method === 'DELETE' && action === undefined) {
+		if (s.turn) {
+			for (const t of s.turn.timers) clearTimeout(t)
+			s.turn.done = true
+		}
+		for (const r of s.subs) r.end()
+		sessions.delete(s.id)
+		return json(res, 204)
+	}
+	json(res, 404, { error: 'not found' })
+}
+
+const server = http.createServer((req, res) => {
+	handle(req, res).catch((e: unknown) => json(res, 500, { error: String(e) }))
+})
+server.listen(port, '127.0.0.1', () => console.log(`fake-nessy listening on ${port} workspace=${workspace}`))
+
+const shutdown = (): void => {
+	server.closeAllConnections()
+	server.close()
+	process.exit(0)
+}
+process.on('SIGTERM', shutdown)
+process.on('SIGINT', shutdown)
+// Если родитель (оркестратор/тест) исчез или не смог послать сигнал — не оставаться сиротой.
+const parentPid = process.ppid
+setInterval(() => {
+	if (process.ppid !== parentPid) process.exit(0)
+}, 500).unref()

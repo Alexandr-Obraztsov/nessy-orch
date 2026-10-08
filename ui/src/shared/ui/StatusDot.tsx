@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { cssVars } from '../lib/style'
 import s from './StatusDot.module.css'
 
 export interface StatusDotProps {
@@ -9,6 +9,6 @@ export interface StatusDotProps {
 }
 
 export function StatusDot({ color, pulse, size = 8, title }: StatusDotProps) {
-	const style = { '--c': color, width: size, height: size } as CSSProperties
+	const style = cssVars({ '--c': color }, { width: size, height: size })
 	return <span className={[s.dot, pulse && s.pulse].filter(Boolean).join(' ')} style={style} title={title} />
 }

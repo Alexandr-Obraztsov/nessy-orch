@@ -1,0 +1,20 @@
+.root {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	isolation: isolate;
+	/* мягкая виньетка «экрана» */
+	background: radial-gradient(closest-side at 50% 50%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 100%);
+}
+.root::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	z-index: 1;
+	background: radial-gradient(ellipse at 50% 50%, transparent 55%, color-mix(in srgb, var(--bg) 70%, transparent) 100%);
+}
+.offline svg {
+	opacity: 0.55;
+	filter: saturate(0.3);
+}

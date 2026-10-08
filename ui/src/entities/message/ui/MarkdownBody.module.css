@@ -75,6 +75,7 @@
 	overflow-x: auto;
 	font-size: var(--fs-sm);
 	line-height: 1.55;
+	tab-size: 2;
 }
 .md pre code {
 	padding: 0;
@@ -160,4 +161,32 @@
 }
 .flip {
 	transform: rotate(180deg);
+}
+
+/* стриминг: каретка после последнего блока */
+.streaming > :last-child::after,
+.streaming:empty::after {
+	content: '';
+	display: inline-block;
+	width: 0.5em;
+	height: 1.05em;
+	margin-left: 2px;
+	vertical-align: text-bottom;
+	border-radius: 1px;
+	background: var(--accent);
+	box-shadow: 0 0 8px var(--accent-glow);
+	animation: caret 1s steps(1) infinite;
+}
+.streaming > pre:last-child::after {
+	display: none;
+}
+@keyframes caret {
+	50% {
+		opacity: 0;
+	}
+}
+/* списки задач — без маркера */
+.md li:has(> input[type='checkbox']) {
+	list-style: none;
+	margin-left: -1.3em;
 }
