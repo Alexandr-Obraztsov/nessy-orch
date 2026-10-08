@@ -195,21 +195,13 @@ bash scripts/install-skill.sh --uninstall
 
 ## Настройка (переменные окружения)
 
-Переменные можно не держать в терминале: при старте оркестратор читает `~/.nessy-orch/.env`, затем `.env` в корне
-проекта (формат `KEY=value`, образец — [.env.example](.env.example)) и передаёт их дочерним `nessy serve`.
-Уже заданные в окружении переменные имеют приоритет.
-
-```sh
-mkdir -p ~/.nessy-orch && cp .env.example ~/.nessy-orch/.env && chmod 600 ~/.nessy-orch/.env   # и вписать токен
-```
-
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
 | `ORCH_PORT` | `4337` | Порт API и UI |
 | `NESSY_ORCH_HOME` | `~/.nessy-orch` | Состояние, журналы, логи |
 | `NESSY_BIN` | `~/.local/bin/nessy` | Исполняемый файл nessy |
 | `NESSY_SERVE_ARGS` | — | Дополнительные аргументы `nessy serve` |
-| `NESSY_SERVER_TOKEN` | — | Токен nessy serve. Если задан, serve требует `Authorization: Bearer`, и оркестратор передаёт его во все запросы. Удобнее хранить в `~/.nessy-orch/.env` |
+| `NESSY_SERVER_TOKEN` | — | Токен nessy serve. Если задан, serve требует `Authorization: Bearer`, и оркестратор передаёт его во все запросы |
 | `SERVE_BASE_PORT` | `4360` | Начало пула портов для `nessy serve` |
 | `MAX_SESSIONS` | `20` | Сессий на пространство |
 | `ORCH_AUTO_APPROVE` | `1` | Автоподтверждение прав агентов |
