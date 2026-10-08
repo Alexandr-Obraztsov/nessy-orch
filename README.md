@@ -1,93 +1,198 @@
 # nessy-orch
 
+Оркестратор агентов **nessy**. Главная нода («Вы» — человек и Claude Code) запускает независимых агентов nessy
+в рабочих пространствах, пишет им и получает ответы. Агенты могут писать друг другу. Вся переписка видна в одной
+общей ленте, состояние — в живом графе.
 
+Зачем: у nessy есть доступ к dp-инструментам (GitLab, Jira, Sage, Wiki) и долгая автономная работа в воркспейсе,
+которых нет у Claude в песочнице. nessy-orch даёт простой способ делегировать nessy задачи и следить за ними.
 
-## Getting started
+![Граф, ростер и общая лента](docs/screenshots/desktop-dark.png)
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Возможности
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- **Пространства (spaces).** Пространство = каталог-воркспейс + процесс `nessy serve`, который запускает оркестратор
+  (managed), либо уже запущенный демон по URL (external). Порты выделяются автоматически.
+- **Агенты.** Каждый агент — независимая сессия nessy (`sessionScope: thread`). У агента есть очередь сообщений:
+  пока он работает, новые сообщения ждут, порядок и авторство сохраняются, очередь переживает рестарт.
+- **Произвольный граф общения.** `Вы ↔ агент`, `агент ↔ агент`. Ответ агента автоматически уходит отправителю.
+  Агенты пишут другим сами, через shell: `nessy-orch send --from <id> <кому> "текст"`.
+- **Защиты.** Лимит длины цепочки (8 переходов), лимит сообщений на пару (30 в минуту), обнаружение взаимного
+  ожидания (`409 deadlock`), проверка `Host`/`Origin` (защита от DNS-rebinding и CSRF из браузера).
+- **Права.** По умолчанию запросы прав подтверждаются автоматически (с записью в журнал агента). При
+  `ORCH_AUTO_APPROVE=0` запросы ждут решения в UI или через API.
+- **Устойчивость.** Падение `nessy serve` — агенты засыпают и восстанавливают сессию при следующем обращении.
+  Состояние пишется атомарно в `~/.nessy-orch/`.
+- **Веб-интерфейс** — граф-сонар, общая лента и чат с каждым агентом. Работает на десктопе, планшете и телефоне.
+- **CLI** — единый бинарь `nessy-orch`: предсказуемый вывод, `--json`, блокирующий (`--wait`) и фоновый режимы.
 
-## Add your files
+## Быстрый старт
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+Нужен Node.js ≥ 20 и установленный `nessy` (по умолчанию `~/.local/bin/nessy`).
 
+```sh
+cd ~/Projects/nessy-orch
+npm install
+npm run build                       # сервер + UI
+node dist/src/main.js               # оркестратор на http://127.0.0.1:4337
 ```
-cd existing_repo
-git remote add origin https://gitlab.tcsbank.ru/a.s.obraztsov/nessy-orch.git
-git branch -M master
-git push -uf origin master
+
+Откройте <http://127.0.0.1:4337> (или `bin/nessy-orch open`).
+
+Чтобы оркестратор работал постоянно, установите его как сервис launchd (macOS, `KeepAlive`):
+
+```sh
+bin/nessy-orch install              # --print — только показать plist
+bin/nessy-orch uninstall
 ```
 
-## Integrate with your tools
+Первые шаги из терминала:
 
-- [ ] [Set up project integrations](https://gitlab.tcsbank.ru/a.s.obraztsov/nessy-orch/-/settings/integrations)
+```sh
+bin/nessy-orch space add ~/Projects/shippy
+bin/nessy-orch spawn --space shippy --name reviewer --wait "посмотри README и скажи, что это"
+bin/nessy-orch feed -n 20
+```
 
-## Collaborate with your team
+### Демо без настоящего nessy
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+В комплекте есть фейковый `nessy serve`: он повторяет контракт API и отвечает по простым правилам. Этого хватает,
+чтобы посмотреть интерфейс и прогнать тесты.
 
-## Test and Deploy
+```sh
+npm run demo                        # сборка + оркестратор с фейковым nessy
+```
 
-Use the built-in continuous integration in GitLab.
+Команды фейкового агента (в тексте задачи): `#tools` — серия вызовов инструментов, `#long` — длинный markdown-ответ
+потоком, `#shell <команда>` — инструмент shell, `#perm` — запрос прав, `#slow` — долгий ход (можно прервать),
+`#error` — ошибка хода, `#fail` — падение сессии, `#relay <кому> <текст>` — сообщение другому агенту. Любой другой
+текст возвращается эхом.
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+## Веб-интерфейс
 
-***
+| Зона | Что там |
+|---|---|
+| **Верхняя панель** | Статус соединения, счётчики (агенты, работают, ждут разрешения), пространства (клик — путь, URL, удаление), кнопки «Пространство» и «Агент», тема |
+| **Ростер** (слева) | Агенты по пространствам: статус, текущий инструмент, таймер хода, очередь, запросы прав, поиск |
+| **Граф-сонар** (центр) | «Вы» в центре, агенты — узлы цвета своего пространства. Рёбра — кто кого создал и кто кому писал. Каждое сообщение пролетает по ребру светящимся «пакетом». Масштаб, перетаскивание, подгонка |
+| **Общая лента** (справа) | Групповой чат всех сообщений: кто → кому, ответы, ожидание ответа, недоставленные, системные события. Фильтры, поле отправки с выбором адресата (`@имя`) |
+| **Чат агента** | Клик по агенту. Входящие сообщения, ответ потоком, размышления, карточки инструментов (ввод и вывод), запросы прав с кнопками, прервать ход, удалить агента |
 
-# Editing this README
+Адаптивность: на ширине ≥ 1280 px видны три колонки. На 900–1279 px ростер выезжает поверх графа. На экранах уже
+900 px остаётся одна колонка и нижние вкладки «Граф / Агенты / Лента / Чат», диалоги открываются нижним листом.
+Есть тёмная (сонар) и светлая (бумажная карта) темы. Анимации отключаются при `prefers-reduced-motion`.
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+Горячие клавиши: `N` — новый агент, `S` — новое пространство, `/` — к полю ввода, `Esc` — закрыть чат агента,
+`Enter` — отправить, `Shift+Enter` — перенос строки.
 
-## Suggestions for a good README
+## CLI
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+```text
+nessy-orch spawn [--space S] [--name N] [--wait] [--timeout СЕК] ["задача"]
+nessy-orch send <агент|you> "текст" [--wait] [--timeout СЕК] [--from ID]
+nessy-orch ask <путь|space> "задача"          # = spawn --wait
+nessy-orch ls | show <агент> | watch <агент> | cancel <агент> | kill <агент>
+nessy-orch feed [-n 30] [--follow]
+nessy-orch inbox [--wait СЕК] [--peek]
+nessy-orch space add <путь> [--name N] [--url URL] | space ls | space rm <имя> [--force]
+nessy-orch status | open | install [--print] | uninstall
+```
 
-## Name
-Choose a self-explaining name for your project.
+Полезный результат (ответ агента, JSON) выводится в stdout, служебные сообщения — в stderr. Флаг `--json` есть у всех
+команд. Старые алиасы `nessy-ask`, `nessy-jobs`, `nessy-watch` оставлены для совместимости.
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+## HTTP API
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+`127.0.0.1:4337`, JSON, без аутентификации (только loopback).
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+| Метод и путь | Назначение |
+|---|---|
+| `GET /health`, `GET /status`, `GET /graph` | Служебное: здоровье, состояние, пространства и агенты |
+| `GET /spaces`, `POST /spaces {path,name?,url?}`, `DELETE /spaces/:name?force=1` | Пространства |
+| `GET /agents`, `POST /agents {space?,name?,prompt?,parent?,from?,wait?}` | Список и создание агентов |
+| `GET /agents/:ref`, `DELETE /agents/:ref` | Агент |
+| `POST /agents/:ref/send {text,from?,wait?}`, `POST /agents/:ref/cancel` | Сообщение, прервать ход |
+| `POST /agents/:ref/permission/:requestId {approve}` | Решение по запросу прав |
+| `GET /agents/:ref/history`, `GET /agents/:ref/stream` (SSE) | Журнал и живой поток событий агента |
+| `GET /messages?agent=&since=&limit=` | Общая лента |
+| `GET /inbox?wait=&peek=1&after=` | Новые сообщения для «Вы» (long-poll) |
+| `GET /stream` (SSE) | Снапшот и все изменения графа и ленты |
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+Типы запросов, ответов и событий описаны в [`shared/types/`](shared/types). Их используют сервер, CLI и UI.
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+## Настройка (переменные окружения)
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `ORCH_PORT` | `4337` | Порт API и UI |
+| `NESSY_ORCH_HOME` | `~/.nessy-orch` | Состояние, журналы, логи |
+| `NESSY_BIN` | `~/.local/bin/nessy` | Исполняемый файл nessy |
+| `NESSY_SERVE_ARGS` | — | Дополнительные аргументы `nessy serve` |
+| `SERVE_BASE_PORT` | `4360` | Начало пула портов для `nessy serve` |
+| `MAX_SESSIONS` | `20` | Сессий на пространство |
+| `ORCH_AUTO_APPROVE` | `1` | Автоподтверждение прав агентов |
+| `ORCH_MAX_HOPS` | `8` | Максимальная длина цепочки агент → агент |
+| `ORCH_RATE_LIMIT` | `30` | Сообщений на пару в минуту |
+| `ORCH_HEALTH_TIMEOUT_MS` | `60000` | Ожидание готовности `nessy serve` |
+| `ORCH_UI_DIR` | `ui/dist` | Каталог собранного UI |
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+Логи: `~/.nessy-orch/logs/space-<имя>.log` (serve). При запуске через launchd лог оркестратора пишется в `orch.{out,err}.log`.
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+## Архитектура
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+Сервер работает без рантайм-зависимостей (только стандартная библиотека Node). Код разделён на слои, зависимости
+направлены внутрь. Типы лежат в отдельных файлах (`types.ts`, `*.types.ts`, `ports.ts`) и не смешиваются с кодом.
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```text
+shared/types/            контракт сервер ⇄ CLI ⇄ UI (только типы): domain, events, api
+src/
+  main.ts, app.ts        точка входа и сборка зависимостей (composition root)
+  lib/                   общие утилиты: безопасный разбор JSON, id, текст, async
+  domain/                чистая логика без IO: маршрутизация, лимиты, граф ожиданий, статусы, вводная агента
+  application/           сценарии: оркестратор, агенты, сообщения, пространства, шина событий, порты (интерфейсы)
+    agent/               агент: очередь, ход, журнал событий
+    services/            spaces / messaging / agents
+  infrastructure/        адаптеры портов
+    nessy/               клиент nessy serve и чистый маппер событий — единственное место, знающее протокол nessy
+    persistence/         state.json (атомарно) + JSONL-журналы
+    process/             запуск и контроль процессов nessy serve
+    sse/, config/        SSE-парсер и форматтер, загрузка конфигурации
+  interfaces/
+    http/                HTTP-сервер: роутер, guard (Host/Origin), валидация тел, SSE, статика UI, routes/*
+    cli/                 CLI: аргументы, клиент API, форматирование, commands/*, launchd
+ui/src/                  React + Vite, Feature-Sliced Design
+  app/                   корень, раскладка, горячие клавиши, стили и дизайн-токены
+  widgets/               topbar, roster, graph, feed, agent-chat, tabbar
+  features/              spawn-agent, add-space, compose-message, agent-actions, permission
+  entities/              agent (статусы, аватар, поток событий), message (пузыри, markdown)
+  shared/                api-клиент, стор (SSE /stream), утилиты, UI-примитивы
+test/
+  unit/                  lib, domain, application, infrastructure, interfaces
+  integration/           api, messaging, lifecycle, streams, persistence
+  support/               тестовый стенд, фейковый nessy serve
+e2e/                     Playwright: сценарии UI и адаптивность на 5 размерах экрана
+docs/                    требования и контракт nessy serve (ACP)
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+Подробнее: [docs/requirements.md](docs/requirements.md), [docs/contract/README.md](docs/contract/README.md).
 
-## License
-For open source projects, say how it is licensed.
+## Разработка
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```sh
+npm run build          # сервер (tsc) + UI (vite)
+npm run typecheck      # строгая типизация сервера и UI
+npm run lint           # ESLint strictTypeChecked, запрет any
+npm test               # unit + интеграционные тесты сервера (node:test, фейковый nessy)
+npm run test:e2e       # e2e UI в Playwright (нужен npm run build и npx playwright install chromium)
+npm run check          # typecheck + lint + test
+npm run dev:ui         # Vite dev-сервер на :5173 с прокси на запущенный оркестратор
+```
+
+Правила кода: TypeScript strict, `any` и `@ts-ignore` запрещены линтером. Внешний JSON читается только через
+хелперы `src/lib/json.ts`. В UI типы контракта импортируются как `import type … from '@contract'`.
+
+## Ограничения
+
+- Если оркестратор перезапустится посреди хода, обрабатываемое сообщение теряется: сохраняется только очередь.
+- Форматы `nessy/error` и `prompt_cancelled` взяты из референсного кода nessy и живьём ещё не проверены.
+- Аутентификации нет, доступ только с loopback.
