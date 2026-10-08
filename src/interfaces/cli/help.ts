@@ -33,8 +33,6 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
 СЛУЖЕБНОЕ
   status               состояние оркестратора   open   открыть UI
   install [--print]    установить launchd-сервис  uninstall
-  doctor [--fix]       диагностика: оркестратор, lock, процессы nessy serve (осиротевшие), агенты против
-                       MAX_SESSIONS. --fix — остановить осиротевшие serve. Работает и без оркестратора
 
 ОБЩИЕ ФЛАГИ: --json (машинный вывод), --help
 Переменные: ORCH_PORT (по умолчанию 4337), NO_COLOR`

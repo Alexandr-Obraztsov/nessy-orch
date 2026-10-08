@@ -1,5 +1,5 @@
 /**
- * Стенд интеграционных тестов: настоящее приложение (buildApp → listen → start) + фейковый nessy serve,
+ * Стенд интеграционных тестов: настоящее приложение (buildApp) + фейковый nessy serve,
  * свой каталог состояния, свой порт API и свой диапазон портов serve.
  * close() обязательно вызывать в after(): останавливает HTTP, агентов и процессы serve.
  */
@@ -13,12 +13,12 @@ import type { Config } from '../../src/infrastructure/config/config.types'
 import { request, SseClient } from './http-client'
 import type { Harness, HarnessOptions } from './support.types'
 
-export const ROOT = path.resolve(__dirname, '..', '..', '..')
-export const FAKE = path.join(ROOT, 'dist', 'test', 'support', 'fake-nessy.js')
-export const CLI = path.join(ROOT, 'bin', 'nessy-orch')
+const ROOT = path.resolve(__dirname, '..', '..', '..')
+const FAKE = path.join(ROOT, 'dist', 'test', 'support', 'fake-nessy.js')
+const CLI = path.join(ROOT, 'bin', 'nessy-orch')
 let counter = 0
 
-export function freeApiPort(): Promise<number> {
+function freeApiPort(): Promise<number> {
 	return new Promise((resolve, reject) => {
 		const s = net.createServer()
 		s.once('error', reject)
@@ -36,29 +36,6 @@ function serveBasePort(): number {
 	return 21000 + ((process.pid * 53 + counter * 211) % 24000)
 }
 
-/** Конфигурация стенда: home/ws внутри base, фейковый nessy, свой диапазон портов serve. */
-export function testConfig(base: string, port: number, extra: Partial<Config> = {}): Config {
-	return {
-		root: ROOT,
-		host: '127.0.0.1',
-		port,
-		home: path.join(base, 'home'),
-		nessyBin: FAKE,
-		nessyServeArgs: [],
-		serveBasePort: serveBasePort(),
-		maxSessionsPerSpace: 20,
-		autoApprove: true,
-		maxHops: 8,
-		rateLimitPerMinute: 30,
-		healthTimeoutMs: 10000,
-		uiDir: path.join(base, 'ui'),
-		cliPath: CLI,
-		seedRoles: false,
-		rolesDir: path.join(base, 'roles'),
-		...extra,
-	}
-}
-
 export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
 	const base = opts.base ?? fs.mkdtempSync(path.join(os.tmpdir(), 'nessy-orch-test-'))
 	const home = path.join(base, 'home')
@@ -69,7 +46,25 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 	let port = 0
 	for (let attempt = 0; attempt < 5 && !app; attempt++) {
 		port = await freeApiPort()
-		const config = testConfig(base, port, opts.config)
+		const config: Config = {
+			root: ROOT,
+			host: '127.0.0.1',
+			port,
+			home,
+			nessyBin: FAKE,
+			nessyServeArgs: [],
+			serveBasePort: serveBasePort(),
+			maxSessionsPerSpace: 20,
+			autoApprove: true,
+			maxHops: 8,
+			rateLimitPerMinute: 30,
+			healthTimeoutMs: 10000,
+			uiDir: path.join(base, 'ui'),
+			cliPath: CLI,
+			seedRoles: false,
+			rolesDir: path.join(base, 'roles'),
+			...opts.config,
+		}
 		const candidate = buildApp(config, 'test')
 		try {
 			await candidate.listen()
@@ -79,10 +74,10 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 		}
 	}
 	if (!app) throw new Error('не удалось поднять API на свободном порту')
+	app.start()
 	// агент фейкового serve выполняет `#relay` через настоящий CLI, направленный на этот стенд
 	process.env['FAKE_NESSY_CLI'] = `ORCH_PORT=${port} NO_COLOR=1 ${process.execPath} ${CLI}`
 	process.env['FAKE_NESSY_DELAY_MS'] ??= '10'
-	if (opts.start !== false) await app.start()
 
 	const started = app
 	let closed = false

@@ -134,7 +134,6 @@ export class ServeSpace implements SpaceRuntime {
 		log.on('error', () => undefined) // каталог логов мог исчезнуть — не роняем процесс
 		log.write(`\n--- ${new Date().toISOString()} spawn ${settings.nessyBin} ${args.join(' ')}\n`)
 		const proc = spawn(settings.nessyBin, args, { cwd: this.path, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
-		this.deps.processes?.track(proc, { port, workspace: this.path })
 		const onData = (d: Buffer | string): void => {
 			log.write(d)
 			for (const l of String(d).split('\n')) if (l.trim()) this.tail.push(l.trim())
@@ -169,6 +168,17 @@ export class ServeSpace implements SpaceRuntime {
 		setTimeout(() => {
 			if (p.exitCode === null && p.signalCode === null) p.kill('SIGKILL')
 		}, KILL_GRACE_MS).unref()
+	}
+
+	killSync(): void {
+		const p = this.proc
+		if (p && p.exitCode === null && p.signalCode === null) {
+			try {
+				p.kill('SIGTERM')
+			} catch {
+				/* процесс уже завершается */
+			}
+		}
 	}
 
 	async stop(): Promise<void> {

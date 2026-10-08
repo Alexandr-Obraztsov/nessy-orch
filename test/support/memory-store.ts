@@ -107,6 +107,10 @@ export class FakeGateway implements NessyGateway {
 }
 
 export class FakeSpace implements SpaceRuntime {
+	killSync(): void {
+		/* фейк без процесса */
+	}
+
 	readonly url = null
 	readonly color = 210
 	status: SpaceView['status'] = 'ready'

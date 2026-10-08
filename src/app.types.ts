@@ -6,12 +6,9 @@ export interface AppInstance {
 	server: http.Server
 	/** начать слушать config.host:config.port */
 	listen(): Promise<void>
-	/**
-	 * Фоновая работа — только после успешного listen(): остановить осиротевшие serve прошлых запусков,
-	 * затем доставить восстановленные очереди (по одному агенту). Повторный вызов — тот же промис.
-	 */
-	start(): Promise<void>
-	/** Синхронно послать SIGTERM всем запущенным serve (process.on('exit'), аварийный выход). */
+	/** начать фоновую работу (доставка восстановленных очередей) — после успешного listen */
+	start(): void
+	/** синхронно погасить запущенные nessy serve (на выходе процесса) */
 	killChildrenSync(): void
 	/** закрыть HTTP, отцепить агентов, остановить serve, записать состояние */
 	close(): Promise<void>

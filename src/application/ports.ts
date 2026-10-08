@@ -86,6 +86,8 @@ export interface SpaceRuntime {
 	/** Гарантировать, что nessy serve поднят. */
 	ensureReady(): Promise<NessyGateway>
 	stop(): Promise<void>
+	/** Синхронно послать SIGTERM своему nessy serve (на выходе процесса, когда ждать уже нельзя). */
+	killSync(): void
 	toJSON(): SpaceView
 }
 
