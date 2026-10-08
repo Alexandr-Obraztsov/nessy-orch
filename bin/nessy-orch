@@ -1,0 +1,11 @@
+#!/usr/bin/env node
+'use strict';
+// Тонкая обёртка: запускает собранный CLI. Если dist/ нет — подсказывает, что делать.
+const path = require('node:path');
+const fs = require('node:fs');
+const entry = path.join(__dirname, '..', 'dist', 'src', 'cli', 'main.js');
+if (!fs.existsSync(entry)) {
+  process.stderr.write('nessy-orch: проект не собран. Выполните: cd ' + path.join(__dirname, '..') + ' && npm install && npm run build\n');
+  process.exit(1);
+}
+require(entry);

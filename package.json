@@ -1,0 +1,29 @@
+{
+  "name": "nessy-orch",
+  "version": "2.0.0",
+  "description": "Оркестратор nessy: мультиспейсы, граф агентов, общая лента, HTTP/SSE API и CLI",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "nessy-orch": "bin/nessy-orch"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "npm run build && node --test --test-force-exit \"dist/test/*.test.js\"",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "start": "npm run build && node dist/src/main.js",
+    "demo": "npm run build && NESSY_BIN=$PWD/dist/test/fake-nessy.js NESSY_ORCH_HOME=${TMPDIR:-/tmp}/nessy-orch-demo node dist/src/main.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

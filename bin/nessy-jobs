@@ -1,16 +1,6 @@
 #!/usr/bin/env node
-/** nessy-jobs — список активных задач nessy через оркестратор. */
 'use strict';
-const http = require('http');
-const ORCH = { host: '127.0.0.1', port: parseInt(process.env.ORCH_PORT || '4337', 10) };
-
-http.get({ ...ORCH, path: '/jobs' }, (res) => {
-  let d = ''; res.on('data', (c) => (d += c)); res.on('end', () => {
-    let list; try { list = JSON.parse(d); } catch { console.error('bad response'); process.exit(1); }
-    if (!list.length) { console.log('задач нет'); return; }
-    for (const j of list) {
-      const nm = j.displayName || (j.prompt || '').slice(0, 60);
-      console.log(`${j.id.padEnd(18)} ${j.status.padEnd(8)} ${j.workspace.padEnd(50)} ${nm}`);
-    }
-  });
-}).on('error', (e) => { console.error('оркестратор недоступен:', e.message); process.exit(1); });
+// Совместимость: nessy-jobs → nessy-orch ls
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+process.exit(spawnSync(process.execPath, [path.join(__dirname, 'nessy-orch'), 'ls'], { stdio: 'inherit' }).status ?? 1);
