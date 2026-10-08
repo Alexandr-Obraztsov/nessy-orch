@@ -1,7 +1,8 @@
 /** Жизненный цикл агентов: создание, удаление, прерывание, архив, разрешения, история чата. */
-import type { AgentEvent, AgentView, Message, SendResponse, SpawnRequest, SpawnResponse } from '../../../shared/types'
+import type { AgentEvent, AgentView, Message, PlanRequest, SendResponse, SpawnRequest, SpawnResponse } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { uniqueName } from '../../domain/naming'
+import { validatePlanEntries } from '../../domain/plan'
 import { buildPreamble } from '../../domain/preamble'
 import type { AgentIdentity, PeerInfo } from '../../domain/types'
 import { Agent } from '../agent/agent'
@@ -91,6 +92,18 @@ export class AgentsService {
 	restore(ref: string): AgentView {
 		const agent = this.ctx.registry.resolveAgent(ref)
 		agent.setArchived(false)
+		return agent.toJSON()
+	}
+
+	/**
+	 * План агента: заменить целиком (entries) или убрать (null). План пишет сам агент:
+	 * `from` (если указан) должен быть id этого агента, иначе 403 forbidden.
+	 */
+	setPlan(ref: string, req: Pick<PlanRequest, 'from'> & { entries: unknown }): AgentView {
+		const agent = this.ctx.registry.resolveAgent(ref)
+		if (req.from !== undefined && req.from !== agent.id)
+			throw new AppError(403, 'forbidden', `план агента ${agent.id} может менять только он сам (from=${req.from})`)
+		agent.setPlan(req.entries === null ? null : validatePlanEntries(req.entries), 'cli')
 		return agent.toJSON()
 	}
 

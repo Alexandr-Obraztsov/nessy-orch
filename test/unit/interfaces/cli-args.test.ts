@@ -40,3 +40,11 @@ describe('CLI parseArgs', () => {
 		assert.deepEqual(endpoint({}), { host: '127.0.0.1', port: 4337 })
 	})
 })
+
+describe('CLI parseArgs: пункты чек-листа', () => {
+	it('«- [x] шаг» — позиционный, а не флаг', () => {
+		const p = parseArgs(['--from', 'a-1', '- [x] шаг 1', '- [~] шаг 2', '- текст'], { value: ['from'] })
+		assert.deepEqual(p.positionals, ['- [x] шаг 1', '- [~] шаг 2', '- текст'])
+		assert.equal(flagStr(p, 'from'), 'a-1')
+	})
+})

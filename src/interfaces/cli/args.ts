@@ -10,7 +10,8 @@ export function parseArgs(argv: readonly string[], spec: FlagSpec): Parsed {
 	let rest = false
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i] as string
-		if (rest || !a.startsWith('-') || a === '-') {
+		// «- [x] шаг» — пункт чек-листа (nessy-orch plan), а не флаг: после дефиса пробел
+		if (rest || !a.startsWith('-') || a === '-' || /^-\s/.test(a)) {
 			positionals.push(a)
 			continue
 		}

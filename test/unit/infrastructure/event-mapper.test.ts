@@ -161,3 +161,34 @@ describe('маппер событий nessy: верхний уровень', () 
 			assert.equal(map(t, frame(t, {})), null, t)
 	})
 })
+
+describe('маппер событий nessy: план (ACP plan)', () => {
+	it('entries {content, priority, status} → plan; priority отбрасывается, неизвестный статус → pending', () => {
+		const ev = map(
+			'session_update',
+			su({
+				sessionUpdate: 'plan',
+				entries: [
+					{ content: 'Прочитать', priority: 'high', status: 'completed' },
+					{ content: 'Исправить', priority: 'medium', status: 'in_progress' },
+					{ content: 'Проверить', priority: 'low', status: 'pending' },
+					{ content: 'Странное', status: 'weird' },
+					'мусор',
+				],
+			}),
+		)
+		assert.deepEqual(ev, {
+			kind: 'plan',
+			entries: [
+				{ content: 'Прочитать', status: 'completed' },
+				{ content: 'Исправить', status: 'in_progress' },
+				{ content: 'Проверить', status: 'pending' },
+				{ content: 'Странное', status: 'pending' },
+				{ content: '', status: 'pending' },
+			],
+		})
+	})
+	it('план без entries → пустой план', () => {
+		assert.deepEqual(map('session_update', su({ sessionUpdate: 'plan' })), { kind: 'plan', entries: [] })
+	})
+})

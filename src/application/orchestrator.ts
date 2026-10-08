@@ -180,6 +180,11 @@ export class Orchestrator implements AgentHost {
 		return this.agentsSvc.restore(ref)
 	}
 
+	/** Заменить план агента (entries) или убрать его (null); проверки — в AgentsService.setPlan. */
+	setPlan(ref: string, req: { from?: string; entries: unknown }): AgentView {
+		return this.agentsSvc.setPlan(ref, req)
+	}
+
 	resolvePermission(ref: string, requestId: string, approve: boolean): Promise<boolean> {
 		return this.agentsSvc.resolvePermission(ref, requestId, approve)
 	}

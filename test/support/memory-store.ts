@@ -55,7 +55,8 @@ export class FakeGateway implements NessyGateway {
 	prompts: string[] = []
 	votes: Array<{ requestId: string; optionId: string | null }> = []
 	cancels = 0
-	private opts: SubscribeOptions | null = null
+	/** подписки по сессиям (агентов может быть несколько) */
+	private readonly subs = new Map<string, SubscribeOptions>()
 	private n = 0
 
 	health(): Promise<boolean> {
@@ -91,12 +92,17 @@ export class FakeGateway implements NessyGateway {
 		this.votes.push({ requestId, optionId })
 		return Promise.resolve()
 	}
-	subscribe(_sessionId: string, opts: SubscribeOptions): SessionSubscription {
-		this.opts = opts
-		return { close: () => (this.opts = null) }
+	subscribe(sessionId: string, opts: SubscribeOptions): SessionSubscription {
+		this.subs.set(sessionId, opts)
+		return {
+			close: () => {
+				if (this.subs.get(sessionId) === opts) this.subs.delete(sessionId)
+			},
+		}
 	}
+	/** Событие во все подписанные сессии (агенты вне хода игнорируют чужие события). */
 	emit(...events: Parameters<SubscribeOptions['onEvent']>[0][]): void {
-		for (const e of events) this.opts?.onEvent(e, null)
+		for (const e of events) for (const o of [...this.subs.values()]) o.onEvent(e, null)
 	}
 }
 

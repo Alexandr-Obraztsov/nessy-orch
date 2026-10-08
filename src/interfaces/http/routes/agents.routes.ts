@@ -1,5 +1,5 @@
 /** Маршруты агентов. */
-import { parseApprove, parseSendRequest, parseSpawnRequest } from '../parsers'
+import { parseApprove, parsePlanRequest, parseSendRequest, parseSpawnRequest } from '../parsers'
 import { queryNum, readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -24,6 +24,13 @@ export function registerAgentRoutes(r: Router): void {
 	r.add('POST', '/agents/:ref/archive', ({ res, orch, params }) => sendJson(res, 200, orch.archiveAgent(params['ref'] ?? '')))
 	r.add('POST', '/agents/:ref/restore', ({ res, orch, params }) => sendJson(res, 200, orch.restoreAgent(params['ref'] ?? '')))
 	r.add('POST', '/agents/:ref/cancel', async ({ res, orch, params }) => sendJson(res, 200, await orch.cancelAgent(params['ref'] ?? '')))
+	r.add('POST', '/agents/:ref/plan', async ({ req, res, orch, params }) => {
+		const body = await readBody(req)
+		sendJson(res, 200, orch.setPlan(params['ref'] ?? '', parsePlanRequest(body)))
+	})
+	r.add('DELETE', '/agents/:ref/plan', ({ res, orch, params, query }) =>
+		sendJson(res, 200, orch.setPlan(params['ref'] ?? '', { from: query.get('from') ?? undefined, entries: null })),
+	)
 	r.add('POST', '/agents/:ref/permission/:requestId', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)
 		const ok = await orch.resolvePermission(params['ref'] ?? '', params['requestId'] ?? '', parseApprove(body))

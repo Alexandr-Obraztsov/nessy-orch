@@ -11,13 +11,15 @@
  * Успешно закончив ход с пустой очередью, агент уходит в архив (archived): сессия и подписка сохраняются,
  * любое новое сообщение возвращает его в работу с прежним контекстом.
  */
-import type { AgentStatus, AgentView, Message, ToolBrief } from '../../../shared/types'
+import type { AgentPlan, AgentStatus, AgentView, Message, PlanEntry, ReplyBrief, ToolBrief } from '../../../shared/types'
 import { archiveAfterTurn, restoredStatus, statusAfterAttach, statusAfterTurn } from '../../domain/agent-status'
+import { YOU } from '../../domain/constants'
 import { pickPermissionOption } from '../../domain/permission'
+import { coercePlanEntries, planOnTurnStart } from '../../domain/plan'
 import { framePrompt } from '../../domain/routing'
 import type { AgentIdentity, TurnOutcome } from '../../domain/types'
 import { errMsg } from '../../lib/json'
-import { clip } from '../../lib/text'
+import { clip, plainText } from '../../lib/text'
 import type { PersistedAgent } from '../persisted.types'
 import type { SessionEvent, SessionSubscription } from '../ports'
 import { AgentJournal } from './agent-journal'
@@ -39,7 +41,16 @@ export class Agent implements AgentIdentity {
 	error: string | null = null
 	queue: Message[] = []
 	lastActivityAt: string
+	/** текст последнего ответа (для превью) */
 	lastReply = ''
+	/** план агента (сообщает сам: CLI или ACP `plan`) */
+	plan: AgentPlan | null = null
+	/** число вызовов инструментов в текущем (или последнем) ходе */
+	turnSteps = 0
+	/** длительность последнего завершённого хода, мс */
+	lastTurnMs: number | null = null
+	/** последний ответ оператору (you) */
+	replyBrief: ReplyBrief | null = null
 	/** скрыт из рабочего списка: задача выполнена, сессия сохранена */
 	archived = false
 
@@ -88,6 +99,10 @@ export class Agent implements AgentIdentity {
 		a.queue = p.queue
 		a.lastActivityAt = p.lastActivityAt
 		a.lastReply = p.lastReply
+		a.plan = p.plan ?? null
+		a.turnSteps = p.turnSteps ?? 0
+		a.lastTurnMs = p.lastTurnMs ?? null
+		a.replyBrief = p.replyBrief ?? null
 		a.archived = p.archived === true
 		a.resume = p.sessionId !== null // сессия поднимется лениво, при первом сообщении
 		return a
@@ -112,6 +127,10 @@ export class Agent implements AgentIdentity {
 			lastTool: this.lastTool,
 			preview: clip(this.current?.text || this.lastReply, 140),
 			pendingPermissions: [...this.pending.values()].map(p => ({ requestId: p.requestId, title: p.title })),
+			plan: this.plan,
+			turnSteps: this.turnSteps,
+			lastTurnMs: this.lastTurnMs,
+			lastReply: this.replyBrief,
 		}
 	}
 
@@ -134,6 +153,10 @@ export class Agent implements AgentIdentity {
 			evSeq: this.journal.evSeq,
 			lastActivityAt: this.lastActivityAt,
 			lastReply: this.lastReply,
+			plan: this.plan,
+			turnSteps: this.turnSteps,
+			lastTurnMs: this.lastTurnMs,
+			replyBrief: this.replyBrief,
 		}
 	}
 
@@ -181,6 +204,14 @@ export class Agent implements AgentIdentity {
 	addSystem(text: string, level: 'info' | 'error' = 'info'): void {
 		this.journal.add({ kind: 'system', level, text })
 		this.touch()
+	}
+
+	// ---------- план ----------
+	/** Заменить план целиком (null — убрать). Правила проверки — domain/plan.ts. */
+	setPlan(entries: readonly PlanEntry[] | null, source: AgentPlan['source']): void {
+		this.plan = entries && entries.length ? { entries: [...entries], updatedAt: this.isoNow(), source } : null
+		this.touch()
+		this.publishNode()
 	}
 
 	// ---------- подключение к nessy ----------
@@ -277,7 +308,8 @@ export class Agent implements AgentIdentity {
 			const failed = this.queue.splice(0)
 			this.urgent = 0
 			this.pumping = false
-			for (const m of failed) this.deps.host.onTurnDone(this, m, '', { error: errMsg(e) })
+			for (const m of failed) this.noteReply(this.deps.host.onTurnDone(this, m, '', { error: errMsg(e) }))
+			if (failed.length) this.publishNode()
 			return
 		}
 		this.pumping = false
@@ -286,8 +318,11 @@ export class Agent implements AgentIdentity {
 		if (!msg) return
 		if (this.urgent > 0) this.urgent--
 
-		this.current = { msg, promptId: null, text: '', startedAt: this.isoNow(), error: null, cancelRequested: false, sent: false }
+		this.current = { msg, promptId: null, text: '', startedAt: this.isoNow(), startedMs: this.deps.clock.now(), error: null, cancelRequested: false, sent: false }
 		this.journal.resetTools()
+		this.turnSteps = 0
+		// новая задача от оператора после выполненного плана — план сбрасывается (уточнения его сохраняют)
+		this.plan = planOnTurnStart(this.plan, msg.from === YOU, this.queue.length)
 		this.setStatus('working')
 		this.journal.add({ kind: 'user', from: msg.from, msgId: msg.id, text: msg.text })
 		try {
@@ -373,7 +408,10 @@ export class Agent implements AgentIdentity {
 			this.deps.host.saveSoon()
 		}
 		// после неподтверждённой отмены содержимое старого промпта не должно попасть в новый ход
-		if (this.staleEvents && (ev.kind === 'text' || ev.kind === 'thought' || ev.kind === 'tool' || ev.kind === 'turn_error' || ev.kind === 'permission'))
+		if (
+			this.staleEvents &&
+			(ev.kind === 'text' || ev.kind === 'thought' || ev.kind === 'tool' || ev.kind === 'turn_error' || ev.kind === 'permission' || ev.kind === 'plan')
+		)
 			return
 		switch (ev.kind) {
 			case 'text':
@@ -407,6 +445,10 @@ export class Agent implements AgentIdentity {
 				if (this.current.promptId && ev.promptId && this.current.promptId !== ev.promptId) return
 				this.finishTurn({ stopReason: 'cancelled' })
 				return
+			case 'plan':
+				if (!this.current) return // реплей вне хода игнорируем: план мог смениться через CLI
+				this.setPlan(coercePlanEntries(ev.entries), 'acp')
+				return
 			case 'followup':
 				return // подсказки следующего вопроса оркестратору не нужны
 			case 'died':
@@ -434,6 +476,7 @@ export class Agent implements AgentIdentity {
 		const [rec, created] = this.journal.upsertTool(ev)
 		this.touch()
 		if (created) {
+			this.turnSteps++
 			this.lastTool = { name: rec.name, title: clip(rec.title || JSON.stringify(rec.input), 120) }
 			this.publishNode()
 		}
@@ -471,6 +514,7 @@ export class Agent implements AgentIdentity {
 		const cur = this.current
 		if (!cur) return
 		this.current = null
+		this.lastTurnMs = Math.max(0, this.deps.clock.now() - cur.startedMs)
 		this.clearCancelTimer()
 		if (cur.promptId) {
 			this.donePrompts.push(cur.promptId)
@@ -490,7 +534,15 @@ export class Agent implements AgentIdentity {
 		const queued = this.queue.length
 		if (archiveAfterTurn(info, queued)) this.archived = true
 		this.setStatus(statusAfterTurn(info, queued), info.error ?? null)
-		this.deps.host.onTurnDone(this, cur.msg, text, info)
+		if (this.noteReply(this.deps.host.onTurnDone(this, cur.msg, text, info))) this.publishNode()
 		void this.pump()
+	}
+
+	/** Запомнить ответ оператору (you) для карточки агента. true — запомнили. */
+	private noteReply(reply: Message | null): boolean {
+		if (!reply || reply.to !== YOU) return false
+		this.replyBrief = { msgId: reply.id, ts: reply.ts, preview: clip(plainText(reply.text), 200) }
+		if (reply.failed) this.replyBrief.failed = reply.failed
+		return true
 	}
 }

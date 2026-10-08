@@ -1,15 +1,16 @@
-/** Команды агентов: spawn, send, ask, ls, show, watch, cancel, archive, restore, kill. */
+/** Команды агентов: spawn, send, ask, ls, show, watch, plan, cancel, archive, restore, kill. */
 import * as path from 'node:path'
 import type { AgentEvent, AgentView, GraphView, SendResponse, SpawnResponse } from '../../../../shared/types'
+import { parsePlanArgs } from '../../../domain/plan'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { Parsed } from '../args.types'
 import { asAgentStreamEvent, sse } from '../client'
 import { CliError } from '../errors'
-import { agentsTable, bold, dim, green, red, status, time } from '../format'
+import { agentsTable, bold, dim, green, planText, red, status, time } from '../format'
 import { del, enc, ep, get, info, json, out, post } from '../io'
 import { renderEvent } from '../render-event'
 import type { CommandTable } from './command.types'
-import { COMMON, SEND_FLAGS, SPAWN_FLAGS, WAIT_FLAGS } from './flags'
+import { COMMON, PLAN_FLAGS, SEND_FLAGS, SPAWN_FLAGS, WAIT_FLAGS } from './flags'
 
 /** Пространство задают именем или путём; относительный путь считаем от текущего каталога CLI, а не сервера. */
 function spaceArg(v: string | undefined): string | undefined {
@@ -134,6 +135,31 @@ async function cmdWatch(p: Parsed): Promise<void> {
 	out('')
 }
 
+const PLAN_USAGE = 'использование: nessy-orch plan --from <твой id> "- [x] шаг" "- [~] шаг" "- [ ] шаг" | plan <агент> [--clear]'
+
+/**
+ * План агента. С --from — агент публикует свой план (каждый аргумент — пункт чек-листа, список целиком);
+ * --clear — убрать план; без пунктов — показать текущий план.
+ */
+async function cmdPlan(p: Parsed): Promise<void> {
+	const from = flagStr(p, 'from')
+	const args = [...p.positionals]
+	const ref = from ?? args.shift()
+	if (!ref) throw new CliError(PLAN_USAGE, 2)
+	let a: AgentView
+	if (flagBool(p, 'clear')) {
+		if (args.length) throw new CliError('--clear не сочетается с пунктами плана', 2)
+		await del(`/agents/${enc(ref)}/plan${from ? `?from=${enc(from)}` : ''}`)
+		a = await get<AgentView>(`/agents/${enc(ref)}`)
+	} else if (args.length) {
+		a = await post<AgentView>(`/agents/${enc(ref)}/plan`, { from, entries: parsePlanArgs(args) })
+	} else {
+		a = await get<AgentView>(`/agents/${enc(ref)}`)
+	}
+	if (flagBool(p, 'json')) return json(a.plan)
+	out(a.plan ? planText(a.plan) : dim(`у агента ${a.id} нет плана`))
+}
+
 async function cmdCancel(p: Parsed): Promise<void> {
 	const ref = p.positionals[0]
 	if (!ref) throw new CliError('использование: nessy-orch cancel <агент>', 2)
@@ -163,6 +189,7 @@ export const agentCommands: CommandTable = {
 	ask: { run: cmdAsk, spec: WAIT_FLAGS },
 	show: { run: cmdShow, spec: { bool: ['json', 'help'], value: ['n'] } },
 	watch: { run: cmdWatch, spec: COMMON },
+	plan: { run: cmdPlan, spec: PLAN_FLAGS },
 	cancel: { run: cmdCancel, spec: COMMON },
 	archive: { run: p => cmdArchive(p, 'archive'), spec: COMMON },
 	restore: { run: p => cmdArchive(p, 'restore'), spec: COMMON },

@@ -111,6 +111,7 @@ nessy-orch send <агент|you> "текст" [--wait] [--queue] [--timeout СЕ
 nessy-orch ask <путь|space> "задача"          # = spawn --wait
 nessy-orch ls [--all] | show <агент> | watch <агент> | cancel <агент> | kill <агент>
 nessy-orch archive <агент> | restore <агент>
+nessy-orch plan <агент> | plan --from <свой id> "- [x] …" "- [~] …" "- [ ] …" [--clear]   # план агента: показать | опубликовать (агент сам)
 nessy-orch role ls | role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] | role show <id> | role rm <id>
 nessy-orch role import [путь] [--force] [--dry-run]   # роли из markdown-файлов (по умолчанию roles/); role export <id> [--out файл]
 nessy-orch feed [-n 30] [--follow]
@@ -168,6 +169,7 @@ nessy-orch status | open | install [--print] | uninstall
 | `GET /agents`, `POST /agents {space?,name?,role?,prompt?,parent?,from?,wait?}` | Список (включая архивных) и создание агентов |
 | `GET /agents/:ref`, `DELETE /agents/:ref` | Агент |
 | `POST /agents/:ref/send {text,from?,interrupt?,wait?}`, `POST /agents/:ref/cancel` | Сообщение (от «Вы» по умолчанию прерывает ход), прервать ход |
+| `POST /agents/:ref/plan {from?,entries}`, `DELETE /agents/:ref/plan` | План агента (публикует сам агент; чужой `from` → `403`) |
 | `POST /agents/:ref/archive`, `POST /agents/:ref/restore` | Убрать в архив (`409 busy`, если работает), вернуть из архива |
 | `GET /roles`, `POST /roles`, `GET\|PUT\|DELETE /roles/:id` | Роли (`{name, instructions, description?, color?, id?}`) |
 | `POST /agents/:ref/permission/:requestId {approve}` | Решение по запросу прав |
@@ -207,7 +209,7 @@ shared/types/            контракт сервер ⇄ CLI ⇄ UI (толь�
 src/
   main.ts, app.ts        точка входа и сборка зависимостей (composition root)
   lib/                   общие утилиты: безопасный разбор JSON, id, текст, async
-  domain/                чистая логика без IO: маршрутизация, лимиты, граф ожиданий, статусы, вводная агента
+  domain/                чистая логика без IO: маршрутизация, лимиты, граф ожиданий, статусы, план, вводная агента
   application/           сценарии: оркестратор, агенты, сообщения, пространства, шина событий, порты (интерфейсы)
     agent/               агент: очередь, ход, журнал событий
     services/            spaces / messaging / agents / roles
@@ -227,7 +229,7 @@ ui/src/                  React + Vite, Feature-Sliced Design
   shared/                api-клиент, стор (SSE /stream), утилиты, UI-примитивы
 test/
   unit/                  lib, domain, application, infrastructure, interfaces
-  integration/           api, messaging, lifecycle, archive, roles, streams, persistence
+  integration/           api, messaging, lifecycle, archive, roles, plan, streams, persistence
   support/               тестовый стенд, фейковый nessy serve
 e2e/                     Playwright: сценарии UI и адаптивность на 5 размерах экрана
 docs/                    требования и контракт nessy serve (ACP)

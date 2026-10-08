@@ -13,6 +13,7 @@
  *   «#slow»            → долгий ответ (~1.5 с), можно прервать cancel
  *   «#long»            → ответ с markdown (заголовки, список, код, таблица), стримится ~3 с
  *   «#tools»           → три инструмента подряд: read_file, grep, run_shell_command
+ *   «#plan»            → ACP-план из трёх шагов; статусы продвигаются по мере трёх инструментов, в конце все completed
  *   «#error»           → ошибка хода (agent_message_chunk с _meta['nessy/error']) + turn_complete
  *   «#fail»            → аварийное завершение сессии (session_died)
  *   «#relay <args>»    → выполнить shell `$FAKE_NESSY_CLI send <args>` (как сделал бы реальный агент)
@@ -125,6 +126,12 @@ class Script {
 		return this
 	}
 
+	/** ACP `plan`: план целиком; statuses — статус каждого шага по порядку. */
+	plan(steps: readonly string[], statuses: readonly string[]): this {
+		const entries = steps.map((content, i) => ({ content, priority: 'medium', status: statuses[i] ?? 'pending' }))
+		return this.at(STEP, () => update(this.s, { sessionUpdate: 'plan', entries }))
+	}
+
 	finish(stopReason = 'end_turn'): this {
 		return this.at(STEP, () => endTurn(this.s, this.turn, stopReason))
 	}
@@ -211,6 +218,20 @@ function runPrompt(s: Session, promptId: string, text: string): void {
 			.tool('grep', 'search', 'Grep: TODO', { pattern: 'TODO', path: 'src' }, 'src/app.ts:12: // TODO: метрики\nsrc/main.ts:40: // TODO: graceful reload')
 			.tool('run_shell_command', 'execute', 'Shell: npm test', { command: 'npm test' }, 'tests 42\npass 42\nfail 0')
 			.text('Готово: README прочитан, найдено 2 TODO, тесты зелёные.', 'msg_' + randomUUID().slice(0, 8))
+			.finish()
+		return
+	}
+	if (body.startsWith('#plan')) {
+		const steps = ['Прочитать README', 'Найти TODO', 'Запустить тесты']
+		sc.thought('Задача из трёх шагов — сначала план.', msgId)
+			.plan(steps, ['in_progress', 'pending', 'pending'])
+			.tool('read_file', 'read', 'Read: README.md', { path: 'README.md' }, '# nessy-orch')
+			.plan(steps, ['completed', 'in_progress', 'pending'])
+			.tool('grep', 'search', 'Grep: TODO', { pattern: 'TODO', path: 'src' }, 'src/app.ts:12: // TODO')
+			.plan(steps, ['completed', 'completed', 'in_progress'])
+			.tool('run_shell_command', 'execute', 'Shell: npm test', { command: 'npm test' }, 'pass 42')
+			.plan(steps, ['completed', 'completed', 'completed'])
+			.text('План выполнен: README прочитан, TODO найдены, тесты зелёные.', 'msg_' + randomUUID().slice(0, 8))
 			.finish()
 		return
 	}

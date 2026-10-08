@@ -47,7 +47,7 @@
 
 | Слой | Файлы |
 |---|---|
-| `domain/` | `routing.ts` (правила маршрутизации, hops, ответы, обрамление промпта), `rate-limiter.ts`, `wait-graph.ts` (детектор дедлоков), `agent-status.ts` (переходы статусов и архив), `permission.ts` (`pickPermissionOption`), `preamble.ts` (вводная агента), `roles.ts` (проверка ролей, slug, цвет), `naming.ts`, `errors.ts` (`AppError`), `constants.ts` (`YOU`, `SYSTEM`, `PALETTE`), `types.ts` |
+| `domain/` | `routing.ts` (правила маршрутизации, hops, ответы, обрамление промпта), `rate-limiter.ts`, `wait-graph.ts` (детектор дедлоков), `agent-status.ts` (переходы статусов и архив), `permission.ts` (`pickPermissionOption`), `preamble.ts` (вводная агента), `plan.ts` (проверка плана, разбор чек-листа CLI, правило сброса), `roles.ts` (проверка ролей, slug, цвет), `naming.ts`, `errors.ts` (`AppError`), `constants.ts` (`YOU`, `SYSTEM`, `PALETTE`), `types.ts` |
 | `application/` | `orchestrator.ts` (фасад, `AgentHost`, load/shutdown), `registry.ts` (пространства и агенты, разрешение ссылок), `feed.ts` (лента, ожидание ответов, inbox), `hub.ts` (шина событий с `rev`), `ports.ts`, `*.types.ts` |
 | `application/agent/` | `agent.ts` (очередь, ход, подключение к nessy, права), `agent-journal.ts` (seq событий, блоки текста, инструменты) |
 | `application/services/` | `spaces.service.ts`, `messaging.service.ts` (post/send/wait, interrupt, защиты), `agents.service.ts` (spawn/remove/cancel/archive/restore/history), `roles.service.ts` (CRUD ролей, roles.json, события) |

@@ -10,3 +10,5 @@ export const WAIT_FLAGS: FlagSpec = {
 export const SEND_FLAGS: FlagSpec = { ...WAIT_FLAGS, bool: [...(WAIT_FLAGS.bool ?? []), 'queue'] }
 /** spawn: --role — роль из `nessy-orch role ls` */
 export const SPAWN_FLAGS: FlagSpec = { ...WAIT_FLAGS, value: [...(WAIT_FLAGS.value ?? []), 'role'] }
+/** plan: --from — id агента-автора, --clear — убрать план */
+export const PLAN_FLAGS: FlagSpec = { bool: ['json', 'help', 'clear'], value: ['from'] }

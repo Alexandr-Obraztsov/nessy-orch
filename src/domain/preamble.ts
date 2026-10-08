@@ -14,6 +14,8 @@ export function buildPreamble(agent: AgentIdentity, peers: readonly PeerInfo[], 
 		`  ${cli} send --from ${agent.id} <кому> "текст"        # асинхронно, ответ придёт тебе сообщением`,
 		`  ${cli} send --from ${agent.id} --wait <кому> "текст" # дождаться ответа прямо в выводе команды`,
 		`<кому> — id или имя агента, либо «you». Не пересылай сообщения без необходимости: цепочки ограничены.`,
+		`Если в задаче больше 2 шагов — в начале опубликуй план и обновляй его по ходу (каждый раз список целиком, коротко):`,
+		`  ${cli} plan --from ${agent.id} "- [x] сделано" "- [~] в работе" "- [ ] впереди"`,
 	]
 	lines.push(peers.length ? `Другие агенты: ${peers.map(peerLabel).join('; ')}.` : 'Других агентов пока нет.')
 	if (role) lines.push('', `Твоя роль: ${role.name}`, role.instructions.trim())

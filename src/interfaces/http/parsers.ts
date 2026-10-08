@@ -49,6 +49,14 @@ export function parseRoleRequest(b: unknown): RoleRequest {
 	return { name: b['name'], instructions: b['instructions'], description, color, id }
 }
 
+/** Тело плана: entries — массив (записи проверяет домен), from — необязательная строка. */
+export function parsePlanRequest(b: unknown): { from?: string; entries: unknown[] } {
+	if (!isObject(b) || !Array.isArray(b['entries'])) throw new AppError(400, 'bad_plan', 'нужно поле entries (массив {content, status})')
+	const from = b['from']
+	if (from !== undefined && typeof from !== 'string') throw new AppError(400, 'bad_request', 'from — строка')
+	return { from, entries: b['entries'] }
+}
+
 /** Решение по разрешению: всё, кроме явного `approve: false`, — разрешить. */
 export function parseApprove(b: unknown): boolean {
 	return !(isObject(b) && b['approve'] === false)

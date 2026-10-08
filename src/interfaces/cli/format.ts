@@ -1,5 +1,6 @@
 /** Форматирование вывода CLI (для человека; для машин есть --json). */
-import type { AgentView, Message, RoleView, SpaceView } from '../../../shared/types'
+import type { AgentPlan, AgentView, Message, RoleView, SpaceView } from '../../../shared/types'
+import { formatPlanLine } from '../../domain/plan'
 
 const tty = process.stdout.isTTY && !process.env['NO_COLOR']
 const c = (code: string) => (s: string): string => (tty ? `\x1b[${code}m${s}\x1b[0m` : s)
@@ -95,4 +96,11 @@ export function spacesTable(spaces: readonly SpaceView[]): string {
 		spaces.map(s => [bold(s.name), status(s.status), s.mode, s.path, s.error ? red(s.error.slice(0, 60)) : '']),
 		['ИМЯ', 'СТАТУС', 'РЕЖИМ', 'ПУТЬ', 'ОШИБКА'],
 	)
+}
+
+/** План чек-листом: [x] сделано, [~] в работе, [ ] впереди. */
+export function planText(plan: AgentPlan): string {
+	const done = plan.entries.filter(e => e.status === 'completed').length
+	const head = dim(`план ${done}/${plan.entries.length} · ${plan.source} · ${plan.updatedAt}`)
+	return [head, ...plan.entries.map(e => (e.status === 'in_progress' ? yellow(formatPlanLine(e)) : e.status === 'completed' ? dim(formatPlanLine(e)) : formatPlanLine(e)))].join('\n')
 }
