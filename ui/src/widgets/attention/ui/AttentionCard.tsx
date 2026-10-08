@@ -40,7 +40,9 @@ export const AttentionCard = memo(function AttentionCard({ item, selected, taskT
 	return (
 		<div
 			className={cls}
-			role="button"
+			// не role=button: внутри есть свои кнопки (Разрешить, Открыть…), вложенные кнопки ломают доступность
+			role="group"
+			aria-label={`${a.name}: ${item.kind === 'permission' ? 'запрос разрешения' : item.kind === 'error' ? 'ошибка' : 'результат'}`}
 			tabIndex={0}
 			data-attention={item.kind}
 			data-agent={a.id}

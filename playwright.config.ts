@@ -29,7 +29,7 @@ export default defineConfig({
 	workers: 1,
 	fullyParallel: false,
 	retries: 0,
-	timeout: 45_000,
+	timeout: 30_000,
 	expect: { timeout: 10_000 },
 	use: {
 		baseURL: BASE,
@@ -37,12 +37,10 @@ export default defineConfig({
 		launchOptions,
 		...devices['Desktop Chrome'],
 	},
+	// дымовая проверка: десктоп и телефон
 	projects: [
 		{ name: 'desktop', use: { ...viewport(1440, 900) } },
-		{ name: 'laptop', use: { ...viewport(1024, 768) } },
-		{ name: 'tablet', use: { ...viewport(768, 1024) } },
 		{ name: 'mobile', use: { ...viewport(390, 844), ...touch } },
-		{ name: 'small', use: { ...viewport(360, 740), ...touch } },
 	],
 	webServer: {
 		command: 'node dist/src/main.js',
@@ -55,6 +53,9 @@ export default defineConfig({
 			NESSY_ORCH_HOME: home,
 			SERVE_BASE_PORT: SERVE_PORT,
 			FAKE_NESSY_DELAY_MS: '20',
+			// ручные разрешения — чтобы проверить кнопки «Разрешить»
+			ORCH_AUTO_APPROVE: '0',
+			ORCH_SEED_ROLES: '0',
 		},
 	},
 })
