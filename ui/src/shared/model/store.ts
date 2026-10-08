@@ -4,7 +4,7 @@
  * Подписка из React — через `useStore(selector)` (useSyncExternalStore).
  */
 import { useSyncExternalStore } from 'react'
-import type { AgentView, Message, SpaceView, StreamEvent } from '@contract'
+import type { AgentView, Message, RoleView, SpaceView, StreamEvent } from '@contract'
 import type { MessageListener, State } from './types'
 
 const MAX_MESSAGES = 2000
@@ -14,6 +14,7 @@ let state: State = {
 	rev: 0,
 	spaces: [],
 	agents: [],
+	roles: [],
 	messages: [],
 	lastEventAt: 0,
 }
@@ -66,6 +67,7 @@ function apply(evt: StreamEvent): void {
 				rev: evt.rev,
 				spaces: evt.spaces,
 				agents: evt.agents,
+				roles: evt.roles,
 				messages: evt.messages.slice(-MAX_MESSAGES),
 				lastEventAt: now,
 			})
@@ -88,6 +90,12 @@ function apply(evt: StreamEvent): void {
 			return
 		case 'space':
 			set({ rev: evt.rev, spaces: upsert(state.spaces, evt.space, s => s.name), lastEventAt: now })
+			return
+		case 'role':
+			set({ rev: evt.rev, roles: upsert(state.roles, evt.role, r => r.id), lastEventAt: now })
+			return
+		case 'role_removed':
+			set({ rev: evt.rev, roles: state.roles.filter(r => r.id !== evt.id), lastEventAt: now })
 			return
 		case 'space_removed':
 			set({ rev: evt.rev, spaces: state.spaces.filter(s => s.name !== evt.name), lastEventAt: now })
@@ -140,6 +148,10 @@ export const YOU = 'you'
 
 export function agentById(id: string): AgentView | undefined {
 	return state.agents.find(a => a.id === id)
+}
+
+export function roleById(id: string | null): RoleView | undefined {
+	return id ? state.roles.find(r => r.id === id) : undefined
 }
 
 export function spaceHue(spaces: SpaceView[], name: string): number {

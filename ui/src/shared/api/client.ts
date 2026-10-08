@@ -8,6 +8,8 @@ import type {
 	ApiError,
 	GraphView,
 	Message,
+	RoleRequest,
+	RoleView,
 	SendRequest,
 	SendResponse,
 	SpaceRequest,
@@ -75,6 +77,14 @@ export const api = {
 	permission: (id: string, requestId: string, approve: boolean) =>
 		request<{ ok: boolean }>('POST', `/agents/${enc(id)}/permission/${enc(requestId)}`, { approve }),
 	history: (id: string, limit = 400) => request<AgentEvent[]>('GET', `/agents/${enc(id)}/history?limit=${limit}`),
+
+	roles: () => request<RoleView[]>('GET', '/roles'),
+	createRole: (req: RoleRequest) => request<RoleView>('POST', '/roles', req),
+	updateRole: (id: string, req: RoleRequest) => request<RoleView>('PUT', `/roles/${enc(id)}`, req),
+	removeRole: (id: string) => request<{ ok: boolean }>('DELETE', `/roles/${enc(id)}`),
+
+	archive: (id: string) => request<AgentView>('POST', `/agents/${enc(id)}/archive`),
+	restore: (id: string) => request<AgentView>('POST', `/agents/${enc(id)}/restore`),
 
 	messages: (opts: { agent?: string; since?: number; limit?: number } = {}) => {
 		const q = new URLSearchParams()

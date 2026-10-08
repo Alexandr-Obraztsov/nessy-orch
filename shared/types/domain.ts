@@ -3,7 +3,12 @@
 /** Идентификатор узла графа: `you` либо id агента. */
 export type NodeId = string
 
-export type AgentStatus = 'starting' | 'idle' | 'working' | 'error' | 'dead' | 'sleeping'
+/**
+ * Статус агента. Состояния сна нет: агент без работы — idle; закончив задачу, он уходит в архив
+ * (archived=true), а его сессия nessy сохраняется и восстанавливается при следующем сообщении.
+ * error — последний ход завершился ошибкой (или упала сессия); следующее сообщение начинает заново.
+ */
+export type AgentStatus = 'starting' | 'working' | 'idle' | 'error'
 export type SpaceStatus = 'stopped' | 'starting' | 'ready' | 'failed'
 export type MessageKind = 'msg' | 'reply' | 'event'
 /** Статус вызова инструмента — ровно эти четыре значения. */
@@ -35,7 +40,14 @@ export interface AgentView {
 	name: string
 	space: string
 	parent: NodeId
+	/** id роли (RoleView.id) или null */
+	role: string | null
 	status: AgentStatus
+	/**
+	 * Скрыт из рабочего списка: задача выполнена. Сессия сохранена — сообщение агенту
+	 * (или POST /agents/:ref/restore) возвращает его в работу с прежним контекстом.
+	 */
+	archived: boolean
 	error: string | null
 	displayName: string | null
 	createdAt: string
@@ -65,4 +77,19 @@ export interface Message {
 	wait?: boolean
 	/** сообщение не доставлено (причина) */
 	failed?: string
+}
+
+/** Роль субагента: сохранённые инструкции, которые добавляются в контекст агента при создании. */
+export interface RoleView {
+	/** slug, уникален: латиница, цифры, дефис */
+	id: string
+	name: string
+	/** одна строка: для чего роль */
+	description: string
+	/** инструкции агенту (markdown) — попадают во вводную агента */
+	instructions: string
+	/** hue 0..360 для метки роли */
+	color: number
+	createdAt: string
+	updatedAt: string
 }

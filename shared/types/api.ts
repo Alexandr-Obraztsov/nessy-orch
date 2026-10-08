@@ -1,16 +1,19 @@
 /** Тела запросов и ответов REST API. */
-import type { AgentView, Message, NodeId, SpaceView } from './domain'
+import type { AgentView, Message, NodeId, RoleView, SpaceView } from './domain'
 
 export interface GraphView {
 	rev: number
 	spaces: SpaceView[]
 	agents: AgentView[]
+	roles: RoleView[]
 }
 
 export interface SpawnRequest {
 	/** имя пространства или путь к воркспейсу */
 	space?: string
 	name?: string
+	/** id или имя роли */
+	role?: string
 	prompt?: string
 	parent?: NodeId
 	from?: NodeId
@@ -21,6 +24,11 @@ export interface SpawnRequest {
 export interface SendRequest {
 	from?: NodeId
 	text: string
+	/**
+	 * Прервать текущий ход агента и доставить сообщение сразу (вне очереди).
+	 * По умолчанию true для сообщений от you, false — для сообщений агент→агент.
+	 */
+	interrupt?: boolean
 	wait?: boolean
 	waitTimeoutSec?: number
 }
@@ -44,6 +52,16 @@ export interface SpaceRequest {
 	url?: string
 }
 
+export interface RoleRequest {
+	name: string
+	description?: string
+	instructions: string
+	/** hue 0..360; по умолчанию — из имени */
+	color?: number
+	/** slug; по умолчанию — из имени (только при создании) */
+	id?: string
+}
+
 export interface InboxResponse {
 	messages: Message[]
 	cursor: number
@@ -59,6 +77,7 @@ export interface StatusResponse {
 	spaces: number
 	agents: number
 	working: number
+	roles: number
 }
 
 export interface ApiError {
