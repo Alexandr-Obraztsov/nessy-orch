@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+/** nessy-watch <job_id> — живой лог задачи nessy через оркестратор. */
+'use strict';
+const http = require('http');
+const ORCH = { host: '127.0.0.1', port: parseInt(process.env.ORCH_PORT || '4337', 10) };
+const id = process.argv[2];
+if (!id) { console.error('usage: nessy-watch <job_id>'); process.exit(2); }
+
+const req = http.request({ ...ORCH, path: `/job/${id}/events`, headers: { Accept: 'text/event-stream' } }, (res) => {
+  let buf = '';
+  res.on('data', (chunk) => {
+    buf += chunk.toString('utf8');
+    let i;
+    while ((i = buf.indexOf('\n\n')) !== -1) {
+      const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+      let data = '';
+      for (const ln of frame.split('\n')) if (ln.startsWith('data:')) data += ln.slice(5).trim();
+      if (!data) continue;
+      let m; try { m = JSON.parse(data); } catch { continue; }
+      const d = m.data || {}; const u = (d.update || {}); const su = u.sessionUpdate; const c = u.content || {};
+      if (su === 'agent_message_chunk' && c.text) process.stdout.write(c.text);
+      else if (su === 'agent_thought_chunk' && c.text) process.stderr.write('\x1b[90m… ' + c.text + '\x1b[0m');
+      else if (su === 'tool_call') process.stderr.write(`\n\x1b[33m⚙ ${(u._meta||{}).toolName||'?'} ${JSON.stringify(u.rawInput||{}).slice(0,200)}\x1b[0m\n`);
+      else if (su === 'tool_call_update') process.stderr.write(`\n\x1b[33m✔ ${(u._meta||{}).toolName||'?'}\x1b[0m\n`);
+      else if (m.type === 'turn_complete') { process.stdout.write('\n[done ' + (d.stopReason||'') + ']\n'); process.exit(0); }
+    }
+  });
+});
+req.on('error', (e) => { console.error('ошибка:', e.message); process.exit(1); });
+req.end();
