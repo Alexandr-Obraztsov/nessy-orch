@@ -14,6 +14,7 @@
 	display: none;
 }
 .brand {
+	flex: 1;
 	font-weight: 600;
 	color: var(--text-muted);
 }
@@ -229,7 +230,9 @@
 	display: inline-grid;
 	color: var(--warn);
 }
-.path {
+.meta > .path {
+	/* длинный путь обрезается слева — важен хвост */
+	direction: rtl;
 	font-family: var(--font-mono);
 	font-size: 10.5px;
 }
@@ -251,7 +254,7 @@
 }
 .hasActions:hover .meta,
 .hasActions:focus-within .meta,
-.hasActions:has([aria-expanded='true']) .meta {
+.hasActions:has(.actions [aria-expanded='true']) .meta {
 	opacity: 0;
 }
 .empty {
@@ -300,7 +303,7 @@
 	.mobileHead {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
+		gap: var(--sp-1);
 		height: var(--mobile-bar-h);
 		padding: 0 0 0 var(--sp-2);
 	}

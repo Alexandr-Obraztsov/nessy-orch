@@ -142,6 +142,8 @@
 	color: var(--text-faint);
 }
 .menu {
+	/* важнее инлайновой высоты Popover: список всегда помещается над полем ввода */
+	max-height: min(360px, 50vh) !important;
 	min-width: 240px;
 	max-width: min(360px, calc(100vw - 16px));
 	padding: 4px;

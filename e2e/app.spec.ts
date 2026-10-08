@@ -1,28 +1,22 @@
-import { expect, expectNoOverflow, openApp, openChat, openSpawnDialog, shot, tab, test, uid } from './fixtures'
+/**
+ * Каркас: загрузка, раскладка без переполнения, вкладки, горячие клавиши, выезжающая панель.
+ */
+import { expect, expectNoOverflow, openApp, openSpawnDialog, openWithTabs, row, section, shot, sidebar, tab, test, uid } from './fixtures'
 
 test.describe('загрузка и раскладка', () => {
-	test('приложение грузится, связь «в сети», без ошибок консоли', async ({ page }, info) => {
+	test('приложение грузится, «в сети», вкладка «Лента», без ошибок консоли', async ({ page, narrow }, info) => {
 		await openApp(page)
-		await expect(page.getByRole('status').filter({ hasText: 'в сети' })).toBeAttached()
-		await expect(page.getByRole('region', { name: 'Граф агентов' })).toBeVisible()
+		if (narrow) await expect(page.getByRole('banner')).toContainText('Лента')
+		else {
+			await expect(tab(page, 'Лента')).toHaveAttribute('aria-selected', 'true')
+			await expect(page.getByRole('toolbar', { name: 'Быстрые действия' })).toBeVisible()
+			await expect(page.getByRole('navigation', { name: 'Навигация' })).toBeVisible()
+		}
 		await expectNoOverflow(page, 'главный экран')
 		await shot(page, info, 'main')
 	})
 
-	test('нет горизонтального переполнения: главные экраны и вкладки', async ({ page, ws, narrow }, info) => {
-		await ws.spawn(`ov-${uid()}`, 'привет')
-		await openApp(page)
-		await expectNoOverflow(page, 'граф/главный')
-		if (narrow) {
-			for (const t of ['Агенты', 'Лента', 'Граф']) {
-				await tab(page, t).click()
-				await expectNoOverflow(page, `вкладка ${t}`)
-				await shot(page, info, `tab-${t}`)
-			}
-		}
-	})
-
-	test('нет переполнения с открытыми диалогами', async ({ page, narrow }, info) => {
+	test('нет переполнения: диалоги агента и пространства', async ({ page, narrow }, info) => {
 		await openApp(page)
 		const dlg = await openSpawnDialog(page, narrow)
 		await expectNoOverflow(page, 'диалог агента')
@@ -31,63 +25,126 @@ test.describe('загрузка и раскладка', () => {
 		await expect(dlg).toBeHidden()
 
 		if (narrow) {
-			await page.getByRole('button', { name: 'Меню' }).click()
-			await expectNoOverflow(page, 'меню')
-			await shot(page, info, 'menu')
-			await page.getByRole('button', { name: 'Добавить пространство' }).click()
+			const sec = await section(page, narrow, 'Пространства')
+			await sec.getByRole('button', { name: 'Добавить пространство' }).click()
 		} else {
-			await page.getByRole('banner').getByTitle(/Добавить пространство/).click()
+			await page.getByRole('toolbar', { name: 'Быстрые действия' }).getByRole('button', { name: 'Добавить пространство' }).click()
 		}
 		await expect(page.getByRole('dialog', { name: 'Новое пространство' })).toBeVisible()
 		await expectNoOverflow(page, 'диалог пространства')
 		await shot(page, info, 'dialog-space')
 	})
 
-	test('нет переполнения с открытым чатом агента', async ({ page, ws, narrow }, info) => {
-		const a = await ws.spawn(`ch-${uid()}`, '#tools')
-		await openApp(page)
-		await openChat(page, a, narrow)
-		await expect(page.getByRole('region', { name: 'Чат агента' }).getByText('Готово: README прочитан')).toBeVisible()
-		await expectNoOverflow(page, 'чат')
-		await shot(page, info, 'chat-tools')
+	test('длинные имена не ломают раскладку (панель, вкладки, граф)', async ({ page, ws, narrow }, info) => {
+		const long = `very-long-agent-name-${uid()}-${'x'.repeat(40)}`
+		const a = await ws.spawn(long)
+		await openWithTabs(page, [{ kind: 'feed' }, { kind: 'graph' }, { kind: 'agent', id: a.id }], 1)
+		await expect(page.locator(`[data-node="${a.id}"]`)).toBeAttached()
+		await expectNoOverflow(page, 'граф с длинным именем')
+		const nav = await sidebar(page, narrow)
+		await expect(row(nav, long)).toBeVisible()
+		await expectNoOverflow(page, 'панель с длинным именем')
+		await shot(page, info, 'long-names')
 	})
 })
 
-test.describe('стресс-раскладка', () => {
-	test('длинные имена и неразрывные строки не ломают раскладку', async ({ page, ws, narrow }, info) => {
-		const long = `very-long-agent-name-${uid()}-${'x'.repeat(40)}`
-		const a = await ws.spawn(long, `#shell ${'a'.repeat(120)}`)
+test.describe('вкладки', () => {
+	test('открытие, переключение, закрытие крестиком и средней кнопкой', async ({ page, ws, narrow }, info) => {
+		test.skip(narrow, 'полоса вкладок только на широких экранах')
+		const a = await ws.spawn(`tb-${uid()}`)
 		await openApp(page)
-		await expectNoOverflow(page, 'граф с длинным именем')
-		if (narrow) await tab(page, 'Лента').click()
-		await expectNoOverflow(page, 'лента с длинными строками')
-		await shot(page, info, 'long-feed')
-		await openChat(page, a, narrow)
-		await expect(page.getByRole('region', { name: 'Чат агента' }).getByText(`выполнено: ${'a'.repeat(120)}`)).toBeVisible()
-		await expectNoOverflow(page, 'чат с длинными строками')
-		await shot(page, info, 'long-chat')
+		const nav = await sidebar(page, narrow)
+		await row(await section(page, narrow, 'Агенты'), a.name).click()
+		await expect(tab(page, a.name)).toHaveAttribute('aria-selected', 'true')
+		await expect(row(nav, a.name)).toHaveAttribute('aria-current', 'page')
+
+		await page.getByRole('toolbar', { name: 'Быстрые действия' }).getByRole('button', { name: /Граф/ }).click()
+		await expect(tab(page, 'Граф')).toHaveAttribute('aria-selected', 'true')
+		await shot(page, info, 'tabs')
+
+		// повторное открытие не плодит дубликатов
+		await row(nav, a.name).click()
+		await expect(page.getByRole('tab', { name: a.name })).toHaveCount(1)
+
+		// средняя кнопка закрывает вкладку
+		await tab(page, 'Граф').click({ button: 'middle' })
+		await expect(tab(page, 'Граф')).toHaveCount(0)
+		// крестик
+		await page.getByRole('button', { name: `Закрыть вкладку ${a.name}` }).click()
+		await expect(tab(page, a.name)).toHaveCount(0)
+		// «Лента» не закрывается
+		await expect(page.getByRole('button', { name: 'Закрыть вкладку Лента' })).toHaveCount(0)
+		await expect(tab(page, 'Лента')).toHaveAttribute('aria-selected', 'true')
 	})
 
-	test('выдвижной ростер (средняя ширина) и меню/поповеры', async ({ page, ws, narrow }, info) => {
-		await ws.spawn(`pp-${uid()}`, 'x')
+	test('вкладки сохраняются после перезагрузки; много вкладок — без переполнения', async ({ page, ws, narrow }, info) => {
+		test.skip(narrow, 'полоса вкладок только на широких экранах')
+		const agents = await Promise.all(Array.from({ length: 8 }, (_, i) => ws.spawn(`mt${i}-${uid()}`)))
+		await openWithTabs(page, [{ kind: 'feed' }, { kind: 'graph' }, ...agents.map(a => ({ kind: 'agent', id: a.id }))])
+		const last = agents[agents.length - 1]
+		if (!last) return
+		await expect(tab(page, last.name)).toHaveAttribute('aria-selected', 'true')
+		await expect(tab(page, last.name)).toBeInViewport()
+		await expectNoOverflow(page, 'много вкладок')
+		await shot(page, info, 'many-tabs')
+		await page.reload()
+		await expect(tab(page, last.name)).toHaveAttribute('aria-selected', 'true')
+		await expect(page.getByRole('tab')).toHaveCount(10)
+	})
+})
+
+test.describe('горячие клавиши', () => {
+	test('N, G, F, R, Ctrl+W, Esc', async ({ page, narrow }) => {
+		test.skip(narrow, 'клавиатура — на широких экранах')
 		await openApp(page)
-		const drawer = page.getByRole('button', { name: 'Показать список агентов' })
-		if (await drawer.isVisible()) {
-			await drawer.click()
-			await expectNoOverflow(page, 'выдвижной ростер')
-			await shot(page, info, 'drawer')
-			await page.getByRole('button', { name: 'Скрыть список агентов' }).click()
-		}
-		if (narrow) {
-			await page.getByRole('button', { name: 'Меню' }).click()
-			await page.getByRole('dialog', { name: 'Меню' }).getByRole('button', { name: new RegExp(ws.name) }).click()
-			await expectNoOverflow(page, 'меню с деталями пространства')
-			await shot(page, info, 'menu-space-details')
-		} else {
-			await page.getByRole('list', { name: 'Пространства' }).getByRole('button', { name: new RegExp(ws.name) }).click()
-			await expect(page.getByRole('dialog', { name: `Пространство ${ws.name}` })).toBeVisible()
-			await expectNoOverflow(page, 'карточка пространства')
-			await shot(page, info, 'space-details')
-		}
+		await page.locator('body').click({ position: { x: 600, y: 4 } })
+		await page.keyboard.press('n')
+		const dlg = page.getByRole('dialog', { name: 'Новый агент' })
+		await expect(dlg).toBeVisible()
+		await page.keyboard.press('Escape')
+		await expect(dlg).toBeHidden()
+
+		await page.keyboard.press('g')
+		await expect(tab(page, 'Граф')).toHaveAttribute('aria-selected', 'true')
+		await page.keyboard.press('f')
+		await expect(tab(page, 'Лента')).toHaveAttribute('aria-selected', 'true')
+		await page.keyboard.press('r')
+		await expect(tab(page, 'Новая роль')).toHaveAttribute('aria-selected', 'true')
+		// в поле ввода буквы не перехватываются
+		await page.getByLabel('Название роли').fill('gfn')
+		await expect(page.getByLabel('Название роли')).toHaveValue('gfn')
+		await page.keyboard.press('Control+w')
+		await expect(tab(page, 'gfn')).toHaveCount(0)
+		await expect(tab(page, 'Новая роль')).toHaveCount(0)
+	})
+})
+
+test.describe('узкие экраны', () => {
+	test('левая панель выезжает: «Лента» / «Граф», scrim и Esc закрывают', async ({ page, narrow }, info) => {
+		test.skip(!narrow, 'только узкие экраны')
+		await openApp(page)
+		const nav = page.getByRole('navigation', { name: 'Навигация' })
+		await expect(nav).toBeHidden()
+		await page.getByRole('button', { name: 'Открыть панель' }).click()
+		await expect(nav).toBeVisible()
+		await expectNoOverflow(page, 'выезжающая панель')
+		await shot(page, info, 'drawer')
+
+		await row(nav, 'Граф').click()
+		await expect(nav).toBeHidden()
+		await expect(page.getByRole('banner')).toContainText('Граф')
+		await expect(page.locator('[data-node="you"]')).toBeAttached()
+
+		await page.getByRole('button', { name: 'Открыть панель' }).click()
+		await page.keyboard.press('Escape')
+		await expect(nav).toBeHidden()
+
+		await page.getByRole('button', { name: 'Открыть панель' }).click()
+		await page.mouse.click((page.viewportSize()?.width ?? 390) - 10, 400)
+		await expect(nav).toBeHidden()
+
+		// закрыть вкладку «Граф» из верхней панели
+		await page.getByRole('banner').getByRole('button', { name: 'Закрыть вкладку' }).click()
+		await expect(page.getByRole('banner')).toContainText('Лента')
 	})
 })

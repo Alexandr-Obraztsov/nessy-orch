@@ -68,6 +68,10 @@
 .narrow > :first-child {
 	grid-area: bar;
 }
+/* строка состояния на узких экранах скрыта (соединение — в верхней панели) */
+.narrow > footer {
+	display: none;
+}
 .narrow .side {
 	position: fixed;
 	z-index: 60;

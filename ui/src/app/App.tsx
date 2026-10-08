@@ -62,7 +62,7 @@ export function App() {
 				{!narrow && <TabStrip />}
 				<MainPane />
 			</main>
-			{!narrow && <StatusBar />}
+			<StatusBar />
 			<SpawnAgentDialog />
 			<AddSpaceDialog />
 			<AgentConfirmHost />

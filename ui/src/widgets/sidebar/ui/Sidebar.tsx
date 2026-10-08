@@ -4,6 +4,7 @@
  * с переходами «Лента» и «Граф» сверху.
  */
 import { useMemo, useRef, useState } from 'react'
+import { toggleTheme, useTheme } from '@/shared/lib/theme'
 import { useNow } from '@/shared/lib/useNow'
 import { activeTab, openDialog, openFeed, openGraph, openRole, toggleSidebar, useStore, useView } from '@/shared/model'
 import { Icon, IconButton, StatusDot } from '@/shared/ui'
@@ -31,6 +32,7 @@ export function Sidebar() {
 	const now = useNow(1000)
 	const removeSpace = useRemoveSpace()
 	const removeRole = useRemoveRole()
+	const theme = useTheme()
 
 	const roleById = useMemo(() => new Map(roles.map(r => [r.id, r])), [roles])
 	const roleName = (id: string | null): string => (id ? (roleById.get(id)?.name ?? '') : '')
@@ -56,6 +58,7 @@ export function Sidebar() {
 			<div className={s.top}>
 				<div className={s.mobileHead}>
 					<span className={s.brand}>nessy-orch</span>
+					<IconButton icon={theme === 'dark' ? 'sun' : 'moon'} label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'} onClick={toggleTheme} />
 					<IconButton icon="close" label="Закрыть панель" onClick={() => toggleSidebar(false)} />
 				</div>
 				<label className={s.search}>

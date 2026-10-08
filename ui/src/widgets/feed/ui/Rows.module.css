@@ -263,18 +263,11 @@
 }
 
 @media (max-width: 599px) {
-	.head {
-		flex-wrap: wrap;
-		padding: 4px 4px 4px 8px;
-		row-gap: 0;
-	}
 	.who {
-		max-width: 60%;
+		max-width: 38%;
 	}
 	.toggle {
-		flex-basis: 100%;
-		height: 26px;
-		padding: 0;
+		gap: 6px;
 	}
 	.cardBody {
 		padding-left: 12px;

@@ -3,7 +3,7 @@
  * новым сообщением, архив и возврат.
  */
 import type { Page } from '@playwright/test'
-import { expect, expectNoOverflow, openApp, shot, test, uid, type Agent } from './fixtures'
+import { expect, expectNoOverflow, shot, test, uid, type Agent } from './fixtures'
 
 /** Открыть вкладку агента напрямую (через сохранённые вкладки), не завися от боковой панели. */
 async function openAgentTab(page: Page, agent: Agent) {
@@ -11,7 +11,7 @@ async function openAgentTab(page: Page, agent: Agent) {
 	await page.evaluate(id => {
 		localStorage.setItem('nessy-orch:view', JSON.stringify({ tabs: [{ kind: 'feed' }, { kind: 'agent', id }], active: 1, feed: { agentChatter: false, system: false } }))
 	}, agent.id)
-	await openApp(page)
+	await page.reload()
 	const chat = page.getByRole('region', { name: 'Чат агента' })
 	await expect(chat.getByRole('heading', { name: agent.name })).toBeVisible()
 	return chat
@@ -77,7 +77,8 @@ test.describe('чат агента', () => {
 		await input.press('Enter')
 		await expect(chat.getByText('ход прерван').first()).toBeVisible()
 		await expect(chat.getByText(`ответ: ${text}`)).toBeVisible()
-		await expect(chat.getByRole('note')).toHaveCount(0)
+		// ход закончен — подсказки о прерывании больше нет
+		await expect(chat.getByRole('note').filter({ hasText: 'прервёт' })).toHaveCount(0)
 	})
 
 	test('архив: метка в шапке, подсказка «проснётся», возврат', async ({ page, ws }, info) => {

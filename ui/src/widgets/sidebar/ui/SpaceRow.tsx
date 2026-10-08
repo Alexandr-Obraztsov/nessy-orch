@@ -20,7 +20,7 @@ export function SpaceRow({ space, onRemove }: SpaceRowProps) {
 		<Row
 			lead={<StatusDot color={st.color} pulse={st.pulse} size={7} />}
 			name={space.name}
-			meta={<span className={s.path}>{space.path.replace(/^\/(Users|home)\/[^/]+/, '~')}</span>}
+			meta={<span className={s.path}>{`\u200e${space.path.replace(/^\/(Users|home)\/[^/]+/, '~')}\u200e`}</span>}
 			title={`${space.path} — ${st.label}${space.error ? `: ${space.error}` : ''}`}
 			label={space.name}
 			onClick={() => setMenu(true)}

@@ -229,8 +229,11 @@ export function RoleEditor({ id }: RoleEditorProps) {
 						</p>
 					)}
 					<p className={s.foot}>
-						Инструкции добавляются во вводную агента при запуске. <Kbd>{MAC ? '⌘' : 'Ctrl'}</Kbd>
-						<Kbd>S</Kbd> — сохранить.
+						Инструкции добавляются во вводную агента при запуске.
+						<span className={s.hideNarrow}>
+							{' '}
+							<Kbd>{MAC ? '⌘' : 'Ctrl'}</Kbd> <Kbd>S</Kbd> — сохранить.
+						</span>
 					</p>
 				</article>
 			</div>

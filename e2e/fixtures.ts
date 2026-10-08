@@ -13,10 +13,16 @@ export interface Agent {
 	space: string
 }
 
+export interface Role {
+	id: string
+	name: string
+}
+
 export interface Workspace {
 	name: string
 	dir: string
-	spawn: (name: string, prompt?: string) => Promise<Agent>
+	/** агент без задачи остаётся активным; с задачей — после ответа уходит в архив */
+	spawn: (name: string, prompt?: string, extra?: { role?: string; parent?: string }) => Promise<Agent>
 }
 
 let counter = 0
@@ -31,14 +37,22 @@ async function createWorkspace(request: APIRequestContext): Promise<Workspace> {
 	return {
 		name,
 		dir,
-		spawn: async (agentName, prompt) => {
-			const r = await request.post('/agents', { data: { space: name, name: agentName, prompt } })
+		spawn: async (agentName, prompt, extra) => {
+			const r = await request.post('/agents', { data: { space: name, name: agentName, prompt, ...extra } })
 			expect(r.status(), await r.text()).toBe(201)
 			const body = (await r.json()) as { agent: { id: string } } | { id: string }
 			const id = 'agent' in body ? body.agent.id : body.id
 			return { id, name: agentName, space: name }
 		},
 	}
+}
+
+/** Создать роль через API. */
+export async function createRole(request: APIRequestContext, name: string, instructions = 'Будь краток.', description = ''): Promise<Role> {
+	const r = await request.post('/roles', { data: { name, instructions, description } })
+	expect(r.status(), await r.text()).toBe(201)
+	const body = (await r.json()) as Role
+	return { id: body.id, name: body.name }
 }
 
 export interface Fixtures {
@@ -78,6 +92,17 @@ export async function openApp(page: Page): Promise<void> {
 	await expect(page.getByRole('status').filter({ hasText: 'в сети' })).toBeAttached()
 }
 
+/** Открыть приложение сразу с заданными вкладками (вкладки хранятся в localStorage). */
+export async function openWithTabs(page: Page, tabs: object[], active = tabs.length - 1): Promise<void> {
+	await page.goto('/')
+	await page.evaluate(
+		([t, a]) => localStorage.setItem('nessy-orch:view', JSON.stringify({ tabs: t, active: a, feed: { agentChatter: false, system: false } })),
+		[tabs, active] as const,
+	)
+	await page.reload()
+	await expect(page.getByRole('status').filter({ hasText: 'в сети' })).toBeAttached()
+}
+
 /** Проверка: страница не прокручивается по горизонтали. */
 export async function expectNoOverflow(page: Page, what: string): Promise<void> {
 	const m = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, bw: document.body.scrollWidth, iw: window.innerWidth }))
@@ -85,21 +110,41 @@ export async function expectNoOverflow(page: Page, what: string): Promise<void> 
 	expect(m.bw, `переполнение body (${what})`).toBeLessThanOrEqual(m.iw)
 }
 
-/** Скриншот состояния в отчёт и в test-results. */
+/** Скриншот состояния в отчёт и в test-results/shots. */
 export async function shot(page: Page, info: TestInfo, name: string): Promise<void> {
-	const file = path.join('test-results', 'shots', info.project.name, `${name}.png`)
+	const file = path.join(process.env['PW_OUT'] || '.', 'test-results', 'shots', info.project.name, `${name}.png`)
 	const body = await page.screenshot({ animations: 'disabled', path: file })
 	await info.attach(`${info.project.name}-${name}`, { body, contentType: 'image/png' })
 }
 
-/** Нижняя вкладка (только узкие экраны). */
-export const tab = (page: Page, label: string): Locator => page.getByRole('navigation', { name: 'Разделы' }).getByRole('button', { name: label })
+/** Левая панель (дерево). На узких экранах сначала выдвигается кнопкой ☰. */
+export async function sidebar(page: Page, narrow: boolean): Promise<Locator> {
+	const nav = page.getByRole('navigation', { name: 'Навигация' })
+	if (narrow && !(await nav.isVisible())) await page.getByRole('button', { name: 'Открыть панель' }).click()
+	await expect(nav).toBeVisible()
+	return nav
+}
 
-/** Кнопка «новый агент»: на узких — «+» в шапке, на широких — «Агент (N)». */
+/** Секция левой панели («Агенты», «Архив», «Роли», «Пространства»), раскрытая. */
+export async function section(page: Page, narrow: boolean, title: string): Promise<Locator> {
+	const nav = await sidebar(page, narrow)
+	const sec = nav.getByRole('region', { name: title })
+	const toggle = sec.getByRole('button', { name: new RegExp(`^${title}`) }).first()
+	if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click()
+	return sec
+}
+
+/** Строка в дереве (главная кнопка строки) по точному имени. */
+export const row = (scope: Locator, name: string): Locator => scope.getByRole('button', { name, exact: true })
+
+/** Вкладка в полосе вкладок (широкие экраны). */
+export const tab = (page: Page, name: string | RegExp): Locator => page.getByRole('tablist', { name: 'Вкладки' }).getByRole('tab', { name })
+
+/** Кнопка «новый агент»: на узких — «+» в верхней панели, на широких — клавиша N. */
 export async function openSpawnDialog(page: Page, narrow: boolean): Promise<Locator> {
 	if (narrow) await page.getByRole('banner').getByRole('button', { name: 'Новый агент' }).click()
 	else {
-		await page.locator('body').click({ position: { x: 5, y: 5 } })
+		await page.locator('body').click({ position: { x: 600, y: 4 } })
 		await page.keyboard.press('n')
 	}
 	const dlg = page.getByRole('dialog', { name: 'Новый агент' })
@@ -107,14 +152,14 @@ export async function openSpawnDialog(page: Page, narrow: boolean): Promise<Loca
 	return dlg
 }
 
-/** Открыть чат агента из ростера (на узких — через вкладку «Агенты», на средних — выдвижной ростер). */
-export async function openChat(page: Page, agent: Agent, narrow: boolean): Promise<void> {
-	const row = page.getByRole('complementary', { name: 'Агенты' }).getByRole('button').filter({ hasText: agent.name })
-	if (narrow) await tab(page, 'Агенты').click()
-	else if (!(await row.isVisible())) await page.getByRole('button', { name: 'Показать список агентов' }).click()
-	await row.click()
-	await expect(page.getByRole('region', { name: 'Чат агента' })).toBeVisible()
+/** Открыть вкладку агента из левой панели (активные или архив). */
+export async function openAgent(page: Page, agent: Agent, narrow: boolean, archived = false): Promise<Locator> {
+	const sec = await section(page, narrow, archived ? 'Архив' : 'Агенты')
+	await row(sec, agent.name).click()
+	const c = chat(page)
+	await expect(c).toBeVisible()
+	return c
 }
 
-/** Пузырь/текст в области чата. */
+/** Область чата агента. */
 export const chat = (page: Page): Locator => page.getByRole('region', { name: 'Чат агента' })

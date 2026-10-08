@@ -5,7 +5,7 @@
 import { useState } from 'react'
 import type { RoleView, SpaceView } from '@contract'
 import { ApiFailure, api, errorText } from '@/shared/api'
-import { closeTabsWhere } from '@/shared/model'
+import { closeTabsWhere, getState } from '@/shared/model'
 import { toast } from '@/shared/ui'
 
 export function useRemoveSpace() {
@@ -16,7 +16,8 @@ export function useRemoveSpace() {
 
 	const ask = (sp: SpaceView): void => {
 		setTarget(sp)
-		setForce(false)
+		// с агентами сервер откажет (409) — сразу спрашиваем про удаление вместе с ними
+		setForce(getState().agents.some(a => a.space === sp.name))
 		setError(null)
 	}
 	const cancel = (): void => setTarget(null)

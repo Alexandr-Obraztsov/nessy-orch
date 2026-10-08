@@ -50,15 +50,18 @@ function useRefRegistry<E extends Element>(onAttach: (key: string, el: E) => voi
 	return { els, get }
 }
 
+/** Позиции узлов переживают закрытие вкладки «Граф» — раскладка не прыгает при возврате. */
+const positions = new Map<string, SimNode>()
+
 const rand = (s: number): number => (Math.random() - 0.5) * s
 const f1 = (n: number | undefined): string => (n ?? 0).toFixed(1)
 
 export function useGraphEngine(data: GraphData, onTap: (id: string) => void): GraphEngine {
 	const sim = useMemo(() => forceSimulation<SimNode, SimLink>().stop().alphaDecay(0.028).velocityDecay(0.4), [])
-	const byId = useRef(new Map<string, SimNode>())
+	const byId = useRef(new Map<string, SimNode>(positions))
 	const edges = useRef(new Map<string, GEdge>())
 	const sig = useRef('')
-	const first = useRef(true)
+	const first = useRef(positions.size === 0)
 
 	const svg = useRef<SVGSVGElement | null>(null)
 	const world = useRef<SVGGElement | null>(null)
@@ -182,6 +185,8 @@ export function useGraphEngine(data: GraphData, onTap: (id: string) => void): Gr
 			next.set(n.id, s)
 		}
 		byId.current = next
+		positions.clear()
+		for (const [k, v] of next) positions.set(k, v)
 		edges.current = new Map(data.edges.map(e => [e.id, e]))
 		const links: SimLink[] = data.edges.map(e => ({ source: e.a, target: e.b, kind: e.kind }))
 		sim.nodes([...next.values()])

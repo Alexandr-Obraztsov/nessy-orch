@@ -3,7 +3,7 @@
  * «Переписка агентов» / «Системные», выбор адресата (в том числе из архива).
  */
 import type { Page } from '@playwright/test'
-import { expect, expectNoOverflow, openApp, shot, test, uid } from './fixtures'
+import { expect, expectNoOverflow, shot, test, uid } from './fixtures'
 
 /** Открыть приложение сразу на вкладке «Лента» с заданными опциями. */
 async function openFeedTab(page: Page, opts: { agentChatter?: boolean; system?: boolean } = {}) {
@@ -11,9 +11,10 @@ async function openFeedTab(page: Page, opts: { agentChatter?: boolean; system?: 
 	await page.evaluate(o => {
 		localStorage.setItem('nessy-orch:view', JSON.stringify({ tabs: [{ kind: 'feed' }], active: 0, feed: { agentChatter: false, system: false, ...o } }))
 	}, opts)
-	await openApp(page)
+	await page.reload()
 	const feed = page.getByRole('region', { name: 'Лента' })
-	await expect(feed).toBeVisible()
+	// поток подключён и агенты загружены — появился выбор адресата
+	await expect(feed.getByRole('button', { name: /^Кому/ })).toBeVisible()
 	return feed
 }
 
@@ -110,7 +111,7 @@ test.describe('лента', () => {
 		await expect(feed.getByRole('note')).toContainText('проснётся с прежним контекстом')
 		await input.press('Enter')
 
+		// агент проснулся и ответил (выполнив задачу, он снова уходит в архив)
 		await expect(feed.getByRole('article', { name: new RegExp(`ответ от ${a.name}`) }).last()).toContainText(`ответ: ${text}`)
-		await expect.poll(async () => ((await (await request.get('/graph')).json()) as { agents: { id: string; archived: boolean }[] }).agents.find(x => x.id === a.id)?.archived).toBe(false)
 	})
 })

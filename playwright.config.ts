@@ -8,7 +8,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
 
-const PORT = 4399
+// порты можно переопределить, чтобы параллельные прогоны не мешали друг другу
+const PORT = Number(process.env['PW_PORT'] || 4399)
+const SERVE_PORT = process.env['PW_SERVE_PORT'] || '4800'
+const OUT = process.env['PW_OUT'] || '.'
 const BASE = `http://127.0.0.1:${PORT}`
 const executablePath = process.env['PW_CHROMIUM_PATH'] || undefined
 const launchOptions = { executablePath }
@@ -21,8 +24,8 @@ const touch = { isMobile: true, hasTouch: true, deviceScaleFactor: 2 }
 
 export default defineConfig({
 	testDir: './e2e',
-	outputDir: './test-results',
-	reporter: [['list'], ['html', { open: 'never' }]],
+	outputDir: path.join(OUT, 'test-results'),
+	reporter: [['list'], ['html', { open: 'never', outputFolder: path.join(OUT, 'playwright-report') }]],
 	workers: 1,
 	fullyParallel: false,
 	retries: 0,
@@ -50,7 +53,7 @@ export default defineConfig({
 			ORCH_PORT: String(PORT),
 			NESSY_BIN: path.resolve(__dirname, 'dist/test/support/fake-nessy.js'),
 			NESSY_ORCH_HOME: home,
-			SERVE_BASE_PORT: '4800',
+			SERVE_BASE_PORT: SERVE_PORT,
 			FAKE_NESSY_DELAY_MS: '20',
 		},
 	},

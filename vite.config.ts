@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 // В dev-режиме API проксируется на запущенный оркестратор; Host/Origin переписываем,
 // потому что сервер принимает только свой loopback-адрес (защита от DNS-rebinding).
 const ORCH = `http://127.0.0.1:${process.env['ORCH_PORT'] ?? '4337'}`
-const API = ['/health', '/status', '/graph', '/stream', '/spaces', '/agents', '/messages', '/inbox']
+const API = ['/health', '/status', '/graph', '/stream', '/spaces', '/agents', '/messages', '/inbox', '/roles']
 
 export default defineConfig({
 	root: 'ui',

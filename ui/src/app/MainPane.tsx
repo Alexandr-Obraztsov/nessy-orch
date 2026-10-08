@@ -27,7 +27,7 @@ export function MainPane() {
 			break
 	}
 	return (
-		<div key={tabKey(tab)} className={s.pane} role="tabpanel" aria-label={tab.kind === 'agent' ? 'Чат агента' : undefined}>
+		<div key={tabKey(tab)} className={s.pane} role="tabpanel">
 			{body}
 		</div>
 	)
