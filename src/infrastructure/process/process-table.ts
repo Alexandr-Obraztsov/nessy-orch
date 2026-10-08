@@ -35,6 +35,23 @@ export function isServeCommand(cmd: string): boolean {
 	return / serve( |$)/.test(cmd) && cmd.includes('--workspace')
 }
 
+/** Каталог воркспейса из командной строки serve (`--workspace <путь>`), null — не найден. */
+export function serveWorkspace(cmd: string): string | null {
+	const m = / --workspace (.+?)(?= --|$)/.exec(cmd)
+	return m?.[1]?.trim() || null
+}
+
+/** Резидентная память процесса, МБ (`ps -o rss=`); null — процесса нет или ps недоступен. */
+export function rssMb(pid: number): number | null {
+	if (!Number.isInteger(pid) || pid <= 0) return null
+	try {
+		const kb = parseInt(execFileSync('ps', ['-o', 'rss=', '-p', String(pid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(), 10)
+		return Number.isFinite(kb) ? Math.round(kb / 1024) : null
+	} catch {
+		return null
+	}
+}
+
 /** Похоже на процесс оркестратора (`node …/dist/src/main.js`). */
 export function isOrchCommand(cmd: string): boolean {
 	return cmd.includes('dist/src/main.js')

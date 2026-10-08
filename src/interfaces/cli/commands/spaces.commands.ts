@@ -1,6 +1,6 @@
 /** Команды пространств: space ls|add|rm. */
 import * as path from 'node:path'
-import type { SpaceView } from '../../../../shared/types'
+import type { GraphView, SpaceView } from '../../../../shared/types'
 import { flagBool, flagStr } from '../args'
 import type { Parsed } from '../args.types'
 import { CliError } from '../errors'
@@ -11,8 +11,9 @@ import type { CommandTable } from './command.types'
 async function cmdSpace(p: Parsed): Promise<void> {
 	const [sub, ...rest] = p.positionals
 	if (sub === 'ls' || sub === undefined) {
-		const list = await get<SpaceView[]>('/spaces')
-		return flagBool(p, 'json') ? json(list) : out(spacesTable(list))
+		if (flagBool(p, 'json')) return json(await get<SpaceView[]>('/spaces'))
+		const g = await get<GraphView>('/graph')
+		return out(spacesTable(g.spaces, g.agents))
 	}
 	if (sub === 'add') {
 		const target = rest[0]

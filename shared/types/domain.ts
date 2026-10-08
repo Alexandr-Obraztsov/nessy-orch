@@ -23,6 +23,8 @@ export interface SpaceView {
 	url: string | null
 	status: SpaceStatus
 	error: string | null
+	/** секунд без активности у запущенного управляемого serve (null — не запущен или внешний) */
+	idleSec?: number | null
 }
 
 export interface ToolBrief {

@@ -28,12 +28,13 @@ import type { InboxQuery } from './feed.types'
 import { Hub } from './hub'
 import type { OrchestratorDeps } from './orchestrator.types'
 import type { PersistedState } from './persisted.types'
-import type { SpaceRuntime, StorePort } from './ports'
+import type { NessyGateway, SpaceRuntime, StorePort } from './ports'
 import { Registry } from './registry'
 import { AgentsService } from './services/agents.service'
 import type { ServiceContext } from './services/context.types'
 import { MessagingService } from './services/messaging.service'
 import { RolesService } from './services/roles.service'
+import { ServeKeeper } from './services/serve-keeper'
 import { SpacesService } from './services/spaces.service'
 
 const SNAPSHOT_MESSAGES = 300
@@ -50,6 +51,7 @@ export class Orchestrator implements AgentHost {
 	private readonly messaging: MessagingService
 	private readonly agentsSvc: AgentsService
 	private readonly rolesSvc: RolesService
+	private readonly keeper: ServeKeeper
 	private readonly ctx: ServiceContext
 	private shuttingDown = false
 	private started = false
@@ -79,7 +81,8 @@ export class Orchestrator implements AgentHost {
 			saveSoon: () => this.saveSoon(),
 			isShuttingDown: () => this.shuttingDown,
 		}
-		this.spacesSvc = new SpacesService(this.ctx, deps.spaceFactory)
+		this.keeper = new ServeKeeper(this.ctx, deps.log ?? (line => console.warn(line)))
+		this.spacesSvc = new SpacesService(this.ctx, deps.spaceFactory, this.keeper)
 		this.messaging = new MessagingService(this.ctx)
 		this.rolesSvc = new RolesService(this.ctx)
 		this.agentsSvc = new AgentsService(this.ctx, this.spacesSvc, this.messaging, this.rolesSvc)
@@ -109,6 +112,7 @@ export class Orchestrator implements AgentHost {
 	async start(): Promise<void> {
 		if (this.started) return
 		this.started = true
+		this.keeper.start()
 		for (const a of [...this.registry.agents.values()]) {
 			if (this.shuttingDown) return
 			await a.resumeQueue().catch(() => undefined)
@@ -130,6 +134,7 @@ export class Orchestrator implements AgentHost {
 
 	async shutdown(): Promise<void> {
 		this.shuttingDown = true
+		this.keeper.stop()
 		for (const a of this.registry.agents.values()) a.detach()
 		this.feed.close()
 		this.store.saveStateSoon(() => this.persistState())
@@ -141,6 +146,14 @@ export class Orchestrator implements AgentHost {
 	// ---------- AgentHost ----------
 	getSpace(name: string): SpaceRuntime | undefined {
 		return this.registry.getSpace(name)
+	}
+
+	ensureSpaceReady(space: SpaceRuntime): Promise<NessyGateway> {
+		return this.keeper.ensureReady(space)
+	}
+
+	noteActivity(space: string): void {
+		this.keeper.note(space)
 	}
 
 	labelOf(id: string): string {
@@ -162,6 +175,11 @@ export class Orchestrator implements AgentHost {
 
 	removeSpace(name: string, force = false): Promise<void> {
 		return this.spacesSvc.remove(name, force, id => this.agentsSvc.remove(id))
+	}
+
+	/** Остановить управляемые serve, простаивающие дольше ORCH_SERVE_IDLE_MIN (вызывается и по таймеру). */
+	stopIdleServes(): Promise<string[]> {
+		return this.keeper.sweep()
 	}
 
 	// ---------- агенты ----------
@@ -258,7 +276,7 @@ export class Orchestrator implements AgentHost {
 	graph(): GraphView {
 		return {
 			rev: this.hub.rev,
-			spaces: [...this.registry.spaces.values()].map(s => s.toJSON()),
+			spaces: [...this.registry.spaces.values()].map(s => this.spacesSvc.view(s)),
 			agents: [...this.registry.agents.values()].map(a => a.toJSON()),
 			roles: this.rolesSvc.list(),
 		}
@@ -281,6 +299,9 @@ export class Orchestrator implements AgentHost {
 			agents: agents.length,
 			working: agents.filter(a => a.status === 'working').length,
 			roles: this.rolesSvc.count,
+			serveIdleMin: this.keeper.idleMin,
+			maxServes: this.keeper.maxServes,
+			runningServes: this.keeper.running().length,
 		}
 	}
 }

@@ -109,6 +109,7 @@ export class FakeGateway implements NessyGateway {
 export class FakeSpace implements SpaceRuntime {
 	readonly url = null
 	readonly color = 210
+	readonly managed: boolean = false
 	status: SpaceView['status'] = 'ready'
 	constructor(
 		readonly name: string,

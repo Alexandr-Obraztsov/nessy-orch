@@ -7,18 +7,25 @@ import { AppError } from '../../domain/errors'
 import { defaultSpaceName, normalizeWorkspacePath, uniqueName } from '../../domain/naming'
 import type { SpaceFactory, SpaceInit, SpaceRuntime } from '../ports'
 import type { ServiceContext } from './context.types'
+import type { ServeKeeper } from './serve-keeper'
 
 export class SpacesService {
 	constructor(
 		private readonly ctx: ServiceContext,
 		private readonly factory: SpaceFactory,
+		private readonly keeper: ServeKeeper,
 	) {}
+
+	/** Представление пространства для API: + время простоя запущенного serve. */
+	view(space: SpaceRuntime): SpaceView {
+		return { ...space.toJSON(), idleSec: this.keeper.idleSec(space) }
+	}
 
 	/** Создать объект пространства (процесс serve поднимается лениво). */
 	make(init: SpaceInit): SpaceRuntime {
 		const { ctx } = this
 		return this.factory(init, {
-			onStatus: s => ctx.hub.publish({ t: 'space', space: s.toJSON() }),
+			onStatus: s => ctx.hub.publish({ t: 'space', space: this.view(s) }),
 			onExit: (space, info) => {
 				if (ctx.isShuttingDown() || info.intended) return
 				const reason = `nessy serve пространства «${space.name}» завершился (code=${info.code}, signal=${info.signal})`
@@ -33,15 +40,15 @@ export class SpacesService {
 		const p = normalizeWorkspacePath(req.path)
 		if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) throw new AppError(400, 'bad_path', `каталог не найден: ${p}`)
 		const existing = [...registry.spaces.values()].find(s => s.path === p)
-		if (existing) return existing.toJSON()
+		if (existing) return this.view(existing)
 		if (req.name && registry.spaces.has(req.name)) throw new AppError(409, 'space_exists', `пространство «${req.name}» уже существует`)
 		const name = req.name ?? uniqueName(defaultSpaceName(p), n => registry.spaces.has(n))
 		const color = PALETTE[registry.spaces.size % PALETTE.length] ?? 210
 		const space = this.make({ name, path: p, url: req.url ?? null, color })
 		registry.spaces.set(name, space)
-		this.ctx.hub.publish({ t: 'space', space: space.toJSON() })
+		this.ctx.hub.publish({ t: 'space', space: this.view(space) })
 		this.ctx.saveSoon()
-		return space.toJSON()
+		return this.view(space)
 	}
 
 	async remove(name: string, force: boolean, removeAgent: (id: string) => Promise<void>): Promise<void> {
@@ -54,6 +61,7 @@ export class SpacesService {
 		for (const a of inside) await removeAgent(a.id)
 		await space.stop()
 		registry.spaces.delete(name)
+		this.keeper.forget(name)
 		this.ctx.hub.publish({ t: 'space_removed', name })
 		this.ctx.saveSoon()
 	}
