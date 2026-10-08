@@ -148,8 +148,16 @@ nessy-orch status | open | install [--print] | uninstall
 | `references/commands.md` | Полный справочник команд и ошибок |
 
 Подход собран из obra/superpowers, wshobson/agents, oh-my-claudecode и статьи Anthropic о мультиагентной системе
-(см. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). В этом репозитории скилл подхватывается автоматически.
-Чтобы он работал везде, скопируйте папку в `~/.claude/skills/nessy-orch/`.
+(см. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). В этом репозитории скилл подхватывается автоматически. Чтобы он работал в любом проекте, установите его
+в пользовательские скиллы Claude Code:
+
+```sh
+npm run skill:install                    # симлинк в ~/.claude/skills/nessy-orch (обновляется вместе с репозиторием)
+bash scripts/install-skill.sh --copy     # копия вместо ссылки
+bash scripts/install-skill.sh --uninstall
+```
+
+Скрипт подскажет, если `nessy-orch` нет в PATH.
 
 ## Роли агентов
 
