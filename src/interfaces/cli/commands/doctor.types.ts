@@ -11,6 +11,12 @@ export type ServeOwnership = 'owned' | 'orphan' | 'foreign'
 
 export interface DoctorServe extends ProcessInfo {
 	owner: ServeOwnership
+	/** резидентная память, МБ (null — неизвестно) */
+	rssMb?: number | null
+	/** пространство оркестратора с этим воркспейсом */
+	space?: string | null
+	/** секунд без активности (из /graph; null — неизвестно) */
+	idleSec?: number | null
 }
 
 export interface DoctorRecord extends ServePidRecord {
@@ -35,6 +41,10 @@ export interface DoctorReport {
 	records: DoctorRecord[]
 	serves: DoctorServe[]
 	maxSessions: number
+	/** ORCH_SERVE_IDLE_MIN: простой serve до остановки, мин (0 — не останавливать) */
+	serveIdleMin: number
+	/** ORCH_MAX_SERVES: лимит одновременно запущенных serve (0 — без лимита) */
+	maxServes: number
 	spaces: DoctorSpace[]
 	hints: string[]
 }
