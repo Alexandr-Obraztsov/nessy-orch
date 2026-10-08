@@ -165,7 +165,7 @@
 	background: var(--bg-code);
 	color: var(--text);
 	font: var(--fs-sm) / 1.45 var(--font-mono);
-	word-break: break-all;
+	overflow-wrap: anywhere;
 	white-space: pre-wrap;
 }
 .acts {

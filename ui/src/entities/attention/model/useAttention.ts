@@ -34,10 +34,11 @@ const name = (it: AttentionItem): string => agentById(it.agent.id)?.name ?? it.a
  * Результаты не всплывают — они тихо попадают во «Внимание». То, что было при загрузке, не показываем.
  */
 export function useAttentionToasts(list: AttentionList): void {
-	const conn = useStore(s => s.conn)
+	// готовы, когда пришёл снапшот (rev > 0): всё, что было в нём, — не новое
+	const ready = useStore(s => s.conn === 'live' && s.rev > 0)
 	const known = useRef<Set<string> | null>(null)
 	useEffect(() => {
-		if (conn !== 'live') return
+		if (!ready) return
 		const cur = [...list.permissions, ...list.errors]
 		if (known.current === null) {
 			known.current = new Set(cur.map(i => i.key))
@@ -52,5 +53,5 @@ export function useAttentionToasts(list: AttentionList): void {
 		if (first) toast(`${name(first)} просит разрешение: ${first.text}`, 'warn', 6000, 'attention:permission', perms.length)
 		const err = errs[0]
 		if (err) toast(`${name(err)}: ${err.text}`, 'error', 6000, 'attention:error', errs.length)
-	}, [list, conn])
+	}, [list, ready])
 }
