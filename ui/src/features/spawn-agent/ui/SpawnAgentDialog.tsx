@@ -1,11 +1,13 @@
 /**
- * Диалог запуска агента: пространство (или произвольный путь), имя, первая задача.
+ * Диалог запуска агента: роль, пространство (или произвольный путь), имя, первая задача.
  */
 import type { KeyboardEvent } from 'react'
+import { SPACE_STATUS } from '@/entities/agent'
 import { NARROW, useMedia } from '@/shared/lib/useMedia'
-import { Button, Dialog, Field, Icon, Kbd, PathText, TextArea, TextInput } from '@/shared/ui'
+import { Button, Dialog, Field, Icon, Kbd, PathText, Select, TextArea, TextInput } from '@/shared/ui'
+import { OTHER_PATH } from '../lib/validate'
 import { useSpawnForm } from '../model/useSpawnForm'
-import { SpacePicker } from './SpacePicker'
+import { RolePicker } from './RolePicker'
 import s from './SpawnAgentDialog.module.css'
 
 const FORM_ID = 'spawn-agent-form'
@@ -16,41 +18,72 @@ export function SpawnAgentDialog() {
 	const touch = useMedia(NARROW)
 	if (!f.open) return null
 
-	const onPromptKey = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void f.submit()
+	const onKey = (e: KeyboardEvent<HTMLFormElement>): void => {
+		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+			e.preventDefault()
+			void f.submit()
+		}
 	}
-	const selected = f.spaceOptions.find(o => o.value === f.form.space)?.space
+	const selected = f.spaces.find(sp => sp.name === f.form.space)
 
 	return (
 		<Dialog
 			open
 			title="Новый агент"
-			subtitle="Сессия nessy в пространстве. Задачу можно дать сразу или позже в чате."
 			onClose={f.close}
 			footer={
 				<>
+					{!touch && (
+						<span className={s.kbdHint}>
+							<Kbd>{MAC ? '⌘' : 'Ctrl'}</Kbd>
+							<Kbd>↵</Kbd>
+						</span>
+					)}
 					<Button variant="ghost" onClick={f.close}>
 						Отмена
 					</Button>
-					<Button variant="primary" icon="bolt" type="submit" form={FORM_ID} loading={f.busy} disabled={!!f.nameErr}>
+					<Button variant="primary" type="submit" form={FORM_ID} loading={f.busy} disabled={!!f.nameErr}>
 						Запустить
 					</Button>
 				</>
 			}
 		>
-			<form id={FORM_ID} className={s.form} onSubmit={e => void f.submit(e)} noValidate>
-				{f.hasSpaces && (
-					<fieldset className={s.fieldset}>
-						<legend className={s.legend}>Пространство</legend>
-						<SpacePicker value={f.form.space} options={f.spaceOptions} onChange={v => f.set('space', v)} />
-						{!f.usePath && selected && (
-							<span className={s.path}>
-								<Icon name="folder" size={13} />
-								<PathText path={selected.path} />
-							</span>
-						)}
-						{!f.usePath && f.errors.space && <span className={s.error}>{f.errors.space}</span>}
-					</fieldset>
+			<form id={FORM_ID} className={s.form} onSubmit={e => void f.submit(e)} onKeyDown={onKey} noValidate>
+				<fieldset className={s.fieldset}>
+					<legend className={s.legend}>Роль</legend>
+					<RolePicker value={f.form.role} roles={f.roles} onChange={v => f.set('role', v)} />
+					{f.errors.role && <span className={s.error}>{f.errors.role}</span>}
+				</fieldset>
+				<div className={s.row}>
+					{f.hasSpaces && (
+						<Field label="Пространство" error={f.usePath ? null : f.errors.space}>
+							<Select value={f.form.space} onChange={e => f.set('space', e.target.value)} aria-label="Пространство">
+								{f.spaces.map(sp => (
+									<option key={sp.name} value={sp.name}>
+										{sp.name}
+										{sp.status !== 'ready' ? ` — ${SPACE_STATUS[sp.status].label}` : ''}
+									</option>
+								))}
+								<option value={OTHER_PATH}>Другой путь…</option>
+							</Select>
+						</Field>
+					)}
+					<Field label="Имя" error={f.errors.name ?? f.nameErr} hint={f.nameWarn ? <span className={s.warn}>{f.nameWarn}</span> : undefined}>
+						<TextInput
+							value={f.form.name}
+							onChange={e => f.set('name', e.target.value)}
+							placeholder={f.namePlaceholder}
+							autoComplete="off"
+							spellCheck={false}
+							aria-invalid={!!(f.errors.name ?? f.nameErr)}
+						/>
+					</Field>
+				</div>
+				{!f.usePath && selected && (
+					<span className={s.path}>
+						<Icon name="folder" size={12} />
+						<PathText path={selected.path} />
+					</span>
 				)}
 				{f.usePath && (
 					<Field
@@ -65,54 +98,21 @@ export function SpawnAgentDialog() {
 							placeholder="/Users/me/projects/app"
 							autoComplete="off"
 							spellCheck={false}
-							autoFocus={f.hasSpaces}
 						/>
 					</Field>
 				)}
-				<Field
-					label="Имя"
-					error={f.errors.name ?? f.nameErr}
-					hint={
-						f.nameWarn ? (
-							<span className={s.warn}>{f.nameWarn}</span>
-						) : (
-							'Необязательно. Уникальное — по нему к агенту обращаются вы и другие агенты.'
-						)
-					}
-				>
-					<TextInput
-						value={f.form.name}
-						onChange={e => f.set('name', e.target.value)}
-						placeholder="например, reviewer"
-						autoComplete="off"
-						spellCheck={false}
-						aria-invalid={!!(f.errors.name ?? f.nameErr)}
-					/>
-				</Field>
-				<Field
-					label="Задача"
-					hint={
-						touch ? (
-							'Необязательно — можно написать позже в чате'
-						) : (
-							<span className={s.kbdHint}>
-								Необязательно. <Kbd>{MAC ? '⌘' : 'Ctrl'}</Kbd>
-								<Kbd>↵</Kbd> — запустить
-							</span>
-						)
-					}
-				>
+				<Field label="Задача" hint="Необязательно — можно написать позже в чате">
 					<TextArea
 						value={f.form.prompt}
 						onChange={e => f.set('prompt', e.target.value)}
-						onKeyDown={onPromptKey}
-						placeholder="Что сделать агенту? Например: «проверь README и предложи правки»"
-						rows={5}
+						placeholder="Что сделать агенту?"
+						rows={4}
+						data-autofocus
 					/>
 				</Field>
 				{f.errors.form && (
 					<div className={s.banner} role="alert">
-						<Icon name="alert" size={16} />
+						<Icon name="alert" size={14} />
 						<span>{f.errors.form}</span>
 					</div>
 				)}

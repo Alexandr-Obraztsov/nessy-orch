@@ -25,3 +25,16 @@ export function pathError(path: string): string | null {
 	if (!p.startsWith('/') && !p.startsWith('~')) return 'Нужен абсолютный путь, например /Users/me/project'
 	return null
 }
+
+/** Имя по умолчанию от роли: «Code reviewer» → «code-reviewer», при занятости — «-2», «-3»… */
+export function suggestName(roleName: string, agents: AgentView[]): string {
+	const base =
+		roleName
+			.trim()
+			.toLowerCase()
+			.replace(/[^\p{L}\p{N}_-]+/gu, '-')
+			.replace(/^-+|-+$/g, '') || 'agent'
+	const taken = new Set(agents.map(a => a.name.toLowerCase()))
+	if (!taken.has(base)) return base
+	for (let i = 2; ; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`
+}

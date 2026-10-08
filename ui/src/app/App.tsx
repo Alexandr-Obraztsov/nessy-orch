@@ -1,70 +1,71 @@
 /**
- * Корневой компонент: подключение к потоку оркестратора и адаптивная раскладка виджетов.
+ * Корневой компонент: подключение к потоку и каркас как в Obsidian —
+ * рейка | левая панель | вкладки + содержимое, строка состояния внизу.
+ * Узкие экраны (< 900px): верхняя панель, левая панель выезжает поверх.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { RoleDot } from '@/entities/role'
 import { AddSpaceDialog } from '@/features/add-space'
+import { AgentConfirmHost } from '@/features/agent-actions'
 import { SpawnAgentDialog } from '@/features/spawn-agent'
-import { MEDIUM, NARROW, useMedia } from '@/shared/lib/useMedia'
-import { connect, setMobileTab, useView } from '@/shared/model'
-import { Toaster } from '@/shared/ui'
-import { AgentChat } from '@/widgets/agent-chat'
-import { Feed } from '@/widgets/feed'
-import { GraphView } from '@/widgets/graph'
-import { Roster } from '@/widgets/roster'
-import { TabBar } from '@/widgets/tabbar'
-import { TopBar } from '@/widgets/topbar'
+import { NARROW, useMedia } from '@/shared/lib/useMedia'
+import { activeTab, closeTab, connect, toggleSidebar, useView } from '@/shared/model'
+import { Icon, StatusDot, Toaster } from '@/shared/ui'
+import { MobileBar } from '@/widgets/mobile-bar'
+import { Ribbon } from '@/widgets/ribbon'
+import { Sidebar } from '@/widgets/sidebar'
+import { StatusBar } from '@/widgets/statusbar'
+import { TabStrip, useTabMeta } from '@/widgets/tabs'
 import s from './App.module.css'
+import { MainPane } from './MainPane'
 import { useHotkeys } from './useHotkeys'
-
-const cx = (...c: (string | false | undefined)[]): string => c.filter(Boolean).join(' ')
 
 export function App() {
 	const narrow = useMedia(NARROW)
-	const medium = useMedia(MEDIUM)
-	const selected = useView(v => v.selectedAgentId)
-	const tab = useView(v => v.mobileTab)
-	// средняя ширина: ростер — выдвижная панель поверх графа
-	const [drawer, setDrawer] = useState(false)
-	const toggleDrawer = useCallback(() => setDrawer(d => !d), [])
+	const drawer = useView(v => v.sidebarOpen)
+	const tab = useView(v => activeTab(v))
+	const index = useView(v => v.active)
+	const meta = useTabMeta(tab)
 
 	useEffect(connect, [])
 	useHotkeys()
 
-	// вкладка «Чат» без выбранного агента бессмысленна — возвращаемся к списку
+	// панель-шторка только на узких экранах
 	useEffect(() => {
-		if (tab === 'chat' && !selected) setMobileTab('agents')
-	}, [tab, selected])
+		if (!narrow && drawer) toggleSidebar(false)
+	}, [narrow, drawer])
 
 	useEffect(() => {
-		if (!medium) setDrawer(false)
-	}, [medium])
+		document.title = tab.kind === 'feed' ? 'nessy-orch' : `${meta.title} — nessy-orch`
+	}, [tab.kind, meta.title])
 
-	// на узком экране показываем ровно один виджет; на широком — все колонки
-	const show = (t: 'graph' | 'agents' | 'panel'): string | false => {
-		if (!narrow) return false
-		const visible = t === 'panel' ? tab === 'feed' || tab === 'chat' : tab === t
-		return (visible && s.show) || false
-	}
-	const chat = selected && (!narrow || tab === 'chat')
+	const lead = meta.status ? (
+		<StatusDot color={meta.status.color} pulse={meta.status.pulse} size={8} />
+	) : meta.roleHue !== null ? (
+		<RoleDot hue={meta.roleHue} />
+	) : (
+		<Icon name={meta.icon} size={16} />
+	)
 
 	return (
-		<div className={s.app}>
-			<TopBar roster={medium ? { open: drawer, toggle: toggleDrawer } : null} />
+		<div className={`${s.app} ${narrow ? s.narrow : ''}`}>
+			{narrow ? (
+				<MobileBar title={meta.title} lead={lead} onCloseTab={meta.closable ? () => closeTab(index) : undefined} />
+			) : (
+				<Ribbon />
+			)}
+			<aside className={`${s.side} ${drawer ? s.sideOpen : ''}`} aria-label="Левая панель">
+				<Sidebar />
+			</aside>
+			{narrow && drawer && <div className={s.scrim} onClick={() => toggleSidebar(false)} aria-hidden="true" />}
 			<main className={s.main}>
-				<aside className={cx(s.roster, show('agents'), medium && drawer && s.drawerOpen)} aria-label="Агенты">
-					<Roster />
-				</aside>
-				<section className={cx(s.graph, show('graph'))} aria-label="Граф агентов">
-					<GraphView />
-					{medium && drawer && <div className={s.scrim} onClick={() => setDrawer(false)} aria-hidden="true" />}
-				</section>
-				<section className={cx(s.panel, show('panel'))} aria-label={chat ? 'Чат агента' : 'Общая лента'}>
-					{chat ? <AgentChat agentId={selected} /> : <Feed />}
-				</section>
+				{!narrow && <TabStrip />}
+				<MainPane />
 			</main>
-			{narrow && <TabBar />}
+			{!narrow && <StatusBar />}
 			<SpawnAgentDialog />
 			<AddSpaceDialog />
+			<AgentConfirmHost />
 			<Toaster />
 		</div>
 	)

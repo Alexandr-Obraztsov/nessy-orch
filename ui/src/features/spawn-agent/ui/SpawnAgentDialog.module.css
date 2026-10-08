@@ -5,95 +5,93 @@
 .fieldset {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: 4px;
 	min-width: 0;
-	margin: 0 0 var(--sp-4);
+	margin: 0 0 var(--sp-3);
 	padding: 0;
 	border: none;
 }
 .legend {
 	padding: 0;
-	margin-bottom: 6px;
+	margin-bottom: 4px;
 	font-size: var(--fs-sm);
-	font-weight: 600;
-	color: var(--text-2);
+	font-weight: 500;
+	color: var(--text-muted);
 }
-.chips {
+.roles {
 	display: flex;
-	flex-wrap: wrap;
-	gap: var(--sp-2);
+	flex-direction: column;
+	max-height: 172px;
+	overflow: auto;
+	padding: 2px;
+	border: 1px solid var(--border);
+	border-radius: var(--r-sm);
+	background: var(--bg-alt);
 }
-.chip {
-	--c: hsl(var(--hue, 170) 70% 60%);
+.role {
 	position: relative;
-	display: inline-flex;
+	display: flex;
 	align-items: center;
 	gap: var(--sp-2);
-	min-height: 36px;
-	max-width: 100%;
-	padding: 0 var(--sp-3);
-	border-radius: var(--r-full);
-	border: 1px solid var(--line-strong);
-	background: var(--surface-2);
-	color: var(--text-2);
-	font-size: var(--fs-sm);
-	font-weight: 550;
+	min-height: var(--row-h);
+	padding: 0 var(--sp-2);
+	border-radius: var(--r-xs);
 	cursor: pointer;
-	transition:
-		background var(--dur) var(--ease),
-		border-color var(--dur) var(--ease),
-		color var(--dur) var(--ease),
-		box-shadow var(--dur) var(--ease);
+	min-width: 0;
 }
-.chip input {
+.role input {
 	position: absolute;
 	opacity: 0;
 	pointer-events: none;
 }
-.chip:hover {
-	border-color: var(--c);
-	color: var(--text);
+.role:hover {
+	background: var(--bg-hover);
 }
-.chip:has(input:checked) {
-	border-color: var(--c);
-	background: color-mix(in srgb, var(--c) 14%, var(--surface-2));
-	color: var(--text);
-	box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 16%, transparent);
+.role:has(input:checked) {
+	background: var(--accent-soft);
 }
-.chip:has(input:focus-visible) {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
+.role:has(input:checked) .roleName {
+	color: var(--accent-text);
 }
-.other {
-	--c: var(--accent);
-	border-style: dashed;
+.role:has(input:focus-visible) {
+	outline: 2px solid var(--accent-ring);
+	outline-offset: -2px;
 }
-.hue {
+.noRole {
 	flex: none;
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
-	background: var(--c);
-	box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent);
+	border: 1px solid var(--text-faint);
 }
-.chipName {
+.roleName {
+	flex: none;
+	font-weight: 500;
+}
+.roleDesc {
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	color: var(--text-faint);
+	font-size: var(--fs-sm);
 }
-.chipStatus {
-	font-size: var(--fs-xs);
-	font-weight: 500;
+.row {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	column-gap: var(--sp-3);
 }
 .path {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 	min-width: 0;
-	margin-top: 2px;
-	color: var(--text-3);
-	font-family: var(--font-mono);
+	margin: -6px 0 var(--sp-3);
+	color: var(--text-faint);
 	font-size: var(--fs-xs);
+}
+.path svg {
+	flex: none;
 }
 .error {
 	font-size: var(--fs-sm);
@@ -105,40 +103,28 @@
 .kbdHint {
 	display: inline-flex;
 	align-items: center;
-	gap: 4px;
-	flex-wrap: wrap;
+	gap: 2px;
+	margin-right: auto;
 }
 .banner {
 	display: flex;
 	align-items: flex-start;
 	gap: var(--sp-2);
-	padding: var(--sp-3);
-	border-radius: var(--r-md);
+	padding: var(--sp-2) var(--sp-3);
+	border-radius: var(--r-sm);
 	background: var(--danger-soft);
 	color: var(--danger);
 	font-size: var(--fs-sm);
-	animation: shake 320ms var(--ease);
 }
 .banner svg {
 	flex: none;
-	margin-top: 1px;
-}
-@keyframes shake {
-	25% {
-		transform: translateX(-4px);
-	}
-	50% {
-		transform: translateX(3px);
-	}
-	75% {
-		transform: translateX(-2px);
-	}
+	margin-top: 2px;
 }
 @media (max-width: 899px) {
-	.chip {
+	.role {
 		min-height: 40px;
 	}
-}
-.path svg {
-	flex: none;
+	.roles {
+		max-height: 200px;
+	}
 }

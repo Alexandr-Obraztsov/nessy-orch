@@ -1,10 +1,9 @@
-.wrap {
-	min-width: 0;
-}
 .md {
 	min-width: 0;
 	overflow-wrap: anywhere;
-	line-height: 1.5;
+	font-size: var(--fs-md);
+	line-height: var(--lh);
+	color: var(--text);
 }
 .md > :first-child {
 	margin-top: 0;
@@ -13,7 +12,7 @@
 	margin-bottom: 0;
 }
 .md p {
-	margin: 0 0 0.55em;
+	margin: 0 0 0.5em;
 }
 .md h1,
 .md h2,
@@ -21,78 +20,82 @@
 .md h4,
 .md h5,
 .md h6 {
-	margin: 0.9em 0 0.4em;
-	line-height: 1.25;
-	font-weight: 650;
-	letter-spacing: -0.01em;
+	margin: 0.9em 0 0.35em;
+	line-height: 1.3;
+	font-weight: 600;
 }
 .md h1 {
-	font-size: 1.25em;
+	font-size: var(--fs-xl);
 }
 .md h2 {
-	font-size: 1.14em;
+	font-size: var(--fs-lg);
 }
 .md h3 {
-	font-size: 1.05em;
+	font-size: 14px;
 }
 .md h4,
 .md h5,
 .md h6 {
-	font-size: 1em;
-	color: var(--text-2);
+	font-size: var(--fs-md);
+	color: var(--text-muted);
 }
 .md ul,
 .md ol {
-	margin: 0.3em 0 0.6em;
-	padding-left: 1.4em;
+	margin: 0.25em 0 0.5em;
+	padding-left: 1.5em;
 }
 .md li {
-	margin: 0.15em 0;
+	margin: 0.1em 0;
 }
 .md li::marker {
-	color: var(--accent);
+	color: var(--text-faint);
 }
 .md a {
-	color: var(--accent);
+	color: var(--accent-text);
+	text-decoration: none;
+}
+.md a:hover {
 	text-decoration: underline;
-	text-decoration-color: var(--accent-glow);
 	text-underline-offset: 2px;
+}
+.md strong {
+	font-weight: 600;
 }
 .md code {
 	font-family: var(--font-mono);
-	font-size: 0.86em;
-	padding: 0.12em 0.38em;
-	border-radius: 4px;
-	background: var(--code-bg);
-	border: 1px solid var(--line);
+	font-size: 0.88em;
+	padding: 0.1em 0.35em;
+	border-radius: var(--r-xs);
+	background: var(--bg-code);
+	color: var(--accent-text);
 }
 .md pre {
-	margin: 0.5em 0 0.7em;
+	margin: 0.4em 0 0.6em;
 	padding: var(--sp-2) var(--sp-3);
 	border-radius: var(--r-sm);
-	background: var(--code-bg);
-	border: 1px solid var(--line);
+	background: var(--bg-code);
+	border: 1px solid var(--border);
 	overflow-x: auto;
 	font-size: var(--fs-sm);
-	line-height: 1.55;
+	line-height: 1.5;
 	tab-size: 2;
 }
 .md pre code {
 	padding: 0;
-	border: none;
 	background: none;
+	color: var(--text);
 	font-size: inherit;
 	white-space: pre;
 }
 .md blockquote {
-	margin: 0.5em 0;
-	padding: 2px 0 2px var(--sp-3);
-	border-left: 3px solid var(--accent-glow);
-	color: var(--text-2);
+	margin: 0.4em 0;
+	padding: 0 0 0 var(--sp-3);
+	border-left: 2px solid var(--accent);
+	color: var(--text-muted);
 }
 .md hr {
 	border: none;
-	border-top: 1px solid var(--line-strong);
+	border-top: 1px solid var(--border);
 	margin: 0.8em 0;
 }
 .md table {
@@ -100,20 +103,19 @@
 	max-width: 100%;
 	overflow-x: auto;
 	border-collapse: collapse;
-	margin: 0.5em 0 0.7em;
+	margin: 0.4em 0 0.6em;
 	font-size: var(--fs-sm);
 }
 .md th,
 .md td {
-	padding: 5px 10px;
-	border: 1px solid var(--line-strong);
+	padding: 4px 10px;
+	border: 1px solid var(--border);
 	text-align: left;
 	vertical-align: top;
-	/* слова не рвём посреди — таблица скроллится по горизонтали */
 	overflow-wrap: normal;
 }
 .md th {
-	background: var(--surface-3);
+	background: var(--bg-alt);
 	font-weight: 600;
 	white-space: nowrap;
 }
@@ -125,45 +127,9 @@
 	accent-color: var(--accent);
 	margin: 0 6px 0 0;
 }
-
-/* на акцентном пузыре (свои сообщения) */
-.onAccent code,
-.onAccent pre {
-	background: color-mix(in srgb, var(--code-bg) 55%, transparent);
-}
-.onAccent li::marker,
-.onAccent a {
-	color: inherit;
-}
-
-.clamped {
-	max-height: var(--clamp);
-	overflow: hidden;
-	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent);
-	mask-image: linear-gradient(to bottom, #000 calc(100% - 56px), transparent);
-}
-.more {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	margin-top: 4px;
-	padding: 2px 8px 2px 4px;
-	border: none;
-	border-radius: var(--r-full);
-	background: transparent;
-	color: var(--accent);
-	font-size: var(--fs-sm);
-	font-weight: 600;
-	transition: background var(--dur) var(--ease);
-}
-.onAccent + .more {
-	color: inherit;
-}
-.more:hover {
-	background: var(--accent-soft);
-}
-.flip {
-	transform: rotate(180deg);
+.md li:has(> input[type='checkbox']) {
+	list-style: none;
+	margin-left: -1.3em;
 }
 
 /* стриминг: каретка после последнего блока */
@@ -171,13 +137,11 @@
 .streaming:empty::after {
 	content: '';
 	display: inline-block;
-	width: 0.5em;
-	height: 1.05em;
+	width: 2px;
+	height: 1.1em;
 	margin-left: 2px;
 	vertical-align: text-bottom;
-	border-radius: 1px;
 	background: var(--accent);
-	box-shadow: 0 0 8px var(--accent-glow);
 	animation: caret 1s steps(1) infinite;
 }
 .streaming > pre:last-child::after {
@@ -187,9 +151,4 @@
 	50% {
 		opacity: 0;
 	}
-}
-/* списки задач — без маркера */
-.md li:has(> input[type='checkbox']) {
-	list-style: none;
-	margin-left: -1.3em;
 }

@@ -1,5 +1,5 @@
 /** Поля формы запуска агента, к которым привязываются ошибки сервера. */
-export type SpawnField = 'space' | 'name' | 'form'
+export type SpawnField = 'space' | 'name' | 'role' | 'form'
 
 export type SpawnErrors = Partial<Record<SpawnField, string>>
 
@@ -8,5 +8,7 @@ export interface SpawnFormState {
 	space: string
 	path: string
 	name: string
+	/** id роли или '' — без роли */
+	role: string
 	prompt: string
 }

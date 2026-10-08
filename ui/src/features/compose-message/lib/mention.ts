@@ -18,7 +18,11 @@ export function mentionQuery(text: string): string | null {
 	return m ? norm(m[1] ?? '') : null
 }
 
+/** Варианты дополнения: сначала активные, потом архивные. */
 export function suggest(query: string | null, agents: AgentView[]): AgentView[] {
 	if (query === null) return []
-	return agents.filter(a => norm(a.name).startsWith(query) || a.id.startsWith(query)).slice(0, 6)
+	return agents
+		.filter(a => norm(a.name).startsWith(query) || a.id.startsWith(query))
+		.sort((a, b) => Number(a.archived) - Number(b.archived))
+		.slice(0, 6)
 }

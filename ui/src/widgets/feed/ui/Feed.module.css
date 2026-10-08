@@ -1,73 +1,65 @@
 .feed {
 	flex: 1;
 	min-height: 0;
+	min-width: 0;
 	display: flex;
 	flex-direction: column;
-	background: var(--surface);
+	background: var(--bg);
 }
 
 /* ---- шапка ---- */
 .header {
 	flex: none;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	flex-wrap: wrap;
-	gap: var(--sp-2) var(--sp-3);
-	min-height: 52px;
-	padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
-	border-bottom: 1px solid var(--line);
-	background: var(--surface);
+	border-bottom: 1px solid var(--border);
 }
-.titleBox {
+.headerInner {
 	display: flex;
 	align-items: center;
 	gap: var(--sp-2);
-	min-width: 0;
+	max-width: 760px;
+	height: 36px;
+	margin: 0 auto;
+	padding: 0 var(--sp-4);
 }
 .title {
 	margin: 0;
-	font-size: var(--fs-lg);
-	font-weight: 650;
-	letter-spacing: -0.01em;
+	font-size: var(--fs-md);
+	font-weight: 600;
 	white-space: nowrap;
 }
 .count {
-	padding: 1px 7px;
-	border-radius: var(--r-full);
-	background: var(--surface-3);
-	color: var(--text-2);
-	font-family: var(--font-mono);
+	color: var(--text-faint);
 	font-size: var(--fs-xs);
 	font-variant-numeric: tabular-nums;
 }
-.segmented {
-	display: inline-flex;
-	padding: 2px;
-	border-radius: var(--r-md);
-	background: var(--surface-2);
-	border: 1px solid var(--line);
+.toggles {
+	display: flex;
+	gap: var(--sp-1);
+	margin-left: auto;
+	min-width: 0;
 }
-.segmented button {
-	height: 26px;
-	padding: 0 10px;
-	border: none;
-	border-radius: 7px;
+.toggle {
+	height: 22px;
+	padding: 0 8px;
+	border-radius: var(--r-full);
+	border: 1px solid var(--border);
 	background: none;
-	color: var(--text-3);
-	font-size: var(--fs-sm);
-	font-weight: 550;
+	color: var(--text-muted);
+	font-size: var(--fs-xs);
+	white-space: nowrap;
 	transition:
 		background var(--dur) var(--ease),
-		color var(--dur) var(--ease);
+		color var(--dur) var(--ease),
+		border-color var(--dur) var(--ease);
 }
-.segmented button:hover {
+.toggle:hover {
+	background: var(--bg-hover);
 	color: var(--text);
 }
-.segmented .segOn {
-	background: var(--surface);
-	color: var(--text);
-	box-shadow: var(--shadow-1), inset 0 0 0 1px var(--line);
+.toggle[aria-pressed='true'] {
+	border-color: transparent;
+	background: var(--accent-soft);
+	color: var(--accent-text);
 }
 
 /* ---- лента ---- */
@@ -84,16 +76,21 @@
 	overflow-y: auto;
 	overflow-x: hidden;
 	overscroll-behavior: contain;
-	/* «сетка сонара» на фоне */
-	background-image: radial-gradient(circle at 1px 1px, var(--grid) 1px, transparent 0);
-	background-size: 22px 22px;
 }
 .content {
 	display: flex;
 	flex-direction: column;
-	min-height: 100%;
 	justify-content: flex-end;
-	padding: 4px 0 var(--sp-3);
+	min-height: 100%;
+}
+.column {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	width: 100%;
+	max-width: 760px;
+	margin: 0 auto;
+	padding: var(--sp-2) var(--sp-4) var(--sp-3);
 }
 
 /* ---- пусто ---- */
@@ -107,48 +104,36 @@
 	padding: var(--sp-6) var(--sp-5);
 	text-align: center;
 }
-.emptyTitle {
-	margin: var(--sp-3) 0 0;
-	font-weight: 650;
-	font-size: var(--fs-lg);
+.emptyIcon {
+	color: var(--text-faint);
 }
 .emptyText {
-	margin: 0 0 var(--sp-3);
-	max-width: 300px;
-	color: var(--text-3);
-	font-size: var(--fs-sm);
+	margin: 0;
+	max-width: 320px;
+	color: var(--text-muted);
+	font-size: var(--fs-md);
 }
-.sonar {
-	position: relative;
-	width: 112px;
-	height: 112px;
-	border-radius: 50%;
-	background: radial-gradient(circle, var(--accent-soft), transparent 70%);
+
+@media (max-width: 899px) {
+	.headerInner,
+	.column {
+		padding-left: var(--sp-3);
+		padding-right: var(--sp-3);
+	}
+	.title,
+	.count {
+		display: none;
+	}
+	.toggles {
+		margin-left: 0;
+	}
 }
-.sonar i {
-	position: absolute;
-	inset: 0;
-	border-radius: 50%;
-	border: 1px solid var(--ring);
-}
-.sonar i:nth-child(2) {
-	inset: 20px;
-}
-.sonar i:nth-child(3) {
-	inset: 40px;
-	border-color: var(--accent-glow);
-}
-.sonar b {
-	position: absolute;
-	inset: 0;
-	border-radius: 50%;
-	background: conic-gradient(from 0deg, transparent 0 300deg, var(--accent-glow) 360deg);
-	animation: sweep 3.2s linear infinite;
-	-webkit-mask-image: radial-gradient(circle, #000 69%, transparent 70%);
-	mask-image: radial-gradient(circle, #000 69%, transparent 70%);
-}
-@keyframes sweep {
-	to {
-		transform: rotate(360deg);
+@media (max-width: 899px), (pointer: coarse) {
+	.headerInner {
+		height: 44px;
+	}
+	.toggle {
+		height: 32px;
+		padding: 0 12px;
 	}
 }

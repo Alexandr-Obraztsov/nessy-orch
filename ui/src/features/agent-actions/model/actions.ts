@@ -1,21 +1,45 @@
-/** Действия над агентом: прервать ход, удалить, скопировать id. Ошибки — тостом. */
+/** Действия над агентом: прервать ход, архив, возврат, удаление, копирование. Ошибки — тостом. */
 import { api, errorText } from '@/shared/api'
-import { closeAgent, getView } from '@/shared/model'
+import { closeTabsWhere } from '@/shared/model'
 import { toast } from '@/shared/ui'
 
-export async function cancelTurn(id: string): Promise<void> {
+export async function cancelTurn(id: string): Promise<boolean> {
 	try {
 		await api.cancel(id)
 		toast('Ход прерван', 'success')
+		return true
 	} catch (e) {
 		toast(`Не удалось прервать: ${errorText(e)}`, 'error')
+		return false
+	}
+}
+
+export async function archiveAgent(id: string, name: string): Promise<boolean> {
+	try {
+		await api.archive(id)
+		toast(`${name} — в архиве`, 'success', 2400)
+		return true
+	} catch (e) {
+		toast(`Не удалось архивировать: ${errorText(e)}`, 'error')
+		return false
+	}
+}
+
+export async function restoreAgent(id: string, name: string): Promise<boolean> {
+	try {
+		await api.restore(id)
+		toast(`${name} возвращён из архива`, 'success', 2400)
+		return true
+	} catch (e) {
+		toast(`Не удалось вернуть: ${errorText(e)}`, 'error')
+		return false
 	}
 }
 
 export async function removeAgent(id: string, name: string): Promise<boolean> {
 	try {
 		await api.removeAgent(id)
-		if (getView().selectedAgentId === id) closeAgent()
+		closeTabsWhere(t => t.kind === 'agent' && t.id === id)
 		toast(`Агент ${name} удалён`, 'success')
 		return true
 	} catch (e) {

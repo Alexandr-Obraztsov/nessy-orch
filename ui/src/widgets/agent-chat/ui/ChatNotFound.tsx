@@ -1,21 +1,19 @@
-import { closeAgent } from '@/shared/model'
-import { Button } from '@/shared/ui'
+import { openFeed } from '@/shared/model'
+import { Icon } from '@/shared/ui'
 import s from './AgentChat.module.css'
 
 /** Агента больше нет (удалён). */
 export function ChatNotFound({ id }: { id: string }) {
 	return (
 		<div className={s.notFound}>
-			<div className={s.ghost} aria-hidden="true">
-				?
-			</div>
-			<p className={s.nfTitle}>Агент не найден</p>
+			<Icon name="user" size={28} className={s.nfIcon} />
 			<p className={s.nfText}>
-				Похоже, агент <code>{id}</code> был удалён. Его сообщения остались в общей ленте.
+				Агент <code>{id}</code> удалён. Его сообщения остались в ленте.
 			</p>
-			<Button variant="secondary" size="sm" icon="chevronLeft" onClick={closeAgent}>
-				К общей ленте
-			</Button>
+			<button type="button" className={s.act} onClick={openFeed}>
+				<Icon name="feed" size={13} />
+				Открыть ленту
+			</button>
 		</div>
 	)
 }

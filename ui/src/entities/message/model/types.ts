@@ -1,44 +1,27 @@
-import type { ReactNode } from 'react'
-
 export interface MarkdownBodyProps {
 	text: string
-	/** свернуть, если выше этого (px); 0 — не сворачивать */
-	collapseAt?: number
-	/** markdown на акцентном фоне (свои сообщения) */
-	onAccent?: boolean
 	/** текст ещё дописывается — мигающая каретка в конце */
 	streaming?: boolean
 	className?: string
 }
 
-export type BubbleSide = 'in' | 'out'
-export type BubbleTone = 'default' | 'failed'
-
-export interface BubbleProps {
-	side: BubbleSide
-	tone?: BubbleTone
-	/** первый пузырь группы — с «хвостиком» */
-	tail?: boolean
-	/** строка над текстом: отправитель → получатель */
-	head?: ReactNode
-	/** подвал: время, значки состояния */
-	meta?: ReactNode
-	/** анимировать появление */
-	enter?: boolean
-	children: ReactNode
-}
-
-export interface SystemPillProps {
+export interface SystemLineProps {
+	text: string
 	level?: 'info' | 'error'
+	/** время события (уже отформатированное) */
 	time?: string
 	enter?: boolean
-	children: ReactNode
 }
 
-export interface CollapseState {
-	ref: (el: HTMLDivElement | null) => void
-	/** контент выше лимита */
-	overflow: boolean
-	expanded: boolean
-	toggle: () => void
+export interface JumpToLatestProps {
+	visible: boolean
+	/** сколько новых пришло, пока пользователь был выше */
+	unseen: number
+	onClick: () => void
+}
+
+export interface NodeLinkProps {
+	/** `you`, `system` или id агента */
+	id: string
+	strong?: boolean
 }

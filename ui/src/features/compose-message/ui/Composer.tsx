@@ -1,45 +1,41 @@
 /**
- * Поле ввода сообщения агенту. В ленте — с выбором адресата и «@имя », в чате агента — фиксированный адресат.
- * Enter — отправить, Shift+Enter — новая строка.
+ * Поле ввода сообщения агенту (как редактор в Obsidian: рамка, авто-высота, полоска снизу).
+ * В ленте — «Кому: …» и префикс «@имя », в чате агента — фиксированный адресат.
+ * Enter — отправить, Shift+Enter — новая строка. Под полем — что произойдёт при отправке
+ * (работающий агент будет прерван, агент из архива проснётся).
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { openDialog } from '@/shared/model'
-import { Button, Icon } from '@/shared/ui'
+import { openDialog, useStore } from '@/shared/model'
+import { Icon } from '@/shared/ui'
+import { composerHint, composerPlaceholder } from '../lib/hint'
 import { useAutoGrow } from '../lib/useAutoGrow'
 import type { ComposerProps } from '../model/types'
 import { useComposer } from '../model/useComposer'
 import s from './Composer.module.css'
-import { RecipientPicker } from './RecipientPicker'
+import { RecipientSelect } from './RecipientSelect'
 
-/** Длинное имя в плейсхолдере не должно переносить его на несколько строк. */
-const short = (n: string): string => (n.length > 24 ? `${n.slice(0, 22)}…` : n)
-
-export function Composer({ to, disabledReason, placeholder, onSent }: ComposerProps) {
+export function Composer({ to, onSent }: ComposerProps) {
 	const m = useComposer(to, onSent)
+	const hasAgents = useStore(st => st.agents.length > 0)
 	const input = useRef<HTMLTextAreaElement>(null)
 	const [hi, setHi] = useState(0)
 	useAutoGrow(input, m.text)
 	useEffect(() => setHi(0), [m.suggestions.length])
 
-	// писать некому — предлагаем запустить агента
-	if (!to && m.targets.length === 0) {
+	// писать некому — предлагаем создать агента
+	if (!to && !hasAgents) {
 		return (
 			<div className={s.cta}>
-				<div className={s.ctaText}>
-					<b>Нет активных агентов</b>
-					<span>Запустите агента, чтобы начать переписку</span>
-				</div>
-				<Button variant="primary" size="sm" icon="plus" onClick={() => openDialog('spawn')}>
-					Новый агент
-				</Button>
+				<span>Нет агентов — некому писать.</span>
+				<button type="button" className={s.ctaBtn} onClick={() => openDialog('spawn')}>
+					<Icon name="plus" size={14} />
+					Создать агента
+				</button>
 			</div>
 		)
 	}
 
-	const disabled = !!disabledReason
-	const target = m.targets.find(a => a.id === m.recipient)
-	const ph = disabled ? disabledReason : (placeholder ?? (target ? `Сообщение для ${short(target.name)}…` : 'Сообщение…'))
-	const canSend = !disabled && !!m.recipient && m.text.trim().length > 0 && !m.sending
+	const hint = composerHint(m.recipient)
 
 	const onKey = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (e.nativeEvent.isComposing) return
@@ -67,8 +63,7 @@ export function Composer({ to, disabledReason, placeholder, onSent }: ComposerPr
 	}
 
 	return (
-		<div className={[s.composer, disabled && s.disabled].filter(Boolean).join(' ')}>
-			{!to && <RecipientPicker targets={m.targets} value={m.recipient} onPick={m.pick} />}
+		<div className={s.composer}>
 			{m.suggestions.length > 0 && (
 				<ul className={s.suggest} role="listbox" aria-label="Агенты">
 					{m.suggestions.map((a, i) => (
@@ -84,40 +79,45 @@ export function Composer({ to, disabledReason, placeholder, onSent }: ComposerPr
 							>
 								<b>@{a.name}</b>
 								<span>{a.space}</span>
-								<code>{a.id}</code>
+								{a.archived && <em>архив</em>}
 							</button>
 						</li>
 					))}
 				</ul>
 			)}
-			<div className={s.row}>
+			<div className={s.box} onClick={e => e.target === e.currentTarget && input.current?.focus()}>
 				<textarea
 					ref={input}
 					data-composer=""
 					className={s.input}
 					rows={1}
 					value={m.text}
-					disabled={disabled}
-					placeholder={ph}
-					aria-label={target ? `Сообщение для ${target.name}` : 'Сообщение'}
+					placeholder={composerPlaceholder(m.recipient)}
+					aria-label={m.recipient ? `Сообщение для ${m.recipient.name}` : 'Сообщение'}
 					onChange={e => m.setText(e.target.value)}
 					onKeyDown={onKey}
 				/>
-				<button
-					type="button"
-					className={s.send}
-					disabled={!canSend}
-					aria-label="Отправить"
-					title="Отправить (Enter)"
-					onClick={() => void m.send()}
-				>
-					{m.sending ? <span className={s.spinner} /> : <Icon name="send" size={18} strokeWidth={2.2} />}
-				</button>
+				<div className={s.bar}>
+					{!to && <RecipientSelect value={m.recipient} active={m.active} archived={m.archived} onPick={m.pick} />}
+					<span className={s.keys}>
+						<kbd>Enter</kbd> отправить · <kbd>Shift+Enter</kbd> строка
+					</span>
+					<button
+						type="button"
+						className={s.send}
+						disabled={!m.canSend}
+						aria-label="Отправить"
+						title="Отправить (Enter)"
+						onClick={() => void m.send()}
+					>
+						{m.sending ? <span className={s.spinner} /> : <Icon name="send" size={15} />}
+					</button>
+				</div>
 			</div>
-			{disabled && (
-				<div className={s.note}>
-					<Icon name="info" size={13} />
-					{disabledReason}
+			{hint && (
+				<div className={[s.hint, hint.tone === 'warn' && s.hintWarn].filter(Boolean).join(' ')} role="note">
+					<Icon name={hint.tone === 'warn' ? 'bolt' : 'info'} size={12} />
+					{hint.text}
 				</div>
 			)}
 		</div>

@@ -1,7 +1,10 @@
 /**
  * Логика поля ввода: адресат (явный выбор, «@имя », последний собеседник), отправка, ошибки.
+ * Сообщение от вас сервер по умолчанию доставляет сразу, прерывая текущий ход агента;
+ * агент из архива при этом просыпается с прежним контекстом.
  */
 import { useCallback, useMemo, useState } from 'react'
+import type { AgentView } from '@contract'
 import { api, errorText } from '@/shared/api'
 import { YOU, useStore } from '@/shared/model'
 import { toast } from '@/shared/ui'
@@ -13,14 +16,18 @@ import type { ComposerModel } from './types'
 export function useComposer(fixedTo: string | undefined, onSent?: () => void): ComposerModel {
 	const agents = useStore(s => s.agents)
 	const messages = useStore(s => s.messages)
-	const targets = useMemo(() => agents.filter(a => a.status !== 'dead'), [agents])
+	const active = useMemo(() => agents.filter(a => !a.archived), [agents])
+	const archived = useMemo(() => agents.filter(a => a.archived), [agents])
 	const [text, setTextRaw] = useState('')
 	const [picked, setPicked] = useState<string | null>(getLastRecipient)
 	const [sending, setSending] = useState(false)
 
-	const mention = fixedTo ? null : parseMention(text, targets)
-	const recipient = fixedTo ?? mention?.agent.id ?? defaultRecipient(messages, targets, picked)
-	const suggestions = fixedTo ? [] : suggest(mentionQuery(text), targets)
+	const mention = fixedTo ? null : parseMention(text, agents)
+	const recipientId = fixedTo ?? mention?.agent.id ?? defaultRecipient(messages, agents, picked)
+	const recipient = agents.find(a => a.id === recipientId) ?? null
+	const suggestions = fixedTo ? [] : suggest(mentionQuery(text), agents)
+	const body = (mention ? mention.rest : text).trim()
+	const canSend = !!recipient && body.length > 0 && !sending
 
 	const pick = useCallback((id: string) => {
 		setPicked(id)
@@ -30,7 +37,7 @@ export function useComposer(fixedTo: string | undefined, onSent?: () => void): C
 	const setText = useCallback((v: string) => setTextRaw(v), [])
 
 	const complete = useCallback(
-		(agent: { id: string; name: string }) => {
+		(agent: AgentView) => {
 			setTextRaw(`@${agent.name} `)
 			pick(agent.id)
 		},
@@ -38,20 +45,19 @@ export function useComposer(fixedTo: string | undefined, onSent?: () => void): C
 	)
 
 	const send = useCallback(async () => {
-		const body = (mention ? mention.rest : text).trim()
-		if (!body || !recipient || sending) return
+		if (!canSend) return
 		setSending(true)
 		try {
-			await api.send(recipient, { text: body, from: YOU })
+			await api.send(recipient.id, { text: body, from: YOU })
 			setTextRaw('')
-			if (!fixedTo) pick(recipient)
+			if (!fixedTo) pick(recipient.id)
 			onSent?.()
 		} catch (e) {
 			toast(`Не отправлено: ${errorText(e)}`, 'error')
 		} finally {
 			setSending(false)
 		}
-	}, [mention, text, recipient, sending, fixedTo, pick, onSent])
+	}, [canSend, recipient, body, fixedTo, pick, onSent])
 
-	return { text, setText, recipient, pick, targets, sending, send, suggestions, complete }
+	return { text, setText, recipient, pick, active, archived, sending, canSend, send, suggestions, complete }
 }

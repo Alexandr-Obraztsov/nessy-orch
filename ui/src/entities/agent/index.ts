@@ -1,5 +1,6 @@
 export { AgentAvatar, initials } from './ui/AgentAvatar'
-export { AGENT_STATUS, SPACE_STATUS, canCancel, canMessage } from './lib/status'
+export type { AgentAvatarProps } from './ui/AgentAvatar'
+export { AGENT_STATUS, ARCHIVED_STATUS, SPACE_STATUS, agentStatusMeta, canCancel, canMessage, isBusy } from './lib/status'
 export type { StatusMeta } from './lib/status'
 export { useAgentStream } from './model/useAgentStream'
 export type { AgentStreamState, LiveRun } from './model/types'

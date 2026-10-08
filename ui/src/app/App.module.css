@@ -1,8 +1,7 @@
 /*
- * Раскладка:
- *   ≥ 1280px — ростер | граф | панель (лента / чат агента)
- *   900–1279 — граф | панель; ростер — выдвижной поверх графа (кнопка в верхней панели)
- *   < 900    — одна колонка + нижние вкладки (граф / агенты / лента / чат)
+ * Каркас:
+ *   ≥ 900px — [рейка 44 | левая панель 264 | вкладки + содержимое], строка состояния во всю ширину
+ *   < 900px — верхняя панель 48 + содержимое; левая панель выезжает поверх (со scrim)
  */
 .app {
 	height: 100vh;
@@ -10,133 +9,98 @@
 	width: 100%;
 	overflow: hidden;
 	display: grid;
-	grid-template-rows: auto minmax(0, 1fr);
-	grid-template-columns: minmax(0, 1fr);
+	grid-template-columns: var(--ribbon-w) var(--sidebar-w) minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr) var(--statusbar-h);
+	grid-template-areas:
+		'ribbon side main'
+		'status status status';
+	background: var(--bg);
+}
+.app > :first-child {
+	grid-area: ribbon;
+}
+.side {
+	grid-area: side;
+	min-height: 0;
+	min-width: 0;
+	border-right: 1px solid var(--border);
 }
 .main {
-	position: relative;
+	grid-area: main;
 	min-height: 0;
 	min-width: 0;
-	display: grid;
-	grid-template-columns: 288px minmax(0, 1fr) var(--panel-w);
-	grid-template-rows: minmax(0, 1fr);
-}
-.roster,
-.graph,
-.panel {
-	min-width: 0;
-	min-height: 0;
-	position: relative;
-}
-.roster {
-	display: flex;
-	border-right: 1px solid var(--line);
-	background: var(--surface);
-}
-.graph {
-	overflow: hidden;
-	/* собственный контекст наложения: слои графа не перекрывают выдвижной ростер */
-	isolation: isolate;
-}
-.panel {
-	border-left: 1px solid var(--line);
-	background: var(--surface);
 	display: flex;
 	flex-direction: column;
-	overflow: hidden;
+	background: var(--bg);
+}
+.app > footer {
+	grid-area: status;
+}
+.pane {
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	animation: paneIn 120ms var(--ease);
+}
+.pane > * {
+	flex: 1;
+	min-height: 0;
 }
 .scrim {
 	display: none;
 }
 
 @media (min-width: 1600px) {
-	.main {
-		grid-template-columns: 312px minmax(0, 1fr) calc(var(--panel-w) + 40px);
-	}
-}
-
-@media (max-width: 1279px) {
-	.main {
-		grid-template-columns: minmax(0, 1fr) var(--panel-w);
-	}
-	/* выдвижной ростер поверх графа */
-	.roster {
-		position: absolute;
-		z-index: 20;
-		top: 0;
-		bottom: 0;
-		left: 0;
-		width: min(320px, 46%);
-		background: var(--surface);
-		box-shadow: var(--shadow-3);
-		transform: translateX(-102%);
-		visibility: hidden;
-		transition:
-			transform 300ms var(--ease),
-			visibility 0s linear 300ms;
-	}
-	.drawerOpen {
-		transform: none;
-		visibility: visible;
-		transition: transform 300ms var(--ease);
-	}
-	.scrim {
-		display: block;
-		position: absolute;
-		z-index: 50;
-		inset: 0;
-		background: var(--overlay);
-		opacity: 0.7;
-		animation: fade 300ms var(--ease);
-	}
-	.graph {
-		grid-column: 1;
-	}
-}
-
-@media (max-width: 1100px) and (min-width: 900px) {
-	.main {
-		grid-template-columns: minmax(0, 1fr) min(var(--panel-w), 46vw);
-	}
-}
-
-@media (max-width: 899px) {
 	.app {
-		grid-template-rows: auto minmax(0, 1fr) auto;
-	}
-	.main {
-		grid-template-columns: minmax(0, 1fr);
-	}
-	.roster,
-	.graph,
-	.panel {
-		position: relative;
-		display: none;
-		border: none;
-		grid-area: 1 / 1;
-		width: auto;
-		transform: none;
-		visibility: visible;
-		box-shadow: none;
-		transition: none;
-	}
-	.show {
-		display: flex;
-		flex-direction: column;
-		animation: tabIn 240ms var(--ease);
-	}
-	.graph.show {
-		display: block;
-	}
-	.scrim {
-		display: none;
+		grid-template-columns: var(--ribbon-w) calc(var(--sidebar-w) + 24px) minmax(0, 1fr);
 	}
 }
 
-@keyframes tabIn {
+.narrow {
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: auto minmax(0, 1fr);
+	grid-template-areas:
+		'bar'
+		'main';
+}
+.narrow > :first-child {
+	grid-area: bar;
+}
+.narrow .side {
+	position: fixed;
+	z-index: 60;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: min(320px, 86vw);
+	border-right: 1px solid var(--border);
+	box-shadow: var(--shadow-3);
+	padding-top: env(safe-area-inset-top);
+	transform: translateX(-102%);
+	visibility: hidden;
+	transition:
+		transform 180ms var(--ease),
+		visibility 0s linear 180ms;
+}
+.narrow .sideOpen {
+	transform: none;
+	visibility: visible;
+	transition: transform 180ms var(--ease);
+}
+.narrow .scrim {
+	display: block;
+	position: fixed;
+	z-index: 55;
+	inset: 0;
+	background: var(--overlay);
+	animation: fade 180ms var(--ease);
+}
+
+@keyframes paneIn {
 	from {
-		opacity: 0;
-		transform: translateY(6px);
+		opacity: 0.6;
 	}
 }
 @keyframes fade {

@@ -2,12 +2,11 @@
  * Жесты на SVG графа через pointer events: перетаскивание фона (пан), щипок (зум),
  * перетаскивание узла (временно фиксирует fx/fy), тап по узлу. Колесо — зум вокруг курсора.
  */
-import { YOU } from '@/shared/model'
 import { type Pt, clamp, zoomAt } from '../lib/geometry'
 import type { SimNode, Viewport } from './types'
 
-export const MIN_K = 0.3
-export const MAX_K = 2.6
+export const MIN_K = 0.25
+export const MAX_K = 4
 /** порог сдвига, после которого нажатие считается перетаскиванием, а не тапом */
 const TAP_SLOP = 5
 
@@ -58,7 +57,7 @@ export function createGestures(h: GestureHost): Gestures {
 	const releaseNode = (): void => {
 		if (mode.t !== 'node') return
 		const n = h.node(mode.id)
-		if (n && n.id !== YOU) {
+		if (n) {
 			n.fx = null
 			n.fy = null
 		}
@@ -112,7 +111,6 @@ export function createGestures(h: GestureHost): Gestures {
 			}
 			if (mode.t === 'node') {
 				if (!mode.moved && Math.hypot(p.x - mode.start.x, p.y - mode.start.y) < TAP_SLOP) return
-				if (mode.id === YOU) return
 				const n = h.node(mode.id)
 				if (!n) return
 				if (!mode.moved) {

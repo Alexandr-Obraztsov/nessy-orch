@@ -1,55 +1,28 @@
 /**
- * «Движок» графа: связывает симуляцию, вид (пан/зум), жесты и пакеты в один rAF-цикл.
- * Координаты пишутся прямо в DOM-атрибуты зарегистрированных элементов — React
- * перерисовывает граф только при изменении данных, а не на каждом тике.
+ * «Движок» графа: d3-force, вид (пан/зум) и жесты в одном rAF-цикле.
+ * Координаты пишутся прямо в DOM-атрибуты — React перерисовывает граф только при смене данных.
  */
 import { type RefCallback, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { YOU, closeAgent, onMessage, openAgent } from '@/shared/model'
-import {
-	arcPath,
-	fitViewport,
-	lerp,
-	linePath,
-	quadControl,
-	quadPath,
-	wrapAngle,
-	zoomAt,
-	clamp,
-} from '../lib/geometry'
+import { forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from 'd3-force'
+import { type Bounds, clamp, fitViewport, lerp, zoomAt } from '../lib/geometry'
 import { MAX_K, MIN_K, createGestures } from './gestures'
-import { type PacketClasses, createPacketLayer } from './packets'
-import type { GraphData } from './useGraphData'
-import { useSimulation } from './useSimulation'
-import type { EdgeDatum, SectorDatum, Size, Viewport } from './types'
+import type { GEdge, GraphData, SimLink, SimNode, Size, Viewport } from './types'
 
-const FIT_PAD = 28
-const FIT_MAX_K = 1.25
-const FIT_TOP = 36
+const FIT_PAD = 40
+const FIT_MAX_K = 1.6
+/** с какого масштаба подписи видны всегда */
+export const LABEL_K = 1.1
 
 export interface GraphEngine {
 	containerRef: RefCallback<HTMLDivElement>
 	svgRef: RefCallback<SVGSVGElement>
 	worldRef: RefCallback<SVGGElement>
-	packetsRef: RefCallback<SVGGElement>
-	tooltipRef: RefCallback<HTMLDivElement>
 	nodeRef: (id: string) => RefCallback<SVGGElement>
-	edgeRef: (id: string) => RefCallback<SVGGElement>
-	sectorRef: (space: string) => RefCallback<SVGGElement>
+	edgeRef: (id: string) => RefCallback<SVGLineElement>
 	size: Size
-	hover: string | null
-	setHover: (id: string | null) => void
 	dragging: string | null
 	zoomBy: (f: number) => void
 	fit: () => void
-	/** вид следует за графом автоматически (пока пользователь не двигал вид) */
-	follow: boolean
-}
-
-export interface EngineOptions {
-	data: GraphData
-	packetClasses: PacketClasses
-	/** анимировать пакеты (выключается при prefers-reduced-motion) */
-	motion: boolean
 }
 
 /** Кэш ref-колбэков по ключу — чтобы React не перевешивал ref на каждом рендере. */
@@ -77,171 +50,104 @@ function useRefRegistry<E extends Element>(onAttach: (key: string, el: E) => voi
 	return { els, get }
 }
 
-export function useGraphEngine({ data, packetClasses, motion }: EngineOptions): GraphEngine {
-	const sim = useSimulation()
-	const container = useRef<HTMLDivElement | null>(null)
+const rand = (s: number): number => (Math.random() - 0.5) * s
+const f1 = (n: number | undefined): string => (n ?? 0).toFixed(1)
+
+export function useGraphEngine(data: GraphData, onTap: (id: string) => void): GraphEngine {
+	const sim = useMemo(() => forceSimulation<SimNode, SimLink>().stop().alphaDecay(0.028).velocityDecay(0.4), [])
+	const byId = useRef(new Map<string, SimNode>())
+	const edges = useRef(new Map<string, GEdge>())
+	const sig = useRef('')
+	const first = useRef(true)
+
 	const svg = useRef<SVGSVGElement | null>(null)
 	const world = useRef<SVGGElement | null>(null)
-	const packetsLayer = useRef<SVGGElement | null>(null)
-	const tooltip = useRef<HTMLDivElement | null>(null)
-
 	const [size, setSize] = useState<Size>({ w: 0, h: 0 })
 	const sizeRef = useRef(size)
-	const [hover, setHoverState] = useState<string | null>(null)
-	const hoverRef = useRef<string | null>(null)
 	const [dragging, setDragging] = useState<string | null>(null)
-	const [follow, setFollow] = useState(true)
 
 	const vp = useRef<Viewport>({ x: 0, y: 0, k: 1 })
 	const vpTarget = useRef<Viewport | null>(null)
-	const followRef = useRef(true)
-	const dirty = useRef(true)
+	const follow = useRef(true)
+	const tapRef = useRef(onTap)
+	tapRef.current = onTap
 
-	const edges = useRef(new Map<string, EdgeDatum>())
-	const sectors = useRef<SectorDatum[]>([])
-
-	// ---------- запись координат в DOM ----------
+	// ---------- запись в DOM ----------
 	const writeNode = (id: string, el: SVGGElement): void => {
-		const n = sim.map().get(id)
-		if (n) el.setAttribute('transform', `translate(${(n.x ?? 0).toFixed(1)} ${(n.y ?? 0).toFixed(1)})`)
+		const n = byId.current.get(id)
+		if (n) el.setAttribute('transform', `translate(${f1(n.x)} ${f1(n.y)})`)
 	}
-	const writeEdge = (id: string, el: SVGGElement): void => {
+	const writeEdge = (id: string, el: SVGLineElement): void => {
 		const e = edges.current.get(id)
-		const nodes = sim.map()
-		const A = e && nodes.get(e.a)
-		const B = e && nodes.get(e.b)
-		if (!e || !A || !B) return
-		const a = { x: A.x ?? 0, y: A.y ?? 0 }
-		const b = { x: B.x ?? 0, y: B.y ?? 0 }
-		const d = e.kind === 'comm' ? quadPath(a, quadControl(a, b), b) : linePath(a, b)
-		for (const p of el.querySelectorAll('path')) p.setAttribute('d', d)
-	}
-	const writeSector = (space: string, el: SVGGElement): void => {
-		const s = sectors.current.find(x => x.space === space)
-		if (!s) return
-		let lo = Infinity
-		let hi = -Infinity
-		let rMax = 0
-		for (const n of sim.map().values()) {
-			if (n.space !== space) continue
-			const x = n.x ?? 0
-			const y = n.y ?? 0
-			const a = wrapAngle(Math.atan2(y, x) - s.angle)
-			lo = Math.min(lo, a)
-			hi = Math.max(hi, a)
-			rMax = Math.max(rMax, Math.hypot(x, y))
-		}
-		if (!Number.isFinite(lo)) return
-		const r = rMax + 52
-		const pad = 38 / r
-		let a0 = s.angle + lo - pad
-		let a1 = s.angle + hi + pad
-		// минимальная и максимальная ширина дуги
-		const minSpan = 0.5
-		if (a1 - a0 < minSpan) {
-			const m = (a0 + a1) / 2
-			a0 = m - minSpan / 2
-			a1 = m + minSpan / 2
-		}
-		if (a1 - a0 > Math.PI * 1.8) {
-			const m = (a0 + a1) / 2
-			a0 = m - Math.PI * 0.9
-			a1 = m + Math.PI * 0.9
-		}
-		const [band, line, label] = el.querySelectorAll('path')
-		band?.setAttribute('d', arcPath(r - 14, a0, a1))
-		line?.setAttribute('d', arcPath(r, a0, a1))
-		// подпись по дуге; в нижней половине — в обратную сторону, чтобы не была вверх ногами
-		const mid = wrapAngle((a0 + a1) / 2)
-		const lr = r + 6
-		const half = Math.min((a1 - a0) / 2, 1.2)
-		if (mid > 0 && mid < Math.PI) {
-			const p0 = { x: Math.cos(mid + half) * (lr + 9), y: Math.sin(mid + half) * (lr + 9) }
-			const p1 = { x: Math.cos(mid - half) * (lr + 9), y: Math.sin(mid - half) * (lr + 9) }
-			const rr = (lr + 9).toFixed(1)
-			label?.setAttribute('d', `M${p0.x.toFixed(1)} ${p0.y.toFixed(1)}A${rr} ${rr} 0 0 0 ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`)
-		} else {
-			label?.setAttribute('d', arcPath(lr, mid - half, mid + half))
-		}
+		const A = e && byId.current.get(e.a)
+		const B = e && byId.current.get(e.b)
+		if (!A || !B) return
+		el.setAttribute('x1', f1(A.x))
+		el.setAttribute('y1', f1(A.y))
+		el.setAttribute('x2', f1(B.x))
+		el.setAttribute('y2', f1(B.y))
 	}
 	const writeViewport = (): void => {
 		const v = vp.current
 		world.current?.setAttribute('transform', `translate(${v.x.toFixed(2)} ${v.y.toFixed(2)}) scale(${v.k.toFixed(4)})`)
-		svg.current?.style.setProperty('--k', v.k.toFixed(3))
+		const el = svg.current
+		if (el) {
+			el.style.setProperty('--k', v.k.toFixed(3))
+			el.dataset['zoomed'] = v.k >= LABEL_K ? '1' : '0'
+		}
 	}
-	const writeTooltip = (): void => {
-		const el = tooltip.current
-		const id = hoverRef.current
-		const n = id ? sim.map().get(id) : undefined
-		if (!el || !n) return
-		const v = vp.current
-		const { w } = sizeRef.current
-		const sx = (n.x ?? 0) * v.k + v.x
-		const sy = (n.y ?? 0) * v.k + v.y
-		const below = sy < 190
-		const x = clamp(sx, 140, Math.max(140, w - 140))
-		const y = below ? sy + (n.r + 30) * v.k : sy - (n.r + 10) * v.k
-		el.dataset['place'] = below ? 'below' : 'above'
-		el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`
-	}
-
 	const nodeReg = useRefRegistry<SVGGElement>(writeNode)
-	const edgeReg = useRefRegistry<SVGGElement>(writeEdge)
-	const sectorReg = useRefRegistry<SVGGElement>(writeSector)
-
+	const edgeReg = useRefRegistry<SVGLineElement>(writeEdge)
 	const writeAll = (): void => {
 		for (const [id, el] of nodeReg.els.current) writeNode(id, el)
 		for (const [id, el] of edgeReg.els.current) writeEdge(id, el)
-		for (const [s, el] of sectorReg.els.current) writeSector(s, el)
 	}
 
+	const bounds = (): Bounds => {
+		const b = { x0: -80, y0: -80, x1: 80, y1: 80 }
+		for (const n of byId.current.values()) {
+			const x = n.x ?? 0
+			const y = n.y ?? 0
+			b.x0 = Math.min(b.x0, x - n.r - 30)
+			b.x1 = Math.max(b.x1, x + n.r + 30)
+			b.y0 = Math.min(b.y0, y - n.r - 12)
+			b.y1 = Math.max(b.y1, y + n.r + 26)
+		}
+		return b
+	}
 	const fitTarget = (): Viewport | null => {
 		const s = sizeRef.current
 		if (!s.w || !s.h) return null
-		// сверху — место под чипы сводки
-		// на узких экранах чипы сводки переносятся в два ряда
-		const top = s.w < 1100 ? FIT_TOP * 2 : FIT_TOP
-		const v = fitViewport(sim.bounds(), { w: s.w, h: s.h - top }, FIT_PAD, MIN_K, FIT_MAX_K)
-		return { ...v, y: v.y + top }
+		return fitViewport(bounds(), s, FIT_PAD, MIN_K, FIT_MAX_K)
 	}
-
-	// ---------- пакеты ----------
-	const packets = useMemo(
-		() => createPacketLayer(() => packetsLayer.current, sim.map, packetClasses),
-		[sim],
-	)
 
 	// ---------- кадр ----------
 	const raf = useRef(0)
-	const step = (now: number): boolean => {
-		const s = sim.sim
-		const simActive = s.alpha() > s.alphaMin()
-		if (simActive) s.tick()
-		if (simActive || dirty.current) {
+	const step = (): boolean => {
+		const active = sim.alpha() > sim.alphaMin()
+		if (active) {
+			sim.tick()
 			writeAll()
-			dirty.current = false
 		}
-		if (followRef.current && (simActive || !vpTarget.current)) {
+		if (follow.current && active) {
 			const t = fitTarget()
 			if (t) vpTarget.current = t
 		}
-		let vpActive = false
+		let moving = false
 		const t = vpTarget.current
 		if (t) {
 			const c = vp.current
-			const next = { x: lerp(c.x, t.x, 0.14), y: lerp(c.y, t.y, 0.14), k: lerp(c.k, t.k, 0.14) }
+			const next = { x: lerp(c.x, t.x, 0.16), y: lerp(c.y, t.y, 0.16), k: lerp(c.k, t.k, 0.16) }
 			if (Math.abs(next.x - t.x) < 0.3 && Math.abs(next.y - t.y) < 0.3 && Math.abs(next.k - t.k) < 0.0005) {
 				vp.current = t
 				vpTarget.current = null
 			} else {
 				vp.current = next
-				vpActive = true
+				moving = true
 			}
 			writeViewport()
 		}
-		const pk = packets.step(now)
-		writeTooltip()
-		return simActive || vpActive || pk
+		return active || moving
 	}
 	const stepRef = useRef(step)
 	stepRef.current = step
@@ -249,13 +155,12 @@ export function useGraphEngine({ data, packetClasses, motion }: EngineOptions): 
 		if (raf.current) return
 		const loop = (): void => {
 			raf.current = 0
-			if (stepRef.current(performance.now())) raf.current = requestAnimationFrame(loop)
+			if (stepRef.current()) raf.current = requestAnimationFrame(loop)
 		}
 		raf.current = requestAnimationFrame(loop)
 	}, [])
 	useEffect(
 		() => () => {
-			// StrictMode «размонтирует» эффекты — сбрасываем, иначе wake() больше не запустит цикл
 			cancelAnimationFrame(raf.current)
 			raf.current = 0
 		},
@@ -264,13 +169,49 @@ export function useGraphEngine({ data, packetClasses, motion }: EngineOptions): 
 
 	// ---------- синхронизация данных ----------
 	useLayoutEffect(() => {
+		const old = byId.current
+		const next = new Map<string, SimNode>()
+		for (const n of data.nodes) {
+			let s = old.get(n.id)
+			if (!s) {
+				const e = data.edges.find(x => (x.b === n.id && next.has(x.a)) || (x.a === n.id && next.has(x.b)))
+				const p = e ? next.get(e.a === n.id ? e.b : e.a) : undefined
+				s = { id: n.id, r: n.r, x: (p?.x ?? 0) + rand(n.you ? 0 : 80), y: (p?.y ?? 0) + rand(n.you ? 0 : 80) }
+			}
+			s.r = n.r
+			next.set(n.id, s)
+		}
+		byId.current = next
 		edges.current = new Map(data.edges.map(e => [e.id, e]))
-		sectors.current = data.sectors
-		sim.sync(data.nodes, data.edges, data.sectors)
+		const links: SimLink[] = data.edges.map(e => ({ source: e.a, target: e.b, kind: e.kind }))
+		sim.nodes([...next.values()])
+			.force(
+				'link',
+				forceLink<SimNode, SimLink>(links)
+					.id(d => d.id)
+					.distance(l => (l.kind === 'parent' ? 56 : 80))
+					.strength(l => (l.kind === 'parent' ? 0.6 : 0.15)),
+			)
+			.force('charge', forceManyBody<SimNode>().strength(-160).distanceMax(380))
+			.force('collide', forceCollide<SimNode>(n => n.r + 6).strength(0.8))
+			.force('x', forceX<SimNode>(0).strength(0.05))
+			.force('y', forceY<SimNode>(0).strength(0.05))
+
+		const s = `${[...next.keys()].join(',')}#${data.edges.map(e => e.id).join(',')}`
+		if (s !== sig.current) {
+			const grew = next.size !== old.size
+			sig.current = s
+			if (first.current && next.size > 1) {
+				// первая загрузка: раскладываем сразу, без «взрыва» на экране
+				first.current = false
+				sim.alpha(1)
+				for (let i = 0; i < 200; i++) sim.tick()
+				sim.alpha(0.05)
+			} else sim.alpha(Math.max(sim.alpha(), grew ? 0.6 : 0.3))
+		}
 		writeAll()
-		if (followRef.current) {
+		if (follow.current) {
 			const t = fitTarget()
-			// первый показ — сразу на месте, дальше — плавно
 			if (t && vp.current.k === 1 && vp.current.x === 0 && vp.current.y === 0) {
 				vp.current = t
 				writeViewport()
@@ -279,68 +220,55 @@ export function useGraphEngine({ data, packetClasses, motion }: EngineOptions): 
 		wake()
 	}, [data, sim, wake])
 
-	// ---------- размер контейнера ----------
-	const roRef = useRef<ResizeObserver | null>(null)
-	const containerRef = useCallback(
-		(el: HTMLDivElement | null) => {
-			roRef.current?.disconnect()
-			container.current = el
-			if (!el) return
-			const ro = new ResizeObserver(([entry]) => {
-				if (!entry) return
-				const w = Math.round(entry.contentRect.width)
-				const h = Math.round(entry.contentRect.height)
-				const prev = sizeRef.current
-				if (w === prev.w && h === prev.h) return
-				sizeRef.current = { w, h }
-				setSize({ w, h })
-				if (followRef.current || !prev.w) {
-					const t = fitTarget()
-					if (t) {
-						vp.current = t
-						vpTarget.current = null
-					}
-				} else {
-					// держим центр вида на месте
-					vp.current = { ...vp.current, x: vp.current.x + (w - prev.w) / 2, y: vp.current.y + (h - prev.h) / 2 }
+	// ---------- размер ----------
+	const ro = useRef<ResizeObserver | null>(null)
+	const containerRef = useCallback((el: HTMLDivElement | null) => {
+		ro.current?.disconnect()
+		if (!el) return
+		const obs = new ResizeObserver(([entry]) => {
+			if (!entry) return
+			const w = Math.round(entry.contentRect.width)
+			const h = Math.round(entry.contentRect.height)
+			const prev = sizeRef.current
+			if (w === prev.w && h === prev.h) return
+			sizeRef.current = { w, h }
+			setSize({ w, h })
+			if (follow.current || !prev.w) {
+				const t = fitTarget()
+				if (t) {
+					vp.current = t
+					vpTarget.current = null
 				}
-				writeViewport()
-				writeTooltip()
-			})
-			ro.observe(el)
-			roRef.current = ro
-		},
-		[],
-	)
+			} else vp.current = { ...vp.current, x: vp.current.x + (w - prev.w) / 2, y: vp.current.y + (h - prev.h) / 2 }
+			writeViewport()
+		})
+		obs.observe(el)
+		ro.current = obs
+	}, [])
 
 	// ---------- жесты ----------
-	const setManual = useCallback((v: Viewport) => {
-		followRef.current = false
-		setFollow(false)
-		vpTarget.current = null
-		vp.current = v
-	}, [])
 	const gestures = useMemo(
 		() =>
 			createGestures({
 				svg: () => svg.current,
 				viewport: () => vp.current,
 				setViewport: v => {
-					setManual(v)
+					follow.current = false
+					vpTarget.current = null
+					vp.current = v
 					writeViewport()
-					writeTooltip()
 				},
-				node: id => sim.map().get(id),
+				node: id => byId.current.get(id),
 				dragHeat: on => {
-					sim.sim.alphaTarget(on ? 0.25 : 0)
-					if (on) sim.sim.alpha(Math.max(sim.sim.alpha(), 0.3))
+					sim.alphaTarget(on ? 0.2 : 0)
+					if (on) sim.alpha(Math.max(sim.alpha(), 0.25))
 					wake()
 				},
-				tap: id => (id === YOU ? closeAgent() : openAgent(id)),
+				tap: id => tapRef.current(id),
 				setDragging,
 				wake,
 			}),
-		[sim, wake, setManual],
+		[sim, wake],
 	)
 
 	const svgRef = useCallback(
@@ -359,49 +287,24 @@ export function useGraphEngine({ data, packetClasses, motion }: EngineOptions): 
 			el.addEventListener('pointermove', gestures.move)
 			el.addEventListener('pointerup', gestures.up)
 			el.addEventListener('pointercancel', gestures.up)
-			// колесо — не пассивный слушатель, чтобы не прокручивать страницу
 			el.addEventListener('wheel', gestures.wheel, { passive: false })
 			writeViewport()
 		},
 		[gestures],
 	)
 
-	// ---------- пакеты сообщений ----------
-	const motionRef = useRef(motion)
-	motionRef.current = motion
-	useEffect(
-		() =>
-			onMessage(m => {
-				if (!motionRef.current || document.hidden) return
-				// стор уже обновлён, но React ещё не перерисовал рёбра — пакет стартует сразу
-				if (packets.push(m)) wake()
-			}),
-		[packets, wake],
-	)
-	useEffect(() => () => packets.clear(), [packets])
-
-	// ---------- API для UI ----------
-	const setHover = useCallback((id: string | null) => {
-		hoverRef.current = id
-		setHoverState(id)
-	}, [])
-	useLayoutEffect(writeTooltip)
-
 	const zoomBy = useCallback(
 		(f: number) => {
 			const s = sizeRef.current
 			const base = vpTarget.current ?? vp.current
-			const k = clamp(base.k * f, MIN_K, MAX_K)
-			followRef.current = false
-			setFollow(false)
-			vpTarget.current = zoomAt(base, s.w / 2, s.h / 2, k)
+			follow.current = false
+			vpTarget.current = zoomAt(base, s.w / 2, s.h / 2, clamp(base.k * f, MIN_K, MAX_K))
 			wake()
 		},
 		[wake],
 	)
 	const fit = useCallback(() => {
-		followRef.current = true
-		setFollow(true)
+		follow.current = true
 		vpTarget.current = fitTarget()
 		wake()
 	}, [wake])
@@ -413,22 +316,11 @@ export function useGraphEngine({ data, packetClasses, motion }: EngineOptions): 
 			world.current = el
 			if (el) writeViewport()
 		}, []),
-		packetsRef: useCallback((el: SVGGElement | null) => {
-			packetsLayer.current = el
-		}, []),
-		tooltipRef: useCallback((el: HTMLDivElement | null) => {
-			tooltip.current = el
-			if (el) writeTooltip()
-		}, []),
 		nodeRef: nodeReg.get,
 		edgeRef: edgeReg.get,
-		sectorRef: sectorReg.get,
 		size,
-		hover,
-		setHover,
 		dragging,
 		zoomBy,
 		fit,
-		follow,
 	}
 }

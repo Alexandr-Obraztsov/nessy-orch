@@ -14,13 +14,15 @@ export interface PopoverProps {
 	align?: 'start' | 'end'
 	label: string
 	className?: string
+	/** роль контейнера: меню действий или произвольная панель */
+	role?: 'dialog' | 'menu'
 	children: ReactNode
 }
 
 const GAP = 6
 const EDGE = 8
 
-export function Popover({ open, anchor, onClose, align = 'start', label, className, children }: PopoverProps) {
+export function Popover({ open, anchor, onClose, align = 'start', label, className, role = 'dialog', children }: PopoverProps) {
 	const ref = useRef<HTMLDivElement>(null)
 	const [pos, setPos] = useState<CSSProperties>({ visibility: 'hidden' })
 
@@ -59,6 +61,7 @@ export function Popover({ open, anchor, onClose, align = 'start', label, classNa
 		const onKey = (e: KeyboardEvent): void => {
 			if (e.key === 'Escape') {
 				e.stopPropagation()
+				e.preventDefault()
 				onClose()
 				anchor?.focus()
 			}
@@ -77,7 +80,7 @@ export function Popover({ open, anchor, onClose, align = 'start', label, classNa
 
 	if (!open || !anchor) return null
 	return createPortal(
-		<div ref={ref} className={[s.pop, className].filter(Boolean).join(' ')} style={pos} role="dialog" aria-label={label}>
+		<div ref={ref} className={[s.pop, className].filter(Boolean).join(' ')} style={pos} role={role} aria-label={label}>
 			{children}
 		</div>,
 		document.body,

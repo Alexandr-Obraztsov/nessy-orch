@@ -1,15 +1,18 @@
 import type { AgentStatus } from '@contract'
 import { cssVars } from '@/shared/lib/style'
 import { StatusDot } from '@/shared/ui'
-import { AGENT_STATUS } from '../lib/status'
+import { AGENT_STATUS, ARCHIVED_STATUS } from '../lib/status'
 import s from './AgentAvatar.module.css'
 
 export interface AgentAvatarProps {
 	/** имя агента; для оператора — 'you' */
 	name: string
-	/** hue пространства */
+	/** устарело: цвет пространства больше не используется (оставлено для совместимости) */
 	hue?: number
+	/** hue роли агента — тогда аватар окрашен в цвет роли */
+	roleHue?: number | null
 	status?: AgentStatus
+	archived?: boolean
 	size?: number
 	you?: boolean
 }
@@ -21,22 +24,20 @@ export function initials(name: string): string {
 	return name.slice(0, 2).toUpperCase()
 }
 
-export function AgentAvatar({ name, hue = 170, status, size = 32, you }: AgentAvatarProps) {
+/** Компактный аватар: скруглённый квадрат с инициалами, нейтральный фон или цвет роли. */
+export function AgentAvatar({ name, roleHue, status, archived, size = 24, you }: AgentAvatarProps) {
+	const hasRole = !you && roleHue !== undefined && roleHue !== null
 	const style = cssVars(
-		{
-			'--bg-c': `hsl(${hue} 60% 50% / 0.16)`,
-			'--fg-c': `hsl(${hue} 75% 68%)`,
-			'--ring-c': `hsl(${hue} 70% 60% / 0.45)`,
-		},
-		{ width: size, height: size, fontSize: Math.round(size * 0.36) },
+		hasRole ? { '--role-bg': `hsl(${roleHue} 60% 55% / 0.18)`, '--role-fg': `hsl(${roleHue} 65% 62%)` } : {},
+		{ width: size, height: size, fontSize: Math.max(9, Math.round(size * 0.4)), borderRadius: size <= 20 ? 4 : undefined },
 	)
-	const meta = status ? AGENT_STATUS[status] : null
+	const meta = status ? (archived && status !== 'working' && status !== 'starting' ? ARCHIVED_STATUS : AGENT_STATUS[status]) : null
 	return (
-		<span className={[s.avatar, you && s.you].filter(Boolean).join(' ')} style={style} aria-hidden="true">
-			{you ? 'ВЫ' : initials(name)}
+		<span className={[s.avatar, hasRole && s.role, you && s.you].filter(Boolean).join(' ')} style={style} aria-hidden="true">
+			{you ? 'Вы' : initials(name)}
 			{meta && (
 				<span className={s.badge}>
-					<StatusDot color={meta.color} pulse={meta.pulse} size={Math.max(7, Math.round(size * 0.24))} />
+					<StatusDot color={meta.color} pulse={meta.pulse} size={Math.max(6, Math.round(size * 0.26))} />
 				</span>
 			)}
 		</span>

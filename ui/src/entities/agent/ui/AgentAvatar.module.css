@@ -3,26 +3,29 @@
 	flex: none;
 	display: grid;
 	place-items: center;
-	border-radius: 50%;
-	background: var(--bg-c);
-	color: var(--fg-c);
-	font-weight: 700;
-	letter-spacing: -0.02em;
-	box-shadow: inset 0 0 0 1.5px var(--ring-c);
+	border-radius: var(--r-sm);
+	background: var(--bg-active);
+	color: var(--text-muted);
+	font-weight: 600;
+	line-height: 1;
+	letter-spacing: 0.01em;
 	user-select: none;
 }
+.role {
+	background: var(--role-bg);
+	color: var(--role-fg);
+}
 .you {
-	background: var(--accent);
-	color: var(--text-inv);
-	box-shadow: 0 0 0 3px var(--accent-soft);
+	background: var(--accent-soft);
+	color: var(--accent-text);
 }
 .badge {
 	position: absolute;
-	right: -1px;
-	bottom: -1px;
+	right: -2px;
+	bottom: -2px;
 	display: grid;
 	place-items: center;
 	border-radius: 50%;
-	background: var(--surface);
-	padding: 2px;
+	background: var(--bg);
+	padding: 1.5px;
 }

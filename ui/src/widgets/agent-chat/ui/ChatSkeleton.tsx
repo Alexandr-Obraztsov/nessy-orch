@@ -4,11 +4,11 @@ import s from './AgentChat.module.css'
 export function ChatSkeleton() {
 	return (
 		<div className={s.skeleton} aria-busy="true" aria-label="Загрузка истории">
-			<i className={s.skOut} style={{ width: '46%' }} />
-			<i style={{ width: '72%', height: 54 }} />
-			<i style={{ width: '58%' }} />
-			<i className={s.skOut} style={{ width: '38%' }} />
-			<i style={{ width: '80%', height: 72 }} />
+			<i className={s.skOut} style={{ width: '40%' }} />
+			<i style={{ width: '78%', height: 44 }} />
+			<i style={{ width: '52%', height: 14 }} />
+			<i style={{ width: '60%', height: 14 }} />
+			<i style={{ width: '84%', height: 60 }} />
 		</div>
 	)
 }

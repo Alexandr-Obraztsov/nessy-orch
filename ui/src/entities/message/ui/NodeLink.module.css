@@ -3,33 +3,30 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-weight: 550;
-	color: var(--text-2);
+	color: var(--text);
 }
 .strong {
-	font-weight: 650;
+	font-weight: 600;
 }
 .link {
 	padding: 0;
 	border: none;
 	background: none;
 	font-size: inherit;
-	/* смешиваем с цветом текста — читается в обеих темах */
-	color: color-mix(in srgb, hsl(var(--h) 75% 52%) 70%, var(--text));
-	border-radius: 3px;
+	line-height: inherit;
+	text-align: left;
+	border-radius: var(--r-xs);
 }
 .link:hover {
+	color: var(--accent-text);
 	text-decoration: underline;
 	text-underline-offset: 2px;
 }
 .you {
-	color: var(--accent);
+	flex: none;
+	color: var(--accent-text);
 }
 .gone {
-	color: var(--text-3);
+	color: var(--text-faint);
 	text-decoration: line-through;
-	text-decoration-color: var(--line-strong);
-}
-.you {
-	flex: none;
 }

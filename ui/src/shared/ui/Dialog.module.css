@@ -3,55 +3,56 @@
 	inset: 0;
 	z-index: 100;
 	display: grid;
-	place-items: center;
-	padding: var(--sp-4);
+	place-items: start center;
+	padding: 12vh var(--sp-4) var(--sp-4);
 	background: var(--overlay);
-	backdrop-filter: blur(6px);
-	animation: fade 200ms var(--ease);
+	animation: fade var(--dur) var(--ease);
 }
 .panel {
-	width: min(520px, 100%);
-	max-height: min(86vh, 760px);
+	width: min(480px, 100%);
+	max-height: min(76vh, 720px);
 	display: flex;
 	flex-direction: column;
-	background: var(--surface);
-	border: 1px solid var(--line-strong);
-	border-radius: var(--r-lg);
+	background: var(--bg);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--r-md);
 	box-shadow: var(--shadow-3);
-	animation: rise 260ms var(--ease);
+	animation: rise 160ms var(--ease);
 	overflow: hidden;
 }
 .head {
 	display: flex;
 	align-items: flex-start;
-	gap: var(--sp-3);
-	padding: var(--sp-5) var(--sp-5) var(--sp-3);
+	gap: var(--sp-2);
+	padding: var(--sp-3) var(--sp-3) var(--sp-2) var(--sp-4);
 }
 .title {
 	margin: 0;
-	font-size: var(--fs-xl);
-	font-weight: 650;
-	letter-spacing: -0.01em;
+	padding-top: 4px;
+	font-size: var(--fs-lg);
+	font-weight: 600;
+	line-height: 1.3;
 }
 .subtitle {
-	margin: 4px 0 0;
-	color: var(--text-2);
+	margin: 2px 0 0;
+	color: var(--text-muted);
 	font-size: var(--fs-sm);
 }
 .body {
-	padding: var(--sp-2) var(--sp-5) var(--sp-5);
+	padding: var(--sp-1) var(--sp-4) var(--sp-4);
 	overflow: auto;
 }
 .foot {
 	display: flex;
 	justify-content: flex-end;
+	align-items: center;
 	gap: var(--sp-2);
-	padding: var(--sp-4) var(--sp-5);
-	border-top: 1px solid var(--line);
-	background: var(--surface-2);
+	padding: var(--sp-3) var(--sp-4);
+	border-top: 1px solid var(--border);
 }
 .grow {
 	flex: 1;
+	min-width: 0;
 }
 @keyframes fade {
 	from {
@@ -61,7 +62,7 @@
 @keyframes rise {
 	from {
 		opacity: 0;
-		transform: translateY(16px) scale(0.98);
+		transform: translateY(6px);
 	}
 }
 @keyframes sheet {
@@ -79,7 +80,7 @@
 		max-height: 92dvh;
 		border-radius: var(--r-lg) var(--r-lg) 0 0;
 		border-bottom: none;
-		animation: sheet 300ms var(--ease);
+		animation: sheet 180ms var(--ease);
 		padding-bottom: env(safe-area-inset-bottom);
 	}
 }

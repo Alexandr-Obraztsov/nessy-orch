@@ -1,8 +1,6 @@
 export interface PermissionButtonsProps {
 	agentId: string
 	requestId: string
-	/** компактный вариант (баннер) */
-	compact?: boolean
 }
 
 export type PermissionChoice = 'approve' | 'deny'

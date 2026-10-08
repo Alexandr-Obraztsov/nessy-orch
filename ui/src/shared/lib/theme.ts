@@ -37,7 +37,7 @@ export function toggleTheme(): void {
 		/* приватный режим — тема не запомнится */
 	}
 	document.documentElement.dataset['theme'] = next
-	document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'dark' ? '#0a1116' : '#f3f1ea')
+	document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'dark' ? '#1e1e1e' : '#ffffff')
 	for (const fn of listeners) fn()
 }
 

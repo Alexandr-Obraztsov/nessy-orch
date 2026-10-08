@@ -6,15 +6,15 @@
 	color: var(--warn);
 }
 .external {
-	margin-bottom: var(--sp-4);
-	padding: var(--sp-2) var(--sp-3);
-	border-radius: var(--r-md);
-	border: 1px solid var(--line);
-	background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+	margin-bottom: var(--sp-3);
+	padding: 2px var(--sp-3);
+	border-radius: var(--r-sm);
+	border: 1px solid var(--border);
+	background: var(--bg-alt);
 }
 .reveal {
-	padding-top: var(--sp-2);
-	animation: reveal 220ms var(--ease);
+	padding-top: var(--sp-1);
+	animation: reveal 140ms var(--ease);
 }
 .reveal > label {
 	margin-bottom: var(--sp-2);
@@ -22,20 +22,20 @@
 @keyframes reveal {
 	from {
 		opacity: 0;
-		transform: translateY(-4px);
+		transform: translateY(-2px);
 	}
 }
 .banner {
 	display: flex;
 	align-items: flex-start;
 	gap: var(--sp-2);
-	padding: var(--sp-3);
-	border-radius: var(--r-md);
+	padding: var(--sp-2) var(--sp-3);
+	border-radius: var(--r-sm);
 	background: var(--danger-soft);
 	color: var(--danger);
 	font-size: var(--fs-sm);
 }
 .banner svg {
 	flex: none;
-	margin-top: 1px;
+	margin-top: 2px;
 }

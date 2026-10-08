@@ -1,18 +1,19 @@
 .sep {
 	display: flex;
-	justify-content: center;
-	padding: 10px 0 6px;
-	pointer-events: none;
+	align-items: center;
+	gap: var(--sp-2);
+	padding: var(--sp-3) 0 var(--sp-1);
+	color: var(--text-faint);
+	font-size: var(--fs-xs);
+	user-select: none;
+}
+.sep::before,
+.sep::after {
+	content: '';
+	flex: 1;
+	height: 1px;
+	background: var(--border);
 }
 .label {
-	padding: 3px 12px;
-	border-radius: var(--r-full);
-	background: color-mix(in srgb, var(--surface-3) 88%, transparent);
-	border: 1px solid var(--line);
-	color: var(--text-2);
-	font-size: var(--fs-xs);
-	font-weight: 600;
-	letter-spacing: 0.02em;
-	backdrop-filter: blur(8px);
-	box-shadow: var(--shadow-1);
+	flex: none;
 }

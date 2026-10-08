@@ -1,46 +1,44 @@
 .jump {
 	position: absolute;
-	right: var(--sp-4);
-	bottom: var(--sp-3);
+	left: 50%;
+	bottom: var(--sp-2);
 	z-index: 4;
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
-	height: 36px;
-	min-width: 36px;
-	padding: 0 10px;
 	justify-content: center;
+	gap: 4px;
+	height: 26px;
+	min-width: 26px;
+	padding: 0 8px;
 	border-radius: var(--r-full);
-	border: 1px solid var(--line-strong);
-	background: var(--surface-2);
-	color: var(--text);
+	border: 1px solid var(--border-strong);
+	background: var(--bg-alt);
+	color: var(--text-muted);
 	font-size: var(--fs-sm);
-	font-weight: 600;
-	box-shadow: var(--shadow-2);
-	animation: jumpIn 220ms var(--ease);
+	box-shadow: var(--shadow-1);
+	transform: translateX(-50%);
+	animation: jumpIn var(--dur) var(--ease);
 	transition:
 		background var(--dur) var(--ease),
-		transform 140ms var(--ease);
+		color var(--dur) var(--ease);
 }
 .jump:hover {
-	background: var(--surface-3);
-}
-.jump:active {
-	transform: scale(0.95);
+	color: var(--text);
+	background: var(--bg-card);
 }
 .hasNew {
-	padding: 0 14px 0 10px;
-	background: var(--accent);
+	padding: 0 10px 0 8px;
 	border-color: transparent;
-	color: var(--text-inv);
-	box-shadow: var(--shadow-2), 0 0 0 4px var(--accent-soft);
+	background: var(--accent);
+	color: var(--text-on-accent);
 }
 .hasNew:hover {
-	background: var(--accent-2);
+	background: var(--accent-hover);
+	color: var(--text-on-accent);
 }
 @keyframes jumpIn {
 	from {
 		opacity: 0;
-		transform: translateY(10px) scale(0.9);
+		transform: translate(-50%, 6px);
 	}
 }

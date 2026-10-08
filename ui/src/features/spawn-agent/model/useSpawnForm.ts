@@ -1,20 +1,20 @@
 /**
  * Состояние и отправка формы запуска агента.
  */
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { ApiFailure, api, errorText } from '@/shared/api'
-import { openAgent, setView, useStore, useView } from '@/shared/model'
+import { getView, openAgent, setView, useStore, useView } from '@/shared/model'
 import { toast } from '@/shared/ui'
-import { OTHER_PATH, nameError, nameWarning, pathError } from '../lib/validate'
-import { takeSpawnPreset } from './preset'
+import { OTHER_PATH, nameError, nameWarning, pathError, suggestName } from '../lib/validate'
 import type { SpawnErrors, SpawnFormState } from './types'
 
-const EMPTY: SpawnFormState = { space: '', path: '', name: '', prompt: '' }
+const EMPTY: SpawnFormState = { space: '', path: '', name: '', role: '', prompt: '' }
 
 /** Куда отнести ошибку сервера по её коду. */
 function fieldOf(code: string): keyof SpawnErrors {
-	if (code === 'name_taken') return 'name'
+	if (code === 'name_taken' || code === 'bad_name') return 'name'
 	if (code === 'no_space' || code === 'bad_path' || code === 'space_required') return 'space'
+	if (code.includes('role')) return 'role'
 	return 'form'
 }
 
@@ -22,33 +22,37 @@ export function useSpawnForm() {
 	const open = useView(v => v.dialog === 'spawn')
 	const spaces = useStore(s => s.spaces)
 	const agents = useStore(s => s.agents)
+	const roles = useStore(s => s.roles)
 	const [form, setForm] = useState<SpawnFormState>(EMPTY)
 	const [errors, setErrors] = useState<SpawnErrors>({})
 	const [busy, setBusy] = useState(false)
 
-	// при открытии — сброс и выбор пространства по умолчанию
+	// при открытии — сброс и предвыбор (пространство/роль из spawnPreset)
 	useEffect(() => {
 		if (!open) return
-		const preset = takeSpawnPreset()
+		const preset = getView().spawnPreset
 		const first = spaces.find(s => s.status === 'ready') ?? spaces[0]
-		const space = preset && spaces.some(s => s.name === preset) ? preset : first ? first.name : OTHER_PATH
-		setForm({ ...EMPTY, space })
+		const space = preset?.space && spaces.some(s => s.name === preset.space) ? preset.space : first ? first.name : OTHER_PATH
+		const role = preset?.role ? (roles.find(r => r.id === preset.role || r.name === preset.role)?.id ?? '') : ''
+		setForm({ ...EMPTY, space, role })
 		setErrors({})
 		setBusy(false)
-		// spaces намеренно не в зависимостях: не сбрасываем форму при обновлении статуса пространства
+		// spaces/roles намеренно не в зависимостях: не сбрасываем форму при обновлении статусов
 	}, [open])
 
 	const usePath = form.space === OTHER_PATH || spaces.length === 0
 	const nameErr = nameError(form.name, agents)
 	const nameWarn = nameWarning(form.name)
 	const pathErr = usePath ? pathError(form.path) : null
+	const role = roles.find(r => r.id === form.role) ?? null
+	const namePlaceholder = role ? suggestName(role.name, agents) : 'например, reviewer'
 
 	const set = useCallback(<K extends keyof SpawnFormState>(key: K, value: SpawnFormState[K]): void => {
 		setForm(f => ({ ...f, [key]: value }))
 		setErrors(e => ({ ...e, [key === 'path' ? 'space' : key]: undefined, form: undefined }))
 	}, [])
 
-	const close = useCallback((): void => setView({ dialog: null }), [])
+	const close = useCallback((): void => setView({ dialog: null, spawnPreset: null }), [])
 
 	const submit = async (e?: FormEvent): Promise<void> => {
 		e?.preventDefault()
@@ -60,6 +64,7 @@ export function useSpawnForm() {
 			const res = await api.spawn({
 				space: usePath ? form.path.trim() : form.space,
 				name: form.name.trim() || undefined,
+				role: form.role || undefined,
 				prompt: form.prompt.trim() || undefined,
 				from: 'you',
 			})
@@ -73,7 +78,5 @@ export function useSpawnForm() {
 		}
 	}
 
-	const spaceOptions = useMemo(() => spaces.map(s => ({ value: s.name, space: s })), [spaces])
-
-	return { open, form, set, errors, busy, submit, close, usePath, spaceOptions, nameErr, nameWarn, hasSpaces: spaces.length > 0 }
+	return { open, form, set, errors, busy, submit, close, usePath, spaces, roles, role, nameErr, nameWarn, namePlaceholder, hasSpaces: spaces.length > 0 }
 }

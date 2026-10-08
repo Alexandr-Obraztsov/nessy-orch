@@ -10,7 +10,7 @@ export function Toaster() {
 		<div className={s.wrap} role="status" aria-live="polite">
 			{list.map(t => (
 				<div key={t.id} className={`${s.toast} ${s[t.kind]}`}>
-					<Icon name={ICON[t.kind]} size={17} />
+					<Icon name={ICON[t.kind]} size={15} />
 					<span>{t.text}</span>
 					<button type="button" className="sr-only" onClick={() => dismissToast(t.id)}>
 						закрыть

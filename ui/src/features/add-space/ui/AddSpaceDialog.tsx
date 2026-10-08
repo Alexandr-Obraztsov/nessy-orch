@@ -15,14 +15,14 @@ export function AddSpaceDialog() {
 		<Dialog
 			open
 			title="Новое пространство"
-			subtitle="Рабочая папка, в которой живут агенты. Оркестратор поднимет для неё nessy serve."
+			subtitle="Рабочая папка агентов. Оркестратор поднимет для неё nessy serve."
 			onClose={f.close}
 			footer={
 				<>
 					<Button variant="ghost" onClick={f.close}>
 						Отмена
 					</Button>
-					<Button variant="primary" icon="plus" type="submit" form={FORM_ID} loading={f.busy}>
+					<Button variant="primary" type="submit" form={FORM_ID} loading={f.busy}>
 						Добавить
 					</Button>
 				</>
@@ -85,7 +85,7 @@ export function AddSpaceDialog() {
 				</div>
 				{f.errors.form && (
 					<div className={s.banner} role="alert">
-						<Icon name="alert" size={16} />
+						<Icon name="alert" size={14} />
 						<span>{f.errors.form}</span>
 					</div>
 				)}

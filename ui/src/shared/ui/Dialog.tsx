@@ -18,21 +18,27 @@ export interface DialogProps {
 
 export function Dialog({ open, title, subtitle, onClose, children, footer }: DialogProps) {
 	const panel = useRef<HTMLDivElement>(null)
+	// onClose через ref: эффект фокуса не перезапускается на каждом рендере родителя
+	const closeRef = useRef(onClose)
+	closeRef.current = onClose
 
 	useEffect(() => {
 		if (!open) return
 		const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null
 		const onKey = (e: KeyboardEvent): void => {
-			if (e.key === 'Escape') onClose()
+			if (e.key !== 'Escape' || e.defaultPrevented) return
+			e.preventDefault()
+			closeRef.current()
 		}
 		window.addEventListener('keydown', onKey)
-		const first = panel.current?.querySelector<HTMLElement>('input, textarea, select')
+		const first =
+			panel.current?.querySelector<HTMLElement>('[data-autofocus]') ?? panel.current?.querySelector<HTMLElement>('input, textarea, select')
 		first?.focus()
 		return () => {
 			window.removeEventListener('keydown', onKey)
 			prev?.focus()
 		}
-	}, [open, onClose])
+	}, [open])
 
 	if (!open) return null
 	return createPortal(

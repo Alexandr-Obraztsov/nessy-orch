@@ -12,8 +12,6 @@ export function useMedia(query: string): boolean {
 	)
 }
 
-/** Брейкпоинт раскладки: < 900px — одна колонка с нижними вкладками. */
+/** Брейкпоинт раскладки: < 900px — верхняя панель, левая панель выезжает поверх. */
 export const NARROW = '(max-width: 899px)'
 
-/** Средняя ширина: граф | панель, ростер — выдвижной. */
-export const MEDIUM = '(min-width: 900px) and (max-width: 1279px)'

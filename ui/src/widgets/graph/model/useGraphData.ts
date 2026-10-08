@@ -1,110 +1,68 @@
 /**
- * Данные графа из стора: узлы (Вы + агенты, с «призраками» удалённых для анимации ухода),
- * рёбра (parent + переписка) и секторы пространств.
+ * Данные графа из стора: «Вы» + агенты (архивные — по настройке), рёбра parent и переписки.
  */
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { AgentView } from '@contract'
-import { YOU, spaceHue, useStore } from '@/shared/model'
-import { sectorAngles } from '../lib/geometry'
-import { commEdges, parentEdges } from './edges'
-import type { EdgeDatum, NodeDatum, SectorDatum } from './types'
+import { useMemo } from 'react'
+import type { Message } from '@contract'
+import { YOU, useStore } from '@/shared/model'
+import { nodeRadius } from '../lib/geometry'
+import type { GEdge, GNode, GraphData } from './types'
 
-const LEAVE_MS = 420
+const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
 
-export interface GraphData {
-	nodes: NodeDatum[]
-	edges: EdgeDatum[]
-	sectors: SectorDatum[]
-}
+/** Переписка — обычные сообщения и ответы, без событий и системы. */
+const isComm = (m: Message): boolean => m.kind !== 'event' && m.from !== 'system' && m.to !== 'system' && m.from !== m.to
 
-function depthOf(a: AgentView, byId: Map<string, AgentView>): number {
-	let d = 1
-	let p = a.parent
-	const seen = new Set<string>([a.id])
-	while (p && p !== YOU && !seen.has(p)) {
-		const next = byId.get(p)
-		if (!next) break
-		seen.add(p)
-		d++
-		p = next.parent
-	}
-	return d
-}
-
-export function useGraphData(): GraphData {
+export function useGraphData(showArchived: boolean): GraphData {
 	const agents = useStore(s => s.agents)
-	const spaces = useStore(s => s.spaces)
+	const roles = useStore(s => s.roles)
 	const messages = useStore(s => s.messages)
 
-	const live = useMemo<NodeDatum[]>(() => {
-		const byId = new Map(agents.map(a => [a.id, a]))
-		const you: NodeDatum = {
-			id: YOU,
-			you: true,
-			name: 'Вы',
-			space: null,
-			hue: 160,
-			status: null,
-			parent: null,
-			depth: 0,
-			queued: 0,
-			perms: 0,
-			leaving: false,
+	// счётчики сообщений и пары переписки
+	const comm = useMemo(() => {
+		const weight = new Map<string, number>()
+		const pairs = new Set<string>()
+		for (const m of messages) {
+			if (!isComm(m)) continue
+			weight.set(m.from, (weight.get(m.from) ?? 0) + 1)
+			weight.set(m.to, (weight.get(m.to) ?? 0) + 1)
+			pairs.add(pairKey(m.from, m.to))
 		}
-		return [
-			you,
-			...agents.map<NodeDatum>(a => ({
-				id: a.id,
-				you: false,
-				name: a.name,
-				space: a.space,
-				hue: spaceHue(spaces, a.space),
-				status: a.status,
-				parent: a.parent && byId.has(a.parent) ? a.parent : YOU,
-				depth: depthOf(a, byId),
-				queued: a.queued,
-				perms: a.pendingPermissions.length,
-				leaving: false,
-			})),
+		return { weight, pairs }
+	}, [messages])
+
+	return useMemo<GraphData>(() => {
+		const visible = agents.filter(a => showArchived || !a.archived)
+		const ids = new Set([YOU, ...visible.map(a => a.id)])
+		const hue = new Map(roles.map(r => [r.id, r.color]))
+		const nodes: GNode[] = [
+			{ id: YOU, name: 'Вы', you: true, roleHue: null, working: false, error: false, archived: false, weight: 0, r: 8 },
+			...visible.map<GNode>(a => {
+				const w = comm.weight.get(a.id) ?? 0
+				return {
+					id: a.id,
+					name: a.name,
+					you: false,
+					roleHue: a.role ? (hue.get(a.role) ?? null) : null,
+					working: a.status === 'working' || a.status === 'starting',
+					error: a.status === 'error',
+					archived: a.archived,
+					weight: w,
+					r: nodeRadius(w),
+				}
+			}),
 		]
-	}, [agents, spaces])
-
-	// «призраки»: удалённые узлы доигрывают анимацию исчезновения
-	const [ghosts, setGhosts] = useState<NodeDatum[]>([])
-	const prev = useRef<NodeDatum[]>([])
-	const timers = useRef(new Set<number>())
-	useLayoutEffect(() => {
-		const ids = new Set(live.map(n => n.id))
-		const gone = prev.current.filter(n => !ids.has(n.id))
-		prev.current = live
-		setGhosts(g => {
-			const kept = g.filter(n => !ids.has(n.id))
-			return gone.length || kept.length !== g.length ? [...kept, ...gone.map(n => ({ ...n, leaving: true }))] : g
-		})
-		if (!gone.length) return
-		const goneIds = new Set(gone.map(n => n.id))
-		const t = window.setTimeout(() => {
-			timers.current.delete(t)
-			setGhosts(g => g.filter(n => !goneIds.has(n.id)))
-		}, LEAVE_MS)
-		timers.current.add(t)
-	}, [live])
-	useLayoutEffect(() => () => timers.current.forEach(t => window.clearTimeout(t)), [])
-
-	const nodes = useMemo(() => (ghosts.length ? [...live, ...ghosts] : live), [live, ghosts])
-
-	const edges = useMemo(() => {
-		const ids = new Set(live.map(n => n.id))
-		return [...parentEdges(agents, ids), ...commEdges(messages, ids)]
-	}, [agents, messages, live])
-
-	const sectors = useMemo<SectorDatum[]>(() => {
-		// секторы только для пространств, где есть агенты (в порядке списка пространств)
-		const used = new Set(agents.map(a => a.space))
-		const names = [...spaces.map(s => s.name).filter(n => used.has(n)), ...[...used].filter(n => !spaces.some(s => s.name === n))]
-		const ang = sectorAngles(names)
-		return names.map(n => ({ space: n, hue: spaceHue(spaces, n), angle: ang.get(n) ?? 0 }))
-	}, [agents, spaces])
-
-	return { nodes, edges, sectors }
+		const edges = new Map<string, GEdge>()
+		for (const a of visible) {
+			// родитель скрыт (в архиве) или удалён — связываем с «Вы»
+			const p = a.parent && ids.has(a.parent) ? a.parent : YOU
+			const key = pairKey(p, a.id)
+			edges.set(key, { id: key, kind: 'parent', a: p, b: a.id })
+		}
+		for (const key of comm.pairs) {
+			if (edges.has(key)) continue
+			const [a, b] = key.split('|')
+			if (a && b && ids.has(a) && ids.has(b)) edges.set(key, { id: key, kind: 'comm', a, b })
+		}
+		return { nodes, edges: [...edges.values()], archived: agents.filter(a => a.archived).length }
+	}, [agents, roles, comm, showArchived])
 }
