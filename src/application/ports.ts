@@ -3,7 +3,7 @@
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
 import type { AgentEvent, Message, RoleView, SpaceStatus, SpaceView, ToolStatus } from '../../shared/types'
-import type { PermissionOption } from '../domain/types'
+import type { PermissionOption, RolePresetFile } from '../domain/types'
 import type { PersistedState } from './persisted.types'
 
 // ---------- nessy ----------
@@ -100,6 +100,8 @@ export interface StorePort {
 	loadMessages(limit: number): Message[]
 	appendEvent(agentId: string, ev: AgentEvent): void
 	readEvents(agentId: string, limit: number): AgentEvent[]
+	/** Есть ли уже файл ролей (даже пустой): первый запуск или нет. */
+	hasRoles(): boolean
 	loadRoles(): RoleView[]
 	/** Немедленная атомарная запись ролей (меняются редко). */
 	saveRoles(roles: readonly RoleView[]): void
@@ -117,4 +119,10 @@ export interface Clock {
 export interface IdGenerator {
 	/** Короткий случайный идентификатор длины `len`. */
 	next(len: number): string
+}
+
+// ---------- пресеты ролей ----------
+/** Источник готовых ролей (markdown-файлы); разбор и проверка — в domain/role-presets. */
+export interface RolePresetSource {
+	read(): RolePresetFile[]
 }

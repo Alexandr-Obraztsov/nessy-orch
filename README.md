@@ -112,6 +112,7 @@ nessy-orch ask <путь|space> "задача"          # = spawn --wait
 nessy-orch ls [--all] | show <агент> | watch <агент> | cancel <агент> | kill <агент>
 nessy-orch archive <агент> | restore <агент>
 nessy-orch role ls | role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] | role show <id> | role rm <id>
+nessy-orch role import [путь] [--force] [--dry-run]   # роли из markdown-файлов (по умолчанию roles/); role export <id> [--out файл]
 nessy-orch feed [-n 30] [--follow]
 nessy-orch inbox [--wait СЕК] [--peek]
 nessy-orch space add <путь> [--name N] [--url URL] | space ls | space rm <имя> [--force]
@@ -166,6 +167,7 @@ nessy-orch status | open | install [--print] | uninstall
 | `ORCH_RATE_LIMIT` | `30` | Сообщений на пару в минуту |
 | `ORCH_HEALTH_TIMEOUT_MS` | `60000` | Ожидание готовности `nessy serve` |
 | `ORCH_UI_DIR` | `ui/dist` | Каталог собранного UI |
+| `ORCH_SEED_ROLES` | `1` | При первом запуске (нет `roles.json`) залить готовые роли из `roles/` |
 
 Логи: `~/.nessy-orch/logs/space-<имя>.log` (serve). При запуске через launchd лог оркестратора пишется в `orch.{out,err}.log`.
 

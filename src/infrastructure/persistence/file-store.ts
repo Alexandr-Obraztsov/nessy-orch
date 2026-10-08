@@ -73,6 +73,10 @@ export class FileStore implements StorePort {
 		this.closed = true
 	}
 
+	hasRoles(): boolean {
+		return fs.existsSync(this.rolesPath)
+	}
+
 	loadRoles(): RoleView[] {
 		const raw = parseJson(readText(this.rolesPath))
 		const list = isObject(raw) ? arr(raw['roles']) : arr(raw)

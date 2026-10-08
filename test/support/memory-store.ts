@@ -22,6 +22,9 @@ export class MemoryStore implements StorePort {
 	close(): void {
 		this.flush()
 	}
+	hasRoles(): boolean {
+		return this.roles.length > 0
+	}
 	loadRoles(): RoleView[] {
 		return structuredClone(this.roles)
 	}

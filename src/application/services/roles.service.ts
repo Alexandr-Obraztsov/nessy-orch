@@ -1,7 +1,9 @@
 /** Роли субагентов: хранение (roles.json), CRUD, разрешение по id или имени. Правила полей — domain/roles.ts. */
 import type { RoleRequest, RoleView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
+import { parseRolePreset } from '../../domain/role-presets'
 import { validateRole } from '../../domain/roles'
+import type { RolePresetFile, RoleSeedResult } from '../../domain/types'
 import type { ServiceContext } from './context.types'
 
 export class RolesService {
@@ -53,6 +55,19 @@ export class RolesService {
 		const role: RoleView = { ...f, createdAt: prev.createdAt, updatedAt: this.isoNow() }
 		this.put(role)
 		return role
+	}
+
+	/** Первичная заливка пресетов: невалидные и дубликаты молча пропускаются (попадают в invalid). */
+	seed(files: readonly RolePresetFile[]): RoleSeedResult {
+		const result: RoleSeedResult = { added: [], invalid: [] }
+		for (const f of files) {
+			try {
+				result.added.push(this.create(parseRolePreset(f.text)).id)
+			} catch {
+				result.invalid.push(f.source)
+			}
+		}
+		return result
 	}
 
 	/** Удалить роль. Агенты сохраняют id роли (UI показывает её удалённой). */

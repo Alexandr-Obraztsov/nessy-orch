@@ -19,7 +19,7 @@ import type {
 	StatusResponse,
 	StreamEvent,
 } from '../../shared/types'
-import type { AgentIdentity, MessageDraft, TurnOutcome } from '../domain/types'
+import type { AgentIdentity, MessageDraft, RolePresetFile, RoleSeedResult, TurnOutcome } from '../domain/types'
 import { rid } from '../lib/ids'
 import { Agent } from './agent/agent'
 import type { AgentHost } from './agent/agent.types'
@@ -204,6 +204,15 @@ export class Orchestrator implements AgentHost {
 
 	updateRole(ref: string, req: RoleRequest): RoleView {
 		return this.rolesSvc.update(ref, req)
+	}
+
+	/** Нет ли ещё файла ролей (первый запуск). */
+	get hasStoredRoles(): boolean {
+		return this.store.hasRoles()
+	}
+
+	seedRoles(files: readonly RolePresetFile[]): RoleSeedResult {
+		return this.rolesSvc.seed(files)
 	}
 
 	removeRole(ref: string): void {

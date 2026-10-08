@@ -4,9 +4,11 @@
  */
 import type * as http from 'node:http'
 import { Orchestrator } from './application/orchestrator'
+import type { RolePresetSource } from './application/ports'
 import type { AppInstance } from './app.types'
 import type { Config } from './infrastructure/config/config.types'
 import { NessyClient } from './infrastructure/nessy/nessy-client'
+import { FileRolePresets } from './infrastructure/persistence/role-presets'
 import { FileStore } from './infrastructure/persistence/file-store'
 import { ServeSpace } from './infrastructure/process/serve-space'
 import { createServer } from './interfaces/http/server'
@@ -29,7 +31,10 @@ export function buildApp(config: Config, version: string): AppInstance {
 				listener,
 			),
 	})
+	// первый запуск (roles.json ещё нет): готовые роли из <root>/roles
+	const firstStart = !orch.hasStoredRoles
 	orch.load()
+	if (config.seedRoles && firstStart) seedRoles(orch, new FileRolePresets(config.rolesDir))
 	const server = createServer(orch, { version, uiDir: config.uiDir, port: config.port, host: config.host })
 
 	return {
@@ -50,6 +55,12 @@ export function buildApp(config: Config, version: string): AppInstance {
 			await orch.shutdown()
 		},
 	}
+}
+
+function seedRoles(orch: Orchestrator, source: RolePresetSource): void {
+	const { added, invalid } = orch.seedRoles(source.read())
+	if (added.length || invalid.length)
+		console.log(`[nessy-orch] роли по умолчанию: добавлено ${added.length}${invalid.length ? `, пропущено невалидных ${invalid.length}` : ''}`)
 }
 
 function closeServer(server: http.Server, done: () => void): void {

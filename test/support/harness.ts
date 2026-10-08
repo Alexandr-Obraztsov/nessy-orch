@@ -61,6 +61,8 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 			healthTimeoutMs: 10000,
 			uiDir: path.join(base, 'ui'),
 			cliPath: CLI,
+			seedRoles: false,
+			rolesDir: path.join(base, 'roles'),
 			...opts.config,
 		}
 		const candidate = buildApp(config, 'test')

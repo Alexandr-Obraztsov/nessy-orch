@@ -68,3 +68,22 @@ export interface RoleInput {
 	color?: number
 	id?: string
 }
+
+/** Результат разбора frontmatter пресета роли. */
+export interface RolePresetMeta {
+	fields: Record<string, string>
+	body: string
+}
+
+/** Файл пресета роли как он прочитан с диска (до разбора). */
+export interface RolePresetFile {
+	/** имя файла (для сообщений) */
+	source: string
+	text: string
+}
+
+/** Итог заливки пресетов при первом запуске. */
+export interface RoleSeedResult {
+	added: string[]
+	invalid: string[]
+}

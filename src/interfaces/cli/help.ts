@@ -17,6 +17,9 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
 РОЛИ
   role ls              role show <id>               role rm <id>
   role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] [--color 0..360]
+  role import [путь] [--force] [--dry-run]   загрузить роли из markdown-файлов (файл или папка;
+                       по умолчанию — готовые роли из roles/). Существующие пропускаются, --force — перезаписать
+  role export <id> [--out файл]               роль как markdown-файл (формат roles/README.md)
 
 ЛЕНТА И ВХОДЯЩИЕ
   feed [-n 30] [--follow]   общая лента сообщений
