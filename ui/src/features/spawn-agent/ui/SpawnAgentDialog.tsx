@@ -1,5 +1,5 @@
 /**
- * Диалог запуска агента: роль, пространство (или произвольный путь), имя, первая задача.
+ * Диалог «Новое поручение»: что сделать, роль (с описанием), пространство (или путь), имя агента.
  */
 import type { KeyboardEvent } from 'react'
 import { SPACE_STATUS } from '@/entities/agent'
@@ -29,7 +29,7 @@ export function SpawnAgentDialog() {
 	return (
 		<Dialog
 			open
-			title="Новый агент"
+			title="Новое поручение"
 			onClose={f.close}
 			footer={
 				<>
@@ -49,6 +49,16 @@ export function SpawnAgentDialog() {
 			}
 		>
 			<form id={FORM_ID} className={s.form} onSubmit={e => void f.submit(e)} onKeyDown={onKey} noValidate>
+				<Field label="Что сделать" error={f.errors.prompt}>
+					<TextArea
+						value={f.form.prompt}
+						onChange={e => f.set('prompt', e.target.value)}
+						placeholder="Например: сравнить конфиги деплоя shippy в stage и prod"
+						rows={4}
+						aria-invalid={!!f.errors.prompt}
+						data-autofocus
+					/>
+				</Field>
 				<fieldset className={s.fieldset}>
 					<legend className={s.legend}>Роль</legend>
 					<RolePicker value={f.form.role} roles={f.roles} onChange={v => f.set('role', v)} />
@@ -68,7 +78,11 @@ export function SpawnAgentDialog() {
 							</Select>
 						</Field>
 					)}
-					<Field label="Имя" error={f.errors.name ?? f.nameErr} hint={f.nameWarn ? <span className={s.warn}>{f.nameWarn}</span> : undefined}>
+					<Field
+						label="Имя агента"
+						error={f.errors.name ?? f.nameErr}
+						hint={f.nameWarn ? <span className={s.warn}>{f.nameWarn}</span> : 'Необязательно — по умолчанию из роли'}
+					>
 						<TextInput
 							value={f.form.name}
 							onChange={e => f.set('name', e.target.value)}
@@ -101,15 +115,6 @@ export function SpawnAgentDialog() {
 						/>
 					</Field>
 				)}
-				<Field label="Задача" hint="Необязательно — можно написать позже в чате">
-					<TextArea
-						value={f.form.prompt}
-						onChange={e => f.set('prompt', e.target.value)}
-						placeholder="Что сделать агенту?"
-						rows={4}
-						data-autofocus
-					/>
-				</Field>
 				{f.errors.form && (
 					<div className={s.banner} role="alert">
 						<Icon name="alert" size={14} />

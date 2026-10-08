@@ -1,6 +1,6 @@
 /** Действия над агентом: прервать ход, архив, возврат, удаление, копирование. Ошибки — тостом. */
 import { api, errorText } from '@/shared/api'
-import { closeTabsWhere } from '@/shared/model'
+import { closeAgent, getView } from '@/shared/model'
 import { toast } from '@/shared/ui'
 
 export async function cancelTurn(id: string): Promise<boolean> {
@@ -39,7 +39,7 @@ export async function restoreAgent(id: string, name: string): Promise<boolean> {
 export async function removeAgent(id: string, name: string): Promise<boolean> {
 	try {
 		await api.removeAgent(id)
-		closeTabsWhere(t => t.kind === 'agent' && t.id === id)
+		if (getView().selectedAgentId === id) closeAgent()
 		toast(`Агент ${name} удалён`, 'success')
 		return true
 	} catch (e) {

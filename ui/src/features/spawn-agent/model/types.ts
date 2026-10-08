@@ -1,5 +1,5 @@
-/** Поля формы запуска агента, к которым привязываются ошибки сервера. */
-export type SpawnField = 'space' | 'name' | 'role' | 'form'
+/** Поля формы «Новое поручение», к которым привязываются ошибки сервера. */
+export type SpawnField = 'space' | 'name' | 'role' | 'prompt' | 'form'
 
 export type SpawnErrors = Partial<Record<SpawnField, string>>
 

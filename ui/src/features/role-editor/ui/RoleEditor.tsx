@@ -1,5 +1,5 @@
 /**
- * Редактор роли во вкладке — как заметка в Obsidian: крупный заголовок (имя), строка описания,
+ * Редактор роли на странице «Роли» — как заметка в Obsidian: крупный заголовок (имя), строка описания,
  * свойства (цвет, агенты с ролью), инструкции в markdown с предпросмотром.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -7,10 +7,10 @@ import { AgentAvatar, agentStatusMeta } from '@/entities/agent'
 import { ROLE_HUES, roleColor } from '@/entities/role'
 import { renderMarkdown } from '@/shared/lib/markdown'
 import { cssVars } from '@/shared/lib/style'
-import { closeTabsWhere, openAgent, openDialog } from '@/shared/model'
+import { openAgent, openDialog } from '@/shared/model'
 import { Button, Dialog, Icon, Kbd } from '@/shared/ui'
 import type { RoleEditorProps } from '../model/types'
-import { useRoleEditor } from '../model/useRoleEditor'
+import { openOtherRole, useRoleEditor } from '../model/useRoleEditor'
 import s from './RoleEditor.module.css'
 
 const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent)
@@ -33,7 +33,7 @@ export function RoleEditor({ id }: RoleEditorProps) {
 	const area = useAutoGrow(preview ? '' : r.draft.instructions)
 	const titleRef = useRef<HTMLInputElement>(null)
 
-	// Ctrl/Cmd+S — сохранить (вкладка активна, пока смонтирована)
+	// Ctrl/Cmd+S — сохранить (пока редактор смонтирован)
 	const saveRef = useRef(r.save)
 	saveRef.current = r.save
 	useEffect(() => {
@@ -57,8 +57,8 @@ export function RoleEditor({ id }: RoleEditorProps) {
 			<div className={s.missing}>
 				<Icon name="tag" size={28} />
 				<p>Роль удалена</p>
-				<Button size="sm" onClick={() => closeTabsWhere(t => t.kind === 'role' && t.id === id)}>
-					Закрыть вкладку
+				<Button size="sm" onClick={() => openOtherRole(id)}>
+					К списку ролей
 				</Button>
 			</div>
 		)
@@ -90,7 +90,7 @@ export function RoleEditor({ id }: RoleEditorProps) {
 					</Button>
 					{id && (
 						<Button size="sm" variant="ghost" icon="play" onClick={() => openDialog('spawn', { role: id })}>
-							<span className={s.wide}>Запустить агента с этой ролью</span>
+							<span className={s.wide}>Новое поручение с этой ролью</span>
 							<span className={s.narrow}>Запустить</span>
 						</Button>
 					)}

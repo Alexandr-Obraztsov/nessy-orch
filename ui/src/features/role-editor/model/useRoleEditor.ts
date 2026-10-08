@@ -1,12 +1,12 @@
 /**
- * Редактор роли: черновик (переживает смену вкладок), сохранение (Ctrl/Cmd+S), удаление.
- * Новая роль после создания заменяет свою вкладку вкладкой с настоящим id.
+ * Редактор роли: черновик (переживает переключение ролей), сохранение (Ctrl/Cmd+S), удаление.
+ * Новая роль после создания открывается по своему настоящему id.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RoleView } from '@contract'
 import { hueFromName } from '@/entities/role'
 import { ApiFailure, api, errorText } from '@/shared/api'
-import { closeTabsWhere, getView, setView, useStore } from '@/shared/model'
+import { getState, openRole, useStore } from '@/shared/model'
 import { toast } from '@/shared/ui'
 import { roleFieldOf, validateRole } from '../lib/errors'
 import { getDraft, putDraft } from './drafts'
@@ -20,10 +20,9 @@ const fromRole = (r: RoleView | undefined): RoleDraft =>
 const same = (a: RoleDraft, b: RoleDraft): boolean =>
 	a.name === b.name && a.description === b.description && a.instructions === b.instructions && a.color === b.color
 
-/** Заменить вкладку новой роли на вкладку созданной. */
-function replaceNewTab(id: string): void {
-	const v = getView()
-	setView({ tabs: v.tabs.map(t => (t.kind === 'role' && t.id === null ? { kind: 'role', id } : t)) })
+/** Открыть первую роль, кроме данной (или форму новой, если ролей нет). */
+export function openOtherRole(id: string | null): void {
+	openRole(getState().roles.find(r => r.id !== id)?.id ?? null)
 }
 
 export function useRoleEditor(id: string | null) {
@@ -75,7 +74,7 @@ export function useRoleEditor(id: string | null) {
 				const created = await api.createRole(req)
 				putDraft(null, null)
 				toast(`Роль «${created.name}» создана`, 'success', 2000)
-				replaceNewTab(created.id)
+				openRole(created.id)
 			}
 			setErrors({})
 		} catch (e) {
@@ -90,7 +89,7 @@ export function useRoleEditor(id: string | null) {
 	const remove = useCallback(async (): Promise<void> => {
 		if (!id) {
 			putDraft(null, null)
-			closeTabsWhere(t => t.kind === 'role' && t.id === null)
+			openOtherRole(null)
 			return
 		}
 		setBusy(true)
@@ -98,7 +97,7 @@ export function useRoleEditor(id: string | null) {
 			await api.removeRole(id)
 			putDraft(id, null)
 			toast(`Роль «${role?.name ?? id}» удалена`, 'success')
-			closeTabsWhere(t => t.kind === 'role' && t.id === id)
+			openOtherRole(id)
 		} catch (e) {
 			toast(`Не удалось удалить роль: ${errorText(e)}`, 'error')
 			setBusy(false)

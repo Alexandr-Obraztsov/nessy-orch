@@ -2,7 +2,7 @@ import s from './Toaster.module.css'
 import { Icon } from './Icon'
 import { dismissToast, useToasts } from './toast'
 
-const ICON = { info: 'info', success: 'check', error: 'alert' } as const
+const ICON = { info: 'info', success: 'check', error: 'alert', warn: 'shield' } as const
 
 export function Toaster() {
 	const list = useToasts()

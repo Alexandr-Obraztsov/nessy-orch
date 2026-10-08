@@ -2,7 +2,7 @@
 	position: fixed;
 	z-index: 200;
 	right: var(--sp-4);
-	bottom: calc(var(--statusbar-h) + var(--sp-3));
+	bottom: calc(32px + var(--sp-3));
 	display: flex;
 	flex-direction: column;
 	gap: var(--sp-2);
@@ -38,6 +38,9 @@
 .success svg:first-child {
 	color: var(--success);
 }
+.warn svg:first-child {
+	color: var(--warn);
+}
 .info svg:first-child {
 	color: var(--accent-text);
 }
@@ -52,6 +55,6 @@
 		left: var(--sp-3);
 		right: var(--sp-3);
 		max-width: none;
-		bottom: calc(var(--sp-3) + env(safe-area-inset-bottom));
+		bottom: calc(68px + env(safe-area-inset-bottom));
 	}
 }

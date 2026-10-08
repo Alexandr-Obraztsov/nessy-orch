@@ -1,10 +1,10 @@
 /**
- * Состояние и отправка формы запуска агента.
+ * Состояние и отправка формы «Новое поручение»: задача, роль, пространство, имя агента.
+ * После запуска открываются детали нового агента.
  */
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { ApiFailure, api, errorText } from '@/shared/api'
 import { getView, openAgent, setView, useStore, useView } from '@/shared/model'
-import { toast } from '@/shared/ui'
 import { OTHER_PATH, nameError, nameWarning, pathError, suggestName } from '../lib/validate'
 import type { SpawnErrors, SpawnFormState } from './types'
 
@@ -57,6 +57,7 @@ export function useSpawnForm() {
 	const submit = async (e?: FormEvent): Promise<void> => {
 		e?.preventDefault()
 		if (busy) return
+		if (!form.prompt.trim()) return setErrors({ prompt: 'Опишите, что нужно сделать' })
 		if (pathErr) return setErrors({ space: pathErr })
 		if (nameErr) return setErrors({ name: nameErr })
 		setBusy(true)
@@ -68,7 +69,6 @@ export function useSpawnForm() {
 				prompt: form.prompt.trim() || undefined,
 				from: 'you',
 			})
-			toast(`Агент «${res.agent.name}» запущен`, 'success')
 			close()
 			openAgent(res.agent.id)
 		} catch (err) {

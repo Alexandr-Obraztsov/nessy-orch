@@ -1,0 +1,59 @@
+.ic {
+	display: inline-block;
+	flex: none;
+	vertical-align: middle;
+}
+.ic svg {
+	display: block;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+}
+.wait {
+	color: var(--warn);
+}
+.error {
+	color: var(--danger);
+}
+.working {
+	color: var(--accent-text);
+}
+.starting {
+	color: var(--st-starting);
+}
+.idle {
+	color: var(--text-faint);
+}
+.done {
+	color: var(--success);
+}
+.working svg {
+	animation: spin 1.1s linear infinite;
+}
+.starting svg {
+	animation: spin 3s linear infinite;
+}
+.wait svg {
+	animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.45;
+		transform: scale(0.88);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.ic svg {
+		animation: none !important;
+	}
+}

@@ -1,12 +1,10 @@
-/* Плотная лента хода агента: колонка как заметка (до 760px по центру). */
+/* Плотная лента хода агента (вкладки «Чат» и «Шаги»). */
 .timeline {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
 	width: 100%;
-	max-width: 760px;
-	margin: 0 auto;
-	padding: var(--sp-2) var(--sp-4) var(--sp-3);
+	min-width: 0;
 }
 .enter {
 	animation: rowIn 160ms var(--ease) both;
@@ -36,7 +34,7 @@
 	margin: var(--sp-2) 0 2px;
 }
 .out {
-	max-width: min(80%, 560px);
+	max-width: 88%;
 	padding: 5px 10px 3px;
 	border-radius: var(--r-md);
 	background: var(--accent-soft);
@@ -106,7 +104,6 @@ button.rowBtn:hover {
 }
 .chev {
 	flex: none;
-	margin-left: auto;
 	color: var(--text-faint);
 	opacity: 0;
 	transition:
@@ -130,6 +127,7 @@ button.rowBtn:hover {
 	color: var(--text-muted);
 }
 .thoughtPreview {
+	flex: 1;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -168,6 +166,7 @@ button.rowBtn:hover {
 	color: var(--text-muted);
 }
 .toolTitle {
+	flex: 1;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -283,20 +282,18 @@ button.rowBtn:hover {
 .no .permResult {
 	color: var(--danger);
 }
-.pendingBar {
+
+/* номер шага в ходе */
+.stepNo {
 	flex: none;
-	width: 100%;
-	max-width: 760px;
-	margin: 0 auto;
-	padding: var(--sp-1) var(--sp-4) 0;
+	min-width: 16px;
+	color: var(--text-faint);
+	font-size: var(--fs-xs);
+	font-variant-numeric: tabular-nums;
+	text-align: right;
 }
 
 @media (max-width: 899px) {
-	.timeline,
-	.pendingBar {
-		padding-left: var(--sp-3);
-		padding-right: var(--sp-3);
-	}
 	.chev {
 		opacity: 1;
 	}

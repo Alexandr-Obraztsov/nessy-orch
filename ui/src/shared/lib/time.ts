@@ -47,3 +47,18 @@ export function dayLabel(ts: number): string {
 	if (d.toDateString() === y.toDateString()) return 'Вчера'
 	return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
 }
+
+/** Таймер «6:40» / «1:02:05» по миллисекундам (моноширинные счётчики). */
+export function timer(ms: number): string {
+	const s = Math.max(0, Math.floor(ms / 1000))
+	const h = Math.floor(s / 3600)
+	const m = Math.floor((s % 3600) / 60)
+	const x = s % 60
+	return h ? `${h}:${pad(m)}:${pad(x)}` : `${m}:${pad(x)}`
+}
+
+/** «14:05:09» — время события в журнале. */
+export function clockSec(ts: number): string {
+	const d = new Date(ts)
+	return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}

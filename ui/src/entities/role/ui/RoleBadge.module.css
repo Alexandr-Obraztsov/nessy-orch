@@ -24,3 +24,27 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+/* плашка роли: цвет текста подстраивается под тему */
+.chip {
+	--l: 72%;
+	display: inline-block;
+	min-width: 0;
+	max-width: 100%;
+	padding: 0 6px;
+	border-radius: var(--r-xs);
+	background: hsl(var(--h) 55% 50% / 0.16);
+	color: hsl(var(--h) 70% var(--l));
+	font-size: var(--fs-xs);
+	line-height: 17px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+:global(:root[data-theme='light']) .chip {
+	--l: 30%;
+}
+@media (prefers-color-scheme: light) {
+	:global(:root:not([data-theme='dark'])) .chip {
+		--l: 30%;
+	}
+}
