@@ -156,6 +156,15 @@ export function useSimulation(): SimulationApi {
 			b.x1 = Math.max(b.x1, x + n.r + 40)
 			b.y0 = Math.min(b.y0, y - n.r - 24)
 			b.y1 = Math.max(b.y1, y + n.r + 46)
+			// дуги и подписи секторов пространств лежат снаружи — продлеваем радиально
+			const d = Math.hypot(x, y)
+			if (n.space && d > 1) {
+				const f = (d + 74) / d
+				b.x0 = Math.min(b.x0, x * f)
+				b.x1 = Math.max(b.x1, x * f)
+				b.y0 = Math.min(b.y0, y * f)
+				b.y1 = Math.max(b.y1, y * f)
+			}
 		}
 		return b
 	}, [])

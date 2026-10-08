@@ -208,6 +208,11 @@
 	width: min(340px, calc(100% - 32px));
 	animation: emptyIn 600ms var(--ease) both 150ms;
 }
+.emptyTitle,
+.emptyText,
+.emptyHint {
+	text-shadow: 0 0 10px var(--bg), 0 0 3px var(--bg);
+}
 .emptyTitle {
 	margin: 0;
 	font-size: var(--fs-xl);

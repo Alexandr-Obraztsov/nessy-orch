@@ -1,6 +1,5 @@
 /** Жизненный цикл агентов: создание, удаление, прерывание, разрешения, история чата. */
 import type { AgentEvent, AgentView, Message, SendResponse, SpawnRequest, SpawnResponse } from '../../../shared/types'
-import { YOU } from '../../domain/constants'
 import { AppError } from '../../domain/errors'
 import { buildPreamble } from '../../domain/preamble'
 import type { AgentIdentity } from '../../domain/types'
@@ -25,8 +24,7 @@ export class AgentsService {
 	async spawn(req: SpawnRequest): Promise<SpawnResponse> {
 		const { registry } = this.ctx
 		const space = this.spaces.resolve(req.space)
-		const from = req.from ?? YOU
-		if (from !== YOU && !registry.agents.has(from)) throw new AppError(400, 'bad_from', `неизвестный отправитель: ${from}`)
+		const from = registry.resolveSender(req.from)
 		const parent = req.parent ?? from
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)

@@ -84,6 +84,8 @@ export class Orchestrator implements AgentHost {
 			if (!this.registry.spaces.has(p.space)) continue
 			this.registry.agents.set(p.id, Agent.restore(p, this.ctx.agentDeps))
 		}
+		// сообщения, ждавшие в очереди до рестарта, доставляются сразу (агент поднимет serve и сессию)
+		for (const a of this.registry.agents.values()) a.resumeQueue()
 	}
 
 	private persistState(): PersistedState {

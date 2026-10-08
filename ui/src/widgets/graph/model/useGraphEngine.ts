@@ -199,8 +199,10 @@ export function useGraphEngine({ data, packetClasses, motion }: EngineOptions): 
 		const s = sizeRef.current
 		if (!s.w || !s.h) return null
 		// сверху — место под чипы сводки
-		const v = fitViewport(sim.bounds(), { w: s.w, h: s.h - FIT_TOP }, FIT_PAD, MIN_K, FIT_MAX_K)
-		return { ...v, y: v.y + FIT_TOP }
+		// на узких экранах чипы сводки переносятся в два ряда
+		const top = s.w < 1100 ? FIT_TOP * 2 : FIT_TOP
+		const v = fitViewport(sim.bounds(), { w: s.w, h: s.h - top }, FIT_PAD, MIN_K, FIT_MAX_K)
+		return { ...v, y: v.y + top }
 	}
 
 	// ---------- пакеты ----------

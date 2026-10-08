@@ -59,6 +59,9 @@ export class Feed {
 
 	/** Дождаться ответа на сообщение. null — таймаут. */
 	waitReply(messageId: string, timeoutMs: number): Promise<Message | null> {
+		// ответ мог появиться синхронно ещё при отправке (агент остановлен, ошибка доставки)
+		const ready = this.messages.findLast(m => m.kind === 'reply' && m.replyTo === messageId)
+		if (ready) return Promise.resolve(ready)
 		return new Promise(resolve => {
 			const timer = setTimeout(() => {
 				this.waiters.delete(messageId)

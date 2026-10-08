@@ -63,9 +63,14 @@ describe('рестарт и восстановление', () => {
 		const base = h.base
 		await h.close({ keepFiles: true })
 		second = await startHarness({ base })
-		const restored = second.orch.getAgent('keeper')
-		assert.equal(restored.queued, 1)
-		// очередь доставляется при следующем обращении
+		const h2 = second
+		// очередь доставляется сразу после загрузки состояния
+		await until(
+			() => h2.orch.listMessages({ agent: 'keeper', limit: 1000 }).some(m => m.kind === 'reply' && m.text === 'ответ: отложенное'),
+			10000,
+			'ответ на отложенное',
+		)
+		assert.equal(h2.orch.getAgent('keeper').queued, 0)
 		const r = await second.api<SendResponse>('POST', '/agents/keeper/send', { text: 'после рестарта', wait: true, waitTimeoutSec: 10 })
 		assert.equal(r.body.reply?.text, 'ответ: после рестарта')
 		const users = second.orch

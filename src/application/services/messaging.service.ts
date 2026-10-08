@@ -43,8 +43,7 @@ export class MessagingService {
 		const text = req.text.trim()
 		if (!text) throw new AppError(400, 'empty_text', 'text обязателен')
 		const to = ref === YOU ? YOU : registry.resolveAgent(ref).id
-		const from = req.from ?? YOU
-		if (from !== YOU && !registry.agents.has(from)) throw new AppError(400, 'bad_from', `неизвестный отправитель: ${from}`)
+		const from = registry.resolveSender(req.from)
 		if (from === to) throw new AppError(400, 'self_send', 'нельзя отправить сообщение самому себе')
 
 		const wait = !!req.wait

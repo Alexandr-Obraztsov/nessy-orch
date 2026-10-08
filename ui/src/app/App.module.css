@@ -35,6 +35,8 @@
 }
 .graph {
 	overflow: hidden;
+	/* собственный контекст наложения: слои графа не перекрывают выдвижной ростер */
+	isolation: isolate;
 }
 .panel {
 	border-left: 1px solid var(--line);
@@ -81,10 +83,10 @@
 	.scrim {
 		display: block;
 		position: absolute;
-		z-index: 19;
+		z-index: 50;
 		inset: 0;
 		background: var(--overlay);
-		opacity: 0.5;
+		opacity: 0.7;
 		animation: fade 300ms var(--ease);
 	}
 	.graph {

@@ -22,6 +22,16 @@ export class Registry {
 		throw new AppError(404, 'no_agent', `агент «${ref}» не найден`)
 	}
 
+	/** Отправитель: `you` или агент по id/имени; неизвестный → 400 bad_from. */
+	resolveSender(ref: string | undefined): string {
+		if (!ref || ref === YOU) return YOU
+		try {
+			return this.resolveAgent(ref).id
+		} catch {
+			throw new AppError(400, 'bad_from', `неизвестный отправитель: ${ref}`)
+		}
+	}
+
 	isNameTaken(name: string): boolean {
 		const n = name.toLowerCase()
 		return [...this.agents.values()].some(a => a.name.toLowerCase() === n)
