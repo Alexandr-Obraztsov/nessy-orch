@@ -1,5 +1,5 @@
 /** Форматирование вывода CLI (для человека; для машин есть --json). */
-import type { AgentView, Message, SpaceView } from '../../../shared/types'
+import type { AgentView, Message, RoleView, SpaceView } from '../../../shared/types'
 
 const tty = process.stdout.isTTY && !process.env['NO_COLOR']
 const c = (code: string) => (s: string): string => (tty ? `\x1b[${code}m${s}\x1b[0m` : s)
@@ -18,9 +18,7 @@ const STATUS_COLOR: Record<string, (s: string) => string> = {
 	idle: green,
 	working: yellow,
 	error: red,
-	dead: red,
 	starting: blue,
-	sleeping: dim,
 	ready: green,
 	failed: red,
 	stopped: dim,
@@ -58,18 +56,36 @@ export function formatMessage(m: Message, agents: ReadonlyMap<string, AgentView>
 	return `${head}\n${body}`
 }
 
-export function agentsTable(agents: readonly AgentView[], spaces: readonly SpaceView[]): string {
-	if (!agents.length) return dim('агентов нет. Создайте: nessy-orch spawn --space <путь> "задача"')
+function roleCell(id: string | null, roles: ReadonlyMap<string, RoleView>): string {
+	if (id === null) return dim('—')
+	return roles.has(id) ? id : dim(`${id} (удалена)`)
+}
+
+/** Таблица агентов; hiddenArchived — сколько архивных скрыто (подсказка про --all). */
+export function agentsTable(agents: readonly AgentView[], spaces: readonly SpaceView[], roles: readonly RoleView[] = [], hiddenArchived = 0): string {
+	const hint = hiddenArchived ? dim(`в архиве: ${hiddenArchived} (показать: nessy-orch ls --all)`) : ''
+	if (!agents.length) return [dim('активных агентов нет. Создайте: nessy-orch spawn --space <путь> "задача"'), hint].filter(Boolean).join('\n')
 	const sp = new Map(spaces.map(s => [s.name, s]))
-	return table(
+	const rl = new Map(roles.map(r => [r.id, r]))
+	const rows = table(
 		agents.map(a => [
 			bold(a.id),
 			a.name === a.id ? dim('—') : a.name,
-			status(a.status) + (a.queued ? dim(` +${a.queued}`) : ''),
+			roleCell(a.role, rl),
+			status(a.status) + (a.archived ? dim(' · архив') : '') + (a.queued ? dim(` +${a.queued}`) : ''),
 			a.space + (sp.get(a.space)?.status === 'failed' ? red(' (!)') : ''),
 			a.lastTool ? dim(`⚙ ${a.lastTool.name}`) : a.preview ? dim(a.preview.replace(/\s+/g, ' ').slice(0, 50)) : '',
 		]),
-		['ID', 'ИМЯ', 'СТАТУС', 'ПРОСТРАНСТВО', 'ПОСЛЕДНЕЕ'],
+		['ID', 'ИМЯ', 'РОЛЬ', 'СТАТУС', 'ПРОСТРАНСТВО', 'ПОСЛЕДНЕЕ'],
+	)
+	return hint ? `${rows}\n${hint}` : rows
+}
+
+export function rolesTable(roles: readonly RoleView[]): string {
+	if (!roles.length) return dim('ролей нет. Добавьте: nessy-orch role add <имя> --instructions "…"')
+	return table(
+		roles.map(r => [bold(r.id), r.name, dim(r.description.slice(0, 60)), dim(`${r.instructions.length} симв.`)]),
+		['ID', 'ИМЯ', 'ОПИСАНИЕ', 'ИНСТРУКЦИИ'],
 	)
 }
 

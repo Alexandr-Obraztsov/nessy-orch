@@ -10,7 +10,6 @@ export interface AgentHost {
 	labelOf(id: string): string
 	preambleFor(agent: AgentIdentity): string
 	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): void
-	onUndeliverable(agent: AgentIdentity, msg: Message, reason: string): void
 	saveSoon(): void
 }
 
@@ -20,6 +19,8 @@ export interface AgentDeps {
 	store: StorePort
 	clock: Clock
 	autoApprove: boolean
+	/** ожидание подтверждения отмены от nessy (мс) */
+	cancelGraceMs: number
 }
 
 export interface AgentInit {
@@ -27,6 +28,7 @@ export interface AgentInit {
 	name: string
 	space: string
 	parent: string
+	role?: string | null
 	status?: AgentStatus
 }
 
@@ -49,6 +51,10 @@ export interface CurrentTurn {
 	startedAt: string
 	/** ошибка хода из nessy (`nessy/error`), применяется на turn_complete */
 	error: string | null
+	/** отмена запрошена (cancel / прерывание новым сообщением), ждём подтверждения nessy */
+	cancelRequested: boolean
+	/** промпт принят nessy (отмену можно отправлять) */
+	sent: boolean
 }
 
 export interface PendingPermission {

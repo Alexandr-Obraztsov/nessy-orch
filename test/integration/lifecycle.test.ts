@@ -1,7 +1,7 @@
 /** Жизненный цикл хода: инструменты, ошибки, прерывание, разрешения, падение сессии, удаление. */
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
-import type { AgentEvent, AgentView, ApiError, Message, SendResponse, SpawnResponse, ToolEvent } from '../../shared/types'
+import type { AgentEvent, AgentView, ApiError, Message, SendResponse, SpawnResponse, ToolEvent, UserEvent } from '../../shared/types'
 import { startHarness } from '../support/harness'
 import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
@@ -55,16 +55,21 @@ describe('ход агента (автоподтверждение)', () => {
 		const ev = h.orch.agentHistory('worker')
 		assert.ok(ev.some(e => e.kind === 'system' && e.level === 'error' && /Rate limit exceeded/.test(e.text)))
 		assert.ok(!ev.some(e => e.kind === 'text' && /Rate limit/.test(e.text)), 'ошибка не попала в текст')
-		assert.equal(h.orch.getAgent('worker').status, 'idle')
+		const failed = h.orch.getAgent('worker')
+		assert.equal(failed.status, 'error')
+		assert.equal(failed.error, 'Rate limit exceeded')
+		assert.equal(failed.archived, false, 'ход с ошибкой — агент остаётся на виду')
 		const ok = await h.api<SendResponse>('POST', '/agents/worker/send', { text: 'снова', wait: true, waitTimeoutSec: 10 })
 		assert.equal(ok.body.reply?.text, 'ответ: снова')
 		assert.equal(h.orch.getAgent('worker').error, null)
+		assert.equal(h.orch.getAgent('worker').status, 'idle')
+		assert.equal(h.orch.getAgent('worker').archived, true, 'успешный ход — в архив')
 	})
 
 	it('cancel прерывает ход: «ход прерван», очередь очищена, агент idle', T, async () => {
 		await h.api('POST', '/agents/worker/send', { text: '#slow' })
 		await until(() => h.orch.getAgent('worker').status === 'working', 4000, 'working')
-		await h.api('POST', '/agents/worker/send', { text: 'в очереди' })
+		await h.api('POST', '/agents/worker/send', { text: 'в очереди', interrupt: false })
 		const c = await h.api<AgentView>('POST', '/agents/worker/cancel', {})
 		assert.equal(c.status, 200)
 		assert.equal(c.body.queued, 0)
@@ -73,19 +78,31 @@ describe('ход агента (автоподтверждение)', () => {
 		assert.ok(ev.some(e => e.kind === 'system' && e.text === 'ход прерван'))
 		await new Promise(r => setTimeout(r, 300))
 		assert.ok(!ev.some(e => e.kind === 'user' && e.text === 'в очереди'), 'очередь не доставлена')
-		assert.equal(msgs().filter(m => m.kind === 'reply' && m.text === '(ход прерван)').length + msgs().filter(m => m.kind === 'reply' && m.text === 'медленный ответ').length, 1)
+		assert.equal(msgs().filter(m => m.kind === 'reply' && /\(ход прерван\)$/.test(m.text)).length, 1)
+		assert.equal(h.orch.getAgent('worker').archived, false, 'прерванный ход не уводит в архив')
 	})
 
-	it('падение сессии nessy → dead; отправитель получает failed; следующие сообщения не доставляются', T, async () => {
+	it('падение сессии nessy → error; следующее сообщение создаёт новую сессию', T, async () => {
 		await h.api<SpawnResponse>('POST', '/agents', { space: 'main', name: 'doomed' })
+		await until(() => h.orch.resolveAgent('doomed').sessionId !== null, 8000, 'сессия создана')
+		const sessionBefore = h.orch.resolveAgent('doomed').sessionId
 		const r = await h.api<SendResponse>('POST', '/agents/doomed/send', { text: '#fail', wait: true, waitTimeoutSec: 8 })
 		assert.ok(r.body.reply?.failed, 'ответ помечен ошибкой')
-		assert.equal(h.orch.getAgent('doomed').status, 'dead')
-		assert.ok(h.orch.agentHistory('doomed').some(e => e.kind === 'system' && e.level === 'error' && /агент остановлен/.test(e.text)))
-		const again = await h.api<SendResponse>('POST', '/agents/doomed/send', { text: 'ещё', wait: true, waitTimeoutSec: 5 })
+		const dead = h.orch.getAgent('doomed')
+		assert.equal(dead.status, 'error')
+		assert.ok(dead.error)
+		assert.equal(dead.archived, false)
+		assert.ok(h.orch.agentHistory('doomed').some(e => e.kind === 'system' && e.level === 'error' && /сессия nessy завершилась/.test(e.text)))
+		const again = await h.api<SendResponse>('POST', '/agents/doomed/send', { text: 'ещё', wait: true, waitTimeoutSec: 8 })
 		assert.equal(again.status, 200)
-		assert.equal(again.body.reply?.failed, 'агент остановлен')
-		assert.ok(msgs().some(m => m.kind === 'event' && /не доставлено/.test(m.text)))
+		assert.equal(again.body.reply?.text, 'ответ: ещё')
+		assert.equal(again.body.reply.failed, undefined)
+		assert.notEqual(h.orch.resolveAgent('doomed').sessionId, sessionBefore, 'новая сессия')
+		assert.ok(h.orch.agentHistory('doomed').some(e => e.kind === 'system' && e.text === 'сессия nessy пересоздана, контекст сброшен'))
+		assert.equal(h.orch.getAgent('doomed').status, 'idle')
+		assert.equal(h.orch.getAgent('doomed').error, null)
+		const first = h.orch.agentHistory('doomed').filter((e): e is UserEvent => e.kind === 'user').at(-1)
+		assert.equal(first?.text, 'ещё')
 	})
 
 	it('удаление агента: история архивируется, ссылки по имени больше не работают', T, async () => {

@@ -8,6 +8,8 @@ import type {
 	GraphView,
 	InboxResponse,
 	Message,
+	RoleRequest,
+	RoleView,
 	SendRequest,
 	SendResponse,
 	SpaceRequest,
@@ -31,9 +33,11 @@ import { Registry } from './registry'
 import { AgentsService } from './services/agents.service'
 import type { ServiceContext } from './services/context.types'
 import { MessagingService } from './services/messaging.service'
+import { RolesService } from './services/roles.service'
 import { SpacesService } from './services/spaces.service'
 
 const SNAPSHOT_MESSAGES = 300
+const DEFAULT_CANCEL_GRACE_MS = 3000
 
 export class Orchestrator implements AgentHost {
 	readonly hub = new Hub()
@@ -45,6 +49,7 @@ export class Orchestrator implements AgentHost {
 	private readonly spacesSvc: SpacesService
 	private readonly messaging: MessagingService
 	private readonly agentsSvc: AgentsService
+	private readonly rolesSvc: RolesService
 	private readonly ctx: ServiceContext
 	private shuttingDown = false
 
@@ -62,13 +67,21 @@ export class Orchestrator implements AgentHost {
 			settings: deps.settings,
 			clock,
 			ids,
-			agentDeps: { host: this, hub: this.hub, store: deps.store, clock, autoApprove: deps.settings.autoApprove },
+			agentDeps: {
+				host: this,
+				hub: this.hub,
+				store: deps.store,
+				clock,
+				autoApprove: deps.settings.autoApprove,
+				cancelGraceMs: deps.settings.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS,
+			},
 			saveSoon: () => this.saveSoon(),
 			isShuttingDown: () => this.shuttingDown,
 		}
 		this.spacesSvc = new SpacesService(this.ctx, deps.spaceFactory)
 		this.messaging = new MessagingService(this.ctx)
-		this.agentsSvc = new AgentsService(this.ctx, this.spacesSvc, this.messaging)
+		this.rolesSvc = new RolesService(this.ctx)
+		this.agentsSvc = new AgentsService(this.ctx, this.spacesSvc, this.messaging, this.rolesSvc)
 	}
 
 	get settings(): OrchestratorDeps['settings'] {
@@ -78,6 +91,7 @@ export class Orchestrator implements AgentHost {
 	// ---------- загрузка / сохранение ----------
 	load(): void {
 		const st = this.store.loadState()
+		this.rolesSvc.load()
 		this.feed.load(st.msgSeq, st.inboxCursor)
 		for (const s of st.spaces) this.registry.spaces.set(s.name, this.spacesSvc.make(s))
 		for (const p of st.agents) {
@@ -128,9 +142,6 @@ export class Orchestrator implements AgentHost {
 		this.messaging.onTurnDone(agent, msg, text, outcome)
 	}
 
-	onUndeliverable(agent: AgentIdentity, msg: Message, reason: string): void {
-		this.messaging.onUndeliverable(agent, msg, reason)
-	}
 
 	// ---------- пространства ----------
 	addSpace(req: SpaceRequest): SpaceView {
@@ -162,12 +173,41 @@ export class Orchestrator implements AgentHost {
 		return this.agentsSvc.cancel(ref)
 	}
 
+	archiveAgent(ref: string): AgentView {
+		return this.agentsSvc.archive(ref)
+	}
+
+	restoreAgent(ref: string): AgentView {
+		return this.agentsSvc.restore(ref)
+	}
+
 	resolvePermission(ref: string, requestId: string, approve: boolean): Promise<boolean> {
 		return this.agentsSvc.resolvePermission(ref, requestId, approve)
 	}
 
 	agentHistory(ref: string, limit = 400, includeLive = true): AgentEvent[] {
 		return this.agentsSvc.history(ref, limit, includeLive)
+	}
+
+	// ---------- роли ----------
+	listRoles(): RoleView[] {
+		return this.rolesSvc.list()
+	}
+
+	getRole(ref: string): RoleView {
+		return this.rolesSvc.resolve(ref)
+	}
+
+	createRole(req: RoleRequest): RoleView {
+		return this.rolesSvc.create(req)
+	}
+
+	updateRole(ref: string, req: RoleRequest): RoleView {
+		return this.rolesSvc.update(ref, req)
+	}
+
+	removeRole(ref: string): void {
+		this.rolesSvc.remove(ref)
 	}
 
 	// ---------- сообщения ----------
@@ -194,6 +234,7 @@ export class Orchestrator implements AgentHost {
 			rev: this.hub.rev,
 			spaces: [...this.registry.spaces.values()].map(s => s.toJSON()),
 			agents: [...this.registry.agents.values()].map(a => a.toJSON()),
+			roles: this.rolesSvc.list(),
 		}
 	}
 
@@ -213,6 +254,7 @@ export class Orchestrator implements AgentHost {
 			spaces: this.registry.spaces.size,
 			agents: agents.length,
 			working: agents.filter(a => a.status === 'working').length,
+			roles: this.rolesSvc.count,
 		}
 	}
 }

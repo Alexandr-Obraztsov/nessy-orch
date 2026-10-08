@@ -1,11 +1,13 @@
-/** Жизненный цикл агентов: создание, удаление, прерывание, разрешения, история чата. */
+/** Жизненный цикл агентов: создание, удаление, прерывание, архив, разрешения, история чата. */
 import type { AgentEvent, AgentView, Message, SendResponse, SpawnRequest, SpawnResponse } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
+import { uniqueName } from '../../domain/naming'
 import { buildPreamble } from '../../domain/preamble'
-import type { AgentIdentity } from '../../domain/types'
+import type { AgentIdentity, PeerInfo } from '../../domain/types'
 import { Agent } from '../agent/agent'
 import type { ServiceContext } from './context.types'
 import type { MessagingService } from './messaging.service'
+import type { RolesService } from './roles.service'
 import type { SpacesService } from './spaces.service'
 
 export class AgentsService {
@@ -13,12 +15,16 @@ export class AgentsService {
 		private readonly ctx: ServiceContext,
 		private readonly spaces: SpacesService,
 		private readonly messaging: MessagingService,
+		private readonly roles: RolesService,
 	) {}
 
-	/** Вводная для нового контекста агента. */
+	/** Вводная для нового контекста агента: соседи (архивные помечены) и инструкции роли. */
 	preambleFor(agent: AgentIdentity): string {
-		const peers = [...this.ctx.registry.agents.values()].filter(a => a.id !== agent.id && a.status !== 'dead')
-		return buildPreamble(agent, peers, this.ctx.settings.cliPath)
+		const peers: PeerInfo[] = [...this.ctx.registry.agents.values()]
+			.filter(a => a.id !== agent.id)
+			.map(a => ({ id: a.id, name: a.name, space: a.space, archived: a.archived, roleName: this.roles.find(a.role)?.name ?? null }))
+		const role = this.roles.find(this.ctx.registry.agents.get(agent.id)?.role ?? null)
+		return buildPreamble(agent, peers, this.ctx.settings.cliPath, role && { name: role.name, instructions: role.instructions })
 	}
 
 	async spawn(req: SpawnRequest): Promise<SpawnResponse> {
@@ -26,21 +32,24 @@ export class AgentsService {
 		const space = this.spaces.resolve(req.space)
 		const from = registry.resolveSender(req.from)
 		const parent = req.parent ?? from
+		const role = req.role?.trim() ? this.roles.resolve(req.role) : null
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)
 		while (registry.agents.has(id))
-		const name = req.name?.trim() || id
+		const explicit = req.name?.trim()
+		// с ролью и без имени: имя = id роли (reviewer, reviewer-2, …)
+		const name = explicit || (role ? uniqueName(role.id, n => registry.isNameTaken(n)) : id)
 		if (registry.isNameTaken(name)) throw new AppError(409, 'name_taken', `имя «${name}» уже занято`)
 
-		const agent = new Agent({ id, name, space: space.name, parent }, this.ctx.agentDeps)
+		const agent = new Agent({ id, name, space: space.name, parent, role: role?.id ?? null }, this.ctx.agentDeps)
 		registry.agents.set(id, agent)
-		agent.addSystem(`агент создан в пространстве «${space.name}» (${space.path})`)
+		agent.addSystem(`агент создан в пространстве «${space.name}» (${space.path})${role ? `, роль «${role.name}»` : ''}`)
 		agent.publishNode()
 		this.messaging.postEvent(`${registry.labelOf(from)} создал агента ${registry.labelOf(id)}`, id)
 
 		let res: SendResponse | undefined
 		if (req.prompt?.trim()) {
-			res = await this.messaging.send(id, { from, text: req.prompt, wait: req.wait, waitTimeoutSec: req.waitTimeoutSec })
+			res = await this.messaging.send(id, { from, text: req.prompt, interrupt: false, wait: req.wait, waitTimeoutSec: req.waitTimeoutSec })
 		} else {
 			void agent.ensureAttached().catch(() => undefined)
 		}
@@ -66,6 +75,22 @@ export class AgentsService {
 	async cancel(ref: string): Promise<AgentView> {
 		const agent = this.ctx.registry.resolveAgent(ref)
 		await agent.cancel()
+		return agent.toJSON()
+	}
+
+	/** Убрать в архив вручную: только пока агент не работает и очередь пуста, иначе 409 busy. */
+	archive(ref: string): AgentView {
+		const agent = this.ctx.registry.resolveAgent(ref)
+		if (agent.isBusy || agent.queue.length)
+			throw new AppError(409, 'busy', `агент ${this.ctx.registry.labelOf(agent.id)} работает — прервите ход (cancel) или дождитесь ответа`)
+		agent.setArchived(true)
+		return agent.toJSON()
+	}
+
+	/** Вернуть из архива без сообщения. */
+	restore(ref: string): AgentView {
+		const agent = this.ctx.registry.resolveAgent(ref)
+		agent.setArchived(false)
 		return agent.toJSON()
 	}
 

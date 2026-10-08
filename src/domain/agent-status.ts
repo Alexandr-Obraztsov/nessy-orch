@@ -1,33 +1,43 @@
 /**
  * Машина состояний агента (чистые функции):
  *
- *   starting → idle ⇄ working → (error | dead);  sleeping — восстановлен из state.json, ещё не подключён.
+ *   starting → idle ⇄ working → (idle | error)
+ *
+ * Состояний сна и смерти нет: восстановленный из state.json агент — idle (сессия nessy поднимается лениво,
+ * при первом сообщении), упавшая сессия — error (следующее сообщение создаёт новую).
+ * Архив (archived) — отдельный флаг: успешно закончив работу, агент скрывается из рабочего списка.
  */
 import type { AgentStatus } from '../../shared/types'
+import type { TurnOutcome } from './types'
 
-const STATUSES: readonly AgentStatus[] = ['starting', 'idle', 'working', 'error', 'dead', 'sleeping']
+const STATUSES: readonly AgentStatus[] = ['starting', 'working', 'idle', 'error']
 
 export function isAgentStatus(s: string): s is AgentStatus {
 	return (STATUSES as readonly string[]).includes(s)
 }
 
-/** Статус после восстановления из состояния: dead остаётся dead, остальные «спят» до первого обращения. */
-export function restoredStatus(persisted: string): AgentStatus {
-	return persisted === 'dead' ? 'dead' : 'sleeping'
+/** Статус после восстановления из состояния: всегда idle (подключение — при первом сообщении). */
+export function restoredStatus(): AgentStatus {
+	return 'idle'
 }
 
 /** Статус после успешного подключения к сессии nessy. */
 export function statusAfterAttach(current: AgentStatus): AgentStatus {
-	return current === 'starting' || current === 'sleeping' || current === 'error' ? 'idle' : current
+	return current === 'starting' || current === 'error' ? 'idle' : current
 }
 
-/** Статус после завершения хода: в очереди есть сообщения — работаем дальше. */
-export function statusAfterTurn(current: AgentStatus, queued: number): AgentStatus {
-	if (current === 'dead') return 'dead'
-	return queued > 0 ? 'working' : 'idle'
+/** Ход завершился успешно (не ошибкой и не прерыванием). */
+export function turnSucceeded(outcome: TurnOutcome): boolean {
+	return !outcome.error && outcome.stopReason !== 'cancelled'
 }
 
-/** Можно ли доставлять сообщения агенту. */
-export function canReceive(status: AgentStatus): boolean {
-	return status !== 'dead'
+/** Статус после завершения хода: в очереди есть сообщения — работаем дальше; ошибка — error. */
+export function statusAfterTurn(outcome: TurnOutcome, queued: number): AgentStatus {
+	if (queued > 0) return 'working'
+	return outcome.error ? 'error' : 'idle'
+}
+
+/** Уходит ли агент в архив после хода: задача выполнена и больше ничего не ждёт. */
+export function archiveAfterTurn(outcome: TurnOutcome, queued: number): boolean {
+	return turnSucceeded(outcome) && queued === 0
 }

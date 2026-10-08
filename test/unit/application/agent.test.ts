@@ -14,11 +14,11 @@ interface Ctx {
 	hub: HubEvent[]
 }
 
-function setup(autoApprove = true): Ctx {
+function setup(autoApprove = true, cancelGraceMs = 3000): Ctx {
 	const store = new MemoryStore()
 	const gw = new FakeGateway()
 	const orch = new Orchestrator({
-		settings: { home: os.tmpdir(), autoApprove, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch' },
+		settings: { home: os.tmpdir(), autoApprove, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', cancelGraceMs },
 		store,
 		spaceFactory: init => new FakeSpace(init.name, init.path, gw),
 	})
@@ -102,7 +102,8 @@ describe('агент: события сессии', () => {
 		const r = replies(ctx)[0]
 		assert.equal(r?.failed, 'Rate limit exceeded')
 		assert.equal(ctx.orch.getAgent(id).error, 'Rate limit exceeded')
-		assert.equal(ctx.orch.getAgent(id).status, 'idle')
+		assert.equal(ctx.orch.getAgent(id).status, 'error')
+		assert.equal(ctx.orch.getAgent(id).archived, false, 'ошибка — агент остаётся на виду')
 	})
 
 	it('prompt_cancelled → «ход прерван», открытые инструменты failed, повторный turn_complete игнорируется', async () => {
@@ -130,12 +131,14 @@ describe('агент: события сессии', () => {
 		assert.equal(history(ctx, id).length, before)
 	})
 
-	it('meta → displayName; died → dead и ответ с ошибкой', async () => {
+	it('meta → displayName; died → error и ответ с ошибкой', async () => {
 		const id = await startTurn(ctx)
 		ctx.gw.emit({ kind: 'meta', displayName: 'Обзор' }, { kind: 'died', reason: 'процесс умер' })
 		const a = ctx.orch.getAgent(id)
 		assert.equal(a.displayName, 'Обзор')
-		assert.equal(a.status, 'dead')
+		assert.equal(a.status, 'error')
+		assert.equal(a.error, 'процесс умер')
+		assert.equal(a.archived, false)
 		assert.equal(replies(ctx)[0]?.failed, 'процесс умер')
 	})
 })
@@ -167,5 +170,85 @@ describe('агент: разрешения', () => {
 		assert.deepEqual(ctx.gw.votes[0], { requestId: 'r1', optionId: 'cancel' })
 		assert.deepEqual(ctx.orch.getAgent(id).pendingPermissions, [])
 		assert.equal(await ctx.orch.resolvePermission(id, 'r1', true), false)
+	})
+})
+
+const users = (ctx: Ctx, id: string): string[] => history(ctx, id).flatMap(e => (e.kind === 'user' ? [e.text] : []))
+
+describe('агент: архив и прерывание', () => {
+	it('успешный ход → архив; сообщение возвращает из архива в той же сессии', async () => {
+		const ctx = setup()
+		const id = await startTurn(ctx)
+		const session = ctx.orch.resolveAgent(id).sessionId
+		ctx.gw.emit({ kind: 'text', text: 'готово', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
+		assert.equal(ctx.orch.getAgent(id).archived, true)
+		assert.equal(ctx.orch.getAgent(id).status, 'idle')
+		await ctx.orch.send(id, { text: 'ещё' })
+		assert.equal(ctx.orch.getAgent(id).archived, false)
+		await until(() => ctx.gw.prompts.length === 2, 1000, 'второй промпт')
+		assert.equal(ctx.gw.prompts[1], 'ещё', 'контекст прежний — без повторной вводной')
+		assert.equal(ctx.orch.resolveAgent(id).sessionId, session)
+	})
+
+	it('interrupt: следующий промпт уходит только после подтверждения отмены, срочное — первым', async () => {
+		const ctx = setup()
+		const id = await startTurn(ctx)
+		await ctx.orch.send(id, { text: 'в очередь', interrupt: false })
+		await ctx.orch.send(id, { text: 'срочно-1' })
+		await ctx.orch.send(id, { text: 'срочно-2' })
+		assert.equal(ctx.gw.cancels, 1, 'отмена отправлена один раз')
+		assert.equal(ctx.gw.prompts.length, 1, 'до подтверждения новый промпт не отправлен')
+		ctx.gw.emit({ kind: 'cancelled', promptId: 'p-1' })
+		await until(() => ctx.gw.prompts.length === 2, 1000, 'промпт после отмены')
+		assert.equal(replies(ctx)[0]?.text, '(ход прерван)')
+		// поздний turn_complete прерванного промпта не завершает новый ход
+		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'cancelled', promptId: 'p-1' })
+		assert.equal(ctx.orch.getAgent(id).status, 'working')
+		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-2' })
+		await until(() => ctx.gw.prompts.length === 3, 1000, 'третий промпт')
+		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-3' })
+		await until(() => ctx.gw.prompts.length === 4, 1000, 'четвёртый промпт')
+		assert.deepEqual(users(ctx, id), ['задача', 'срочно-1', 'срочно-2', 'в очередь'])
+	})
+
+	it('nessy не подтвердил отмену: по таймауту ход закрывается, события старого промпта игнорируются', async () => {
+		const ctx = setup(true, 40)
+		const id = await startTurn(ctx)
+		let release = (): void => undefined
+		ctx.gw.promptGate = new Promise<void>(r => (release = r))
+		await ctx.orch.send(id, { text: 'срочно' })
+		await until(() => ctx.gw.prompts.length === 2, 1000, 'промпт после таймаута')
+		assert.equal(replies(ctx)[0]?.text, '(ход прерван)')
+		assert.ok(history(ctx, id).some(e => e.kind === 'system' && /не подтвердил отмену/.test(e.text)))
+		// пока nessy не принял новый промпт, хвост старого не попадает в новый ход
+		ctx.gw.emit({ kind: 'text', text: 'хвост старого', messageId: 'old' }, { kind: 'turn_complete', stopReason: 'cancelled', promptId: 'p-1' })
+		release()
+		ctx.gw.promptGate = null
+		await new Promise(r => setTimeout(r, 5))
+		ctx.gw.emit({ kind: 'text', text: 'новый ответ', messageId: 'new' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-2' })
+		assert.equal(replies(ctx)[1]?.text, 'новый ответ')
+		assert.ok(!history(ctx, id).some(e => e.kind === 'text' && /хвост старого/.test(e.text)))
+	})
+
+	it('прерывание, пока промпт ещё летит в nessy: отмена уходит после его принятия', async () => {
+		const ctx = setup()
+		let release = (): void => undefined
+		ctx.gw.promptGate = new Promise<void>(r => (release = r))
+		const r = await ctx.orch.spawn({ space: 'main', name: 'alpha', prompt: 'задача' })
+		await until(() => ctx.gw.prompts.length === 1, 1000, 'промпт отправлен')
+		await ctx.orch.send(r.agent.id, { text: 'срочно' })
+		assert.equal(ctx.gw.cancels, 0)
+		ctx.gw.promptGate = null
+		release()
+		await until(() => ctx.gw.cancels === 1, 1000, 'отмена после принятия промпта')
+	})
+
+	it('сообщение агента не прерывает ход (interrupt по умолчанию только у you)', async () => {
+		const ctx = setup()
+		const id = await startTurn(ctx)
+		const other = await ctx.orch.spawn({ space: 'main', name: 'beta' })
+		await ctx.orch.send(id, { from: other.agent.id, text: 'вопрос' })
+		assert.equal(ctx.gw.cancels, 0)
+		assert.equal(ctx.orch.getAgent(id).queued, 1)
 	})
 })

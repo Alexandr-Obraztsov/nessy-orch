@@ -72,10 +72,10 @@ describe('сообщения и маршрутизация', () => {
 		assert.ok(Date.now() - t0 >= 900)
 	})
 
-	it('очередь: пока агент работает, сообщения ждут и обрабатываются по порядку', T, async () => {
+	it('очередь (interrupt:false): пока агент работает, сообщения ждут и обрабатываются по порядку', T, async () => {
 		await h.api('POST', '/agents/beta/send', { text: '#slow' })
 		await until(() => h.orch.getAgent('beta').status === 'working', 4000, 'beta working')
-		for (const t of ['один', 'два', 'три']) await h.api('POST', '/agents/beta/send', { text: t })
+		for (const t of ['один', 'два', 'три']) await h.api('POST', '/agents/beta/send', { text: t, interrupt: false })
 		assert.equal(h.orch.getAgent('beta').queued, 3)
 		const isOurs = (m: Message): boolean => m.kind === 'reply' && m.from === beta && /^(ответ: (один|два|три)|медленный ответ)$/.test(m.text)
 		await until(() => msgs().filter(isOurs).length === 4, 10000, 'четыре ответа')

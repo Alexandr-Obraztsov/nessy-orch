@@ -1,5 +1,5 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
-import type { SendRequest, SpaceRequest, SpawnRequest } from '../../../shared/types'
+import type { RoleRequest, SendRequest, SpaceRequest, SpawnRequest } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { isObject } from '../../lib/json'
 
@@ -16,6 +16,7 @@ export function parseSpawnRequest(b: unknown): SpawnRequest {
 	return {
 		space: optStr(b['space']),
 		name: optStr(b['name']),
+		role: optStr(b['role']),
 		prompt: optStr(b['prompt']),
 		parent: optStr(b['parent']),
 		from: optStr(b['from']),
@@ -29,9 +30,23 @@ export function parseSendRequest(b: unknown): SendRequest {
 	return {
 		text: b['text'],
 		from: optStr(b['from']),
+		interrupt: typeof b['interrupt'] === 'boolean' ? b['interrupt'] : undefined,
 		wait: b['wait'] === true,
 		waitTimeoutSec: optNum(b['waitTimeoutSec']),
 	}
+}
+
+/** Тело роли: name и instructions — строки (длины и формат проверяет домен). */
+export function parseRoleRequest(b: unknown): RoleRequest {
+	if (!isObject(b) || typeof b['name'] !== 'string' || typeof b['instructions'] !== 'string')
+		throw new AppError(400, 'bad_request', 'нужны поля name и instructions (строки)')
+	const color = b['color']
+	if (color !== undefined && typeof color !== 'number') throw new AppError(400, 'bad_request', 'color — число 0..360')
+	const id = b['id']
+	if (id !== undefined && typeof id !== 'string') throw new AppError(400, 'bad_request', 'id — строка')
+	const description = b['description']
+	if (description !== undefined && typeof description !== 'string') throw new AppError(400, 'bad_request', 'description — строка')
+	return { name: b['name'], instructions: b['instructions'], description, color, id }
 }
 
 /** Решение по разрешению: всё, кроме явного `approve: false`, — разрешить. */

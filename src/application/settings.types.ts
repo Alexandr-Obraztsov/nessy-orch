@@ -9,4 +9,6 @@ export interface OrchSettings {
 	rateLimitPerMinute: number
 	/** путь к CLI для вводной агентов */
 	cliPath: string
+	/** сколько ждать подтверждения отмены хода от nessy, прежде чем продолжить без него (мс, по умолчанию 3000) */
+	cancelGraceMs?: number
 }

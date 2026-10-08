@@ -13,6 +13,10 @@ export interface PersistedAgent {
 	name: string
 	space: string
 	parent: string
+	/** id роли; нет в состояниях старых версий */
+	role?: string | null
+	/** в архиве; нет в состояниях старых версий */
+	archived?: boolean
 	createdAt: string
 	sessionId: string | null
 	displayName: string | null

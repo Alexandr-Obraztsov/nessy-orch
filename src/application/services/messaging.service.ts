@@ -23,8 +23,11 @@ export class MessagingService {
 		return this.ctx.feed.append({ from: SYSTEM, to: about ?? SYSTEM, kind: 'event', text })
 	}
 
-	/** Записать сообщение в ленту и доставить адресату. Единая точка входа для всех маршрутов. */
-	post(draft: MessageDraft): Message {
+	/**
+	 * Записать сообщение в ленту и доставить адресату. Единая точка входа для всех маршрутов.
+	 * interrupt — прервать текущий ход адресата и доставить сообщение вне очереди.
+	 */
+	post(draft: MessageDraft, interrupt = false): Message {
 		if (draft.to === YOU) return this.ctx.feed.append(draft)
 		const target = this.ctx.registry.agents.get(draft.to)
 		if (!target) throw new AppError(404, 'no_agent', `агент «${draft.to}» не найден`)
@@ -33,11 +36,14 @@ export class MessagingService {
 			this.limiter.check(draft.from, draft.to)
 		}
 		const msg = this.ctx.feed.append(draft)
-		if (shouldDeliver(draft)) target.deliver(msg)
+		if (shouldDeliver(draft)) target.deliver(msg, interrupt)
 		return msg
 	}
 
-	/** Отправить сообщение агенту (или `you`) от `you` или от другого агента; опционально дождаться ответа. */
+	/**
+	 * Отправить сообщение агенту (или `you`) от `you` или от другого агента; опционально дождаться ответа.
+	 * Сообщение от you по умолчанию прерывает текущий ход адресата, от агента — встаёт в очередь.
+	 */
 	async send(ref: string, req: SendRequest): Promise<SendResponse> {
 		const { registry } = this.ctx
 		const text = req.text.trim()
@@ -51,7 +57,8 @@ export class MessagingService {
 		const sender = from === YOU ? null : (registry.agents.get(from) ?? null)
 		const hops = nextHops(sender?.currentMessage ?? null, sender !== null)
 
-		const message = this.post({ from, to, kind: 'msg', text, hops, wait })
+		const interrupt = req.interrupt ?? from === YOU
+		const message = this.post({ from, to, kind: 'msg', text, hops, wait }, interrupt)
 		if (!wait) return { message }
 		return this.waitReply(message, from, to, req.waitTimeoutSec)
 	}
@@ -77,11 +84,5 @@ export class MessagingService {
 		const reply = this.ctx.feed.append(replyDraft(agent.id, msg, text, outcome))
 		const back = this.ctx.registry.agents.get(msg.from)
 		if (back && !msg.wait) back.deliver(reply)
-	}
-
-	onUndeliverable(agent: AgentIdentity, msg: Message, reason: string): void {
-		const { registry } = this.ctx
-		this.postEvent(`сообщение ${registry.labelOf(msg.from)} → ${registry.labelOf(agent.id)} не доставлено: ${reason}`, agent.id)
-		this.onTurnDone(agent, msg, '', { error: reason })
 	}
 }

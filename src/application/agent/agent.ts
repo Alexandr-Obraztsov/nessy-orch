@@ -4,9 +4,15 @@
  *
  * Сообщения доставляются через очередь: пока агент работает, новые ждут,
  * поэтому порядок и авторство (кто что кому отправил) сохраняются.
+ * Срочное сообщение (interrupt) встаёт в начало очереди и прерывает текущий ход: следующий промпт уходит
+ * только после подтверждения отмены от nessy (или по истечении cancelGraceMs — тогда поздние события
+ * прерванного промпта игнорируются).
+ *
+ * Успешно закончив ход с пустой очередью, агент уходит в архив (archived): сессия и подписка сохраняются,
+ * любое новое сообщение возвращает его в работу с прежним контекстом.
  */
 import type { AgentStatus, AgentView, Message, ToolBrief } from '../../../shared/types'
-import { canReceive, restoredStatus, statusAfterAttach, statusAfterTurn } from '../../domain/agent-status'
+import { archiveAfterTurn, restoredStatus, statusAfterAttach, statusAfterTurn } from '../../domain/agent-status'
 import { pickPermissionOption } from '../../domain/permission'
 import { framePrompt } from '../../domain/routing'
 import type { AgentIdentity, TurnOutcome } from '../../domain/types'
@@ -22,6 +28,8 @@ export class Agent implements AgentIdentity {
 	readonly name: string
 	readonly space: string
 	readonly parent: string
+	/** id роли (роль могли удалить — id остаётся) */
+	readonly role: string | null
 	createdAt: string
 	sessionId: string | null = null
 	displayName: string | null = null
@@ -32,6 +40,8 @@ export class Agent implements AgentIdentity {
 	queue: Message[] = []
 	lastActivityAt: string
 	lastReply = ''
+	/** скрыт из рабочего списка: задача выполнена, сессия сохранена */
+	archived = false
 
 	private readonly journal: AgentJournal
 	private current: CurrentTurn | null = null
@@ -40,6 +50,15 @@ export class Agent implements AgentIdentity {
 	private sub: SessionSubscription | null = null
 	private attaching: Promise<void> | null = null
 	private pumping = false
+	/** при следующем подключении сначала попробовать поднять прежнюю сессию (/load) */
+	private resume = false
+	/** сколько сообщений в начале очереди — срочные (доставляются раньше остальных, по порядку) */
+	private urgent = 0
+	private cancelTimer: NodeJS.Timeout | null = null
+	/** отмена не подтверждена — события старого промпта игнорируем до ответа на следующий */
+	private staleEvents = false
+	/** promptId завершённых ходов (поздние turn_complete/cancelled по ним игнорируются) */
+	private readonly donePrompts: string[] = []
 
 	constructor(
 		init: AgentInit,
@@ -50,6 +69,7 @@ export class Agent implements AgentIdentity {
 		this.name = init.name
 		this.space = init.space
 		this.parent = init.parent
+		this.role = init.role ?? null
 		this.status = init.status ?? 'starting'
 		this.createdAt = this.isoNow()
 		this.lastActivityAt = this.createdAt
@@ -59,7 +79,7 @@ export class Agent implements AgentIdentity {
 	static restore(p: PersistedAgent, deps: AgentDeps): Agent {
 		let evSeq = p.evSeq
 		for (const e of deps.store.readEvents(p.id, 50)) if (e.seq > evSeq) evSeq = e.seq
-		const a = new Agent({ id: p.id, name: p.name, space: p.space, parent: p.parent, status: restoredStatus(p.status) }, deps, evSeq)
+		const a = new Agent({ id: p.id, name: p.name, space: p.space, parent: p.parent, role: p.role ?? null, status: restoredStatus() }, deps, evSeq)
 		a.createdAt = p.createdAt
 		a.sessionId = p.sessionId
 		a.displayName = p.displayName
@@ -68,7 +88,8 @@ export class Agent implements AgentIdentity {
 		a.queue = p.queue
 		a.lastActivityAt = p.lastActivityAt
 		a.lastReply = p.lastReply
-		a.error = p.error
+		a.archived = p.archived === true
+		a.resume = p.sessionId !== null // сессия поднимется лениво, при первом сообщении
 		return a
 	}
 
@@ -79,7 +100,9 @@ export class Agent implements AgentIdentity {
 			name: this.name,
 			space: this.space,
 			parent: this.parent,
+			role: this.role,
 			status: this.status,
+			archived: this.archived,
 			error: this.error,
 			displayName: this.displayName,
 			createdAt: this.createdAt,
@@ -98,6 +121,8 @@ export class Agent implements AgentIdentity {
 			name: this.name,
 			space: this.space,
 			parent: this.parent,
+			role: this.role,
+			archived: this.archived,
 			createdAt: this.createdAt,
 			sessionId: this.sessionId,
 			displayName: this.displayName,
@@ -126,11 +151,11 @@ export class Agent implements AgentIdentity {
 		return this.journal.liveRun()
 	}
 
-	/** nessy serve пространства упал: отцепиться, завершить ход с ошибкой, уснуть до следующего обращения. */
+	/** nessy serve пространства упал: отцепиться и завершить ход с ошибкой; сессия поднимется при следующем сообщении. */
 	onSpaceDown(reason: string): void {
 		this.detach()
+		this.resume = true
 		this.finishTurn({ error: reason })
-		if (this.status !== 'dead') this.setStatus('sleeping')
 	}
 
 	private isoNow(): string {
@@ -178,16 +203,21 @@ export class Agent implements AgentIdentity {
 		const space = this.deps.host.getSpace(this.space)
 		if (!space) throw new Error(`пространство «${this.space}» не найдено`)
 		const client = await space.ensureReady()
-		let resumed = false
-		if (this.sessionId && this.status === 'sleeping') resumed = await client.resumeSession(this.sessionId, space.path)
+		const prev = this.resume ? this.sessionId : null
+		const tryResume = prev !== null
+		const resumed = prev !== null && (await client.resumeSession(prev, space.path))
 		if (!resumed) {
 			const hadSession = this.sessionId !== null
 			const { sessionId } = await client.createSession(space.path)
 			this.sessionId = sessionId
 			this.lastEventId = null
 			this.introduced = false // новый контекст — снова представиться
-			if (hadSession) this.addSystem('сессия nessy потеряна при перезапуске — создана новая, контекст диалога сброшен')
+			if (hadSession)
+				this.addSystem(
+					tryResume ? 'сессию nessy не удалось восстановить — создана новая, контекст сброшен' : 'сессия nessy пересоздана, контекст сброшен',
+				)
 		}
+		this.resume = false
 		this.sub = client.subscribe(this.sessionId ?? '', {
 			lastEventId: this.lastEventId,
 			onEvent: (ev, id) => this.onSessionEvent(ev, id),
@@ -200,16 +230,35 @@ export class Agent implements AgentIdentity {
 	detach(): void {
 		this.sub?.close()
 		this.sub = null
+		this.clearCancelTimer()
+	}
+
+	// ---------- архив ----------
+	/** Убрать в архив или вернуть из него (проверки занятости — в сервисе). */
+	setArchived(archived: boolean): void {
+		if (this.archived === archived) return
+		this.archived = archived
+		this.publishNode()
 	}
 
 	// ---------- доставка сообщений ----------
-	deliver(msg: Message): void {
-		if (!canReceive(this.status)) {
-			this.deps.host.onUndeliverable(this, msg, 'агент остановлен')
+	/**
+	 * Доставить сообщение: агент выходит из архива. interrupt — срочно: встать впереди очереди
+	 * (после других срочных) и прервать текущий ход.
+	 */
+	deliver(msg: Message, interrupt = false): void {
+		this.archived = false
+		if (interrupt) {
+			this.queue.splice(this.urgent, 0, msg)
+			this.urgent++
+		} else {
+			this.queue.push(msg)
+		}
+		this.publishNode()
+		if (interrupt && this.current) {
+			void this.requestCancel()
 			return
 		}
-		this.queue.push(msg)
-		this.publishNode()
 		void this.pump()
 	}
 
@@ -219,26 +268,25 @@ export class Agent implements AgentIdentity {
 	}
 
 	private async pump(): Promise<void> {
-		if (this.current || this.pumping || !canReceive(this.status)) return
+		if (this.current || this.pumping) return
 		if (!this.queue.length) return
 		this.pumping = true
 		try {
 			await this.ensureAttached()
 		} catch (e) {
 			const failed = this.queue.splice(0)
+			this.urgent = 0
 			this.pumping = false
 			for (const m of failed) this.deps.host.onTurnDone(this, m, '', { error: errMsg(e) })
 			return
 		}
 		this.pumping = false
+		if (this.isBusy) return
 		const msg = this.queue.shift()
 		if (!msg) return
-		if (this.isBusy) {
-			this.queue.unshift(msg)
-			return
-		}
+		if (this.urgent > 0) this.urgent--
 
-		this.current = { msg, promptId: null, text: '', startedAt: this.isoNow(), error: null }
+		this.current = { msg, promptId: null, text: '', startedAt: this.isoNow(), error: null, cancelRequested: false, sent: false }
 		this.journal.resetTools()
 		this.setStatus('working')
 		this.journal.add({ kind: 'user', from: msg.from, msgId: msg.id, text: msg.text })
@@ -248,7 +296,12 @@ export class Agent implements AgentIdentity {
 			const { promptId } = await client.prompt(this.sessionId, this.buildPrompt(msg))
 			this.introduced = true
 			const turn = this.turnFor(msg)
-			if (turn) turn.promptId = promptId
+			if (turn) {
+				this.staleEvents = false // nessy принял новый промпт — дальше события его
+				turn.promptId = promptId
+				turn.sent = true
+				if (turn.cancelRequested) await this.sendCancel() // прервали, пока промпт летел в nessy
+			}
 		} catch (e) {
 			if (this.turnFor(msg)) this.finishTurn({ error: errMsg(e) })
 		}
@@ -265,11 +318,46 @@ export class Agent implements AgentIdentity {
 		return this.introduced ? body : `${host.preambleFor(this)}\n\n${body}`
 	}
 
+	/** Прервать ход и очистить очередь. */
 	async cancel(): Promise<void> {
-		const client = this.deps.host.getSpace(this.space)?.client
 		this.queue = []
+		this.urgent = 0
 		this.publishNode()
-		if (client && this.sessionId) await client.cancel(this.sessionId)
+		await this.requestCancel()
+	}
+
+	/**
+	 * Запросить отмену текущего хода. Ход завершится по событию nessy (cancelled/turn_complete);
+	 * если подтверждения нет за cancelGraceMs — завершаем сами, а поздние события старого промпта игнорируем.
+	 */
+	private async requestCancel(): Promise<void> {
+		const cur = this.current
+		if (!cur || cur.cancelRequested) return
+		cur.cancelRequested = true
+		this.cancelTimer = setTimeout(() => {
+			this.cancelTimer = null
+			if (this.current !== cur) return
+			this.staleEvents = true
+			this.addSystem('nessy не подтвердил отмену — продолжаю без подтверждения')
+			this.finishTurn({ stopReason: 'cancelled' })
+		}, this.deps.cancelGraceMs)
+		this.cancelTimer.unref()
+		if (cur.sent) await this.sendCancel()
+	}
+
+	private async sendCancel(): Promise<void> {
+		const client = this.deps.host.getSpace(this.space)?.client
+		if (client && this.sessionId) await client.cancel(this.sessionId).catch(() => undefined)
+	}
+
+	private clearCancelTimer(): void {
+		if (this.cancelTimer) clearTimeout(this.cancelTimer)
+		this.cancelTimer = null
+	}
+
+	/** Это событие завершения относится к уже закрытому ходу (поздний кадр). */
+	private isDonePrompt(promptId: string | null): boolean {
+		return promptId !== null && this.donePrompts.includes(promptId)
 	}
 
 	async close(): Promise<void> {
@@ -284,6 +372,9 @@ export class Agent implements AgentIdentity {
 			this.lastEventId = eventId
 			this.deps.host.saveSoon()
 		}
+		// после неподтверждённой отмены содержимое старого промпта не должно попасть в новый ход
+		if (this.staleEvents && (ev.kind === 'text' || ev.kind === 'thought' || ev.kind === 'tool' || ev.kind === 'turn_error' || ev.kind === 'permission'))
+			return
 		switch (ev.kind) {
 			case 'text':
 			case 'thought':
@@ -307,25 +398,28 @@ export class Agent implements AgentIdentity {
 				this.onPermission(ev)
 				return
 			case 'turn_complete':
-				if (!this.current) return
+				if (!this.current || this.isDonePrompt(ev.promptId)) return
 				if (this.current.promptId && ev.promptId && this.current.promptId !== ev.promptId) return // устаревший реплей
 				this.finishTurn({ stopReason: ev.stopReason })
 				return
 			case 'cancelled':
-				if (!this.current) return
+				if (!this.current || this.isDonePrompt(ev.promptId)) return
 				if (this.current.promptId && ev.promptId && this.current.promptId !== ev.promptId) return
 				this.finishTurn({ stopReason: 'cancelled' })
 				return
 			case 'followup':
 				return // подсказки следующего вопроса оркестратору не нужны
 			case 'died':
+				// сессии больше нет: следующее сообщение создаст новую (контекст сброшен)
 				this.detach()
-				this.finishTurn({ error: ev.reason })
-				this.setStatus('dead', ev.reason)
-				this.addSystem('агент остановлен: ' + ev.reason, 'error')
+				this.resume = false
+				this.addSystem('сессия nessy завершилась: ' + ev.reason, 'error')
+				if (this.current) this.finishTurn({ error: ev.reason })
+				else this.setStatus('error', ev.reason)
 				return
 			case 'evicted':
 				this.detach()
+				this.resume = true
 				void this.ensureAttached().catch(() => undefined)
 				return
 		}
@@ -374,6 +468,11 @@ export class Agent implements AgentIdentity {
 		const cur = this.current
 		if (!cur) return
 		this.current = null
+		this.clearCancelTimer()
+		if (cur.promptId) {
+			this.donePrompts.push(cur.promptId)
+			if (this.donePrompts.length > 20) this.donePrompts.shift()
+		}
 		this.journal.flushRun()
 		const info: TurnOutcome = { ...outcome }
 		if (!info.error && cur.error) info.error = cur.error
@@ -385,7 +484,9 @@ export class Agent implements AgentIdentity {
 		if (text) this.lastReply = text
 		if (info.error) this.addSystem('ход завершился ошибкой: ' + info.error, 'error')
 		else if (cancelled) this.addSystem('ход прерван')
-		this.setStatus(statusAfterTurn(this.status, this.queue.length), info.error ?? null)
+		const queued = this.queue.length
+		if (archiveAfterTurn(info, queued)) this.archived = true
+		this.setStatus(statusAfterTurn(info, queued), info.error ?? null)
 		this.deps.host.onTurnDone(this, cur.msg, text, info)
 		void this.pump()
 	}

@@ -3,7 +3,7 @@ import type * as http from 'node:http'
 import { describe, it } from 'node:test'
 import { AppError } from '../../../src/domain/errors'
 import { assertLocalClient } from '../../../src/interfaces/http/guard'
-import { parseApprove, parseSendRequest, parseSpaceRequest, parseSpawnRequest } from '../../../src/interfaces/http/parsers'
+import { parseApprove, parseRoleRequest, parseSendRequest, parseSpaceRequest, parseSpawnRequest } from '../../../src/interfaces/http/parsers'
 import { queryNum } from '../../../src/interfaces/http/respond'
 import { Router } from '../../../src/interfaces/http/router'
 import { buildRouter } from '../../../src/interfaces/http/server'
@@ -29,7 +29,7 @@ describe('HTTP: маршрутизатор', () => {
 	})
 	it('все маршруты API на месте', () => {
 		const r = buildRouter()
-		assert.deepEqual([...r.roots()].sort(), ['agents', 'graph', 'health', 'inbox', 'messages', 'spaces', 'status', 'stream'])
+		assert.deepEqual([...r.roots()].sort(), ['agents', 'graph', 'health', 'inbox', 'messages', 'roles', 'spaces', 'status', 'stream'])
 		const routes: Array<[string, string[]]> = [
 			['GET', ['health']],
 			['GET', ['status']],
@@ -46,6 +46,13 @@ describe('HTTP: маршрутизатор', () => {
 			['GET', ['agents', 'x', 'stream']],
 			['POST', ['agents', 'x', 'send']],
 			['POST', ['agents', 'x', 'cancel']],
+			['POST', ['agents', 'x', 'archive']],
+			['POST', ['agents', 'x', 'restore']],
+			['GET', ['roles']],
+			['POST', ['roles']],
+			['GET', ['roles', 'r']],
+			['PUT', ['roles', 'r']],
+			['DELETE', ['roles', 'r']],
 			['POST', ['agents', 'x', 'permission', 'r']],
 			['GET', ['messages']],
 			['GET', ['inbox']],
@@ -71,9 +78,10 @@ describe('HTTP: разбор тел запросов', () => {
 		assert.equal(errCode(() => parseSpaceRequest({})), '400:bad_request')
 	})
 	it('spawn', () => {
-		assert.deepEqual(parseSpawnRequest({ space: 's', prompt: 'p', wait: true, waitTimeoutSec: 5, junk: 1 }), {
+		assert.deepEqual(parseSpawnRequest({ space: 's', prompt: 'p', role: 'rev', wait: true, waitTimeoutSec: 5, junk: 1 }), {
 			space: 's',
 			name: undefined,
+			role: 'rev',
 			prompt: 'p',
 			parent: undefined,
 			from: undefined,
@@ -84,11 +92,25 @@ describe('HTTP: разбор тел запросов', () => {
 		assert.equal(errCode(() => parseSpawnRequest([])), '400:bad_request')
 	})
 	it('send и permission', () => {
-		assert.deepEqual(parseSendRequest({ text: 'hi', from: 'a-1' }), { text: 'hi', from: 'a-1', wait: false, waitTimeoutSec: undefined })
+		assert.deepEqual(parseSendRequest({ text: 'hi', from: 'a-1' }), { text: 'hi', from: 'a-1', interrupt: undefined, wait: false, waitTimeoutSec: undefined })
+		assert.equal(parseSendRequest({ text: 'hi', interrupt: false }).interrupt, false)
+		assert.equal(parseSendRequest({ text: 'hi', interrupt: 'no' }).interrupt, undefined)
 		assert.equal(errCode(() => parseSendRequest({ text: 1 })), '400:bad_request')
 		assert.equal(parseApprove({}), true)
 		assert.equal(parseApprove({ approve: false }), false)
 		assert.equal(parseApprove(null), true)
+	})
+	it('роли', () => {
+		assert.deepEqual(parseRoleRequest({ name: 'R', instructions: 'i', color: 10, junk: 1 }), {
+			name: 'R',
+			instructions: 'i',
+			description: undefined,
+			color: 10,
+			id: undefined,
+		})
+		assert.equal(errCode(() => parseRoleRequest({ name: 'R' })), '400:bad_request')
+		assert.equal(errCode(() => parseRoleRequest({ name: 'R', instructions: 'i', color: '1' })), '400:bad_request')
+		assert.equal(errCode(() => parseRoleRequest({ name: 'R', instructions: 'i', id: 5 })), '400:bad_request')
 	})
 	it('числа из query', () => {
 		assert.equal(queryNum('5', 1), 5)

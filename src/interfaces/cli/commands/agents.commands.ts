@@ -1,4 +1,4 @@
-/** Команды агентов: spawn, send, ask, ls, show, watch, cancel, kill. */
+/** Команды агентов: spawn, send, ask, ls, show, watch, cancel, archive, restore, kill. */
 import * as path from 'node:path'
 import type { AgentEvent, AgentView, GraphView, SendResponse, SpawnResponse } from '../../../../shared/types'
 import { flagBool, flagNum, flagStr } from '../args'
@@ -9,7 +9,7 @@ import { agentsTable, bold, dim, green, red, status, time } from '../format'
 import { del, enc, ep, get, info, json, out, post } from '../io'
 import { renderEvent } from '../render-event'
 import type { CommandTable } from './command.types'
-import { COMMON, WAIT_FLAGS } from './flags'
+import { COMMON, SEND_FLAGS, SPAWN_FLAGS, WAIT_FLAGS } from './flags'
 
 /** Пространство задают именем или путём; относительный путь считаем от текущего каталога CLI, а не сервера. */
 function spaceArg(v: string | undefined): string | undefined {
@@ -33,8 +33,10 @@ function printSendResult(p: Parsed, agent: AgentView | null, r: SendResponse): v
 
 async function cmdLs(p: Parsed): Promise<void> {
 	const g = await get<GraphView>('/graph')
-	if (flagBool(p, 'json')) return json(g.agents)
-	out(agentsTable(g.agents, g.spaces))
+	const all = flagBool(p, 'all')
+	const list = all ? g.agents : g.agents.filter(a => !a.archived)
+	if (flagBool(p, 'json')) return json(list)
+	out(agentsTable(list, g.spaces, g.roles, g.agents.length - list.length))
 }
 
 async function cmdSpawn(p: Parsed): Promise<void> {
@@ -44,6 +46,7 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(flagStr(p, 'space')),
 		name: flagStr(p, 'name'),
+		role: flagStr(p, 'role'),
 		from: flagStr(p, 'from'),
 		prompt: prompt || undefined,
 		wait,
@@ -55,10 +58,12 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 async function cmdSend(p: Parsed): Promise<void> {
 	const [to, ...rest] = p.positionals
 	const text = rest.join(' ').trim()
-	if (!to || !text) throw new CliError('использование: nessy-orch send <агент|you> "текст" [--wait] [--from ID]', 2)
+	if (!to || !text) throw new CliError('использование: nessy-orch send <агент|you> "текст" [--wait] [--queue] [--from ID]', 2)
 	const r = await post<SendResponse>(`/agents/${enc(to)}/send`, {
 		text,
 		from: flagStr(p, 'from'),
+		// по умолчанию сообщение от you прерывает текущий ход; --queue — встать в очередь
+		interrupt: flagBool(p, 'queue') ? false : undefined,
 		wait: flagBool(p, 'wait'),
 		waitTimeoutSec: flagNum(p, 'timeout'),
 	})
@@ -81,7 +86,8 @@ async function cmdShow(p: Parsed): Promise<void> {
 		get<AgentEvent[]>(`/agents/${enc(ref)}/history?limit=${flagNum(p, 'n') ?? 40}`),
 	])
 	if (flagBool(p, 'json')) return json({ agent: a, events: ev })
-	out(`${bold(a.id)} ${a.name !== a.id ? `(${a.name}) ` : ''}${status(a.status)}  ${a.space}${a.displayName ? `  «${a.displayName}»` : ''}`)
+	const tags = [a.role ? `роль ${a.role}` : '', a.archived ? 'в архиве' : ''].filter(Boolean).join(', ')
+	out(`${bold(a.id)} ${a.name !== a.id ? `(${a.name}) ` : ''}${status(a.status)}${tags ? dim(` [${tags}]`) : ''}  ${a.space}${a.displayName ? `  «${a.displayName}»` : ''}`)
 	for (const e of ev) out(renderEvent(e))
 }
 
@@ -135,6 +141,14 @@ async function cmdCancel(p: Parsed): Promise<void> {
 	out(flagBool(p, 'json') ? JSON.stringify(a) : `${green('✓')} прервано: ${a.id} (${a.status})`)
 }
 
+async function cmdArchive(p: Parsed, action: 'archive' | 'restore'): Promise<void> {
+	const ref = p.positionals[0]
+	if (!ref) throw new CliError(`использование: nessy-orch ${action} <агент>`, 2)
+	const a = await post<AgentView>(`/agents/${enc(ref)}/${action}`, {})
+	if (flagBool(p, 'json')) return json(a)
+	out(`${green('✓')} ${action === 'archive' ? 'в архиве' : 'возвращён из архива'}: ${a.id}${a.name !== a.id ? ` (${a.name})` : ''}`)
+}
+
 async function cmdKill(p: Parsed): Promise<void> {
 	const ref = p.positionals[0]
 	if (!ref) throw new CliError('использование: nessy-orch kill <агент>', 2)
@@ -143,12 +157,14 @@ async function cmdKill(p: Parsed): Promise<void> {
 }
 
 export const agentCommands: CommandTable = {
-	ls: { run: cmdLs, spec: COMMON },
-	spawn: { run: cmdSpawn, spec: WAIT_FLAGS },
-	send: { run: cmdSend, spec: WAIT_FLAGS },
+	ls: { run: cmdLs, spec: { bool: ['json', 'help', 'all'], short: { a: 'all' } } },
+	spawn: { run: cmdSpawn, spec: SPAWN_FLAGS },
+	send: { run: cmdSend, spec: SEND_FLAGS },
 	ask: { run: cmdAsk, spec: WAIT_FLAGS },
 	show: { run: cmdShow, spec: { bool: ['json', 'help'], value: ['n'] } },
 	watch: { run: cmdWatch, spec: COMMON },
 	cancel: { run: cmdCancel, spec: COMMON },
+	archive: { run: p => cmdArchive(p, 'archive'), spec: COMMON },
+	restore: { run: p => cmdArchive(p, 'restore'), spec: COMMON },
 	kill: { run: cmdKill, spec: COMMON },
 }

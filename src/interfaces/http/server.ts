@@ -4,9 +4,11 @@
  *   GET  /health                      GET  /status                    GET /graph
  *   GET  /spaces                      POST /spaces {path,name?,url?}  DELETE /spaces/:name?force=1
  *   GET  /agents                      POST /agents  (spawn)           GET /agents/:ref   DELETE /agents/:ref
- *   POST /agents/:ref/send            POST /agents/:ref/cancel
+ *   POST /agents/:ref/send {text,from?,interrupt?,wait?}   POST /agents/:ref/cancel
+ *   POST /agents/:ref/archive         POST /agents/:ref/restore
  *   POST /agents/:ref/permission/:requestId {approve}
  *   GET  /agents/:ref/history         GET  /agents/:ref/stream (SSE)
+ *   GET  /roles   POST /roles   GET|PUT|DELETE /roles/:id
  *   GET  /messages?agent=&since=&limit=
  *   GET  /inbox?wait=&peek=1&after=
  *   GET  /stream (SSE: snapshot + все события)
@@ -21,6 +23,7 @@ import { sendJson } from './respond'
 import { Router } from './router'
 import { registerAgentRoutes } from './routes/agents.routes'
 import { registerMessageRoutes } from './routes/messages.routes'
+import { registerRoleRoutes } from './routes/roles.routes'
 import { registerSpaceRoutes } from './routes/spaces.routes'
 import { registerSystemRoutes } from './routes/system.routes'
 import type { ServerOptions } from './server.types'
@@ -32,6 +35,7 @@ export function buildRouter(): Router {
 	registerSpaceRoutes(r)
 	registerAgentRoutes(r)
 	registerMessageRoutes(r)
+	registerRoleRoutes(r)
 	return r
 }
 

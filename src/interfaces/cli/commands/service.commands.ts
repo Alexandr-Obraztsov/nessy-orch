@@ -14,7 +14,7 @@ async function cmdStatus(p: Parsed): Promise<void> {
 	if (flagBool(p, 'json')) return json(s)
 	out(`${green('●')} nessy-orch ${s.version}  pid ${s.pid}  uptime ${s.uptimeSec}s`)
 	out(`  http://127.0.0.1:${ep.port}   home: ${s.home}`)
-	out(`  пространств: ${s.spaces}   агентов: ${s.agents} (работают: ${s.working})   автоподтверждение: ${s.autoApprove ? 'вкл' : 'выкл'}`)
+	out(`  пространств: ${s.spaces}   агентов: ${s.agents} (работают: ${s.working})   ролей: ${s.roles}   автоподтверждение: ${s.autoApprove ? 'вкл' : 'выкл'}`)
 }
 
 function cmdOpen(): Promise<void> {

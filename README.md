@@ -18,16 +18,22 @@
 
 - **Пространства (spaces).** Пространство = каталог-воркспейс + процесс `nessy serve`, который запускает оркестратор
   (managed), либо уже запущенный демон по URL (external). Порты выделяются автоматически.
-- **Агенты.** Каждый агент — независимая сессия nessy (`sessionScope: thread`). У агента есть очередь сообщений:
-  пока он работает, новые сообщения ждут, порядок и авторство сохраняются, очередь переживает рестарт.
+- **Агенты.** Каждый агент — независимая сессия nessy (`sessionScope: thread`). Статусы простые: `starting`,
+  `working`, `idle`, `error`. У агента есть очередь сообщений: сообщения агентов друг другу ждут своей очереди,
+  а ваше сообщение работающему агенту прерывает текущий ход и доставляется первым (`send --queue` — в очередь).
+  Очередь переживает рестарт.
+- **Архив.** Агент, успешно закончивший задачу, уходит в архив: он скрыт из рабочего списка, но сессия и контекст
+  сохранены. Любое сообщение будит его, поэтому к агенту по имени можно вернуться в любой момент. Ход с ошибкой
+  оставляет агента на виду; упавшая сессия пересоздаётся при следующем сообщении.
+- **Роли.** Сохранённые инструкции (`role add`), которые попадают во вводную агента: `spawn --role reviewer`.
 - **Произвольный граф общения.** `Вы ↔ агент`, `агент ↔ агент`. Ответ агента автоматически уходит отправителю.
   Агенты пишут другим сами, через shell: `nessy-orch send --from <id> <кому> "текст"`.
 - **Защиты.** Лимит длины цепочки (8 переходов), лимит сообщений на пару (30 в минуту), обнаружение взаимного
   ожидания (`409 deadlock`), проверка `Host`/`Origin` (защита от DNS-rebinding и CSRF из браузера).
 - **Права.** По умолчанию запросы прав подтверждаются автоматически (с записью в журнал агента). При
   `ORCH_AUTO_APPROVE=0` запросы ждут решения в UI или через API.
-- **Устойчивость.** Падение `nessy serve` — агенты засыпают и восстанавливают сессию при следующем обращении.
-  Состояние пишется атомарно в `~/.nessy-orch/`.
+- **Устойчивость.** Падение `nessy serve` или рестарт оркестратора — сессия агента восстанавливается при следующем
+  обращении. Состояние и роли пишутся атомарно в `~/.nessy-orch/`.
 - **Веб-интерфейс** — граф-сонар, общая лента и чат с каждым агентом. Работает на десктопе, планшете и телефоне.
 - **CLI** — единый бинарь `nessy-orch`: предсказуемый вывод, `--json`, блокирующий (`--wait`) и фоновый режимы.
 
@@ -93,10 +99,12 @@ npm run demo                        # сборка + оркестратор с �
 ## CLI
 
 ```text
-nessy-orch spawn [--space S] [--name N] [--wait] [--timeout СЕК] ["задача"]
-nessy-orch send <агент|you> "текст" [--wait] [--timeout СЕК] [--from ID]
+nessy-orch spawn [--space S] [--name N] [--role R] [--wait] [--timeout СЕК] ["задача"]
+nessy-orch send <агент|you> "текст" [--wait] [--queue] [--timeout СЕК] [--from ID]
 nessy-orch ask <путь|space> "задача"          # = spawn --wait
-nessy-orch ls | show <агент> | watch <агент> | cancel <агент> | kill <агент>
+nessy-orch ls [--all] | show <агент> | watch <агент> | cancel <агент> | kill <агент>
+nessy-orch archive <агент> | restore <агент>
+nessy-orch role ls | role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] | role show <id> | role rm <id>
 nessy-orch feed [-n 30] [--follow]
 nessy-orch inbox [--wait СЕК] [--peek]
 nessy-orch space add <путь> [--name N] [--url URL] | space ls | space rm <имя> [--force]
@@ -104,7 +112,8 @@ nessy-orch status | open | install [--print] | uninstall
 ```
 
 Полезный результат (ответ агента, JSON) выводится в stdout, служебные сообщения — в stderr. Флаг `--json` есть у всех
-команд. Старые алиасы `nessy-ask`, `nessy-jobs`, `nessy-watch` оставлены для совместимости.
+команд. `send` работающему агенту прерывает его ход (`--queue` — дождаться очереди). `ls` скрывает агентов в архиве,
+`ls --all` показывает всех. Старые алиасы `nessy-ask`, `nessy-jobs`, `nessy-watch` оставлены для совместимости.
 
 ## Скилл для Claude
 
@@ -120,11 +129,13 @@ nessy-orch status | open | install [--print] | uninstall
 
 | Метод и путь | Назначение |
 |---|---|
-| `GET /health`, `GET /status`, `GET /graph` | Служебное: здоровье, состояние, пространства и агенты |
+| `GET /health`, `GET /status`, `GET /graph` | Служебное: здоровье, состояние, пространства, агенты и роли |
 | `GET /spaces`, `POST /spaces {path,name?,url?}`, `DELETE /spaces/:name?force=1` | Пространства |
-| `GET /agents`, `POST /agents {space?,name?,prompt?,parent?,from?,wait?}` | Список и создание агентов |
+| `GET /agents`, `POST /agents {space?,name?,role?,prompt?,parent?,from?,wait?}` | Список (включая архивных) и создание агентов |
 | `GET /agents/:ref`, `DELETE /agents/:ref` | Агент |
-| `POST /agents/:ref/send {text,from?,wait?}`, `POST /agents/:ref/cancel` | Сообщение, прервать ход |
+| `POST /agents/:ref/send {text,from?,interrupt?,wait?}`, `POST /agents/:ref/cancel` | Сообщение (от «Вы» по умолчанию прерывает ход), прервать ход |
+| `POST /agents/:ref/archive`, `POST /agents/:ref/restore` | Убрать в архив (`409 busy`, если работает), вернуть из архива |
+| `GET /roles`, `POST /roles`, `GET\|PUT\|DELETE /roles/:id` | Роли (`{name, instructions, description?, color?, id?}`) |
 | `POST /agents/:ref/permission/:requestId {approve}` | Решение по запросу прав |
 | `GET /agents/:ref/history`, `GET /agents/:ref/stream` (SSE) | Журнал и живой поток событий агента |
 | `GET /messages?agent=&since=&limit=` | Общая лента |
@@ -164,10 +175,10 @@ src/
   domain/                чистая логика без IO: маршрутизация, лимиты, граф ожиданий, статусы, вводная агента
   application/           сценарии: оркестратор, агенты, сообщения, пространства, шина событий, порты (интерфейсы)
     agent/               агент: очередь, ход, журнал событий
-    services/            spaces / messaging / agents
+    services/            spaces / messaging / agents / roles
   infrastructure/        адаптеры портов
     nessy/               клиент nessy serve и чистый маппер событий — единственное место, знающее протокол nessy
-    persistence/         state.json (атомарно) + JSONL-журналы
+    persistence/         state.json и roles.json (атомарно) + JSONL-журналы
     process/             запуск и контроль процессов nessy serve
     sse/, config/        SSE-парсер и форматтер, загрузка конфигурации
   interfaces/
@@ -181,7 +192,7 @@ ui/src/                  React + Vite, Feature-Sliced Design
   shared/                api-клиент, стор (SSE /stream), утилиты, UI-примитивы
 test/
   unit/                  lib, domain, application, infrastructure, interfaces
-  integration/           api, messaging, lifecycle, streams, persistence
+  integration/           api, messaging, lifecycle, archive, roles, streams, persistence
   support/               тестовый стенд, фейковый nessy serve
 e2e/                     Playwright: сценарии UI и адаптивность на 5 размерах экрана
 docs/                    требования и контракт nessy serve (ACP)

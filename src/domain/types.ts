@@ -38,3 +38,33 @@ export interface PermissionOption {
 	kind: string
 	name: string
 }
+
+/** Сосед агента во вводной: архивный помечается, роль — по имени. */
+export interface PeerInfo extends AgentIdentity {
+	archived: boolean
+	roleName: string | null
+}
+
+/** Роль во вводной агента. */
+export interface RoleBrief {
+	name: string
+	instructions: string
+}
+
+/** Поля роли после проверки (id и цвет уже вычислены). */
+export interface RoleFields {
+	id: string
+	name: string
+	description: string
+	instructions: string
+	color: number
+}
+
+/** Сырые поля роли из запроса (до проверки). */
+export interface RoleInput {
+	name: string
+	description?: string
+	instructions: string
+	color?: number
+	id?: string
+}

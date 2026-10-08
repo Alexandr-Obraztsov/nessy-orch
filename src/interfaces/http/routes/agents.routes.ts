@@ -21,6 +21,8 @@ export function registerAgentRoutes(r: Router): void {
 		const body = await readBody(req)
 		sendJson(res, 200, await orch.send(params['ref'] ?? '', parseSendRequest(body)))
 	})
+	r.add('POST', '/agents/:ref/archive', ({ res, orch, params }) => sendJson(res, 200, orch.archiveAgent(params['ref'] ?? '')))
+	r.add('POST', '/agents/:ref/restore', ({ res, orch, params }) => sendJson(res, 200, orch.restoreAgent(params['ref'] ?? '')))
 	r.add('POST', '/agents/:ref/cancel', async ({ res, orch, params }) => sendJson(res, 200, await orch.cancelAgent(params['ref'] ?? '')))
 	r.add('POST', '/agents/:ref/permission/:requestId', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)

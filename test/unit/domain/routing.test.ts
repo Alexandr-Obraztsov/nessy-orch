@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { Message } from '../../../shared/types'
-import { canReceive, isAgentStatus, restoredStatus, statusAfterAttach, statusAfterTurn } from '../../../src/domain/agent-status'
+import { archiveAfterTurn, isAgentStatus, restoredStatus, statusAfterAttach, statusAfterTurn, turnSucceeded } from '../../../src/domain/agent-status'
 import { AppError } from '../../../src/domain/errors'
 import { defaultSpaceName, normalizeWorkspacePath, uniqueName } from '../../../src/domain/naming'
 import { pickPermissionOption } from '../../../src/domain/permission'
@@ -48,6 +48,7 @@ describe('правила маршрутизации', () => {
 		assert.equal(replyText('ok', {}), 'ok')
 		assert.equal(replyText('', {}), '(пустой ответ)')
 		assert.equal(replyText('', { stopReason: 'cancelled' }), '(ход прерван)')
+		assert.equal(replyText('часть', { stopReason: 'cancelled' }), 'часть\n\n(ход прерван)')
 		assert.equal(replyText('часть', { error: 'упал' }), '⚠ ошибка: упал\n\nчасть')
 		const d = replyDraft('a-1', msg({ id: 'm-9', from: 'a-2', hops: 2, wait: true }), 'ok', { error: 'x' })
 		assert.deepEqual(d, { from: 'a-1', to: 'a-2', kind: 'reply', text: '⚠ ошибка: x\n\nok', hops: 3, replyTo: 'm-9', wait: true, failed: 'x' })
@@ -86,16 +87,25 @@ describe('защиты', () => {
 
 describe('агент: статусы, разрешения, вводная', () => {
 	it('машина состояний', () => {
-		assert.equal(restoredStatus('dead'), 'dead')
-		assert.equal(restoredStatus('working'), 'sleeping')
-		assert.equal(statusAfterAttach('sleeping'), 'idle')
+		assert.equal(restoredStatus(), 'idle')
+		assert.equal(statusAfterAttach('starting'), 'idle')
+		assert.equal(statusAfterAttach('error'), 'idle')
 		assert.equal(statusAfterAttach('working'), 'working')
-		assert.equal(statusAfterTurn('working', 0), 'idle')
-		assert.equal(statusAfterTurn('working', 2), 'working')
-		assert.equal(statusAfterTurn('dead', 2), 'dead')
-		assert.equal(canReceive('dead'), false)
+		assert.equal(statusAfterTurn({}, 0), 'idle')
+		assert.equal(statusAfterTurn({ stopReason: 'cancelled' }, 0), 'idle')
+		assert.equal(statusAfterTurn({ error: 'x' }, 0), 'error')
+		assert.equal(statusAfterTurn({ error: 'x' }, 2), 'working')
+		assert.equal(statusAfterTurn({}, 2), 'working')
+		assert.equal(turnSucceeded({ stopReason: 'end_turn' }), true)
+		assert.equal(turnSucceeded({ stopReason: 'cancelled' }), false)
+		assert.equal(turnSucceeded({ error: 'x' }), false)
+		assert.equal(archiveAfterTurn({ stopReason: 'end_turn' }, 0), true)
+		assert.equal(archiveAfterTurn({ stopReason: 'end_turn' }, 1), false)
+		assert.equal(archiveAfterTurn({ error: 'x' }, 0), false)
+		assert.equal(archiveAfterTurn({ stopReason: 'cancelled' }, 0), false)
 		assert.equal(isAgentStatus('idle'), true)
-		assert.equal(isAgentStatus('zombie'), false)
+		assert.equal(isAgentStatus('sleeping'), false)
+		assert.equal(isAgentStatus('dead'), false)
 	})
 	it('выбор варианта разрешения', () => {
 		const opts = [
@@ -110,11 +120,22 @@ describe('агент: статусы, разрешения, вводная', () 
 		assert.equal(pickPermissionOption([{ optionId: 'go', kind: '', name: '' }], true), 'go')
 	})
 	it('вводная перечисляет соседей и команду CLI', () => {
-		const text = buildPreamble({ id: 'a-1', name: 'alpha', space: 'main' }, [{ id: 'a-2', name: 'beta', space: 'main' }], '/bin/nessy-orch')
+		const text = buildPreamble(
+			{ id: 'a-1', name: 'alpha', space: 'main' },
+			[
+				{ id: 'a-2', name: 'beta', space: 'main', archived: false, roleName: null },
+				{ id: 'a-3', name: 'gamma', space: 'main', archived: true, roleName: 'Ревьюер' },
+			],
+			'/bin/nessy-orch',
+		)
 		assert.match(text, /агент «alpha» \(id: a-1\)/)
 		assert.match(text, /\/bin\/nessy-orch send --from a-1 --wait/)
-		assert.match(text, /beta \(a-2, main\)/)
+		assert.match(text, /beta \(a-2, main\);/)
+		assert.match(text, /gamma \(a-3, main, роль Ревьюер\) — в архиве, напиши — проснётся/)
+		assert.doesNotMatch(text, /Твоя роль/)
 		assert.match(buildPreamble({ id: 'a', name: 'a', space: 's' }, [], 'cli'), /Других агентов пока нет/)
+		const withRole = buildPreamble({ id: 'a', name: 'a', space: 's' }, [], 'cli', { name: 'Ревьюер', instructions: '  Смотри MR строго.\n' })
+		assert.match(withRole, /\n\nТвоя роль: Ревьюер\nСмотри MR строго\.$/)
 	})
 	it('имена и пути пространств', () => {
 		assert.equal(normalizeWorkspacePath('/tmp/x//'), '/tmp/x')

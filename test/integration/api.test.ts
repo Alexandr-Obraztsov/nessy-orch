@@ -25,7 +25,8 @@ describe('API: служебное и защита', () => {
 		assert.equal(s.body.autoApprove, true)
 		assert.equal(s.body.pid, process.pid)
 		const g = await h.api<GraphView>('GET', '/graph')
-		assert.deepEqual(g.body, { rev: g.body.rev, spaces: [], agents: [] })
+		assert.deepEqual(g.body, { rev: g.body.rev, spaces: [], agents: [], roles: [] })
+		assert.equal(s.body.roles, 0)
 	})
 
 	it('чужой Host и Origin → 403', T, async () => {

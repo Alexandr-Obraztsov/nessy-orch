@@ -2,7 +2,7 @@
  * Порты прикладного слоя: что ядру нужно от внешнего мира (nessy, процессы, хранилище, часы, id).
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
-import type { AgentEvent, Message, SpaceStatus, SpaceView, ToolStatus } from '../../shared/types'
+import type { AgentEvent, Message, RoleView, SpaceStatus, SpaceView, ToolStatus } from '../../shared/types'
 import type { PermissionOption } from '../domain/types'
 import type { PersistedState } from './persisted.types'
 
@@ -100,6 +100,9 @@ export interface StorePort {
 	loadMessages(limit: number): Message[]
 	appendEvent(agentId: string, ev: AgentEvent): void
 	readEvents(agentId: string, limit: number): AgentEvent[]
+	loadRoles(): RoleView[]
+	/** Немедленная атомарная запись ролей (меняются редко). */
+	saveRoles(roles: readonly RoleView[]): void
 	/** Историю не удаляем: архивируем. */
 	archiveAgent(agentId: string): void
 	/** Записать отложенное и больше ничего не писать (остановка). */

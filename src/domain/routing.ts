@@ -45,7 +45,7 @@ export function expectsReply(msg: Message): boolean {
 /** Текст ответа по итогу хода. */
 export function replyText(text: string, outcome: TurnOutcome): string {
 	if (outcome.error) return `⚠ ошибка: ${outcome.error}${text ? `\n\n${text}` : ''}`
-	if (!text && outcome.stopReason === 'cancelled') return '(ход прерван)'
+	if (outcome.stopReason === 'cancelled') return text ? `${text}\n\n(ход прерван)` : '(ход прерван)'
 	return text || '(пустой ответ)'
 }
 

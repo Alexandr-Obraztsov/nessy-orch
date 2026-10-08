@@ -10,7 +10,8 @@
   проксировать запросы и убирать `Origin`, подменяя `Host`.
 - **Ошибки:** статус ≥ 400, тело `{ "error": "<текст>", "code": "<код>" }`. Коды: `bad_request`, `bad_json`, `bad_path`,
   `bad_from`, `empty_text`, `self_send`, `space_required` (все 400), `no_space` (404), `space_exists` (409),
-  `space_busy` (409), `no_agent` (404), `ambiguous_agent` (409), `name_taken` (409), `hop_limit` (429), `rate_limit` (429),
+  `space_busy` (409), `no_agent` (404), `ambiguous_agent` (409), `name_taken` (409), `busy` (409, архив работающего агента),
+  `no_role` (404), `role_exists` (409), `hop_limit` (429), `rate_limit` (429),
   `deadlock` (409), `nessy_error` (502), `too_large` (413, тело > 5 МБ), `bad_host`/`bad_origin`/`forbidden` (403),
   `not_found` (404), `internal` (500). Пустое тело запроса читается как `{}`.
 - **Ссылка на агента `:ref`** — id (`a-7f3k`) или уникальное имя (без учёта регистра). Особое значение `you` допустимо
@@ -22,11 +23,11 @@
 | Метод | Путь | Ответ |
 |---|---|---|
 | GET | `/health` | `{status:"ok"}` |
-| GET | `/status` | `StatusResponse` (`version,pid,uptimeSec,rev,home,autoApprove,spaces,agents,working`) |
-| GET | `/graph` | `GraphView` = `{rev, spaces[], agents[]}` |
+| GET | `/status` | `StatusResponse` (`version,pid,uptimeSec,rev,home,autoApprove,spaces,agents,working,roles`) |
+| GET | `/graph` | `GraphView` = `{rev, spaces[], agents[], roles[]}` (агенты — включая архивных) |
 | GET | любой путь, не начинающийся с API-сегмента | статика из `ORCH_UI_DIR` (`/` → `index.html`, `Cache-Control: no-store`); нет SPA-fallback — для роутинга в UI используйте hash. Нет файла → `404 not_found`, выход за каталог → `403 forbidden` |
 
-API-сегменты (первые сегменты маршрутов): `health status graph stream spaces agents messages inbox`. Неизвестный маршрут → `404 not_found`.
+API-сегменты (первые сегменты маршрутов): `health status graph stream spaces agents roles messages inbox`. Неизвестный маршрут → `404 not_found`.
 
 ## Пространства
 
@@ -40,20 +41,35 @@ API-сегменты (первые сегменты маршрутов): `health
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/agents` | — | `AgentView[]` |
+| GET | `/agents` | — | `AgentView[]` (включая архивных — фильтрует клиент по `archived`) |
 | POST | `/agents` | `SpawnRequest` | `201 SpawnResponse` |
 | GET | `/agents/:ref` | — | `AgentView` |
 | DELETE | `/agents/:ref` | — | `{ok:true}` (отмена хода, закрытие сессии, архив истории) |
 | POST | `/agents/:ref/send` | `SendRequest` | `SendResponse` |
 | POST | `/agents/:ref/cancel` | `{}` | `AgentView` (прервать ход, очистить очередь) |
+| POST | `/agents/:ref/archive` | `{}` | `AgentView` (`archived:true`); агент работает или у него очередь → `409 busy` |
+| POST | `/agents/:ref/restore` | `{}` | `AgentView` (`archived:false`, без сообщения) |
 | POST | `/agents/:ref/permission/:requestId` | `{approve:boolean}` (по умолчанию `true`) | `{ok:true}`; если запрос не найден (или нет соединения) — `404 {ok:false}`. Тело без `approve:false` означает «разрешить» |
 | GET | `/agents/:ref/history?limit=400` | — | `AgentEvent[]` по возрастанию `seq` (последняя запись с данным `seq` побеждает); включает незавершённый блок текста |
+
+### Статусы и архив
+
+`AgentView.status`: `starting` (создаётся сессия) → `idle` ⇄ `working`; `error` — последний ход завершился ошибкой или упала
+сессия nessy (текст в `error`). Состояний «сна» и «смерти» нет: следующее сообщение агенту в `error` доставляется как обычно
+(упавшая сессия пересоздаётся, в чат пишется «сессия nessy пересоздана, контекст сброшен»).
+
+`AgentView.archived`: агент **успешно** закончил ход и очередь пуста → `archived:true` (скрыт из рабочего списка; сессия nessy
+и подписка сохраняются). Ход с ошибкой или прерванный ход агента в архив не уводят. Любое сообщение агенту в архиве
+(от you или от агента) возвращает его (`archived:false`) и доставляется — с прежним контекстом. Агент, созданный без
+`prompt`, остаётся видимым (`idle`). Флаг переживает рестарт; после рестарта все агенты `idle`, сессия поднимается
+при первом сообщении (`POST /session/:id/load`, не вышло — новая сессия с записью «контекст сброшен»).
 
 ### SpawnRequest
 
 ```jsonc
 { "space": "main",        // имя ИЛИ абсолютный путь (неизвестный путь создаёт space); можно опустить, если space один (иначе 400 space_required)
-  "name": "reviewer",     // опционально, уникально; иначе = id
+  "name": "reviewer",     // опционально, уникально; иначе = id (с ролью — id роли: reviewer, reviewer-2, …)
+  "role": "reviewer",     // опционально: id или имя роли (без учёта регистра); неизвестная → 404 no_role
   "prompt": "задача",     // опционально: если задан — отправляется сразу
   "from": "you",          // отправитель стартового сообщения (id агента, если агент спавнит агента)
   "parent": "you",        // родитель в графе; по умолчанию = from
@@ -62,11 +78,12 @@ API-сегменты (первые сегменты маршрутов): `health
 ```
 
 `SpawnResponse` = `{agent, message?, reply?, timedOut?}` (`message` — стартовое сообщение; без `prompt` его нет). Занятое имя → `409 name_taken`.
+С ролью `agent.role` = id роли, а инструкции роли добавляются во вводную агента (раздел «Твоя роль: <имя>»).
 
 ### SendRequest / SendResponse
 
 ```jsonc
-{ "text": "…", "from": "you", "wait": false, "waitTimeoutSec": 600 }
+{ "text": "…", "from": "you", "interrupt": true, "wait": false, "waitTimeoutSec": 600 }
 // → { "message": Message, "reply"?: Message, "timedOut"?: true }
 ```
 
@@ -74,6 +91,33 @@ API-сегменты (первые сегменты маршрутов): `health
 имени пишем (так делают сами агенты; неизвестный → `400 bad_from`). `:ref` может быть `you` (сообщение главному узлу).
 Текст обрезается по краям, пустой → `400 empty_text`. С `wait` вызов ждёт ответ до `waitTimeoutSec` (по умолчанию 600);
 по таймауту возвращается `timedOut:true`.
+
+`interrupt` (по умолчанию `true` для `from: you`, `false` для сообщений агент→агент): если адресат работает, текущий ход
+прерывается (его ожидающий отправитель получает ответ, оканчивающийся на `(ход прерван)`), а сообщение доставляется
+**первым**, впереди очереди (несколько срочных — в порядке отправки). Следующий промпт уходит только после подтверждения
+отмены от nessy; если его нет за ~3 с, оркестратор продолжает сам и игнорирует поздние события прерванного промпта.
+`interrupt:false` — обычная очередь.
+
+## Роли
+
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| GET | `/roles` | — | `RoleView[]` (по имени) |
+| POST | `/roles` | `RoleRequest` | `201 RoleView` |
+| GET | `/roles/:id` | — | `RoleView`; `:id` — id или имя (без учёта регистра) |
+| PUT | `/roles/:id` | `RoleRequest` | `RoleView` (полная замена полей; `id` и `createdAt` не меняются; без `color` цвет прежний) |
+| DELETE | `/roles/:id` | — | `{ok:true}`; агенты сохраняют `role` (UI показывает роль удалённой) |
+
+```jsonc
+// RoleRequest
+{ "name": "Ревьюер",            // обязательно, ≤ 60 символов, уникально без учёта регистра
+  "instructions": "…markdown…", // обязательно, ≤ 20000 символов
+  "description": "одна строка",  // опционально
+  "color": 210,                  // опционально, hue 0..360; по умолчанию — из хеша имени
+  "id": "reviewer" }             // опционально, только при создании: [a-z0-9-], ≤ 40; по умолчанию — из имени (кириллица транслитерируется: «Ревьюер» → revyuer)
+```
+
+Ошибки: `400 bad_request` (поля), `404 no_role`, `409 role_exists` (занят id или имя). Роли хранятся в `<home>/roles.json`.
 
 ## Сообщения
 
@@ -92,12 +136,14 @@ API-сегменты (первые сегменты маршрутов): `health
 Первый кадр — снапшот, дальше изменения (`StreamEvent`):
 
 ```jsonc
-{"t":"snapshot","rev":42,"spaces":[…],"agents":[…],"messages":[…последние 300…]}
+{"t":"snapshot","rev":42,"spaces":[…],"agents":[…],"roles":[…],"messages":[…последние 300…]}
 {"t":"message","rev":43,"message":{…}}
 {"t":"agent","rev":44,"agent":{…}}           // upsert узла (статус, очередь, превью, права…)
 {"t":"agent_removed","rev":45,"id":"a-7f3k"}
 {"t":"space","rev":46,"space":{…}}           // upsert
 {"t":"space_removed","rev":47,"name":"main"}
+{"t":"role","rev":48,"role":{…}}             // upsert роли
+{"t":"role_removed","rev":49,"id":"reviewer"}
 ```
 
 Правила клиента: при **каждом (пере)подключении** приходит новый `snapshot` — состояние заменяется целиком. События чата
@@ -131,7 +177,10 @@ API-сегменты (первые сегменты маршрутов): `health
 curl -s localhost:4337/status
 curl -s -XPOST localhost:4337/spaces -d '{"path":"/Users/me/Projects/shippy"}'
 curl -s -XPOST localhost:4337/agents -d '{"space":"shippy","name":"rev","prompt":"что в README?","wait":true}'
-curl -s -XPOST localhost:4337/agents/rev/send -d '{"text":"а в CHANGELOG?"}'
+curl -s -XPOST localhost:4337/agents/rev/send -d '{"text":"а в CHANGELOG?"}'              # прервёт текущий ход
+curl -s -XPOST localhost:4337/agents/rev/send -d '{"text":"и ещё","interrupt":false}'      # в очередь
+curl -s -XPOST localhost:4337/roles -d '{"name":"Ревьюер","instructions":"Смотри MR строго"}'
+curl -s -XPOST localhost:4337/agents -d '{"space":"shippy","role":"revyuer","prompt":"MR !12"}'
 curl -s 'localhost:4337/inbox?wait=60'
 curl -sN localhost:4337/stream
 ```

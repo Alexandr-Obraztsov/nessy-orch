@@ -27,6 +27,7 @@ describe('SSE-потоки', () => {
 				['main'],
 			)
 			assert.deepEqual(snap.agents, [])
+			assert.deepEqual(snap.roles, [])
 			await h.api('POST', '/agents', { space: 'main', name: 'streamer', prompt: 'эй', wait: true })
 			await s.waitFor((e): e is StreamEvent => isStream(e) && e.t === 'message' && e.message.kind === 'reply', 8000, 'reply в /stream')
 			const ts = s.events.filter(isStream).map(e => e.t)

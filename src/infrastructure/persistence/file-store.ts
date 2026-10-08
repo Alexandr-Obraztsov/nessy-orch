@@ -2,13 +2,14 @@
  * FileStore — персистентность оркестратора (JSONL + state.json), без зависимостей.
  *
  *   <home>/state.json            пространства, агенты, курсоры
+ *   <home>/roles.json            роли субагентов
  *   <home>/messages.jsonl        лента сообщений (группчат)
  *   <home>/agents/<id>.jsonl     поток событий агента (мысли, инструменты, текст)
  *   <home>/logs/space-<n>.log    вывод процессов nessy serve
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { AgentEvent, Message } from '../../../shared/types'
+import type { AgentEvent, Message, RoleView } from '../../../shared/types'
 import type { PersistedAgent, PersistedSpace, PersistedState } from '../../application/persisted.types'
 import type { StorePort } from '../../application/ports'
 import { arr, isObject, parseJson } from '../../lib/json'
@@ -21,6 +22,7 @@ export class FileStore implements StorePort {
 	readonly logsDir: string
 	private readonly statePath: string
 	private readonly msgPath: string
+	private readonly rolesPath: string
 	private saveTimer: NodeJS.Timeout | null = null
 	private getState: (() => PersistedState) | null = null
 	private closed = false
@@ -32,6 +34,7 @@ export class FileStore implements StorePort {
 		fs.mkdirSync(this.logsDir, { recursive: true })
 		this.statePath = path.join(home, 'state.json')
 		this.msgPath = path.join(home, 'messages.jsonl')
+		this.rolesPath = path.join(home, 'roles.json')
 	}
 
 	loadState(): PersistedState {
@@ -70,6 +73,16 @@ export class FileStore implements StorePort {
 		this.closed = true
 	}
 
+	loadRoles(): RoleView[] {
+		const raw = parseJson(readText(this.rolesPath))
+		const list = isObject(raw) ? arr(raw['roles']) : arr(raw)
+		return list.filter(isRoleView)
+	}
+
+	saveRoles(roles: readonly RoleView[]): void {
+		if (!this.closed) writeAtomic(this.rolesPath, JSON.stringify({ roles }, null, 2))
+	}
+
 	appendMessage(m: Message): void {
 		if (!this.closed) appendJsonl(this.msgPath, m)
 	}
@@ -98,4 +111,18 @@ export class FileStore implements StorePort {
 	private eventsPath(agentId: string): string {
 		return path.join(this.agentsDir, agentId + '.jsonl')
 	}
+}
+
+/** Минимальная проверка записи roles.json (файл могли править руками). */
+function isRoleView(v: unknown): v is RoleView {
+	return (
+		isObject(v) &&
+		typeof v['id'] === 'string' &&
+		typeof v['name'] === 'string' &&
+		typeof v['instructions'] === 'string' &&
+		typeof v['description'] === 'string' &&
+		typeof v['color'] === 'number' &&
+		typeof v['createdAt'] === 'string' &&
+		typeof v['updatedAt'] === 'string'
+	)
 }
