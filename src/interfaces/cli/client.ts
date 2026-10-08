@@ -12,7 +12,7 @@ export function endpoint(env: NodeJS.ProcessEnv = process.env): Endpoint {
 }
 
 const UNREACHABLE =
-	'оркестратор недоступен. Запустите его (вне песочницы): `launchctl kickstart -k gui/$(id -u)/com.nessy.orch` или `node ~/Projects/nessy-orch/dist/src/main.js`'
+	'оркестратор недоступен. Запустите его в обычном терминале (не из Claude Code): `nessy-orch install` (сервис launchd) или `node ~/Projects/nessy-orch/dist/src/main.js`'
 
 export function request(ep: Endpoint, method: string, path: string, body?: unknown): Promise<unknown> {
 	return new Promise((resolve, reject) => {

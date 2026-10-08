@@ -34,16 +34,13 @@
 
 ## Composition root
 
-- `src/main.ts` — точка входа демона: `loadConfig()` → `acquireLock(home)` (второй экземпляр выходит, не трогая
-  состояние) → `buildApp(config, version)` → `listen()` → `start()`. Порт занят — выход, ничего не запущено.
-  `process.on('exit')` синхронно гасит дочерние serve (`killChildrenSync`) и снимает lock; `uncaughtException` /
-  `unhandledRejection` — лог, остановка детей, `exit(1)`; `SIGINT`/`SIGTERM` — корректная остановка
-  (принудительный выход через 10 с).
-- `src/app.ts` — `buildApp`: создаёт `FileStore`, `ServeProcesses` (учёт pid serve), `Orchestrator` (с фабрикой
+- `src/main.ts` — точка входа демона: `loadConfig()` → `buildApp(config, version)` → `listen()` → `start()`.
+  Порт занят — выход, ничего не запущено. `process.on('exit')` синхронно гасит дочерние serve (`killChildrenSync`);
+  `uncaughtException` — лог и `exit(1)`; `SIGINT`/`SIGTERM` — корректная остановка (принудительный выход через 10 с).
+- `src/app.ts` — `buildApp`: создаёт `FileStore`, `Orchestrator` (с фабрикой
   пространств `ServeSpace` + `NessyClient`), вызывает `orch.load()` (только чтение состояния, без побочных эффектов)
   и `createServer(...)`. Возвращает `{orch, server, listen, start, killChildrenSync, close}`; `start()` — после
-  `listen()`: остановить осиротевшие serve из `serve-pids.json`, затем `orch.start()` (доставка восстановленных
-  очередей по одному агенту). Используется и интеграционными тестами.
+  `listen()`: `orch.start()` (доставка восстановленных очередей). Используется и интеграционными тестами.
 
 `Agent` не импортирует `Orchestrator`: он знает его через интерфейс `AgentHost` (`getSpace`, `labelOf`, `preambleFor`,
 `onTurnDone`, `onUndeliverable`, `saveSoon`). Внешний мир ядро видит только через порты (`application/ports.ts`).
@@ -202,8 +199,6 @@ id роли (`reviewer`, `reviewer-2`, …), а `preambleFor` добавляет
 | `messages.jsonl` | лента сообщений, append-only; при старте читаются последние 5000 |
 | `agents/<id>.jsonl` | события агента, append-only; удалённый агент → `<id>.jsonl.removed` |
 | `logs/space-<имя>.log` | stdout/stderr процесса `nessy serve` |
-| `serve-pids.json` | `[{pid, port, workspace, startedAt}]` запущенных serve; при старте живые записи с командной строкой `… serve … --workspace …` останавливаются как осиротевшие |
-| `orch.lock` | pid работающего оркестратора; второй экземпляр не стартует, пока pid жив и это `…dist/src/main.js` |
 
 Рестарт оркестратора: пространства, роли и агенты восстанавливаются (агенты `idle`, флаг `archived` сохраняется), лента и очереди
 сохраняются, сообщения из очереди доставляются после того, как HTTP начал слушать (`orch.start()` → `resumeQueue`, по одному агенту). Ход, который был «в полёте» в момент остановки,

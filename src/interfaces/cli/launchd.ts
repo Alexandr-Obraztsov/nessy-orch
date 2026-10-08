@@ -9,6 +9,26 @@ import { CliError } from './errors'
 
 const LABEL = 'com.nessy.orch'
 
+/** Строка в одинарных кавычках для shell. */
+const shq = (v: string): string => `'${v.replace(/'/g, `'\\''`)}'`
+const xmlEscape = (v: string): string => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/** Login shell пользователя (zsh на macOS по умолчанию). */
+export function loginShell(env: NodeJS.ProcessEnv = process.env): string {
+	const sh = env['SHELL']
+	return sh && path.isAbsolute(sh) && fs.existsSync(sh) ? sh : '/bin/zsh'
+}
+
+/**
+ * Команда запуска сервиса. launchd даёт процессу почти пустое окружение, а nessy (и его канал
+ * nessy-acp-agent) нужны прокси, сертификаты, токены и PATH пользователя — без них создание сессии
+ * зависает (newSession timeout). Поэтому запускаем через login shell (`-lic`): он читает ~/.zprofile
+ * и ~/.zshrc, как обычный терминал, но процесс остаётся вне песочницы Claude.
+ */
+export function programArguments(shell: string, node: string, mainJs: string): string[] {
+	return [shell, '-lic', `exec ${shq(node)} ${shq(mainJs)}`]
+}
+
 function plist(): string {
 	const root = projectRoot()
 	const home = os.homedir()
@@ -20,8 +40,9 @@ function plist(): string {
   <key>Label</key><string>${LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${process.execPath}</string>
-    <string>${path.join(root, 'dist', 'src', 'main.js')}</string>
+${programArguments(loginShell(), process.execPath, path.join(root, 'dist', 'src', 'main.js'))
+	.map(a => `    <string>${xmlEscape(a)}</string>`)
+	.join('\n')}
   </array>
   <key>WorkingDirectory</key><string>${root}</string>
   <key>EnvironmentVariables</key>
@@ -61,7 +82,7 @@ export function install(opts: { print: boolean }): Promise<void> {
 		/* сервис ещё не был загружен */
 	}
 	execFileSync('launchctl', ['bootstrap', domain(), plistPath()], { stdio: 'inherit' })
-	process.stdout.write(`✓ сервис ${LABEL} установлен и запущен\n  перезапуск: launchctl kickstart -k ${domain()}/${LABEL}\n  логи: ~/.nessy-orch/logs/orch.{out,err}.log\n`)
+	process.stdout.write(`✓ сервис ${LABEL} установлен и запущен (через ${loginShell()} -lic — окружение как в терминале)\n  перезапуск: launchctl kickstart -k ${domain()}/${LABEL}\n  логи: ~/.nessy-orch/logs/orch.{out,err}.log\n`)
 	return Promise.resolve()
 }
 

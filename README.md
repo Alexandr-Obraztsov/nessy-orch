@@ -50,15 +50,20 @@ node dist/src/main.js               # оркестратор на http://127.0.0
 
 Откройте <http://127.0.0.1:4337> (или `bin/nessy-orch open`).
 
-Чтобы оркестратор работал постоянно, установите его как сервис launchd (macOS, `KeepAlive`):
+Чтобы оркестратор работал постоянно, установите его как сервис launchd (macOS, `KeepAlive`). Запускайте
+`install` из обычного терминала — не из Claude Code: внутри песочницы Claude сервер и его агенты тоже окажутся
+в песочнице.
 
 ```sh
 bin/nessy-orch install              # --print — только показать plist
 bin/nessy-orch uninstall
 ```
 
-Под launchd не запускайте второй экземпляр руками: он увидит `~/.nessy-orch/orch.lock` и сразу выйдет
-(`уже запущен (pid …)`). Для ручного запуска сначала остановите сервис (`bin/nessy-orch uninstall`).
+Сервис стартует через login shell пользователя (`zsh -lic`), поэтому получает то же окружение, что и терминал:
+`PATH`, прокси, корпоративные сертификаты, токены из `~/.zprofile` и `~/.zshrc`. Без них канал nessy
+(`nessy-acp-agent`) не может стартовать, и создание сессии падает с `AcpSessionBridge newSession timeout`.
+После изменения этих настроек перезапустите сервис: `launchctl kickstart -k gui/$(id -u)/com.nessy.orch`.
+Не запускайте второй экземпляр руками, пока работает сервис: выберите один способ.
 
 Первые шаги из терминала:
 
@@ -118,7 +123,6 @@ nessy-orch feed [-n 30] [--follow]
 nessy-orch inbox [--wait СЕК] [--peek]
 nessy-orch space add <путь> [--name N] [--url URL] | space ls | space rm <имя> [--force]
 nessy-orch status | open | install [--print] | uninstall
-nessy-orch doctor [--fix]                     # диагностика процессов nessy serve; --fix — остановить осиротевшие
 ```
 
 Полезный результат (ответ агента, JSON) выводится в stdout, служебные сообщения — в stderr. Флаг `--json` есть у всех
@@ -225,7 +229,7 @@ src/
   infrastructure/        адаптеры портов
     nessy/               клиент nessy serve и чистый маппер событий — единственное место, знающее протокол nessy
     persistence/         state.json и roles.json (атомарно) + JSONL-журналы
-    process/             запуск и контроль процессов nessy serve, serve-pids.json, orch.lock, таблица процессов (ps)
+    process/             запуск и контроль процессов nessy serve
     sse/, config/        SSE-парсер и форматтер, загрузка конфигурации
   interfaces/
     http/                HTTP-сервер: роутер, guard (Host/Origin), валидация тел, SSE, статика UI, routes/*
@@ -270,20 +274,11 @@ npm run dev:ui         # Vite dev-сервер на :5173 с прокси на �
 
 ### Если сессии не создаются (newSession timeout)
 
-Ошибка `AcpSessionBridge newSession timeout` обычно означает, что машина перегружена лишними процессами
-`nessy serve` (у каждого свои сессии и MCP-серверы). Раньше их оставлял второй экземпляр оркестратора, запущенный рядом
-с launchd: он падал на занятом порту, launchd перезапускал его каждые несколько секунд, и каждый раз оставался
-«осиротевший» serve. Теперь оркестратор сначала занимает порт и только потом поднимает serve, гасит своих детей
-при любом выходе, при старте останавливает осиротевшие serve из `~/.nessy-orch/serve-pids.json`, а второй экземпляр
-не стартует вовсе (`~/.nessy-orch/orch.lock`).
+Почти всегда это окружение: nessy запущен без прокси, сертификатов или токенов, которые есть в терминале.
+Проверьте, что оркестратор запущен из обычного терминала или сервисом через `install` (login shell), а не из-под
+Claude Code. Проверка без оркестратора:
 
 ```sh
-nessy-orch doctor          # оркестратор, lock, все nessy serve на машине («осиротевший» — кандидаты на остановку),
-                           # агенты по пространствам против MAX_SESSIONS, подсказки; работает и без оркестратора
-nessy-orch doctor --fix    # остановить осиротевшие serve (SIGTERM, через 3 с SIGKILL)
-launchctl list | grep nessy            # запущен ли сервис launchd
+~/.local/bin/nessy serve --port 4399 --hostname 127.0.0.1 --no-web --workspace <каталог> &
+curl -s -XPOST 127.0.0.1:4399/session -H 'content-type: application/json' -d '{"cwd":"<каталог>","sessionScope":"thread"}'
 ```
-
-Не запускайте `node dist/src/main.js` руками, пока работает сервис launchd: либо `nessy-orch uninstall`
-(или `launchctl bootout gui/$(id -u)/com.nessy.orch`), либо только launchd. `doctor --fix` не трогает serve,
-запущенные не оркестратором (родитель — не оркестратор и не launchd, pid не записан).
