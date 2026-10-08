@@ -79,10 +79,11 @@ export class MessagingService {
 	}
 
 	// ---------- коллбэки агентов ----------
-	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): void {
-		if (!expectsReply(msg)) return // ответы на ответы не порождаем
+	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): Message | null {
+		if (!expectsReply(msg)) return null // ответы на ответы не порождаем
 		const reply = this.ctx.feed.append(replyDraft(agent.id, msg, text, outcome))
 		const back = this.ctx.registry.agents.get(msg.from)
 		if (back && !msg.wait) back.deliver(reply)
+		return reply
 	}
 }

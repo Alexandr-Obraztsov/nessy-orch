@@ -5,7 +5,7 @@
  * Состояние маппера — только буфер инструментов по toolCallId: `title`/`rawInput` приходят
  * лишь в tool_call, а в tool_call_update их нет — без буфера обновление теряет заголовок.
  */
-import type { ToolStatus } from '../../../shared/types'
+import type { PlanEntry, PlanStatus, ToolStatus } from '../../../shared/types'
 import type { SessionEvent } from '../../application/ports'
 import type { PermissionOption } from '../../domain/types'
 import { arr, isObject, obj, str, strOrNull } from '../../lib/json'
@@ -57,6 +57,20 @@ function toolEvent(toolId: string, b: ToolCallBuffer): SessionEvent {
 	}
 }
 
+/** Статус шага плана ACP; неизвестный — pending. */
+function mapPlanStatus(v: unknown): PlanStatus {
+	return v === 'in_progress' || v === 'completed' ? v : 'pending'
+}
+
+/** ACP `plan`: entries[] = {content, priority, status}; priority оркестратору не нужен. */
+function mapPlan(u: JsonObject): SessionEvent {
+	const entries = arr(u['entries']).map((e): PlanEntry => {
+		const o = obj(e)
+		return { content: str(o['content']), status: mapPlanStatus(o['status']) }
+	})
+	return { kind: 'plan', entries }
+}
+
 function mapSessionUpdate(u: JsonObject, tools: Map<string, ToolCallBuffer>): SessionEvent | null {
 	const su = str(u['sessionUpdate'])
 	if (su === 'agent_message_chunk' || su === 'agent_thought_chunk') {
@@ -83,6 +97,7 @@ function mapSessionUpdate(u: JsonObject, tools: Map<string, ToolCallBuffer>): Se
 		else tools.set(toolId, b)
 		return toolEvent(toolId, b)
 	}
+	if (su === 'plan') return mapPlan(u)
 	return null // user_message_chunk (эхо), current_mode_update, session_info_update, available_commands_update
 }
 

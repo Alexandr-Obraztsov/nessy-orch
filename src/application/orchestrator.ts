@@ -138,10 +138,9 @@ export class Orchestrator implements AgentHost {
 		return this.agentsSvc.preambleFor(agent)
 	}
 
-	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): void {
-		this.messaging.onTurnDone(agent, msg, text, outcome)
+	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): Message | null {
+		return this.messaging.onTurnDone(agent, msg, text, outcome)
 	}
-
 
 	// ---------- пространства ----------
 	addSpace(req: SpaceRequest): SpaceView {

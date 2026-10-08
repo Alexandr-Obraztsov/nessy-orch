@@ -2,7 +2,7 @@
  * Порты прикладного слоя: что ядру нужно от внешнего мира (nessy, процессы, хранилище, часы, id).
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
-import type { AgentEvent, Message, RoleView, SpaceStatus, SpaceView, ToolStatus } from '../../shared/types'
+import type { AgentEvent, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, ToolStatus } from '../../shared/types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
 import type { PersistedState } from './persisted.types'
 
@@ -27,6 +27,8 @@ export type SessionEvent =
 	| { kind: 'meta'; displayName: string }
 	| { kind: 'permission'; requestId: string; options: PermissionOption[]; title: string }
 	| { kind: 'followup'; text: string }
+	/** План агента целиком (ACP `plan`): каждое обновление заменяет прежний. */
+	| { kind: 'plan'; entries: PlanEntry[] }
 	| { kind: 'died'; reason: string }
 	| { kind: 'evicted' }
 

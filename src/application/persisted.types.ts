@@ -1,5 +1,5 @@
 /** Форма состояния оркестратора в хранилище (state.json). */
-import type { Message } from '../../shared/types'
+import type { AgentPlan, Message, ReplyBrief } from '../../shared/types'
 
 export interface PersistedSpace {
 	name: string
@@ -27,7 +27,15 @@ export interface PersistedAgent {
 	queue: Message[]
 	evSeq: number
 	lastActivityAt: string
+	/** текст последнего ответа (для превью) */
 	lastReply: string
+	/** план агента; нет в состояниях старых версий */
+	plan?: AgentPlan | null
+	/** шаги (вызовы инструментов) текущего/последнего хода */
+	turnSteps?: number
+	lastTurnMs?: number | null
+	/** последний ответ оператору (you) */
+	replyBrief?: ReplyBrief | null
 }
 
 export interface PersistedState {

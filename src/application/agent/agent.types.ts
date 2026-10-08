@@ -9,7 +9,8 @@ export interface AgentHost {
 	getSpace(name: string): SpaceRuntime | undefined
 	labelOf(id: string): string
 	preambleFor(agent: AgentIdentity): string
-	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): void
+	/** Ход завершён: опубликовать ответ отправителю. Возвращает опубликованный ответ (или null). */
+	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): Message | null
 	saveSoon(): void
 }
 
@@ -49,6 +50,8 @@ export interface CurrentTurn {
 	promptId: string | null
 	text: string
 	startedAt: string
+	/** начало хода, мс (для lastTurnMs) */
+	startedMs: number
 	/** ошибка хода из nessy (`nessy/error`), применяется на turn_complete */
 	error: string | null
 	/** отмена запрошена (cancel / прерывание новым сообщением), ждём подтверждения nessy */
