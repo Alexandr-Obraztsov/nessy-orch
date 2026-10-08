@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nessy-orch — Вариант C — Входящие</title>
+<link rel="stylesheet" href="./tokens.css">
+<style>
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 400 var(--fs-md)/var(--lh) var(--font-ui); -webkit-font-smoothing: antialiased; overflow: hidden; }
+button { font: inherit; color: inherit; cursor: pointer; }
+code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+.app { display: grid; grid-template-columns: 208px 436px minmax(0, 1fr); height: 100vh; }
+
+/* ---------- иконки и общие ---------- */
+.ic { width: 16px; height: 16px; flex: none; display: block; }
+.spin { animation: spin 1.1s linear infinite; }
+.pulse { animation: pulse 1.8s ease-in-out infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .55; transform: scale(.88); } }
+@keyframes ring { 0% { box-shadow: 0 0 0 0 var(--warn-soft); } 100% { box-shadow: 0 0 0 8px transparent; } }
+@media (prefers-reduced-motion: reduce) { .spin, .pulse, .banner.attention { animation: none !important; } }
+.c-wait { color: var(--warn); } .c-err { color: var(--danger); } .c-work { color: var(--accent-text); }
+.c-done { color: var(--success); } .c-idle { color: var(--text-faint); } .c-start { color: var(--st-starting); }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 18px; padding: 0 7px; border: 1px solid var(--border); border-radius: var(--r-full); font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; background: var(--bg-alt); }
+.chip i { width: 6px; height: 6px; border-radius: 50%; display: block; }
+.chip.mono { font-family: var(--font-mono); font-size: 10.5px; }
+kbd { font: 500 10.5px var(--font-mono); padding: 0 5px; border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; color: var(--text-muted); background: var(--bg-alt); }
+.btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: var(--r-sm); border: 1px solid var(--border-strong); background: var(--bg-alt); font-size: var(--fs-sm); font-weight: 500; white-space: nowrap; transition: background var(--dur) var(--ease); }
+.btn:hover { background: var(--bg-active); }
+.btn:focus-visible, .row:focus-visible, .nav-item:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: -1px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.ok { background: var(--success); border-color: var(--success); color: #fff; }
+.btn.danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+.btn.danger:hover { background: var(--danger-soft); }
+.btn.sm { height: 22px; padding: 0 8px; font-size: var(--fs-xs); }
+.btn.lg { height: 32px; padding: 0 14px; font-size: var(--fs-md); }
+.icon-btn { width: 28px; height: 28px; display: inline-grid; place-items: center; border: 0; background: transparent; border-radius: var(--r-sm); color: var(--text-muted); }
+.icon-btn:hover { background: var(--bg-hover); color: var(--text); }
+.bar { height: 4px; border-radius: 2px; background: var(--bg-active); overflow: hidden; }
+.bar > b { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .3s var(--ease); }
+.bar.done > b { background: var(--success); }
+.muted { color: var(--text-muted); } .faint { color: var(--text-faint); }
+.tick { font-variant-numeric: tabular-nums; }
+
+/* ---------- левая навигация ---------- */
+.nav { background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 12px 8px; gap: 2px; min-height: 0; }
+.brand { padding: 2px 8px 10px; }
+.brand b { font-size: var(--fs-lg); letter-spacing: -.01em; }
+.variant { display: block; margin-top: 2px; font-size: var(--fs-xs); color: var(--accent-text); }
+.compose { margin: 0 0 10px; width: 100%; justify-content: center; height: 32px; }
+.nav-item { display: flex; align-items: center; gap: 9px; width: 100%; height: 30px; padding: 0 8px; border: 0; background: transparent; border-radius: var(--r-sm); color: var(--text-muted); text-align: left; }
+.nav-item:hover { background: var(--bg-hover); color: var(--text); }
+.nav-item.active { background: var(--bg-active); color: var(--text); font-weight: 600; }
+.nav-item .ic { width: 15px; height: 15px; }
+.nav-item .n { margin-left: auto; font-size: var(--fs-xs); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.nav-item.active .n { color: var(--text-muted); }
+.nav-item .n.hot { background: var(--accent); color: #fff; border-radius: var(--r-full); padding: 0 6px; font-weight: 600; }
+.nav-sep { height: 1px; background: var(--border); margin: 8px 6px; }
+.nav-sp { flex: 1; }
+.nav-foot { display: flex; align-items: center; gap: 4px; padding: 0 2px; }
+.nav-foot .muted { font-size: var(--fs-xs); flex: 1; padding-left: 6px; }
+
+/* ---------- список ---------- */
+.list-col { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg); }
+.list-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--border); }
+.list-head h2 { margin: 0 0 8px; font-size: var(--fs-lg); font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
+.list-head h2 span { font-size: var(--fs-sm); color: var(--text-faint); font-weight: 400; }
+.counters { display: flex; gap: 6px; flex-wrap: wrap; }
+.cnt { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border: 1px solid var(--border); border-radius: var(--r-full); background: transparent; font-size: var(--fs-sm); color: var(--text-muted); }
+.cnt:hover { background: var(--bg-hover); }
+.cnt .ic { width: 12px; height: 12px; }
+.cnt.on { background: var(--bg-active); color: var(--text); border-color: var(--border-strong); }
+.list { flex: 1; overflow-y: auto; min-height: 0; }
+.sec { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 7px 14px 4px; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em; color: var(--text-faint); font-weight: 600; display: flex; gap: 6px; border-bottom: 1px solid transparent; }
+.sec.c-wait, .sec.c-err { }
+.row { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; column-gap: 10px; row-gap: 3px; padding: 9px 14px 9px 14px; border-bottom: 1px solid var(--border); cursor: pointer; outline: none; }
+.row:hover { background: var(--bg-hover); }
+.row.sel { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+.row .st { padding-top: 2px; }
+.row .l1 { display: flex; align-items: center; gap: 7px; min-width: 0; grid-column: 2; }
+.row .title { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--text); }
+.row.unread .title { font-weight: 650; }
+.row .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; margin-left: -2px; }
+.row .rt { grid-column: 3; grid-row: 1; font-size: var(--fs-xs); color: var(--text-muted); text-align: right; }
+.row .rt2 { grid-column: 3; grid-row: 2; display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--text-faint); justify-content: flex-end; }
+.row .rt2 .bar { width: 44px; }
+.row .l2 { grid-column: 2; display: block; font-size: var(--fs-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.unread .l2 { color: var(--text); }
+.row .l2.c-wait { color: var(--warn); } .row .l2.c-err { color: var(--danger); }
+.row .l2 .ic { display: inline-block; vertical-align: -3px; width: 13px; height: 13px; margin-right: 3px; }
+.acts { position: absolute; right: 10px; bottom: 6px; display: none; gap: 4px; padding-left: 24px; background: linear-gradient(90deg, transparent, var(--bg-hover) 18px); }
+.row.sel .acts { background: linear-gradient(90deg, transparent, var(--accent-soft) 18px); }
+.row:hover .acts, .row:focus-within .acts { display: flex; }
+.row:hover .acts, .row.sel:hover .acts { background: linear-gradient(90deg, transparent, var(--bg) 18px); }
+.list-foot { border-top: 1px solid var(--border); padding: 7px 14px; display: flex; gap: 12px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-faint); background: var(--bg-alt); }
+.list-foot span { display: inline-flex; align-items: center; gap: 4px; }
+.empty { padding: 48px 20px; text-align: center; color: var(--text-faint); }
+.empty b { display: block; color: var(--text-muted); font-size: var(--fs-lg); margin-bottom: 4px; }
+.logrow { padding: 8px 14px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 52px 1fr; gap: 8px; font-size: var(--fs-sm); }
+.logrow time { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.logrow b { font-weight: 600; }
+.ref-row { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.ref-row small { color: var(--text-faint); margin-left: auto; font-size: var(--fs-xs); }
+
+/* ---------- читалка ---------- */
+.read-col { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
+.toolbar { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 12px; border-bottom: 1px solid var(--border); flex: none; }
+.toolbar .crumb { color: var(--text-muted); font-size: var(--fs-sm); margin: 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.toolbar .back { display: none; }
+.scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.doc { max-width: 780px; margin: 0 auto; padding: 22px 32px 28px; }
+.doc h1 { margin: 0 0 8px; font-size: 22px; line-height: 1.3; letter-spacing: -.015em; font-weight: 650; }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; color: var(--text-muted); font-size: var(--fs-sm); margin-bottom: 16px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: var(--r-full); font-size: var(--fs-sm); font-weight: 600; border: 1px solid currentColor; }
+.pill .ic { width: 12px; height: 12px; }
+.pill.c-wait { background: var(--warn-soft); } .pill.c-err { background: var(--danger-soft); }
+.pill.c-work { background: var(--accent-soft); } .pill.c-done { background: color-mix(in srgb, var(--success) 14%, transparent); }
+.banner { display: flex; gap: 14px; align-items: flex-start; padding: 14px 16px; border-radius: var(--r-md); border: 1px solid; margin-bottom: 18px; }
+.banner > .ic { width: 22px; height: 22px; margin-top: 1px; }
+.banner .bt { flex: 1; min-width: 0; }
+.banner h3 { margin: 0 0 2px; font-size: var(--fs-lg); font-weight: 650; }
+.banner p { margin: 0 0 8px; color: var(--text-muted); font-size: var(--fs-sm); }
+.banner .cmd { display: block; background: var(--bg-code); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 7px 10px; margin: 8px 0 12px; font-family: var(--font-mono); font-size: 12px; overflow-x: auto; color: var(--text); }
+.banner .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.banner.attention { border-color: var(--warn); background: var(--warn-soft); animation: ring 2s ease-out infinite; }
+.banner.attention > .ic, .banner.attention h3 { color: var(--warn); }
+.banner.error { border-color: var(--danger); background: var(--danger-soft); }
+.banner.error > .ic, .banner.error h3 { color: var(--danger); }
+.banner.result { border-color: color-mix(in srgb, var(--success) 55%, transparent); background: color-mix(in srgb, var(--success) 10%, transparent); }
+.banner.result > .ic, .banner.result h3 { color: var(--success); }
+.banner.info { border-color: var(--border-strong); background: var(--bg-alt); }
+.blk { margin-bottom: 22px; }
+.blk > h4 { margin: 0 0 8px; display: flex; align-items: center; gap: 8px; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .07em; color: var(--text-faint); font-weight: 600; }
+.blk > h4 em { font-style: normal; text-transform: none; letter-spacing: 0; color: var(--text-muted); font-weight: 500; font-size: var(--fs-sm); }
+.blk > h4::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.now { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-card); }
+.now > div { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); min-height: 36px; }
+.now > div:last-child { border-bottom: 0; }
+.now .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.plan-head .bar { flex: 1; height: 6px; } .plan-head b { font-variant-numeric: tabular-nums; }
+.check { list-style: none; margin: 0; padding: 0; }
+.check li { display: flex; align-items: center; gap: 10px; padding: 5px 2px; }
+.check li.done { color: var(--text-muted); } .check li.done span { text-decoration: line-through; text-decoration-color: var(--text-faint); }
+.check li.active { font-weight: 600; }
+.check .ic { width: 15px; height: 15px; }
+.check .state { margin-left: auto; font-size: var(--fs-xs); color: var(--text-faint); }
+.md { line-height: 1.6; }
+.md p { margin: 0 0 10px; }
+.md code { background: var(--bg-code); border: 1px solid var(--border); padding: 0 4px; border-radius: 4px; }
+.md table { border-collapse: collapse; margin: 6px 0 4px; width: 100%; font-size: var(--fs-md); border: 1px solid var(--border); border-radius: var(--r-sm); }
+.md th, .md td { text-align: left; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.md th { background: var(--bg-alt); font-size: var(--fs-sm); color: var(--text-muted); font-weight: 600; }
+.md tr:last-child td { border-bottom: 0; }
+.res-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px 16px 8px; background: var(--bg-card); }
+.res-card .res-top { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; color: var(--text-muted); font-size: var(--fs-sm); }
+.res-card .res-top .btn { margin-left: auto; }
+.res-card + .res-card { margin-top: 8px; }
+.res-empty { color: var(--text-faint); border: 1px dashed var(--border-strong); border-radius: var(--r-md); padding: 12px 14px; font-size: var(--fs-sm); }
+.agents { border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
+.ag { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.ag:last-child { border-bottom: 0; }
+.ag:hover { background: var(--bg-hover); }
+.ag.focus { background: var(--accent-soft); }
+.ag .nm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; }
+.ag .nm b { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; }
+.ag .nm .tree { color: var(--text-faint); font-family: var(--font-mono); }
+.ag .sub { grid-column: 2; font-size: var(--fs-sm); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag .rr { grid-column: 3; grid-row: 1 / 3; text-align: right; font-size: var(--fs-xs); color: var(--text-muted); }
+.tl { list-style: none; margin: 0; padding: 0 0 0 4px; position: relative; }
+.tl::before { content: ''; position: absolute; left: 11px; top: 8px; bottom: 8px; width: 1px; background: var(--border-strong); }
+.tl li { position: relative; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; padding: 5px 0; align-items: start; }
+.tl .ic { width: 15px; height: 15px; background: var(--bg); border-radius: 50%; margin-top: 2px; }
+.tl .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl .tt small { display: block; color: var(--text-faint); font-size: var(--fs-sm); white-space: normal; }
+.tl .tt .err-box { margin-top: 4px; padding: 6px 10px; border-radius: var(--r-sm); background: var(--danger-soft); color: var(--danger); font-family: var(--font-mono); font-size: 11.5px; white-space: normal; }
+.tl .du { font-size: var(--fs-xs); color: var(--text-faint); padding-top: 3px; font-variant-numeric: tabular-nums; }
+.more { color: var(--accent-text); font-size: var(--fs-sm); padding: 2px 0 0 30px; }
+details.chat { border: 1px solid var(--border); border-radius: var(--r-md); }
+details.chat > summary { list-style: none; cursor: pointer; padding: 9px 12px; display: flex; gap: 8px; align-items: center; color: var(--text-muted); }
+details.chat > summary::-webkit-details-marker { display: none; }
+details.chat > summary::before { content: '▸'; font-size: 10px; transition: transform var(--dur); }
+details.chat[open] > summary::before { transform: rotate(90deg); }
+details.chat .msgs { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+.msg { max-width: 88%; padding: 7px 11px; border-radius: var(--r-md); background: var(--bg-alt); border: 1px solid var(--border); font-size: var(--fs-md); }
+.msg small { display: block; color: var(--text-faint); font-size: var(--fs-xs); margin-bottom: 1px; }
+.msg.you { align-self: flex-end; background: var(--accent-soft); border-color: var(--accent-ring); }
+.composer { border-top: 1px solid var(--border); padding: 10px 16px 12px; background: var(--bg-alt); flex: none; }
+.composer .in { max-width: 748px; margin: 0 auto; border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--bg-input); }
+.composer .in:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring); }
+.composer textarea { display: block; width: 100%; border: 0; background: transparent; color: var(--text); font: inherit; resize: none; padding: 9px 12px 2px; height: 42px; outline: none; }
+.composer .bt { display: flex; align-items: center; gap: 10px; padding: 4px 8px 6px 12px; font-size: var(--fs-sm); color: var(--text-muted); }
+.composer label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.composer input[type=checkbox] { accent-color: var(--accent); margin: 0; }
+.composer .to { margin-left: auto; font-size: var(--fs-xs); color: var(--text-faint); }
+.placeholder { margin: auto; text-align: center; color: var(--text-faint); padding: 40px; }
+
+/* ---------- диалог и тост ---------- */
+.modal-bg { position: fixed; inset: 0; background: var(--overlay); display: none; place-items: center; z-index: 50; padding: 16px; }
+.modal-bg.show { display: grid; }
+.modal { width: min(480px, 100%); background: var(--bg-alt); border: 1px solid var(--border-strong); border-radius: var(--r-lg); box-shadow: var(--shadow-3); padding: 18px; }
+.modal h3 { margin: 0 0 12px; font-size: var(--fs-lg); }
+.modal label { display: block; font-size: var(--fs-sm); color: var(--text-muted); margin: 10px 0 4px; }
+.modal textarea, .modal select, .modal input { width: 100%; background: var(--bg-input); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--r-sm); padding: 7px 9px; font: inherit; }
+.modal textarea { height: 76px; resize: none; }
+.modal .ft { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(20px); background: var(--bg-active); backdrop-filter: blur(8px); background-color: color-mix(in srgb, var(--bg-alt) 92%, var(--text)); border: 1px solid var(--border-strong); border-radius: var(--r-md); padding: 8px 8px 8px 14px; box-shadow: var(--shadow-2); display: flex; gap: 12px; align-items: center; opacity: 0; pointer-events: none; transition: all .2s var(--ease); z-index: 60; font-size: var(--fs-sm); max-width: calc(100vw - 24px); }
+.toast.show { opacity: 1; transform: translateX(-50%); pointer-events: auto; }
+.toast a { color: var(--accent-text); cursor: pointer; font-weight: 600; }
+
+/* ---------- мобильная раскладка ---------- */
+@media (max-width: 899px) {
+	body { overflow: hidden; }
+	.app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+	.nav { flex-direction: row; flex-wrap: wrap; align-items: center; padding: 8px 12px 6px; gap: 4px 6px; border-right: 0; border-bottom: 1px solid var(--border); }
+	.brand { padding: 0; flex: 1 1 auto; }
+	.brand b { font-size: var(--fs-md); } .variant { margin: 0; }
+	.compose { width: auto; margin: 0; height: 30px; order: 2; padding: 0 10px; }
+	.nav-foot { order: 3; } .nav-foot .muted { display: none; }
+	.nav-sep, .nav-sp { display: none; }
+	.nav-chips { order: 5; width: 100%; display: flex; flex-wrap: wrap; gap: 4px; }
+	.nav-item { width: auto; height: 26px; padding: 0 9px; border: 1px solid var(--border); border-radius: var(--r-full); gap: 5px; font-size: var(--fs-sm); }
+	.nav-item .ic { display: none; }
+	.nav-item .n { margin-left: 0; }
+	.counters { display: none; }
+	.list-head { padding: 8px 14px 6px; } .list-head h2 { margin: 0; }
+	.list-col { border-right: 0; }
+	.list-foot { display: none; }
+	.acts { display: none !important; }
+	.read-col { position: fixed; inset: 0; z-index: 30; transform: translateX(100%); transition: transform .22s var(--ease); }
+	.app.reading .read-col { transform: none; }
+	.toolbar .back { display: inline-grid; }
+	.toolbar .pn { display: none; }
+	.doc { padding: 16px 16px 20px; } .doc h1 { font-size: 19px; }
+	.composer { padding: 8px 12px 10px; }
+	.banner { flex-wrap: wrap; padding: 12px; } .banner > .ic { width: 20px; height: 20px; }
+	.md table { font-size: var(--fs-sm); } .md th, .md td { padding: 5px 8px; }
+	.kbd-only { display: none; }
+}
+@media (min-width: 900px) and (max-width: 1199px) { .app { grid-template-columns: 188px 360px minmax(0,1fr); } .doc { padding: 20px 20px; } }
+.nav-chips { display: contents; }
+@media (max-width: 899px) { .nav-chips { display: flex; } }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+	<nav class="nav" id="nav" aria-label="Разделы"></nav>
+	<section class="list-col" aria-label="Список поручений">
+		<div class="list-head"><h2 id="listTitle"></h2><div class="counters" id="counters"></div></div>
+		<div class="list" id="list" tabindex="-1"></div>
+		<div class="list-foot kbd-only"><span><kbd>j</kbd><kbd>k</kbd> по списку</span><span><kbd>Enter</kbd> открыть</span><span><kbd>a</kbd> разрешить</span><span><kbd>e</kbd> готово / в архив</span></div>
+	</section>
+	<main class="read-col" id="read" aria-label="Поручение"></main>
+</div>
+<div class="modal-bg" id="modal"><div class="modal" role="dialog" aria-label="Новое поручение">
+	<h3>Новое поручение</h3>
+	<label for="mTask">Что сделать</label><textarea id="mTask" placeholder="Например: сравни конфиги CI в двух репозиториях"></textarea>
+	<label for="mRole">Роль</label><select id="mRole"></select>
+	<label for="mSpace">Пространство</label><input id="mSpace" value="api-gateway">
+	<div class="ft"><button class="btn" id="mCancel">Отмена</button><button class="btn primary" id="mOk">Запустить</button></div>
+</div></div>
+<div class="toast" id="toast" role="status"></div>
+<script src="./data.js"></script>
+<script>
+(function () {
+'use strict'
+var M = window.MOCK
+var T0 = Date.now()
+var $ = function (id) { return document.getElementById(id) }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] }) }
+function plural(n, a, b, c) { var m = n % 10, h = n % 100; return n + ' ' + (m === 1 && h !== 11 ? a : (m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c)) }
+function fmt(s) { s = Math.max(0, Math.floor(s)); var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0') }
+function ago(sec) { return T0 - sec * 1000 }
+function tick(since) { return '<span class="tick" data-since="' + since + '">' + fmt((Date.now() - since) / 1000) + '</span>' }
+function plain(s) { return s.split('\n')[0].replace(/\*\*|`/g, '') }
+
+/* ---------- иконки ---------- */
+var I = {
+	spin: '<svg class="ic spin" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-opacity=".25" stroke-width="2"/><path d="M8 2a6 6 0 0 1 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+	wait: '<svg class="ic pulse" viewBox="0 0 16 16"><path d="M8 1.6 15 14H1z" fill="currentColor"/><path d="M8 6v4M8 11.6v.4" stroke="var(--bg)" stroke-width="1.6" stroke-linecap="round"/></svg>',
+	err: '<svg class="ic" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.6" fill="currentColor"/><path d="m5.6 5.6 4.8 4.8m0-4.8-4.8 4.8" stroke="var(--bg)" stroke-width="1.6" stroke-linecap="round"/></svg>',
+	done: '<svg class="ic" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6.6" fill="currentColor"/><path d="m5 8.2 2.2 2.2L11 6.2" stroke="var(--bg)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+	idle: '<svg class="ic" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.8" stroke="currentColor" stroke-width="1.6"/></svg>',
+	start: '<svg class="ic" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="5.8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2.4 2.4"/></svg>',
+	inbox: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 9.5 3.8 3h8.4L14 9.5V13H2z"/><path d="M2 9.5h3.6l.8 1.6h3.2l.8-1.6H14"/></svg>',
+	all: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 4h10M3 8h10M3 12h10"/></svg>',
+	log: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 3v10h10M6 10V8m3 2V5m3 5V7"/></svg>',
+	role: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="5.5" r="2.6"/><path d="M3 13.5c.6-2.6 2.5-4 5-4s4.4 1.4 5 4" stroke-linecap="round"/></svg>',
+	space: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 4.5h4l1.2 1.5H14V12.5H2z"/></svg>',
+	back: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>',
+	up: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 5-5 5 5"/></svg>',
+	down: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m3 6 5 5 5-5"/></svg>',
+	arch: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M2 3.5h12v3H2zM3 6.5V13h10V6.5M6.5 9h3"/></svg>',
+	tool: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="m5 5 -2.5 3L5 11M11 5l2.5 3L11 11M9 3.5 7 12.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+}
+function stIcon(k) { var m = { attention: ['wait', 'c-wait'], error: ['err', 'c-err'], working: ['spin', 'c-work'], done: ['done', 'c-done'], idle: ['idle', 'c-idle'], starting: ['start', 'c-start'] }[k] || ['idle', 'c-idle']; return '<span class="' + m[1] + '">' + I[m[0]] + '</span>' }
+function roleChip(r) { var ro = M.roles[r] || { name: r, hue: 0 }; return '<span class="chip"><i style="background:hsl(' + ro.hue + ' 60% 58%)"></i>' + esc(ro.name) + '</span>' }
+
+/* ---------- состояние ---------- */
+var STEPS = {
+	'a-fx01': [['ok', 'Read .github/workflows/ci.yml', 'найден шаг test:gateway', '0.4 с'], ['err', 'Bash: npm test', 'exit 1 · gateway.e2e.ts:118 timeout 5000ms', '41 с'], ['ok', 'Grep «testTimeout» в jest.config.ts', '', '0.2 с'], ['ok', 'Делегирован explore-ci', 'нашёл причину: холодный старт Redis', '0:48'], ['ok', 'Edit jest.config.ts:12', 'testTimeout 5000 → 15000', '0.3 с'], ['ok', 'Делегирован review-ci', 'проверь дифф в jest.config.ts (в очереди)', '0.1 с'], ['run', 'Bash: npm test -- --grep gateway', 'идёт прогон 24 тестов', 'since']],
+	'a-ex02': [['ok', 'Grep «timeout» в packages/gateway', '4 совпадения', '0.3 с'], ['ok', 'Read gateway.e2e.ts', 'строки 100–140', '0.2 с'], ['ok', 'Ответ fix-ci', 'причина найдена', '0.1 с']],
+	'a-jr04': [['ok', 'Jira: поиск project = PAY AND type = Bug', '12 задач', '4.1 с'], ['ok', 'Jira: чтение PAY-812, PAY-799, PAY-777', '3 задачи', '8.2 с'], ['ok', 'Сборка таблицы и ответ', '', '1.0 с']],
+	'a-wk05': [['ok', 'Wiki: поиск «деплой shippy»', '3 страницы', '2.3 с'], ['ok', 'Wiki: чтение «Деплой shippy / Релизы»', '', '1.1 с'], ['run', 'Wiki: поиск «shippy deploy»', 'сверка с README репозитория', 'since']],
+	'a-db07': [['ok', 'Sage: запрос p99 shippy за 6 ч', 'рост с 14:02', '3.4 с'], ['ok', 'Sage: ошибки по эндпоинтам', 'POST /orders → 504', '5.0 с'], ['err', 'Sage: логи nginx upstream', 'Sage: 429 Too Many Requests · retry-after 60s', '0.8 с', 'Квота запросов к Sage исчерпана. Агент остановлен, ход можно повторить.']],
+	'a-mr08': [['ok', 'GitLab: чтение MR !1234', '4 файла', '2.0 с'], ['ok', 'Анализ client.ts', 'ретрай не идемпотентен', '1:10']],
+	'a-vf09': [['ok', 'Запуск воспроизводящего теста', 'двойной вызов refund', '1:12']]
+}
+var CHAT = {
+	t1: [['you', 'Вы', 'Почини падающий CI в api-gateway, пуш в отдельную ветку.'], ['a', 'fix-ci', 'Принято. Делегирую поиск падающего шага explore-ci.'], ['a', 'explore-ci → fix-ci', 'Падает gateway.e2e.ts:118, таймаут 5 с.']],
+	t2: [['you', 'Вы', 'Отчёт по открытым багам payments за сентябрь.'], ['a', 'jira-report', 'Готово, 12 открытых багов.']],
+	t3: [['you', 'Вы', 'Обнови раздел Wiki про деплой shippy.'], ['a', 'wiki-deploy', 'Начинаю с поиска существующих страниц.']],
+	t4: [['you', 'Вы', 'Найди причину роста 504 у shippy после 14:00.'], ['a', 'inc-504', 'Нашёл рост на POST /orders, смотрю логи upstream.']],
+	t5: [['you', 'Вы', 'Проверь MR !1234.'], ['a', 'mr-1234', 'Есть блокер, прошу подтвердить.'], ['a', 'mr-1234-verify', 'Подтверждаю.']]
+}
+var S = { tasks: [], sel: 't1', filter: 'inbox', chip: null, focus: {}, draft: {}, interrupt: {}, undo: null, page: null }
+M.tasks.forEach(function (t) {
+	var c = JSON.parse(JSON.stringify(t))
+	c.read = !(t.status === 'attention' || t.status === 'error' || (t.status === 'done' && t.agents[0].unread))
+	c.archived = false
+	c.start = ago(t.startedAgo)
+	c.chat = (CHAT[t.id] || []).slice()
+	c.agents.forEach(function (a) { if (a.turnAgo) a.turnStart = ago(a.turnAgo); if (a.toolAgo != null) a.toolStart = ago(a.toolAgo) })
+	c.permSince = ago(38)
+	c.endedAt = t.status === 'done' ? (t.agents[0].duration || 0) : null
+	S.tasks.push(c)
+})
+function root(t) { return t.agents[0] }
+function byId(id) { return S.tasks.filter(function (t) { return t.id === id })[0] }
+function planOf(t) { var p = root(t).plan; if (!p) return null; var d = p.filter(function (x) { return x[1] === 'done' }).length; return { d: d, n: p.length, items: p } }
+function rank(t) { return t.status === 'attention' ? 0 : t.status === 'error' ? 1 : t.status === 'working' ? 2 : (t.status === 'done' && !t.read) ? 3 : 4 }
+var SECT = ['Ждут вас', 'Ошибка', 'В работе', 'Новые результаты', 'Готово']
+function needs(t) { return t.status === 'attention' || t.status === 'error' || (t.status === 'done' && !t.read) }
+function live() { return S.tasks.filter(function (t) { return !t.archived }) }
+var FILTERS = {
+	inbox: needs,
+	all: function () { return true },
+	working: function (t) { return t.status === 'working' || t.status === 'attention' },
+	done: function (t) { return t.status === 'done' }
+}
+var TITLES = { inbox: 'Входящие', all: 'Все поручения', working: 'В работе', done: 'Готово', log: 'Журнал', roles: 'Роли', spaces: 'Пространства' }
+function visible() {
+	var f = FILTERS[S.filter] || FILTERS.all
+	return live().filter(f).filter(function (t) {
+		if (!S.chip) return true
+		return S.chip === 'attention' ? t.status === 'attention' : S.chip === 'error' ? t.status === 'error' : S.chip === 'working' ? t.status === 'working' : t.status === 'done'
+	}).sort(function (a, b) { return rank(a) - rank(b) })
+}
+
+/* ---------- простой markdown ---------- */
+function inline(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`(.+?)`/g, '<code>$1</code>') }
+function md(src) {
+	var lines = src.split('\n'), out = '', i = 0
+	while (i < lines.length) {
+		if (/^\|/.test(lines[i])) {
+			var rows = []
+			while (i < lines.length && /^\|/.test(lines[i])) { rows.push(lines[i]); i++ }
+			var cells = function (r) { return r.replace(/^\||\|$/g, '').split('|').map(function (c) { return c.trim() }) }
+			out += '<table><thead><tr>' + cells(rows[0]).map(function (c) { return '<th>' + inline(c) + '</th>' }).join('') + '</tr></thead><tbody>'
+			rows.slice(2).forEach(function (r) { out += '<tr>' + cells(r).map(function (c) { return '<td>' + inline(c) + '</td>' }).join('') + '</tr>' })
+			out += '</tbody></table>'
+		} else if (lines[i].trim()) { out += '<p>' + inline(lines[i]) + '</p>'; i++ } else i++
+	}
+	return out
+}
+
+/* ---------- список ---------- */
+function preview(t) {
+	var a = root(t)
+	if (t.status === 'attention') return ['c-wait', I.wait + 'просит разрешение: <code>' + esc(a.permission) + '</code>']
+	if (t.status === 'error') return ['c-err', esc(a.error) + ' · остановился на шаге ' + a.steps]
+	if (t.status === 'working') return ['', esc(a.tool || 'запуск') + (a.toolStart ? ' · ' + tick(a.toolStart) : '')]
+	return ['', esc(plain(a.result || ''))]
+}
+function rowActs(t) {
+	var b = function (act, label, cls) { return '<button class="btn sm ' + (cls || '') + '" data-act="' + act + '" data-id="' + t.id + '">' + label + '</button>' }
+	if (t.status === 'attention') return b('allow', 'Разрешить', 'primary') + b('open', 'Открыть')
+	if (t.status === 'error') return b('retry', 'Повторить', 'primary') + b('open', 'Открыть')
+	if (t.status === 'working') return b('open', 'Открыть') + b('abort', 'Прервать')
+	if (!t.read) return b('read', 'Прочитано', 'primary') + b('arch', 'В архив')
+	return b('arch', 'В архив')
+}
+function rightCol(t) {
+	var p = planOf(t), a = root(t)
+	var time = t.status === 'done' ? fmt(t.endedAt) : tick(t.start)
+	if (t.status === 'attention') time = '<span class="c-wait">' + tick(t.permSince) + '</span>'
+	var r2 = p && t.status !== 'done' ? '<span class="bar"><b style="width:' + p.d / p.n * 100 + '%"></b></span>' + p.d + '/' + p.n
+		: t.status === 'done' ? plural(t.agents.length, 'агент', 'агента', 'агентов') : plural(a.steps, 'шаг', 'шага', 'шагов')
+	return [time, r2]
+}
+function renderRow(t) {
+	var pv = preview(t), a = root(t), unread = !t.read
+	var extra = t.agents.length - 1
+	var h = '<div class="row' + (unread ? ' unread' : '') + (t.id === S.sel ? ' sel' : '') + '" tabindex="0" data-id="' + t.id + '">'
+	h += '<span class="st">' + stIcon(t.status) + '</span>'
+	h += '<div class="l1">' + (unread ? '<span class="dot"></span>' : '') + '<span class="title">' + esc(t.title) + '</span></div>'
+	h += '<div class="rt">' + rightCol(t)[0] + '</div>'
+	h += '<div class="l2 ' + pv[0] + '">' + pv[1] + '</div><div class="rt2">' + rightCol(t)[1] + '</div>'
+	h += '<div class="l1" style="grid-column:2 / 4;grid-row:3;margin-top:2px"><span class="chip mono">' + esc(a.name) + '</span>' + roleChip(a.role) + (extra ? '<span class="chip">+' + extra + '</span>' : '') + '</div>'
+	h += '<div class="acts">' + rowActs(t) + '</div></div>'
+	return h
+}
+function renderList() {
+	var el = $('list'), h = ''
+	$('listTitle').innerHTML = esc(TITLES[S.filter]) + '<span>' + (S.page ? '' : visible().length) + '</span>'
+	if (S.filter === 'log') {
+		M.log.forEach(function (l) { h += '<div class="logrow"><time>' + fmt(l[0]) + ' назад</time><div><b>' + esc(l[1]) + '</b> ' + esc(l[2]) + '</div></div>' })
+		el.innerHTML = '<div class="sec">Журнал · последние события</div>' + h; return
+	}
+	if (S.filter === 'roles') {
+		Object.keys(M.roles).forEach(function (k) { h += '<div class="ref-row">' + roleChip(k) + '<code class="faint">' + k + '</code><small>редактор — заглушка</small></div>' })
+		el.innerHTML = '<div class="sec">Справочник ролей</div>' + h; return
+	}
+	if (S.filter === 'spaces') {
+		var sp = {}; S.tasks.forEach(function (t) { sp[t.space] = (sp[t.space] || 0) + 1 })
+		Object.keys(sp).forEach(function (k) { h += '<div class="ref-row">' + I.space + '<b>' + esc(k) + '</b><small>' + plural(sp[k], 'поручение', 'поручения', 'поручений') + '</small></div>' })
+		el.innerHTML = '<div class="sec">Пространства</div>' + h; return
+	}
+	var vs = visible(), last = -1
+	vs.forEach(function (t) {
+		var r = rank(t)
+		if (r !== last) { var cls = r === 0 ? 'c-wait' : r === 1 ? 'c-err' : ''; h += '<div class="sec ' + cls + '">' + SECT[r] + '</div>'; last = r }
+		h += renderRow(t)
+	})
+	if (!vs.length) h = '<div class="empty"><b>Всё разобрано</b>Новых запросов нет. Агенты работают без вас.</div>'
+	el.innerHTML = h
+}
+function renderCounters() {
+	var L = live(), c = function (s) { return L.filter(function (t) { return t.status === s }).length }
+	var defs = [['attention', 'wait', 'ждут вас'], ['error', 'err', 'ошибка'], ['working', 'spin', 'в работе'], ['done', 'done', 'готово']]
+	$('counters').innerHTML = defs.map(function (d) { return '<button class="cnt' + (S.chip === d[0] ? ' on' : '') + '" data-chip="' + d[0] + '">' + stIcon(d[0]).replace('class="ic', 'class="ic') + c(d[0]) + ' ' + d[2] + '</button>' }).join('')
+}
+function renderNav() {
+	var L = live(), n = function (f) { return L.filter(FILTERS[f]).length }
+	var item = function (k, ic, label, cnt, hot) { return '<button class="nav-item' + (S.filter === k ? ' active' : '') + '" data-nav="' + k + '">' + I[ic] + '<span>' + label + '</span>' + (cnt != null ? '<span class="n' + (hot && cnt ? ' hot' : '') + '">' + cnt + '</span>' : '') + '</button>' }
+	$('nav').innerHTML = '<div class="brand"><b>nessy-orch</b><span class="variant">Вариант C — Входящие (как почта)</span></div>' +
+		'<button class="btn primary compose" id="newBtn">+ Поручение</button>' +
+		'<div class="nav-chips">' + item('inbox', 'inbox', 'Входящие', n('inbox'), true) + item('all', 'all', 'Все поручения', n('all')) + item('working', 'spin_', 'В работе', n('working')) + item('done', 'done_', 'Готово', n('done')) +
+		'<div class="nav-sep"></div>' + item('log', 'log', 'Журнал') + item('roles', 'role', 'Роли') + item('spaces', 'space', 'Пространства') + '</div>' +
+		'<div class="nav-sp"></div><div class="nav-foot"><span class="muted">авто-разрешения: выкл.</span><button class="icon-btn" id="themeBtn" title="Тема" aria-label="Переключить тему">' + (document.documentElement.dataset.theme === 'dark' ? '☾' : '☀') + '</button></div>'
+	document.title = (needs0() ? '(' + needs0() + ') ' : '') + 'nessy-orch — Вариант C'
+}
+function needs0() { return live().filter(needs).length }
+I.spin_ = '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.6" stroke-opacity=".5"/><path d="M8 2.4a5.6 5.6 0 0 1 0 11.2z" fill="currentColor"/></svg>'
+I.done_ = '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.8"/><path d="m5.4 8.2 1.9 1.9 3.3-3.6"/></svg>'
+
+/* ---------- читалка ---------- */
+function banner(t) {
+	var a = root(t)
+	if (t.status === 'attention') return '<div class="banner attention" role="alert">' + I.wait + '<div class="bt"><h3>' + esc(a.name) + ' просит разрешение</h3><p>Агент остановлен и ждёт вас уже ' + tick(t.permSince) + '. Остальные шаги плана заблокированы.</p><code class="cmd">$ ' + esc(a.permission) + '</code><div class="btns"><button class="btn ok lg" data-act="allow" data-id="' + t.id + '">Разрешить <kbd>a</kbd></button><button class="btn danger lg" data-act="deny" data-id="' + t.id + '">Отклонить</button><button class="btn lg" data-act="allowall" data-id="' + t.id + '">Разрешать такое всегда</button></div></div></div>'
+	if (t.status === 'error') return '<div class="banner error" role="alert">' + I.err + '<div class="bt"><h3>Ход упал: ' + esc(a.error) + '</h3><p>Агент ' + esc(a.name) + ' остановился на шаге ' + a.steps + ' через ' + fmt(a.duration) + '. Квота снимется примерно через минуту.</p><div class="btns"><button class="btn primary lg" data-act="retry" data-id="' + t.id + '">Повторить ход</button><button class="btn lg" data-act="log" data-id="' + t.id + '">Открыть журнал</button><button class="btn lg" data-act="arch" data-id="' + t.id + '">В архив</button></div></div></div>'
+	if (t.status === 'done' && !t.read) return '<div class="banner result">' + I.done + '<div class="bt"><h3>Новый результат</h3><p>' + esc(a.name) + ' закончил за ' + fmt(a.duration) + ' и ждёт, пока вы посмотрите.</p><div class="btns"><button class="btn primary" data-act="read" data-id="' + t.id + '">Отметить прочитанным</button><button class="btn" data-act="arch" data-id="' + t.id + '">В архив <kbd>e</kbd></button></div></div></div>'
+	return ''
+}
+function nowBlock(t) {
+	var rows = ''
+	t.agents.forEach(function (a) {
+		if (a.attention === 'permission') rows += '<div>' + stIcon('attention') + '<span class="grow"><b class="mono">' + esc(a.name) + '</b> просит: <code>' + esc(a.permission) + '</code></span><span class="c-wait">ждёт ' + tick(t.permSince) + '</span></div>'
+		if (a.status === 'working' && a.tool) rows += '<div>' + stIcon('working') + '<span class="grow"><b class="mono">' + esc(a.name) + '</b> · ' + esc(a.tool) + '</span><span class="muted">' + tick(a.toolStart) + '</span></div>'
+		if (a.status === 'starting') rows += '<div>' + stIcon('starting') + '<span class="grow"><b class="mono">' + esc(a.name) + '</b> · запускается</span><span class="faint">в очереди</span></div>'
+		if (a.queued) rows += '<div>' + stIcon('idle') + '<span class="grow"><b class="mono">' + esc(a.name) + '</b> · ждёт ' + plural(a.queued, 'сообщение', 'сообщения', 'сообщений') + '</span><span class="faint">+' + a.queued + '</span></div>'
+		if (a.status === 'error') rows += '<div>' + stIcon('error') + '<span class="grow"><b class="mono">' + esc(a.name) + '</b> · ' + esc(a.error) + '</span><span class="faint">остановлен</span></div>'
+	})
+	if (!rows) rows = '<div>' + stIcon('done') + '<span class="grow muted">Сейчас ничего не выполняется — все агенты закончили.</span></div>'
+	return '<section class="blk"><h4>Сейчас</h4><div class="now">' + rows + '</div></section>'
+}
+function planBlock(t) {
+	var p = planOf(t)
+	if (!p) {
+		var d = t.agents.filter(function (a) { return a.status === 'done' }).length
+		return '<section class="blk"><h4>План</h4><div class="res-empty">Агент не сообщил план. Завершено агентов: ' + d + ' из ' + t.agents.length + (t.status === 'error' ? '. Шагов в ходе: ' + root(t).steps + '.' : '.') + '</div></section>'
+	}
+	var h = '<section class="blk"><h4>План <em>' + p.d + ' из ' + p.n + '</em></h4><div class="plan-head"><div class="bar ' + (p.d === p.n ? 'done' : '') + '"><b style="width:' + p.d / p.n * 100 + '%"></b></div><b>' + Math.round(p.d / p.n * 100) + '%</b></div><ul class="check">'
+	p.items.forEach(function (x) {
+		var ic = x[1] === 'done' ? stIcon('done') : x[1] === 'active' ? stIcon(t.status === 'attention' ? 'attention' : 'working') : stIcon('idle')
+		h += '<li class="' + x[1] + '">' + ic + '<span>' + esc(x[0]) + '</span><span class="state">' + (x[1] === 'active' ? (t.status === 'attention' ? 'ждёт разрешения' : 'идёт') : x[1] === 'done' ? '' : '') + '</span></li>'
+	})
+	return h + '</ul></section>'
+}
+function resultBlock(t) {
+	var a = root(t), h = '<section class="blk"><h4>Результат</h4>'
+	var card = function (ag, title) { return '<div class="res-card"><div class="res-top">' + stIcon('done') + '<b class="mono">' + esc(ag.name) + '</b>' + (title || '') + '<button class="btn sm" data-act="copy">Копировать</button></div><div class="md">' + md(ag.result) + '</div></div>' }
+	var withRes = t.agents.filter(function (x) { return x.result })
+	if (a.result) h += card(a)
+	else if (withRes.length) { h += '<div class="res-empty" style="margin-bottom:8px">Итога от ' + esc(a.name) + ' пока нет. Есть промежуточные находки:</div>'; withRes.forEach(function (x) { h += card(x) }) }
+	else h += '<div class="res-empty">' + (t.status === 'error' ? 'Результата нет: ход прервался с ошибкой.' : 'Результат появится здесь, когда агент ответит.') + '</div>'
+	if (t.agents.length > 1 && a.result) t.agents.slice(1).filter(function (x) { return x.result }).forEach(function (x) { h += card(x, '<span class="faint">проверка</span>') })
+	return h + '</section>'
+}
+function agentsBlock(t) {
+	var fa = S.focus[t.id] || root(t).id
+	var h = '<section class="blk"><h4>Агенты <em>' + t.agents.length + '</em></h4><div class="agents">'
+	t.agents.forEach(function (a) {
+		var k = a.attention ? 'attention' : a.status === 'idle' ? 'idle' : a.status
+		var sub = a.attention ? 'ждёт разрешения' : a.status === 'working' ? (a.tool || 'думает…') : a.status === 'done' ? esc(plain(a.result || 'готово')) : a.status === 'error' ? esc(a.error) : a.status === 'starting' ? 'запуск' : a.queued ? 'ждёт ' + plural(a.queued, 'сообщение', 'сообщения', 'сообщений') : 'свободен'
+		var time = a.status === 'done' ? fmt(a.duration || 0) : a.turnStart && a.status !== 'idle' ? tick(a.turnStart) : ''
+		h += '<div class="ag' + (a.id === fa ? ' focus' : '') + '" data-ag="' + a.id + '" data-id="' + t.id + '">' + stIcon(k) + '<div class="nm">' + (a.parent ? '<span class="tree">└</span>' : '') + '<b>' + esc(a.name) + '</b>' + roleChip(a.role) + '</div><div class="rr">' + time + '<br>' + plural(a.steps || 0, 'шаг', 'шага', 'шагов') + '</div><div class="sub">' + sub + '</div></div>'
+	})
+	return h + '</div></section>'
+}
+function stepsBlock(t) {
+	var aid = S.focus[t.id] || root(t).id, ag = t.agents.filter(function (a) { return a.id === aid })[0] || root(t)
+	var st = (STEPS[ag.id] || []).slice(), h = '<section class="blk"><h4>Шаги <em>' + esc(ag.name) + '</em></h4>'
+	if (t.status === 'working' && ag.id === 'a-wk05' || (ag.id === 'a-fx01' && t.status !== 'attention' && !ag.finished)) { }
+	if (!st.length) return h + '<div class="res-empty">Шагов пока нет: агент ещё не вызывал инструменты.</div></section>'
+	if (ag.id === 'a-fx01' && t.perm === 'denied') st.push(['err', 'git push origin fix/ci-timeout', 'отклонено вами', '—', ''])
+	else if (ag.id === 'a-fx01' && t.status === 'attention') st.push(['wait', 'Bash: git push origin fix/ci-timeout', 'ждёт вашего разрешения', 'wait'])
+	else if (ag.id === 'a-fx01' && t.perm === 'allowed') st.push(['run', 'Bash: git push origin fix/ci-timeout', 'выполняется', 'since2'])
+	h += '<ol class="tl">'
+	var skipped = ag.steps > st.length ? ag.steps - st.length : 0
+	st.forEach(function (s) {
+		var ic = s[0] === 'ok' ? stIcon('done') : s[0] === 'err' ? stIcon('error') : s[0] === 'wait' ? stIcon('attention') : stIcon('working')
+		var du = s[3] === 'since' ? tick(ag.toolStart) : s[3] === 'wait' ? tick(t.permSince) : s[3] === 'since2' ? tick(t.allowedAt || Date.now()) : s[3]
+		h += '<li>' + ic + '<div class="tt">' + esc(s[1]) + (s[2] ? '<small>' + esc(s[2]) + '</small>' : '') + (s[4] ? '<div class="err-box">' + esc(s[4]) + '</div>' : '') + '</div><span class="du">' + du + '</span></li>'
+	})
+	h += '</ol>'
+	if (skipped) h += '<div class="more">ещё ' + skipped + ' ранних шагов — показать все ' + ag.steps + '</div>'
+	return h + '</section>'
+}
+function chatBlock(t) {
+	var h = '<details class="chat" id="chat"' + (t.chatOpen ? ' open' : '') + '><summary>Чат с агентами <span class="faint">· ' + t.chat.length + ' сообщ.</span></summary><div class="msgs">'
+	t.chat.forEach(function (m) { h += '<div class="msg' + (m[0] === 'you' ? ' you' : '') + '"><small>' + esc(m[1]) + '</small>' + inline(m[2]) + '</div>' })
+	return h + '</div></details>'
+}
+function statusPill(t) {
+	var m = { attention: ['c-wait', 'ждёт вас'], error: ['c-err', 'ошибка'], working: ['c-work', 'в работе'], done: ['c-done', 'готово'] }[t.status]
+	return '<span class="pill ' + m[0] + '">' + stIcon(t.status) + m[1] + '</span>'
+}
+function renderRead() {
+	var el = $('read'), t = byId(S.sel)
+	if (!t || t.archived || S.page) {
+		el.innerHTML = '<div class="toolbar"><button class="icon-btn back" data-act="back" aria-label="Назад">' + I.back + '</button></div><div class="placeholder"><b class="muted" style="font-size:15px">Выберите поручение</b><br>Или нажмите <kbd>j</kbd> / <kbd>k</kbd>, чтобы идти по списку.</div>'
+		return
+	}
+	var a = root(t), vs = visible(), ix = vs.indexOf(t)
+	var fa = S.focus[t.id] || a.id, fag = t.agents.filter(function (x) { return x.id === fa })[0] || a
+	var interrupt = S.interrupt[t.id] != null ? S.interrupt[t.id] : (fag.status === 'working' || fag.attention)
+	var h = '<div class="toolbar"><button class="icon-btn back" data-act="back" aria-label="Назад к списку">' + I.back + '</button>' +
+		'<span class="crumb">' + esc(TITLES[S.filter] || 'Входящие') + (ix >= 0 ? ' · ' + (ix + 1) + ' из ' + vs.length : '') + '</span>' +
+		'<button class="icon-btn pn" data-act="prev" title="Предыдущее (k)" aria-label="Предыдущее">' + I.up + '</button><button class="icon-btn pn" data-act="next" title="Следующее (j)" aria-label="Следующее">' + I.down + '</button>' +
+		(t.status === 'done' && !t.read ? '<button class="btn sm" data-act="read" data-id="' + t.id + '">Прочитано</button>' : '') +
+		'<button class="btn sm" data-act="arch" data-id="' + t.id + '" title="e">' + I.arch + '<span>В архив</span></button></div>' +
+		'<div class="scroll" id="scroll"><article class="doc">' +
+		'<h1>' + esc(t.title) + '</h1>' +
+		'<div class="meta">' + statusPill(t) + '<span class="chip">' + I.space + esc(t.space) + '</span>' + roleChip(a.role) + '<span class="chip mono">' + esc(a.name) + '</span><span>' + (t.status === 'done' ? 'выполнено за ' + fmt(t.endedAt) : 'идёт ' + tick(t.start)) + '</span></div>' +
+		banner(t) + nowBlock(t) + planBlock(t) + resultBlock(t) + agentsBlock(t) + stepsBlock(t) + '<section class="blk">' + chatBlock(t) + '</section>' +
+		'</article></div>' +
+		'<div class="composer"><div class="in"><textarea id="draft" placeholder="Написать ' + esc(fag.name) + '…  (Ctrl+Enter — отправить)">' + esc(S.draft[t.id] || '') + '</textarea>' +
+		'<div class="bt"><label><input type="checkbox" id="intr"' + (interrupt ? ' checked' : '') + (fag.status === 'working' || fag.attention ? '' : ' disabled') + '>прервать текущий ход</label><span class="to">кому: <b class="mono">' + esc(fag.name) + '</b></span><button class="btn primary sm" id="sendBtn">Отправить</button></div></div></div>'
+	el.innerHTML = h
+}
+function renderAll() { renderNav(); renderCounters(); renderList(); renderRead(); $('app').classList.toggle('reading', !!S.mobileOpen && !S.page) }
+
+/* ---------- действия ---------- */
+var toastT
+function toast(msg, undo) {
+	var el = $('toast'); el.innerHTML = esc(msg) + (undo ? ' <a id="undoBtn">Отменить</a>' : ''); el.classList.add('show')
+	clearTimeout(toastT); toastT = setTimeout(function () { el.classList.remove('show') }, 4500)
+	var u = $('undoBtn'); if (u) u.onclick = function () { undo(); el.classList.remove('show') }
+}
+function select(id, open) { S.sel = id; var t = byId(id); if (t && t.status === 'done' && !t.read && open) t.read = true; if (open) S.mobileOpen = true; S.page = null; renderAll(); var r = document.querySelector('.row.sel'); if (r) r.scrollIntoView({ block: 'nearest' }) }
+function act(a, id) {
+	var t = byId(id), ag = t && root(t)
+	if (a === 'open') return select(id, true)
+	if (a === 'back') { S.mobileOpen = false; return renderAll() }
+	if (a === 'prev' || a === 'next') return move(a === 'next' ? 1 : -1)
+	if (a === 'copy') return toast('Скопировано в буфер')
+	if (a === 'allowall') { toast('Правило добавлено: git push в fix/* разрешён'); return act('allow', id) }
+	if (!t) return
+	if (a === 'allow') { if (t.status !== 'attention') return; t.status = 'working'; t.perm = 'allowed'; t.allowedAt = Date.now(); ag.attention = null; ag.tool = 'Bash: git push origin fix/ci-timeout'; ag.toolStart = Date.now(); ag.steps++; t.read = true; toast('Разрешено: ' + ag.permission) }
+	else if (a === 'deny') { if (t.status !== 'attention') return; t.status = 'working'; t.perm = 'denied'; ag.attention = null; ag.tool = 'думает… (push отклонён, ищет другой путь)'; ag.toolStart = Date.now(); t.read = true; toast('Отклонено. Агент получил отказ и продолжает.') }
+	else if (a === 'retry') { t.status = 'working'; ag.status = 'working'; ag.error = null; ag.tool = 'Sage: логи nginx upstream (повтор)'; ag.toolStart = Date.now(); ag.turnStart = Date.now(); t.read = true; toast('Ход перезапущен: ' + ag.name) }
+	else if (a === 'abort') { ag.tool = 'прерывается…'; toast('Ход прерван: ' + ag.name) }
+	else if (a === 'read') { t.read = true; toast('Отмечено прочитанным') }
+	else if (a === 'arch') { t.archived = true; t.read = true; var prev = S.sel; var vs = visible(); toast('Поручение в архиве', function () { t.archived = false; S.sel = id; renderAll() }); if (S.sel === id) { var nx = vs.filter(function (x) { return x.id !== id }); S.sel = nx.length ? nx[Math.min(vs.indexOf(t), nx.length - 1)].id : null; if (!nx.length) S.mobileOpen = false } }
+	else if (a === 'log') { S.filter = 'log'; S.page = true }
+	renderAll()
+}
+function move(d) {
+	var vs = visible(); if (!vs.length) return
+	var i = vs.map(function (t) { return t.id }).indexOf(S.sel)
+	i = Math.max(0, Math.min(vs.length - 1, i < 0 ? 0 : i + d))
+	S.sel = vs[i].id; S.page = null; renderAll()
+	var r = document.querySelector('.row.sel'); if (r) r.scrollIntoView({ block: 'nearest' })
+}
+function send() {
+	var t = byId(S.sel); if (!t) return
+	var tx = $('draft').value.trim(); if (!tx) { $('draft').focus(); return }
+	var fag = t.agents.filter(function (x) { return x.id === (S.focus[t.id] || root(t).id) })[0]
+	var intr = $('intr').checked && !$('intr').disabled
+	t.chat.push(['you', 'Вы → ' + fag.name, tx]); S.draft[t.id] = ''; t.chatOpen = true; renderRead()
+	toast(intr ? 'Ход ' + fag.name + ' прерван, сообщение отправлено' : 'Сообщение поставлено в очередь')
+}
+document.addEventListener('click', function (e) {
+	var b = e.target.closest('[data-act]')
+	if (b) { e.stopPropagation(); return act(b.dataset.act, b.dataset.id) }
+	var n = e.target.closest('[data-nav]')
+	if (n) { S.filter = n.dataset.nav; S.chip = null; S.page = ['log', 'roles', 'spaces'].indexOf(S.filter) >= 0; S.mobileOpen = false; if (!S.page) { var v = visible(); if (v.length && v.map(function (x) { return x.id }).indexOf(S.sel) < 0) S.sel = v[0].id } return renderAll() }
+	var c = e.target.closest('[data-chip]')
+	if (c) { S.chip = S.chip === c.dataset.chip ? null : c.dataset.chip; if (S.filter === 'inbox' && S.chip) S.filter = 'all'; return renderAll() }
+	var ag = e.target.closest('[data-ag]')
+	if (ag) { S.focus[ag.dataset.id] = ag.dataset.ag; S.interrupt[ag.dataset.id] = null; var sc = $('scroll').scrollTop; var d = $('draft').value; S.draft[S.sel] = d; renderRead(); $('scroll').scrollTop = sc; return }
+	var r = e.target.closest('.row')
+	if (r) return select(r.dataset.id, true)
+	if (e.target.closest('#newBtn')) { $('modal').classList.add('show'); setTimeout(function () { $('mTask').focus() }, 0); return }
+	if (e.target.closest('#themeBtn')) { var d2 = document.documentElement; d2.dataset.theme = d2.dataset.theme === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('nessy-theme', d2.dataset.theme) } catch (x) { } return renderNav() }
+	if (e.target.closest('#sendBtn')) return send()
+	if (e.target === $('modal') || e.target.closest('#mCancel')) $('modal').classList.remove('show')
+	if (e.target.closest('#mOk')) {
+		var txt = $('mTask').value.trim() || 'Новое поручение', rl = $('mRole').value
+		var nt = { id: 't' + (S.tasks.length + 1), title: txt, space: $('mSpace').value || 'api-gateway', status: 'working', read: false, archived: false, start: Date.now(), startedAgo: 0, chat: [['you', 'Вы', txt]], agents: [{ id: 'a-n' + S.tasks.length, name: M.roles[rl].name.toLowerCase().split(' ')[0] + '-new', role: rl, status: 'working', tool: 'запуск агента', toolStart: Date.now(), turnStart: Date.now(), steps: 0 }] }
+		nt.read = true; S.tasks.push(nt); S.filter = 'all'; S.chip = null; S.sel = nt.id; $('modal').classList.remove('show'); $('mTask').value = ''; renderAll(); toast('Поручение запущено')
+	}
+})
+document.addEventListener('input', function (e) { if (e.target.id === 'draft') S.draft[S.sel] = e.target.value; if (e.target.id === 'intr') S.interrupt[S.sel] = e.target.checked })
+document.addEventListener('keydown', function (e) {
+	var tag = (e.target.tagName || '').toLowerCase()
+	if (e.key === 'Escape') { $('modal').classList.remove('show'); if (S.mobileOpen) { S.mobileOpen = false; renderAll() } return }
+	if (tag === 'textarea' || tag === 'input' || tag === 'select') { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.id === 'draft') send(); return }
+	if (e.metaKey || e.ctrlKey || e.altKey) return
+	if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); move(1) }
+	else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); move(-1) }
+	else if (e.key === 'Enter' && tag !== 'button') { if (!S.page) select(S.sel, true) }
+	else if (e.key === 'e') act('arch', S.sel)
+	else if (e.key === 'a') act('allow', S.sel)
+	else if (e.key === 'n') { e.preventDefault(); $('newBtn').click() }
+})
+
+/* ---------- таймеры ---------- */
+setInterval(function () {
+	var now = Date.now()
+	document.querySelectorAll('.tick').forEach(function (el) { el.textContent = fmt((now - Number(el.dataset.since)) / 1000) })
+}, 1000)
+
+/* ---------- старт ---------- */
+$('mRole').innerHTML = Object.keys(M.roles).map(function (k) { return '<option value="' + k + '">' + esc(M.roles[k].name) + '</option>' }).join('')
+try { var th = localStorage.getItem('nessy-theme'); if (th) document.documentElement.dataset.theme = th } catch (x) { }
+renderAll()
+})()
+</script>
+</body>
+</html>

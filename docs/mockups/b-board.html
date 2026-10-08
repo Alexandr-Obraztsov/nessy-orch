@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nessy-orch — Вариант B — Доска</title>
+<link rel="stylesheet" href="./tokens.css">
+<style>
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:var(--fs-md)/var(--lh) var(--font-ui);display:flex;flex-direction:column;overflow:hidden;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+code,.mono{font-family:var(--font-mono);font-size:12px}
+:focus-visible{outline:2px solid var(--accent-ring);outline-offset:1px}
+
+/* ---------- шапка ---------- */
+.top{flex:none;display:flex;align-items:center;gap:var(--sp-4);padding:0 var(--sp-4);height:52px;border-bottom:1px solid var(--border);background:var(--bg-ribbon)}
+.brand{display:flex;flex-direction:column;line-height:1.15;min-width:0;flex:none}
+.brand b{font-size:var(--fs-lg);letter-spacing:-.01em}
+.variant{font-size:10.5px;color:var(--accent-text);letter-spacing:.02em;white-space:nowrap}
+.counters{display:flex;gap:6px;flex:none}
+.cnt{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg);color:var(--text-muted);transition:background var(--dur),border-color var(--dur)}
+.cnt:hover{background:var(--bg-hover);color:var(--text)}
+.cnt .n{font-weight:600;font-variant-numeric:tabular-nums;color:var(--text)}
+.cnt .g{font-size:11px;line-height:1}
+.cnt .l-s{display:none}
+.cnt[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);color:var(--text)}
+.cnt.c-wait .g{color:var(--warn)}
+.cnt.c-work .g{color:var(--accent-text)}
+.cnt.c-review .g{color:var(--accent-text)}
+.cnt.c-done .g{color:var(--success)}
+.cnt.c-wait.has{border-color:color-mix(in srgb,var(--warn) 55%,var(--border))}
+.cnt.c-wait.has .g{animation:pulse 1.8s ease-in-out infinite}
+.spacer{flex:1}
+.search{position:relative;flex:none;width:230px}
+.search input{width:100%;height:30px;padding:0 10px 0 30px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-input);outline:none}
+.search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.search svg{position:absolute;left:9px;top:8px;width:14px;height:14px;color:var(--text-faint)}
+.search kbd{position:absolute;right:7px;top:6px;font:11px var(--font-mono);color:var(--text-faint);border:1px solid var(--border);border-radius:4px;padding:0 5px}
+.actions{display:flex;gap:6px;align-items:center;flex:none;position:relative}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 12px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--bg);white-space:nowrap;transition:background var(--dur),border-color var(--dur)}
+.btn:hover{background:var(--bg-hover)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--text-on-accent);font-weight:500}
+.btn.pri:hover{background:var(--accent-hover)}
+.btn.ok{background:color-mix(in srgb,var(--success) 18%,transparent);border-color:color-mix(in srgb,var(--success) 55%,transparent);color:var(--success);font-weight:500}
+.btn.ok:hover{background:color-mix(in srgb,var(--success) 30%,transparent)}
+.btn.no:hover{border-color:var(--danger);color:var(--danger);background:var(--danger-soft)}
+.btn.sm{height:26px;padding:0 10px;font-size:var(--fs-sm)}
+.btn.ico{width:30px;padding:0}
+.btn svg{width:15px;height:15px}
+.btn[aria-pressed=true]{background:var(--bg-active)}
+.menu{position:absolute;top:36px;right:0;min-width:200px;background:var(--bg-alt);border:1px solid var(--border-strong);border-radius:var(--r-md);box-shadow:var(--shadow-2);padding:4px;display:none;z-index:45}
+.menu.open{display:block}
+.menu button{display:flex;width:100%;text-align:left;border:0;background:none;padding:7px 10px;border-radius:var(--r-sm)}
+.menu button:hover{background:var(--bg-hover)}
+.menu small{color:var(--text-faint);margin-left:auto}
+
+/* ---------- доска ---------- */
+.board{flex:1;min-height:0;display:flex;gap:12px;padding:12px 16px 16px;overflow:hidden}
+.col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;background:var(--bg-alt);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
+.col-h{flex:none;display:flex;align-items:center;gap:8px;padding:10px 12px 8px}
+.col-h .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.col-h h2{margin:0;font-size:var(--fs-md);font-weight:600}
+.col-h .num{color:var(--text-muted);font-variant-numeric:tabular-nums;background:var(--bg-hover);border-radius:var(--r-full);padding:0 7px;font-size:var(--fs-sm)}
+.col-h .hint{margin-left:auto;font-size:var(--fs-xs);color:var(--text-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.col-b{flex:1;min-height:0;overflow-y:auto;padding:4px 10px 12px;display:flex;flex-direction:column;gap:10px}
+.board.filtered .col-b{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));align-content:start}
+.empty{margin:auto;padding:24px 12px;text-align:center;color:var(--text-faint);font-size:var(--fs-sm);border:1px dashed var(--border);border-radius:var(--r-md);width:100%}
+.board.filtered .empty{grid-column:1/-1}
+
+/* ---------- карточка ---------- */
+.card{position:relative;background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--st-archived);border-radius:var(--r-md);padding:10px 12px 10px 11px;display:flex;flex-direction:column;gap:8px;cursor:pointer;box-shadow:var(--shadow-1);transition:border-color var(--dur),background var(--dur)}
+.card:hover{border-color:var(--border-strong);background:var(--bg-hover)}
+.card.s-perm{border-left-color:var(--warn)}
+.card.s-error{border-left-color:var(--danger)}
+.card.s-work{border-left-color:var(--accent)}
+.card.s-review{border-left-color:var(--accent)}
+.card.s-done{border-left-color:var(--success)}
+.card.s-perm{background:color-mix(in srgb,var(--warn) 5%,var(--bg-card))}
+.card.s-error{background:color-mix(in srgb,var(--danger) 5%,var(--bg-card))}
+.card.hidden-ghost{visibility:hidden}
+.card.flash{animation:flash 1.4s ease-out}
+.c-top{display:flex;gap:8px;align-items:flex-start}
+.c-title{flex:1;min-width:0;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.new-b{flex:none;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--accent-text);background:var(--accent-soft);border-radius:var(--r-full);padding:1px 7px;margin-top:2px}
+.c-meta{display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:var(--fs-sm);min-width:0}
+.space{display:inline-flex;align-items:center;gap:5px;min-width:0;font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted)}
+.space svg{width:12px;height:12px;flex:none;color:var(--text-faint)}
+.space span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.time{margin-left:auto;flex:none;font-variant-numeric:tabular-nums;font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted)}
+.time.stale{color:var(--warn)}
+.avs{display:flex;align-items:center}
+.avs .av{margin-left:-6px;box-shadow:0 0 0 2px var(--bg-card)}
+.avs .av:first-child{margin-left:0}
+.avs-t{margin-left:8px;font-size:var(--fs-sm);color:var(--text-muted)}
+.av{position:relative;flex:none;width:24px;height:24px;border-radius:50%;background:hsl(var(--h) 38% 40%);color:#fff;font-size:9.5px;font-weight:700;letter-spacing:.02em;display:grid;place-items:center}
+:root[data-theme=light] .av{background:hsl(var(--h) 45% 46%)}
+.av.lg{width:30px;height:30px;font-size:11px}
+.av i{position:absolute;right:-2px;bottom:-2px;width:9px;height:9px;border-radius:50%;border:2px solid var(--bg-card);background:var(--st-archived)}
+.av.lg i{width:11px;height:11px}
+.av i.working{background:var(--st-working)}
+.av i.perm{background:var(--warn);animation:pulse 1.8s ease-in-out infinite}
+.av i.error{background:var(--st-error)}
+.av i.done{background:var(--st-idle)}
+.av i.starting{background:var(--st-starting)}
+.av i.idle{background:var(--st-archived)}
+.prog{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm);color:var(--text-muted)}
+.bar{flex:1;height:5px;background:var(--bg-active);border-radius:var(--r-full);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:inherit;background:var(--accent);transition:width .5s var(--ease)}
+.bar.warn i{background:var(--warn)}.bar.danger i{background:var(--danger)}.bar.ok i{background:var(--success)}
+.prog b{font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.now{display:flex;align-items:flex-start;gap:7px;font-size:var(--fs-sm);color:var(--text-muted);min-width:0;line-height:1.4}
+.now .gl{flex:none;width:14px;text-align:center;line-height:1.4}
+.now .tx{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.now .tx.wrap{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.now b{color:var(--text);font-weight:600}
+.now .time{margin-left:6px}
+.g-warn{color:var(--warn)}.g-err{color:var(--danger)}.g-ok{color:var(--success)}.g-acc{color:var(--accent-text)}.g-mute{color:var(--text-faint)}
+.cmd{background:var(--bg-code);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 8px;font-family:var(--font-mono);font-size:11.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmd::before{content:'$ ';color:var(--text-faint)}
+.cmd.err{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--border))}
+.cmd.err::before{content:'! '}
+.c-act{display:flex;gap:6px;flex-wrap:wrap}
+.spin{flex:none;display:inline-block;width:11px;height:11px;margin-top:3px;border:2px solid var(--accent-text);border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+.spin.sm{width:10px;height:10px;margin-top:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes flash{0%{box-shadow:0 0 0 0 var(--accent-ring)}30%{box-shadow:0 0 0 4px var(--accent-ring)}100%{box-shadow:0 0 0 0 transparent}}
+
+/* ---------- панели ---------- */
+.scrim{position:fixed;inset:0;background:var(--overlay);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
+.scrim.on{opacity:1;pointer-events:auto}
+.panel{position:fixed;top:0;right:0;bottom:0;display:flex;flex-direction:column;background:var(--bg);border-left:1px solid var(--border-strong);box-shadow:var(--shadow-3);transform:translateX(104%);transition:transform .26s var(--ease);z-index:50}
+.panel.open{transform:none}
+#drawer{width:min(720px,100vw)}
+#journal{width:min(400px,100vw)}
+.p-h{flex:none;padding:12px 16px 10px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:8px;background:var(--bg-alt)}
+.p-h .row{display:flex;gap:10px;align-items:flex-start}
+.p-h h2{margin:0;font-size:var(--fs-lg);line-height:1.35;flex:1;min-width:0}
+.back{display:none}
+.chip{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 8px;border-radius:var(--r-full);font-size:var(--fs-xs);font-weight:600;background:var(--bg-active);color:var(--text-muted);white-space:nowrap}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.err{background:var(--danger-soft);color:var(--danger)}
+.chip.acc{background:var(--accent-soft);color:var(--accent-text)}
+.chip.ok{background:color-mix(in srgb,var(--success) 16%,transparent);color:var(--success)}
+.p-meta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:var(--text-muted);font-size:var(--fs-sm)}
+.p-b{flex:1;min-height:0;overflow-y:auto;padding:12px 16px 16px;display:flex;flex-direction:column;gap:12px}
+.banner{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;border:1px solid color-mix(in srgb,var(--warn) 45%,var(--border));background:var(--warn-soft);border-radius:var(--r-md)}
+.banner.err{border-color:color-mix(in srgb,var(--danger) 45%,var(--border));background:var(--danger-soft)}
+.banner .tx{flex:1;min-width:200px;min-width:0;flex-basis:220px}
+.banner .cmd{margin-top:4px;background:var(--bg-code)}
+.sec-t{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint)}
+.sec-t::after{content:'';flex:1;height:1px;background:var(--border)}
+.ag{border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-card);overflow:hidden}
+.ag.open{border-color:var(--border-strong)}
+.ag-h{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;min-height:48px}
+.ag-h:hover{background:var(--bg-hover)}
+.ag .chev{flex:none;width:12px;color:var(--text-faint);transition:transform var(--dur);font-size:10px}
+.ag.open .chev{transform:rotate(90deg)}
+.ag-n{min-width:0;flex:1}
+.ag-n .l1{display:flex;gap:8px;align-items:baseline}
+.ag-n .nm{font-weight:600}
+.ag-n .rl{color:var(--text-muted);font-size:var(--fs-sm)}
+.ag-n .l2{color:var(--text-muted);font-size:var(--fs-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ag-r{display:flex;gap:6px;align-items:center;flex:none}
+.q{font-size:var(--fs-xs);font-weight:600;color:var(--text-muted);background:var(--bg-active);border-radius:var(--r-full);padding:0 6px}
+.ag-body{border-top:1px solid var(--border);display:none}
+.ag.open .ag-body{display:block}
+.tabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--border);overflow-x:auto}
+.tab{border:0;background:none;padding:6px 10px 7px;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab[aria-selected=true]{color:var(--text);border-bottom-color:var(--accent)}
+.pane{padding:12px;display:flex;flex-direction:column;gap:10px}
+.plan{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.plan li{display:flex;gap:9px;align-items:flex-start;padding:5px 6px;border-radius:var(--r-sm)}
+.plan li.active{background:var(--accent-soft)}
+.plan li.done .tx{color:var(--text-muted);text-decoration:line-through;text-decoration-color:var(--text-faint)}
+.plan .gl{width:14px;text-align:center;flex:none}
+.res{line-height:1.6}
+.res p{margin:0 0 8px}
+.res code{background:var(--bg-code);border-radius:4px;padding:1px 5px}
+.res table{border-collapse:collapse;width:100%;font-size:var(--fs-sm);margin:4px 0}
+.res th,.res td{border:1px solid var(--border);padding:4px 8px;text-align:left}
+.res th{background:var(--bg-alt);font-weight:600}
+.steps{list-style:none;margin:0;padding:0 0 0 4px;position:relative}
+.steps li{display:flex;gap:10px;padding:4px 0;position:relative;align-items:flex-start}
+.steps li::before{content:'';position:absolute;left:5px;top:20px;bottom:-6px;width:1px;background:var(--border)}
+.steps li:last-child::before{display:none}
+.steps .gl{width:11px;text-align:center;flex:none;line-height:1.5;z-index:1;background:var(--bg-card)}
+.steps .tx{flex:1;min-width:0;font-family:var(--font-mono);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.steps .d{font-family:var(--font-mono);font-size:11.5px;color:var(--text-faint)}
+.steps li.more .tx{font-family:var(--font-ui);color:var(--text-faint)}
+.chat{display:flex;flex-direction:column;gap:8px}
+.msg{max-width:88%;padding:7px 10px;border-radius:var(--r-md);background:var(--bg-alt);border:1px solid var(--border)}
+.msg.you{align-self:flex-end;background:var(--accent-soft);border-color:transparent}
+.msg small{display:block;color:var(--text-faint);font-size:var(--fs-xs);margin-bottom:1px}
+.composer{flex:none;border-top:1px solid var(--border);padding:10px 16px 12px;background:var(--bg-alt);display:flex;flex-direction:column;gap:8px}
+.composer .to{display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:var(--fs-sm)}
+.composer select{height:26px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-input);padding:0 6px;max-width:60%}
+.composer textarea{width:100%;min-height:58px;resize:vertical;border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-input);padding:8px 10px;outline:none}
+.composer textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.composer .bt{display:flex;align-items:center;gap:10px}
+.composer label{display:flex;align-items:center;gap:6px;color:var(--text-muted);font-size:var(--fs-sm);cursor:pointer;user-select:none}
+.composer input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;margin:0}
+.composer .btn{margin-left:auto}
+.jl{display:flex;flex-direction:column}
+.je{display:grid;grid-template-columns:62px 1fr;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:var(--fs-sm)}
+.je time{color:var(--text-faint);font-family:var(--font-mono);font-size:11.5px;padding-top:1px}
+.je .w{font-weight:600}
+.je .k{color:var(--text-muted)}
+.je.perm .w{color:var(--warn)}.je.error .w{color:var(--danger)}.je.reply .w{color:var(--success)}
+.jf{display:flex;gap:6px;flex-wrap:wrap}
+.jf button{height:24px;padding:0 10px;border-radius:var(--r-full);border:1px solid var(--border);background:none;font-size:var(--fs-sm);color:var(--text-muted)}
+.jf button[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent);color:var(--text)}
+.modal{position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;background:var(--overlay);padding:16px}
+.modal.open{display:flex}
+.dlg{width:min(520px,100%);background:var(--bg);border:1px solid var(--border-strong);border-radius:var(--r-lg);box-shadow:var(--shadow-3);padding:16px;display:flex;flex-direction:column;gap:12px}
+.dlg h3{margin:0;font-size:var(--fs-lg)}
+.dlg label{display:flex;flex-direction:column;gap:4px;color:var(--text-muted);font-size:var(--fs-sm)}
+.dlg input,.dlg select,.dlg textarea{height:32px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-input);padding:0 8px;outline:none}
+.dlg textarea{height:84px;padding:8px;resize:vertical}
+.dlg .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dlg .foot{display:flex;justify-content:flex-end;gap:8px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translate(-50%,20px);opacity:0;pointer-events:none;background:var(--bg-alt);border:1px solid var(--border-strong);border-radius:var(--r-md);box-shadow:var(--shadow-2);padding:8px 14px;z-index:70;transition:all .25s var(--ease);max-width:calc(100vw - 32px)}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.ghost{position:fixed;z-index:55;margin:0;pointer-events:none;box-shadow:var(--shadow-3);will-change:transform}
+
+/* ---------- мобильная раскладка ---------- */
+@media (max-width:820px){
+	.top{flex-wrap:wrap;height:auto;padding:8px 12px 8px;gap:8px;row-gap:8px}
+	.brand{order:1;flex:1}
+	.actions{order:2}
+	.counters{order:3;width:100%;gap:0;padding:2px;background:var(--bg-active);border-radius:var(--r-md)}
+	.search{order:4;width:100%}
+	.search kbd{display:none}
+	.cnt{flex:1;flex-direction:column;gap:0;height:44px;padding:2px 2px;justify-content:center;border:0;background:none;border-radius:var(--r-sm);min-width:0}
+	.cnt .n{font-size:var(--fs-lg);line-height:1.1}
+	.cnt .g{display:none}
+	.cnt .l-f{display:none}.cnt .l-s{display:inline;font-size:var(--fs-xs)}
+	.cnt[aria-pressed=true]{background:var(--bg);border:0;box-shadow:var(--shadow-1)}
+	.cnt.c-wait.has .n{color:var(--warn)}
+	.btn .lbl{display:none}
+	.btn.pri .lbl{display:inline}
+	.board{gap:0;padding:0;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none}
+	.board::-webkit-scrollbar{display:none}
+	.col{flex:0 0 100%;scroll-snap-align:start;border:0;border-radius:0;background:var(--bg)}
+	.col-h{padding:10px 12px 4px}
+	.col-b{padding:4px 12px 16px}
+	.board.filtered .col-b{display:flex}
+	#drawer,#journal{width:100vw;border-left:0}
+	.back{display:inline-flex}
+	.p-h{padding:8px 12px}
+	.p-b{padding:12px}
+	.composer{padding:8px 12px 10px}
+	.ag-r .rt{display:none}
+	.dlg .two{grid-template-columns:1fr}
+}
+@media (min-width:821px) and (max-width:1180px){
+	.search{width:150px}
+	.cnt{padding:0 8px;gap:5px}
+	.variant{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+	*,*::before,*::after{animation:none!important;transition:none!important}
+	.spin{border-right-color:var(--accent-text);border-left-color:transparent}
+}
+</style>
+</head>
+<body>
+<header class="top">
+	<div class="brand"><b>nessy-orch</b><span class="variant">Вариант B — Доска</span></div>
+	<nav class="counters" id="counters" aria-label="Сводка и фильтры"></nav>
+	<div class="spacer"></div>
+	<div class="search">
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3.5 3.5"/></svg>
+		<input id="q" type="search" placeholder="Поиск по поручениям, агентам, ролям" aria-label="Поиск">
+		<kbd>/</kbd>
+	</div>
+	<div class="actions">
+		<button class="btn pri" data-act="newtask">+<span class="lbl">&nbsp;Поручение</span></button>
+		<button class="btn" id="jbtn" data-act="journal" aria-pressed="false" title="Журнал (бывшая лента)">
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4h10M3 8h10M3 12h6"/></svg><span class="lbl">Журнал</span></button>
+		<button class="btn ico" data-act="menu" title="Справочники" aria-label="Справочники">
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg></button>
+		<button class="btn ico" id="theme" data-act="theme" title="Тема" aria-label="Переключить тему">☾</button>
+		<div class="menu" id="menu">
+			<button data-act="stub" data-name="Роли">Роли <small>справочник</small></button>
+			<button data-act="stub" data-name="Пространства">Пространства <small>справочник</small></button>
+		</div>
+	</div>
+</header>
+
+<main class="board" id="board"></main>
+
+<div class="scrim" id="scrim" data-act="close"></div>
+<aside class="panel" id="drawer" aria-label="Поручение"></aside>
+<aside class="panel" id="journal" aria-label="Журнал"></aside>
+
+<div class="modal" id="modal">
+	<form class="dlg" id="newform">
+		<h3>Новое поручение</h3>
+		<label>Что нужно сделать<textarea id="nf-text" placeholder="Например: проверить покрытие тестами в payments-client"></textarea></label>
+		<div class="two">
+			<label>Роль<select id="nf-role"></select></label>
+			<label>Пространство<input id="nf-space" value="shippy"></label>
+		</div>
+		<label>Имя агента<input id="nf-name" placeholder="по умолчанию из роли"></label>
+		<div class="foot"><button type="button" class="btn" data-act="closemodal">Отмена</button><button type="submit" class="btn pri">Запустить</button></div>
+	</form>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="./data.js"></script>
+<script>
+(() => {
+const M = window.MOCK
+const $ = (s, r = document) => r.querySelector(s)
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+const mobile = () => matchMedia('(max-width:820px)').matches
+const T0 = Date.now()
+const now = () => Date.now()
+
+/* ---------- состояние ---------- */
+const S = { tasks: [], log: [], filter: null, q: '', open: null, openAg: {}, tab: {}, target: null, jfilter: 'all', jopen: false, chat: {}, seq: 10 }
+const PLAN = { done: 'done', active: 'active', todo: 'todo' }
+M.tasks.forEach((t) => {
+	const dur = t.agents.reduce((s, a) => s + (a.duration || 0), 0)
+	const task = { id: t.id, title: t.title, space: t.space, start: T0 - t.startedAgo * 1000, agents: [] }
+	t.agents.forEach((a) => {
+		task.agents.push({
+			id: a.id, name: a.name, role: a.role, parent: a.parent || null, status: a.status, perm: a.attention === 'permission' ? a.permission : null,
+			tool: a.tool || null, toolAt: T0 - (a.toolAgo || 0) * 1000, steps: a.steps || 0, turnAt: T0 - (a.turnAgo || 0) * 1000, evAt: T0 - (a.lastEventAgo || 0) * 1000,
+			queued: a.queued || 0, error: a.error || null, result: a.result || null, unread: !!a.unread, dur: a.duration || 0,
+			plan: a.plan ? a.plan.map((p) => ({ t: p[0], s: PLAN[p[1]] })) : null, note: null,
+		})
+	})
+	if (t.status === 'done') task.finished = T0 - (t.startedAgo - dur) * 1000
+	S.tasks.push(task)
+})
+M.log.forEach((l) => {
+	const kind = /разрешение/.test(l[2]) ? 'perm' : /ошибка/.test(l[2]) ? 'error' : /^ответ/.test(l[2]) ? 'reply' : 'msg'
+	S.log.push({ at: T0 - l[0] * 1000, who: l[1], text: l[2], kind })
+})
+
+/* ---------- утилиты ---------- */
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const pad = (n) => String(n).padStart(2, '0')
+const fmt = (s) => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}` }
+const ago = (ms) => { const s = Math.floor((now() - ms) / 1000); if (s < 5) return 'только что'; if (s < 60) return `${s} с назад`; if (s < 3600) return `${Math.floor(s / 60)} мин назад`; return `${Math.floor(s / 3600)} ч назад` }
+const clock = (ms) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` }
+const plural = (n, a, b, c) => { const m = n % 100, k = n % 10; return m > 10 && m < 15 ? c : k === 1 ? a : k >= 2 && k <= 4 ? b : c }
+const roleOf = (id) => M.roles[id] || { name: id, hue: 260 }
+const initials = (id) => { const p = id.split('-'); return (p.length > 1 ? p[0][0] + p[1][0] : id.slice(0, 2)).toUpperCase() }
+const dotCls = (a) => a.perm ? 'perm' : a.status
+const av = (a, lg) => `<span class="av${lg ? ' lg' : ''}" style="--h:${roleOf(a.role).hue}" title="${esc(a.name)} · ${esc(roleOf(a.role).name)}">${initials(a.role)}<i class="${dotCls(a)}"></i></span>`
+const timer = (since, cls = '') => `<span class="time ${cls}" data-t="${since}">${fmt((now() - since) / 1000)}</span>`
+const strip = (s) => s.split('\n\n')[0].replace(/\*\*|`/g, '').replace(/\n/g, ' ')
+const findTask = (id) => S.tasks.find((t) => t.id === id)
+const findAgent = (id) => { for (const t of S.tasks) for (const a of t.agents) if (a.id === id) return [t, a]; return [null, null] }
+const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`(.+?)`/g, '<code>$1</code>')
+const md = (s) => s.split('\n\n').map((b) => {
+	if (b.trim().startsWith('|')) {
+		const rows = b.trim().split('\n').filter((r, i) => i !== 1).map((r) => r.split('|').slice(1, -1).map((c) => inline(c.trim())))
+		return '<table><thead><tr>' + rows[0].map((c) => `<th>${c}</th>`).join('') + '</tr></thead><tbody>' + rows.slice(1).map((r) => '<tr>' + r.map((c) => `<td>${c}</td>`).join('') + '</tr>').join('') + '</tbody></table>'
+	}
+	return `<p>${inline(b)}</p>`
+}).join('')
+
+/* ---------- модель ---------- */
+const COLS = [
+	{ key: 'wait', title: 'Ждут вас', short: 'Ждут', glyph: '▲', hint: 'разрешение · ошибка', color: 'var(--warn)', empty: 'Ничего не ждёт вашего решения' },
+	{ key: 'work', title: 'В работе', short: 'В работе', glyph: '◐', hint: 'агенты трудятся', color: 'var(--accent)', empty: 'Нет активных поручений' },
+	{ key: 'review', title: 'Готово — не просмотрено', short: 'Новое', glyph: '●', hint: 'есть новый результат', color: 'var(--accent-text)', empty: 'Новых результатов нет' },
+	{ key: 'done', title: 'Готово', short: 'Готово', glyph: '✓', hint: 'просмотрено', color: 'var(--success)', empty: 'Пока ничего не завершено' },
+]
+const colOf = (t) => {
+	if (t.agents.some((a) => a.perm || a.status === 'error')) return 'wait'
+	if (t.agents.every((a) => a.status === 'done')) return t.agents.some((a) => a.unread) ? 'review' : 'done'
+	return 'work'
+}
+const taskSub = (t) => t.agents.some((a) => a.perm) ? 'perm' : t.agents.some((a) => a.status === 'error') ? 'error' : colOf(t)
+const matches = (t) => {
+	if (!S.q) return true
+	const h = [t.title, t.space, ...t.agents.flatMap((a) => [a.name, roleOf(a.role).name, a.role, a.result || ''])].join(' ').toLowerCase()
+	return h.includes(S.q.toLowerCase())
+}
+const progress = (t) => {
+	const root = t.agents[0]
+	if (root.plan) { const d = root.plan.filter((p) => p.s === 'done').length; return { d, n: root.plan.length, label: 'план' } }
+	const d = t.agents.filter((a) => a.status === 'done').length
+	return { d, n: t.agents.length, label: t.agents.length === 1 ? 'агент' : 'агентов' }
+}
+const lead = (t) => t.agents.find((a) => a.perm) || t.agents.find((a) => a.status === 'error') || t.agents.find((a) => a.status === 'working') ||
+	t.agents.find((a) => a.status === 'starting') || t.agents.find((a) => a.status === 'idle' && a.note) || t.agents.find((a) => a.unread) || t.agents.find((a) => a.status === 'done') || t.agents[0]
+const totalSteps = (t) => t.agents.reduce((s, a) => s + a.steps, 0)
+
+/* ---------- карточка ---------- */
+const spaceHTML = (t) => `<span class="space"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1.8 4.2c0-.8.6-1.4 1.4-1.4h2.9l1.5 1.7h4.2c.8 0 1.4.6 1.4 1.4v5.9c0 .8-.6 1.4-1.4 1.4H3.2c-.8 0-1.4-.6-1.4-1.4z"/></svg><span>${esc(t.space)}</span></span>`
+function cardHTML(t) {
+	const col = colOf(t), sub = taskSub(t), a = lead(t), p = progress(t)
+	const pct = p.n ? Math.round((p.d / p.n) * 100) : 0
+	const barCls = sub === 'perm' ? 'warn' : sub === 'error' ? 'danger' : col === 'done' || col === 'review' ? 'ok' : ''
+	let now_ = '', acts = '', clockHTML
+	if (col === 'done' || col === 'review') clockHTML = `<span class="time" title="Длительность">${fmt((t.finished - t.start) / 1000)}</span>`
+	else clockHTML = timer(t.start)
+	if (sub === 'perm') {
+		now_ = `<div class="now"><span class="gl g-warn">▲</span><span class="tx wrap"><b>${esc(a.name)}</b> просит разрешение</span>${timer(a.evAt, 'stale')}</div><div class="cmd" title="${esc(a.perm)}">${esc(a.perm)}</div>`
+		acts = `<button class="btn ok sm" data-act="allow" data-agent="${a.id}">Разрешить</button><button class="btn no sm" data-act="deny" data-agent="${a.id}">Отклонить</button>`
+	} else if (sub === 'error') {
+		now_ = `<div class="now"><span class="gl g-err">✖</span><span class="tx wrap"><b>${esc(a.name)}</b> упал после ${a.steps} шагов</span></div><div class="cmd err" title="${esc(a.error)}">${esc(a.error)}</div>`
+		acts = `<button class="btn pri sm" data-act="retry" data-agent="${a.id}">Повторить</button><button class="btn sm" data-act="open" data-task="${t.id}">Открыть</button>`
+	} else if (col === 'work') {
+		if (a.status === 'working') now_ = `<div class="now"><span class="spin"></span><span class="tx"><b>${esc(a.name)}</b> ${esc(a.tool || 'думает…')}</span>${timer(a.turnAt)}</div>`
+		else if (a.status === 'starting') now_ = `<div class="now"><span class="gl g-mute">◌</span><span class="tx"><b>${esc(a.name)}</b> запускается…</span></div>`
+		else now_ = `<div class="now"><span class="gl g-mute">○</span><span class="tx wrap"><b>${esc(a.name)}</b> на паузе${a.note ? ': ' + esc(a.note) : ''}</span></div>`
+		const w = t.agents.filter((x) => x.status === 'working' && x !== a).length
+		if (w) now_ += `<div class="now"><span class="gl g-mute"> </span><span class="tx g-mute">ещё ${w} ${plural(w, 'агент работает', 'агента работают', 'агентов работают')}</span></div>`
+	} else {
+		now_ = `<div class="now"><span class="gl g-ok">✓</span><span class="tx wrap">${esc(strip(a.result || ''))}</span></div>`
+		if (col === 'review') acts = `<button class="btn pri sm" data-act="open" data-task="${t.id}">Открыть</button><button class="btn sm" data-act="seen" data-task="${t.id}">Просмотрено</button>`
+		else now_ += `<div class="now"><span class="gl g-mute"> </span><span class="tx g-mute">завершено ${ago(t.finished)}</span></div>`
+	}
+	return `<article class="card s-${sub}" data-task="${t.id}" data-act="open" tabindex="0">
+		<div class="c-top"><div class="c-title">${esc(t.title)}</div>${col === 'review' ? '<span class="new-b">новое</span>' : ''}</div>
+		<div class="c-meta">${spaceHTML(t)}<span class="g-mute">·</span><span>шагов ${totalSteps(t)}</span>${clockHTML}</div>
+		<div class="avs">${t.agents.map((x) => av(x)).join('')}<span class="avs-t">${t.agents.length} ${plural(t.agents.length, 'агент', 'агента', 'агентов')}</span></div>
+		<div class="prog"><div class="bar ${barCls}"><i style="width:${pct}%"></i></div><span><b>${p.d}/${p.n}</b> ${p.label}</span></div>
+		${now_}${acts ? `<div class="c-act">${acts}</div>` : ''}
+	</article>`
+}
+
+/* ---------- доска ---------- */
+const board = $('#board')
+function visibleCols() { return COLS.map((c) => ({ ...c, tasks: S.tasks.filter((t) => matches(t) && colOf(t) === c.key) })) }
+function sortWait(a, b) { return (b.agents.some((x) => x.perm) ? 1 : 0) - (a.agents.some((x) => x.perm) ? 1 : 0) }
+function renderCounters(cols) {
+	$('#counters').innerHTML = cols.map((c) => `<button class="cnt c-${c.key}${c.key === 'wait' && c.tasks.length ? ' has' : ''}" data-act="cnt" data-col="${c.key}" aria-pressed="${mobile() ? Math.round(board.scrollLeft / Math.max(1, board.clientWidth)) === COLS.findIndex((x) => x.key === c.key) : S.filter === c.key}" title="${c.title}"><span class="g">${c.glyph}</span><span class="n">${c.tasks.length}</span><span class="l-f">${c.title.replace('Готово — не просмотрено', 'Не просмотрено')}</span><span class="l-s">${c.short}</span></button>`).join('')
+	const w = cols[0].tasks.length
+	document.title = (w ? `(${w}) ` : '') + 'nessy-orch — Вариант B — Доска'
+}
+function snapshot() {
+	const m = {}
+	board.querySelectorAll('.card').forEach((el) => { m[el.dataset.task] = { r: el.getBoundingClientRect(), col: el.closest('.col').dataset.col } })
+	return m
+}
+function render(anim) {
+	const first = anim ? snapshot() : null
+	const cols = visibleCols()
+	renderCounters(cols)
+	const keepScroll = [...board.querySelectorAll('.col-b')].map((e) => e.scrollTop)
+	const sl = board.scrollLeft
+	board.classList.toggle('filtered', !!S.filter && !mobile())
+	board.innerHTML = cols.filter((c) => mobile() || !S.filter || S.filter === c.key).map((c) => {
+		const list = c.key === 'wait' ? c.tasks.slice().sort(sortWait) : c.tasks
+		return `<section class="col" data-col="${c.key}"><header class="col-h"><span class="dot" style="background:${c.color}"></span><h2>${c.title}</h2><span class="num">${list.length}</span><span class="hint">${c.hint}</span></header><div class="col-b">${list.length ? list.map(cardHTML).join('') : `<div class="empty">${c.empty}</div>`}</div></section>`
+	}).join('')
+	board.querySelectorAll('.col-b').forEach((e, i) => { e.scrollTop = keepScroll[i] || 0 })
+	board.scrollLeft = sl
+	if (first && !reduced) flip(first)
+	if (S.open) renderDrawer()
+	if (S.jopen) renderJournal()
+}
+function flip(first) {
+	board.querySelectorAll('.card').forEach((el) => {
+		const f = first[el.dataset.task]
+		const r = el.getBoundingClientRect()
+		if (!f) { el.animate([{ opacity: 0, transform: 'translateY(-8px) scale(.98)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: 'ease-out' }); return }
+		const dx = f.r.left - r.left, dy = f.r.top - r.top
+		if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return
+		if (f.col !== el.closest('.col').dataset.col) {
+			// карточка меняет колонку: летит «призраком» поверх всей доски
+			const g = el.cloneNode(true)
+			g.classList.add('ghost')
+			g.removeAttribute('data-act')
+			g.style.cssText = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`
+			document.body.appendChild(g)
+			el.classList.add('hidden-ghost')
+			const a = g.animate([{ transform: `translate(${dx}px,${dy}px) scale(1.02)` }, { transform: `translate(${dx * .35}px,${dy * .35 - 14}px) scale(1.04)`, offset: .45 }, { transform: 'none' }], { duration: 720, easing: 'cubic-bezier(.3,.7,.2,1)' })
+			a.onfinish = () => { g.remove(); el.classList.remove('hidden-ghost'); el.classList.add('flash') }
+		} else {
+			el.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: 'none' }], { duration: 380, easing: 'cubic-bezier(.2,.8,.2,1)' })
+		}
+	})
+}
+
+/* ---------- детали ---------- */
+const POOL = {
+	executor: ['Read: package.json', 'Bash: git status', 'Edit: jest.config.ts', 'Bash: npm run lint', 'GitLab: pipeline #4821', 'Bash: npm test'],
+	'code-explorer': ['Grep: «timeout»', 'Read: gateway.e2e.ts', 'Bash: git log -5', 'codegraph: callers(connect)', 'Read: jest.config.ts', 'Grep: «redis»'],
+	'code-reviewer': ['GitLab: diff MR', 'Read: client.ts', 'Grep: «retry»', 'Read: client.test.ts', 'codegraph: impact(retry)', 'GitLab: комментарии'],
+	verifier: ['Bash: npm test -- refund', 'Read: client.ts', 'Edit: тест двойного вызова', 'Bash: npm test'],
+	'jira-analyst': ['Jira: JQL project=PAY', 'Jira: PAY-812', 'Jira: PAY-799', 'Jira: PAY-777', 'Sage: метрики дефектов', 'Jira: JQL created>=-30d'],
+	'wiki-researcher': ['Wiki: поиск «shippy deploy»', 'Wiki: страница «Деплой»', 'GitLab: README.md', 'Wiki: история правок'],
+	writer: ['Wiki: страница «Деплой»', 'Read: README.md'],
+	debugger: ['Sage: запрос логов 504', 'Sage: график latency', 'GitLab: релизы shippy', 'Bash: kubectl logs', 'Sage: ошибки payments-db', 'Sage: top endpoints'],
+}
+function stepsOf(a) {
+	const pool = POOL[a.role] || ['Bash: ls'], n = a.steps, shown = Math.min(n, 7), seed = a.name.length, out = []
+	for (let i = 0; i < shown; i++) out.push({ t: pool[(i + seed) % pool.length], d: 1 + ((i * 7 + seed * 3) % 23), s: 'ok' })
+	if (shown && a.status === 'working' && a.tool) out[shown - 1] = { t: a.tool, d: null, s: 'run', at: a.toolAt }
+	if (shown && a.status === 'error') out[shown - 1] = { t: a.error, d: 3, s: 'err' }
+	return { list: out, hidden: n - shown }
+}
+function chatOf(a, t) {
+	const base = []
+	const parent = a.parent ? findAgent(a.parent)[1] : null
+	base.push({ who: parent ? parent.name : 'Вы', you: !parent, text: parent ? `Разберись с частью задачи: ${t.title}` : t.title })
+	if (a.status === 'starting') base.push({ who: a.name, text: 'Запускаюсь…' })
+	else if (a.steps) base.push({ who: a.name, text: 'Принято. Начинаю: сначала соберу контекст, затем составлю план.' })
+	if (a.result) base.push({ who: a.name, text: strip(a.result) })
+	if (a.error) base.push({ who: 'система', text: 'Ход прерван: ' + a.error })
+	return base.concat(S.chat[a.id] || [])
+}
+const STATUS = {
+	perm: ['warn', '▲ ждёт вас'], error: ['err', '✖ ошибка'], working: ['acc', '◐ в работе'], starting: ['', '◌ запуск'], idle: ['', '○ пауза'], done: ['ok', '✓ готово'],
+}
+const stOf = (a) => STATUS[a.perm ? 'perm' : a.status]
+function permBtns(a) { return `<button class="btn ok sm" data-act="allow" data-agent="${a.id}">Разрешить</button><button class="btn no sm" data-act="deny" data-agent="${a.id}">Отклонить</button>` }
+function paneHTML(a, t, tab) {
+	if (tab === 'now') {
+		let h = ''
+		if (a.perm) h += `<div class="banner"><div class="tx"><b>Просит разрешение</b><div class="cmd">${esc(a.perm)}</div></div><div class="c-act">${permBtns(a)}</div></div>`
+		if (a.status === 'error') h += `<div class="banner err"><div class="tx"><b>Ход завершился ошибкой</b><div class="cmd err">${esc(a.error)}</div></div><div class="c-act"><button class="btn pri sm" data-act="retry" data-agent="${a.id}">Повторить</button></div></div>`
+		if (a.status === 'working' && a.tool) h += `<div class="now"><span class="spin"></span><span class="tx"><b>${esc(a.tool)}</b></span>${timer(a.toolAt)}</div>`
+		if (a.status === 'working' && !a.tool) h += `<div class="now"><span class="spin"></span><span class="tx">думает…</span></div>`
+		if (a.status === 'starting') h += `<div class="now"><span class="gl g-mute">◌</span><span class="tx">Агент запускается…</span></div>`
+		if (a.status === 'idle') h += `<div class="now"><span class="gl g-mute">○</span><span class="tx">${a.note ? esc(a.note) : 'Свободен, ждёт сообщений'}${a.queued ? ` · в очереди ${a.queued}` : ''}</span></div>`
+		if (a.status === 'done') h += `<div class="now"><span class="gl g-ok">✓</span><span class="tx">Ход завершён за ${fmt(a.dur)}, шагов: ${a.steps}.</span></div>`
+		if (a.queued && a.status !== 'idle') h += `<div class="now"><span class="gl g-mute">+</span><span class="tx">В очереди сообщений: ${a.queued}</span></div>`
+		if (a.status === 'working') h += `<div class="now"><span class="gl g-mute">⏱</span><span class="tx">Ход идёт ${timer(a.turnAt).replace('class="time ', 'class="').replace('<span', '<span style="font-family:var(--font-mono)"')}, шагов: ${a.steps}</span></div>`
+		return h
+	}
+	if (tab === 'plan') {
+		if (!a.plan) return '<div class="empty" style="margin:0">Агент не сообщал план</div>'
+		const d = a.plan.filter((p) => p.s === 'done').length
+		return `<div class="prog"><div class="bar ${a.perm ? 'warn' : ''}"><i style="width:${Math.round(d / a.plan.length * 100)}%"></i></div><span><b>${d} из ${a.plan.length}</b></span></div><ul class="plan">${a.plan.map((p) => `<li class="${p.s}"><span class="gl ${p.s === 'done' ? 'g-ok' : p.s === 'active' ? 'g-acc' : 'g-mute'}">${p.s === 'done' ? '✓' : p.s === 'active' ? (a.status === 'working' ? '<span class="spin sm"></span>' : '◐') : '○'}</span><span class="tx">${esc(p.t)}</span></li>`).join('')}</ul>`
+	}
+	if (tab === 'result') {
+		if (!a.result) return `<div class="empty" style="margin:0">${a.status === 'error' ? 'Ход упал — результата нет' : 'Результата пока нет — агент ещё работает'}</div>`
+		return `<div class="res">${md(a.result)}</div><div class="c-act"><button class="btn sm" data-act="copy">Копировать</button>${a.unread ? `<button class="btn ok sm" data-act="seen" data-task="${t.id}">Отметить просмотренным</button>` : ''}</div>`
+	}
+	if (tab === 'steps') {
+		const s = stepsOf(a)
+		if (!s.list.length) return '<div class="empty" style="margin:0">Шагов ещё нет</div>'
+		return `<ul class="steps">${s.hidden > 0 ? `<li class="more"><span class="gl g-mute">…</span><span class="tx">ещё ${s.hidden} ${plural(s.hidden, 'шаг', 'шага', 'шагов')} ранее</span></li>` : ''}${s.list.map((x) => `<li><span class="gl ${x.s === 'ok' ? 'g-ok' : x.s === 'err' ? 'g-err' : 'g-acc'}">${x.s === 'ok' ? '✓' : x.s === 'err' ? '✖' : '<span class="spin sm"></span>'}</span><span class="tx" title="${esc(x.t)}">${esc(x.t)}</span><span class="d">${x.s === 'run' ? timer(x.at).replace('class="time ', 'class="').replace('<span ', '<span ') : x.d + ' с'}</span></li>`).join('')}</ul>`
+	}
+	return `<div class="chat">${chatOf(a, t).map((m) => `<div class="msg${m.you ? ' you' : ''}"><small>${esc(m.who)}</small>${esc(m.text)}</div>`).join('')}</div>`
+}
+const TABS = [['now', 'Сейчас'], ['plan', 'План'], ['result', 'Результат'], ['steps', 'Шаги'], ['chat', 'Чат']]
+function defTab(a) { return a.status === 'done' ? 'result' : 'now' }
+function agentHTML(a, t) {
+	const open = !!S.openAg[a.id], tab = S.tab[a.id] || defTab(a), st = stOf(a)
+	const l2 = a.perm ? 'просит: ' + a.perm : a.status === 'error' ? a.error : a.status === 'working' ? (a.tool || 'думает…') : a.status === 'done' ? strip(a.result || '') : a.status === 'starting' ? 'запускается…' : (a.note || 'свободен')
+	const par = a.parent ? ` · от ${esc(findAgent(a.parent)[1].name)}` : ''
+	const pl = a.plan ? a.plan.filter((p) => p.s === 'done').length + '/' + a.plan.length : ''
+	return `<section class="ag${open ? ' open' : ''}" data-ag="${a.id}"><div class="ag-h" data-act="toggle" data-agent="${a.id}" tabindex="0" role="button" aria-expanded="${open}"><span class="chev">▶</span>${av(a, true)}<div class="ag-n"><div class="l1"><span class="nm">${esc(a.name)}</span><span class="rl">${esc(roleOf(a.role).name)}${par}</span></div><div class="l2">${esc(l2)}</div></div><div class="ag-r">${pl ? `<span class="q rt" title="план">${pl}</span>` : ''}${a.queued ? `<span class="q rt" title="в очереди">+${a.queued}</span>` : ''}<span class="chip ${st[0]}">${st[1]}</span>${a.status === 'working' || a.perm ? timer(a.turnAt) : ''}</div></div>
+	<div class="ag-body"><div class="tabs" role="tablist">${TABS.map((x) => `<button class="tab" role="tab" data-act="tab" data-agent="${a.id}" data-tab="${x[0]}" aria-selected="${tab === x[0]}">${x[1]}</button>`).join('')}</div><div class="pane">${open ? paneHTML(a, t, tab) : ''}</div></div></section>`
+}
+const drawer = $('#drawer')
+function renderDrawer() {
+	const t = findTask(S.open)
+	if (!t) return
+	const col = colOf(t), sub = taskSub(t), p = progress(t), pct = p.n ? Math.round(p.d / p.n * 100) : 0
+	const st = sub === 'perm' ? ['warn', '▲ ждёт вас'] : sub === 'error' ? ['err', '✖ ошибка'] : col === 'work' ? ['acc', '◐ в работе'] : col === 'review' ? ['acc', '● новый результат'] : ['ok', '✓ готово']
+	const pa = t.agents.find((a) => a.perm), ea = t.agents.find((a) => a.status === 'error')
+	const barCls = sub === 'perm' ? 'warn' : sub === 'error' ? 'danger' : col === 'done' || col === 'review' ? 'ok' : ''
+	const prevB = drawer.querySelector('.p-b'), sc = prevB ? prevB.scrollTop : 0
+	if (!S.target || !t.agents.some((a) => a.id === S.target)) S.target = (pa || ea || t.agents.find((a) => S.openAg[a.id]) || t.agents[0]).id
+	const keep = $('#cmp-text') ? $('#cmp-text').value : ''
+	const intr = $('#cmp-int') ? $('#cmp-int').checked : true
+	const ta = findAgent(S.target)[1]
+	drawer.innerHTML = `<div class="p-h"><div class="row"><button class="btn ico back" data-act="close" aria-label="Назад">←</button><h2>${esc(t.title)}</h2><button class="btn ico" data-act="close" aria-label="Закрыть" title="Закрыть (Esc)">✕</button></div>
+	<div class="p-meta"><span class="chip ${st[0]}">${st[1]}</span>${spaceHTML(t)}<span>${(col === 'done' || col === 'review') ? `${fmt((t.finished - t.start) / 1000)} · завершено ${ago(t.finished)}` : `в работе ${timer(t.start).replace('class="time ', 'class="').replace('<span', '<span style="font-family:var(--font-mono)"')}`}</span><span>шагов ${totalSteps(t)}</span></div>
+	<div class="prog"><div class="bar ${barCls}"><i style="width:${pct}%"></i></div><span><b>${p.d}/${p.n}</b> ${p.label}</span></div></div>
+	<div class="p-b">
+	${pa ? `<div class="banner"><span class="g-warn">▲</span><div class="tx"><b>${esc(pa.name)}</b> ждёт вашего разрешения<div class="cmd">${esc(pa.perm)}</div></div><div class="c-act">${permBtns(pa)}</div></div>` : ''}
+	${ea ? `<div class="banner err"><span class="g-err">✖</span><div class="tx"><b>${esc(ea.name)}</b>: ${esc(ea.error)}</div><div class="c-act"><button class="btn pri sm" data-act="retry" data-agent="${ea.id}">Повторить</button></div></div>` : ''}
+	<div class="sec-t">Агенты · ${t.agents.length}</div>
+	${t.agents.map((a) => agentHTML(a, t)).join('')}
+	</div>
+	<form class="composer" id="composer"><div class="to">Кому:<select id="cmp-to">${t.agents.map((a) => `<option value="${a.id}"${a.id === S.target ? ' selected' : ''}>${esc(a.name)} · ${esc(roleOf(a.role).name)}</option>`).join('')}</select></div>
+	<textarea id="cmp-text" placeholder="Написать агенту…  (Ctrl+Enter — отправить)">${esc(keep)}</textarea>
+	<div class="bt"><label><input type="checkbox" id="cmp-int" ${ta.status === 'working' || ta.perm ? (intr ? 'checked' : '') : 'disabled'}> прервать текущий ход</label><span class="g-mute" style="font-size:11.5px">${ta.status === 'working' ? 'без галочки — в очередь' : ''}</span><button class="btn pri" type="submit">Отправить</button></div></form>`
+	drawer.querySelector('.p-b').scrollTop = sc
+}
+function openTask(id) {
+	S.open = id; S.jopen = false
+	const t = findTask(id)
+	if (!t.agents.some((a) => S.openAg[a.id] !== undefined)) {
+		const a = t.agents.find((x) => x.perm) || t.agents.find((x) => x.status === 'error') || t.agents.find((x) => x.unread) || t.agents.find((x) => x.status === 'working') || t.agents[0]
+		S.openAg[a.id] = true; S.target = a.id
+	}
+	renderDrawer(); setPanels()
+}
+function setPanels() {
+	$('#drawer').classList.toggle('open', !!S.open)
+	$('#journal').classList.toggle('open', S.jopen)
+	$('#scrim').classList.toggle('on', !!S.open || S.jopen)
+	$('#jbtn').setAttribute('aria-pressed', S.jopen)
+}
+function closePanels() { S.open = null; S.jopen = false; setPanels() }
+
+/* ---------- журнал ---------- */
+function renderJournal() {
+	const fl = { all: 'Все', perm: 'Разрешения', reply: 'Ответы', error: 'Ошибки', msg: 'Сообщения' }
+	const list = S.log.slice().sort((a, b) => b.at - a.at).filter((l) => S.jfilter === 'all' || l.kind === S.jfilter)
+	$('#journal').innerHTML = `<div class="p-h"><div class="row"><button class="btn ico back" data-act="close" aria-label="Назад">←</button><h2>Журнал</h2><button class="btn ico" data-act="close" aria-label="Закрыть">✕</button></div>
+	<div class="g-mute" style="font-size:12px">Хронология всех сообщений и событий. Что происходило, пока вас не было.</div>
+	<div class="jf">${Object.keys(fl).map((k) => `<button data-act="jf" data-f="${k}" aria-pressed="${S.jfilter === k}">${fl[k]}</button>`).join('')}</div></div>
+	<div class="p-b"><div class="jl">${list.map((l) => `<div class="je ${l.kind}"><time data-ago="${l.at}" title="${clock(l.at)}">${ago(l.at)}</time><div><span class="w">${esc(l.who)}</span> <span class="k">${esc(l.text)}</span></div></div>`).join('') || '<div class="empty">Нет событий</div>'}</div></div>`
+}
+
+/* ---------- действия ---------- */
+const toast = (() => { let h; return (msg) => { const e = $('#toast'); e.textContent = msg; e.classList.add('on'); clearTimeout(h); h = setTimeout(() => e.classList.remove('on'), 2600) } })()
+const colName = (t) => COLS.find((c) => c.key === colOf(t)).title
+const addLog = (who, text, kind) => S.log.push({ at: now(), who, text, kind })
+function mutate(fn, t, a, label) {
+	const before = colOf(t)
+	fn()
+	render(true)
+	const after = colOf(t)
+	if (before !== after) toast(`${a ? a.name : t.title} → «${colName(t)}»`)
+	else if (label) toast(label)
+}
+function simulate(t, a, steps) {
+	steps.forEach(([ms, fn]) => setTimeout(() => { if (S.tasks.includes(t)) { fn(); render(true) } }, ms))
+}
+function finish(t, a, result) {
+	a.status = 'done'; a.tool = null; a.result = result; a.unread = true; a.dur = Math.floor((now() - a.turnAt) / 1000); a.perm = null; a.error = null
+	if (t.agents.every((x) => x.status === 'done')) t.finished = now()
+	addLog(a.name + ' → Вы', 'ответ: ' + strip(result).slice(0, 60) + ' …', 'reply')
+}
+const actions = {
+	open: (el) => openTask(el.closest('[data-task]').dataset.task),
+	close: () => closePanels(),
+	closemodal: () => $('#modal').classList.remove('open'),
+	allow: (el) => {
+		const [t, a] = findAgent(el.dataset.agent)
+		const cmd = a.perm
+		mutate(() => { a.perm = null; a.status = 'working'; a.tool = 'Bash: ' + cmd; a.toolAt = now(); a.evAt = now(); a.steps++; addLog(a.name, 'разрешено: ' + cmd, 'msg') }, t, a)
+		simulate(t, a, [
+			[5000, () => { a.tool = 'GitLab: создать merge request'; a.toolAt = now(); a.steps++; if (a.plan) { a.plan[3].s = 'done'; a.plan[4].s = 'active' } }],
+			[11000, () => {
+				if (a.plan) a.plan.forEach((p) => (p.s = 'done'))
+				t.agents.filter((x) => x !== a && x.status === 'idle').forEach((x) => { x.status = 'done'; x.queued = 0; x.result = 'Дифф проверен: замечаний нет, можно сливать.'; x.dur = 12 })
+				finish(t, a, 'MR **!1301** открыт: таймаут холодного старта Redis в `jest.config.ts` поднят с 5 до 20 с. Pipeline зелёный, 14 из 14 тестов проходят.')
+			}],
+		])
+	},
+	deny: (el) => {
+		const [t, a] = findAgent(el.dataset.agent)
+		mutate(() => { addLog(a.name, 'отклонено: ' + a.perm, 'msg'); a.perm = null; a.status = 'idle'; a.tool = null; a.note = 'push отклонён, ждёт указаний' }, t, a)
+	},
+	retry: (el) => {
+		const [t, a] = findAgent(el.dataset.agent)
+		mutate(() => { a.status = 'working'; a.error = null; a.tool = 'Sage: повторный запрос логов'; a.toolAt = now(); a.turnAt = now(); a.evAt = now(); addLog(a.name, 'повтор последнего сообщения', 'msg') }, t, a)
+		simulate(t, a, [[9000, () => finish(t, a, 'Рост 504 с 14:02 совпал с релизом shippy **3.18**: пул соединений к `payments-db` исчерпан (max=20). Рекомендую поднять лимит до 50 и добавить алерт.')]])
+	},
+	seen: (el) => {
+		const t = findTask(el.closest('[data-task]').dataset.task)
+		mutate(() => t.agents.forEach((a) => (a.unread = false)), t, null)
+	},
+	toggle: (el) => { const id = el.dataset.agent; S.openAg[id] = !S.openAg[id]; if (S.openAg[id]) S.target = id; renderDrawer() },
+	tab: (el) => { S.tab[el.dataset.agent] = el.dataset.tab; S.target = el.dataset.agent; renderDrawer() },
+	cnt: (el) => {
+		const k = el.dataset.col
+		if (mobile()) { const i = COLS.findIndex((c) => c.key === k); board.scrollTo({ left: i * board.clientWidth, behavior: reduced ? 'auto' : 'smooth' }); return }
+		S.filter = S.filter === k ? null : k; render(false)
+	},
+	journal: () => { S.jopen = !S.jopen; if (S.jopen) { S.open = null; renderJournal() } setPanels() },
+	jf: (el) => { S.jfilter = el.dataset.f; renderJournal() },
+	theme: () => {
+		const r = document.documentElement, light = r.dataset.theme !== 'light'
+		r.dataset.theme = light ? 'light' : 'dark'
+		$('#theme').textContent = light ? '☀' : '☾'
+	},
+	menu: () => $('#menu').classList.toggle('open'),
+	stub: (el) => { $('#menu').classList.remove('open'); toast(`Справочник «${el.dataset.name}» — заглушка в этом макете`) },
+	copy: () => toast('Результат скопирован'),
+	newtask: () => { $('#modal').classList.add('open'); setTimeout(() => $('#nf-text').focus(), 30) },
+}
+document.addEventListener('click', (e) => {
+	if (!e.target.closest('.actions')) $('#menu').classList.remove('open')
+	const el = e.target.closest('[data-act]')
+	if (!el || el.closest('.ghost')) return
+	if (el.id === 'scrim' || el.dataset.act) {
+		const fn = actions[el.dataset.act]
+		if (fn) { e.stopPropagation(); fn(el) }
+	}
+})
+document.addEventListener('keydown', (e) => {
+	const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)
+	if (e.key === 'Escape') { $('#modal').classList.remove('open'); closePanels(); if (typing) document.activeElement.blur() }
+	else if ((e.key === 'Enter' || e.key === ' ') && !typing && document.activeElement.dataset && document.activeElement.dataset.act && /ARTICLE|DIV/.test(document.activeElement.tagName)) { e.preventDefault(); document.activeElement.click() }
+	else if (e.key === 'Enter' && e.ctrlKey && document.activeElement.id === 'cmp-text') $('#composer').requestSubmit()
+	else if (!typing && e.key === '/') { e.preventDefault(); $('#q').focus() }
+	else if (!typing && e.key === 'n') { e.preventDefault(); actions.newtask() }
+})
+$('#q').addEventListener('input', (e) => { S.q = e.target.value.trim(); render(false) })
+drawer.addEventListener('change', (e) => { if (e.target.id === 'cmp-to') { S.target = e.target.value; renderDrawer() } })
+drawer.addEventListener('submit', (e) => {
+	e.preventDefault()
+	const txt = $('#cmp-text').value.trim()
+	if (!txt) { $('#cmp-text').focus(); return }
+	const [t, a] = findAgent(S.target), int = $('#cmp-int').checked && !$('#cmp-int').disabled
+	;(S.chat[a.id] = S.chat[a.id] || []).push({ who: 'Вы', you: true, text: txt })
+	addLog('Вы → ' + a.name, '«' + txt.slice(0, 50) + '»', 'msg')
+	let msg = 'Сообщение отправлено ' + a.name
+	if (a.status === 'working' && int) { a.steps = a.steps; msg = 'Ход ' + a.name + ' прерван, сообщение отправлено' }
+	else if (a.status === 'working' || a.perm) { a.queued++; msg = 'Сообщение в очереди у ' + a.name }
+	$('#cmp-text').value = ''
+	S.openAg[a.id] = true; S.tab[a.id] = 'chat'
+	render(false); toast(msg)
+	setTimeout(() => { (S.chat[a.id] = S.chat[a.id] || []).push({ who: a.name, text: 'Принял, учту в текущей работе.' }); if (S.open) renderDrawer() }, 1400)
+})
+/* новое поручение */
+$('#nf-role').innerHTML = Object.keys(M.roles).map((k) => `<option value="${k}">${M.roles[k].name}</option>`).join('')
+$('#newform').addEventListener('submit', (e) => {
+	e.preventDefault()
+	const text = $('#nf-text').value.trim() || 'Новое поручение'
+	const role = $('#nf-role').value, id = 'a-n' + ++S.seq
+	const a = { id, name: $('#nf-name').value.trim() || role + '-' + S.seq, role, parent: null, status: 'starting', perm: null, tool: null, toolAt: now(), steps: 0, turnAt: now(), evAt: now(), queued: 0, error: null, result: null, unread: false, dur: 0, plan: null, note: null }
+	const t = { id: 'tn' + S.seq, title: text.split('\n')[0], space: $('#nf-space').value.trim() || 'shippy', start: now(), agents: [a] }
+	$('#modal').classList.remove('open'); $('#newform').reset(); $('#nf-space').value = 'shippy'
+	S.tasks.unshift(t); addLog('Вы → ' + a.name, '«' + t.title.slice(0, 50) + '»', 'msg')
+	render(true); toast(`Поручение запущено: ${a.name}`)
+	simulate(t, a, [[1800, () => { a.status = 'working'; a.tool = 'Read: README.md'; a.toolAt = now(); a.steps = 1 }], [6000, () => { a.tool = 'Grep: «TODO»'; a.toolAt = now(); a.steps = 2 }]])
+})
+$('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') $('#modal').classList.remove('open') })
+/* мобильная сегментация: синхронизация со свайпом */
+board.addEventListener('scroll', () => {
+	if (!mobile()) return
+	const i = Math.round(board.scrollLeft / Math.max(1, board.clientWidth))
+	document.querySelectorAll('.cnt').forEach((b, j) => b.setAttribute('aria-pressed', j === i))
+}, { passive: true })
+addEventListener('resize', () => render(false))
+
+/* ---------- тикер ---------- */
+setInterval(() => {
+	document.querySelectorAll('[data-t]').forEach((e) => {
+		const s = (now() - +e.dataset.t) / 1000
+		e.textContent = fmt(s)
+		if (e.classList.contains('stale') === false && e.closest('.card') && !e.closest('.card').classList.contains('s-perm') && s > 300 && e.closest('.now')) e.classList.add('stale')
+	})
+	document.querySelectorAll('[data-ago]').forEach((e) => { e.textContent = ago(+e.dataset.ago) })
+}, 1000)
+
+render(false)
+if (mobile()) document.querySelectorAll('.cnt').forEach((b, j) => b.setAttribute('aria-pressed', j === 0))
+})()
+</script>
+</body>
+</html>
