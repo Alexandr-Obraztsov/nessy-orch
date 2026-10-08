@@ -8,6 +8,7 @@ test.describe('загрузка и раскладка', () => {
 		await openApp(page)
 		if (narrow) await expect(page.getByRole('banner')).toContainText('Лента')
 		else {
+			await expect(page.getByRole('status').filter({ hasText: 'в сети' })).toBeVisible()
 			await expect(tab(page, 'Лента')).toHaveAttribute('aria-selected', 'true')
 			await expect(page.getByRole('toolbar', { name: 'Быстрые действия' })).toBeVisible()
 			await expect(page.getByRole('navigation', { name: 'Навигация' })).toBeVisible()

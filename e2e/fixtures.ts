@@ -89,7 +89,7 @@ export { expect }
 /** Открыть приложение и дождаться подключения к потоку. */
 export async function openApp(page: Page): Promise<void> {
 	await page.goto('/')
-	await expect(page.getByRole('status').filter({ hasText: 'в сети' })).toBeAttached()
+	await expect(page.locator('[data-conn="live"]')).toBeAttached()
 }
 
 /** Открыть приложение сразу с заданными вкладками (вкладки хранятся в localStorage). */
@@ -100,7 +100,7 @@ export async function openWithTabs(page: Page, tabs: object[], active = tabs.len
 		[tabs, active] as const,
 	)
 	await page.reload()
-	await expect(page.getByRole('status').filter({ hasText: 'в сети' })).toBeAttached()
+	await expect(page.locator('[data-conn="live"]')).toBeAttached()
 }
 
 /** Проверка: страница не прокручивается по горизонтали. */

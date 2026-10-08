@@ -76,7 +76,7 @@ test.describe('тема', () => {
 		else await page.getByRole('toolbar', { name: 'Быстрые действия' }).getByRole('button', { name: label }).click()
 		await expect(html).toHaveAttribute('data-theme', after)
 		await page.reload()
-		await expect(page.getByRole('status').filter({ hasText: 'в сети' })).toBeAttached()
+		await expect(page.locator('[data-conn="live"]')).toBeAttached()
 		await expect(html).toHaveAttribute('data-theme', after)
 		await shot(page, info, `theme-${after}`)
 		await page.evaluate(() => localStorage.removeItem('nessy-orch:theme'))

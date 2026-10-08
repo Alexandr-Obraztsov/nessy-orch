@@ -9,7 +9,7 @@ import { AddSpaceDialog } from '@/features/add-space'
 import { AgentConfirmHost } from '@/features/agent-actions'
 import { SpawnAgentDialog } from '@/features/spawn-agent'
 import { NARROW, useMedia } from '@/shared/lib/useMedia'
-import { activeTab, closeTab, connect, toggleSidebar, useView } from '@/shared/model'
+import { activeTab, closeTab, connect, toggleSidebar, useStore, useView } from '@/shared/model'
 import { Icon, StatusDot, Toaster } from '@/shared/ui'
 import { MobileBar } from '@/widgets/mobile-bar'
 import { Ribbon } from '@/widgets/ribbon'
@@ -26,6 +26,7 @@ export function App() {
 	const tab = useView(v => activeTab(v))
 	const index = useView(v => v.active)
 	const meta = useTabMeta(tab)
+	const conn = useStore(st => st.conn)
 
 	useEffect(connect, [])
 	useHotkeys()
@@ -48,7 +49,7 @@ export function App() {
 	)
 
 	return (
-		<div className={`${s.app} ${narrow ? s.narrow : ''}`}>
+		<div className={`${s.app} ${narrow ? s.narrow : ''}`} data-conn={conn}>
 			{narrow ? (
 				<MobileBar title={meta.title} lead={lead} onCloseTab={meta.closable ? () => closeTab(index) : undefined} />
 			) : (
