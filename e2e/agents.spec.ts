@@ -50,7 +50,7 @@ test.describe('агенты', () => {
 		}
 	})
 
-	test('графовый узел по тапу/клику мышью открывает чат', async ({ page, ws, narrow }) => {
+	test('графовый узел по тапу/клику мышью открывает чат', async ({ page, ws, narrow, hasTouch }) => {
 		const a = await ws.spawn(`tp-${uid()}`, 'тап')
 		await openApp(page)
 		if (narrow) await tab(page, 'Граф').click()
@@ -63,7 +63,7 @@ test.describe('агенты', () => {
 		if (!box) return
 		const x = box.x + box.width / 2
 		const y = box.y + box.height / 2
-		if (narrow) await page.touchscreen.tap(x, y)
+		if (hasTouch) await page.touchscreen.tap(x, y)
 		else await page.mouse.click(x, y)
 		await expect(chat(page).getByRole('heading', { name: a.name })).toBeVisible()
 	})
@@ -76,9 +76,8 @@ test.describe('агенты', () => {
 		const cards = c.getByRole('button', { expanded: false }).filter({ hasText: /read_file|grep|run_shell_command/ })
 		await expect(cards).toHaveCount(3)
 		await expect(c.getByText('Готово: README прочитан')).toBeVisible()
-		await cards.first().click()
+		await c.getByRole('button', { name: /read_file/ }).click()
 		await expect(c.getByText('Оркестратор агентов nessy.')).toBeVisible()
-		await cards.nth(0).click() // после раскрытия первый уже expanded=true, поэтому берём оставшиеся
 		await c.getByRole('button', { name: /run_shell_command/ }).click()
 		await expect(c.getByText('pass 42')).toBeVisible()
 		await expectNoOverflow(page, 'карточки инструментов')

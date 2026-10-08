@@ -87,7 +87,8 @@ export async function expectNoOverflow(page: Page, what: string): Promise<void> 
 
 /** Скриншот состояния в отчёт и в test-results. */
 export async function shot(page: Page, info: TestInfo, name: string): Promise<void> {
-	const body = await page.screenshot({ animations: 'disabled' })
+	const file = path.join('test-results', 'shots', info.project.name, `${name}.png`)
+	const body = await page.screenshot({ animations: 'disabled', path: file })
 	await info.attach(`${info.project.name}-${name}`, { body, contentType: 'image/png' })
 }
 

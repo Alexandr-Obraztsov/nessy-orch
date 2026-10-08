@@ -19,6 +19,9 @@ function When({ agent }: { agent: AgentView }) {
 	return <span className={s.when}>{ago(agent.lastActivityAt, now)}</span>
 }
 
+/** Превью — одна строка без markdown-разметки (заголовки, жирный, код). */
+const plain = (t: string): string => t.replace(/(^|\s)(#{1,6}|>)\s+/g, '$1').replace(/[*`~]+/g, '')
+
 function statusLine(a: AgentView): { icon?: 'tool' | 'shield' | 'alert'; text: string } | null {
 	if (a.pendingPermissions.length) return { icon: 'shield', text: a.pendingPermissions[0]?.title ?? 'ждёт разрешения' }
 	if (a.status === 'error' && a.error) return { icon: 'alert', text: a.error }
@@ -83,7 +86,7 @@ export const AgentRow = memo(function AgentRow({ agent: a, hue, selected }: Agen
 						</span>
 					)}
 				</span>
-				{a.preview && <span className={s.preview}>{a.preview}</span>}
+				{a.preview && <span className={s.preview}>{plain(a.preview)}</span>}
 			</span>
 		</button>
 	)

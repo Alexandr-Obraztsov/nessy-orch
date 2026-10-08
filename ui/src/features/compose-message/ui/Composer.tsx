@@ -11,6 +11,9 @@ import { useComposer } from '../model/useComposer'
 import s from './Composer.module.css'
 import { RecipientPicker } from './RecipientPicker'
 
+/** Длинное имя в плейсхолдере не должно переносить его на несколько строк. */
+const short = (n: string): string => (n.length > 24 ? `${n.slice(0, 22)}…` : n)
+
 export function Composer({ to, disabledReason, placeholder, onSent }: ComposerProps) {
 	const m = useComposer(to, onSent)
 	const input = useRef<HTMLTextAreaElement>(null)
@@ -35,7 +38,7 @@ export function Composer({ to, disabledReason, placeholder, onSent }: ComposerPr
 
 	const disabled = !!disabledReason
 	const target = m.targets.find(a => a.id === m.recipient)
-	const ph = disabled ? disabledReason : (placeholder ?? (target ? `Сообщение для ${target.name}…` : 'Сообщение…'))
+	const ph = disabled ? disabledReason : (placeholder ?? (target ? `Сообщение для ${short(target.name)}…` : 'Сообщение…'))
 	const canSend = !disabled && !!m.recipient && m.text.trim().length > 0 && !m.sending
 
 	const onKey = (e: KeyboardEvent<HTMLTextAreaElement>): void => {

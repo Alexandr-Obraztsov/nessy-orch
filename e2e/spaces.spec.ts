@@ -10,7 +10,7 @@ test.describe('пространства и тема', () => {
 			await page.getByRole('button', { name: 'Меню' }).click()
 			await page.getByRole('button', { name: 'Добавить пространство' }).click()
 		} else {
-			await page.getByRole('button', { name: /Пространство/ }).click()
+			await page.getByRole('banner').getByTitle(/Добавить пространство/).click()
 		}
 		const dlg = page.getByRole('dialog', { name: 'Новое пространство' })
 		await expect(dlg).toBeVisible()
@@ -82,7 +82,7 @@ test.describe('мобильная навигация', () => {
 		await expect(page.getByRole('region', { name: 'Чат агента' })).toBeVisible()
 		await expect(bar.getByRole('button', { name: new RegExp(a.name) })).toHaveAttribute('aria-current', 'page')
 		await shot(page, info, 'tab-chat')
-		await page.getByRole('button', { name: 'К общей ленте' }).click()
-		await expect(page.getByRole('region', { name: 'Общая лента' })).toBeVisible()
+		await page.getByRole('button', { name: 'К списку агентов' }).click()
+		await expect(page.getByRole('complementary', { name: 'Агенты' })).toBeVisible()
 	})
 })

@@ -109,10 +109,13 @@
 	border: 1px solid var(--line-strong);
 	text-align: left;
 	vertical-align: top;
+	/* слова не рвём посреди — таблица скроллится по горизонтали */
+	overflow-wrap: normal;
 }
 .md th {
 	background: var(--surface-3);
 	font-weight: 600;
+	white-space: nowrap;
 }
 .md img {
 	max-width: 100%;

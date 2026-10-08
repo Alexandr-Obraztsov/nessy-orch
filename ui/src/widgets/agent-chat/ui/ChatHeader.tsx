@@ -4,6 +4,7 @@ import { hueColor } from '@/shared/lib/color'
 import { cssVars } from '@/shared/lib/style'
 import { duration } from '@/shared/lib/time'
 import { useNow } from '@/shared/lib/useNow'
+import { NARROW, useMedia } from '@/shared/lib/useMedia'
 import { closeAgent, spaceHue, useStore } from '@/shared/model'
 import { Icon, IconButton, StatusDot } from '@/shared/ui'
 import { toolIcon } from '../lib/toolIcon'
@@ -14,11 +15,13 @@ import s from './AgentChat.module.css'
 export function ChatHeader({ agent }: ChatHeaderProps) {
 	const hue = useStore(st => spaceHue(st.spaces, agent.space))
 	const now = useNow(1000)
+	// на узком экране «назад» ведёт к списку агентов, на широком — к ленте
+	const narrow = useMedia(NARROW)
 	const st = AGENT_STATUS[agent.status]
 	const working = agent.status === 'working'
 	return (
 		<header className={s.header}>
-			<IconButton icon="chevronLeft" label="К общей ленте" size="sm" onClick={closeAgent} className={s.back} />
+			<IconButton icon="chevronLeft" label={narrow ? 'К списку агентов' : 'К общей ленте'} size="sm" onClick={closeAgent} className={s.back} />
 			<AgentAvatar name={agent.name} hue={hue} status={agent.status} size={36} />
 			<div className={s.info}>
 				<div className={s.line1}>

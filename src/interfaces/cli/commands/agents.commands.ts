@@ -1,4 +1,5 @@
 /** Команды агентов: spawn, send, ask, ls, show, watch, cancel, kill. */
+import * as path from 'node:path'
 import type { AgentEvent, AgentView, GraphView, SendResponse, SpawnResponse } from '../../../../shared/types'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { Parsed } from '../args.types'
@@ -9,6 +10,12 @@ import { del, enc, ep, get, info, json, out, post } from '../io'
 import { renderEvent } from '../render-event'
 import type { CommandTable } from './command.types'
 import { COMMON, WAIT_FLAGS } from './flags'
+
+/** Пространство задают именем или путём; относительный путь считаем от текущего каталога CLI, а не сервера. */
+function spaceArg(v: string | undefined): string | undefined {
+	if (v === undefined) return undefined
+	return v.startsWith('.') || v.includes('/') ? path.resolve(v) : v
+}
 
 /** Общий вывод для spawn/send: ответ — в stdout, служебное — в stderr. */
 function printSendResult(p: Parsed, agent: AgentView | null, r: SendResponse): void {
@@ -35,7 +42,7 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 	const wait = flagBool(p, 'wait')
 	if (wait && !prompt) throw new CliError('--wait требует текст задачи', 2)
 	const r = await post<SpawnResponse>('/agents', {
-		space: flagStr(p, 'space'),
+		space: spaceArg(flagStr(p, 'space')),
 		name: flagStr(p, 'name'),
 		from: flagStr(p, 'from'),
 		prompt: prompt || undefined,
@@ -62,7 +69,7 @@ async function cmdAsk(p: Parsed): Promise<void> {
 	const [space, ...rest] = p.positionals
 	const prompt = rest.join(' ').trim()
 	if (!space || !prompt) throw new CliError('использование: nessy-orch ask <путь|пространство> "задача"', 2)
-	const r = await post<SpawnResponse>('/agents', { space, prompt, wait: true, waitTimeoutSec: flagNum(p, 'timeout') })
+	const r = await post<SpawnResponse>('/agents', { space: spaceArg(space), prompt, wait: true, waitTimeoutSec: flagNum(p, 'timeout') })
 	printSendResult(p, r.agent, r)
 }
 

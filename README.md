@@ -7,7 +7,12 @@
 Зачем: у nessy есть доступ к dp-инструментам (GitLab, Jira, Sage, Wiki) и долгая автономная работа в воркспейсе,
 которых нет у Claude в песочнице. nessy-orch даёт простой способ делегировать nessy задачи и следить за ними.
 
-![Граф, ростер и общая лента](docs/screenshots/desktop-dark.png)
+![Граф, ростер и чат агента — тёмная тема](docs/screenshots/desktop-dark.png)
+
+<p>
+  <img src="docs/screenshots/desktop-light.png" alt="Светлая тема: markdown-ответ агента" width="68%">
+  <img src="docs/screenshots/mobile-dark.png" alt="Мобильная версия" width="23%">
+</p>
 
 ## Возможности
 
@@ -100,6 +105,14 @@ nessy-orch status | open | install [--print] | uninstall
 
 Полезный результат (ответ агента, JSON) выводится в stdout, служебные сообщения — в stderr. Флаг `--json` есть у всех
 команд. Старые алиасы `nessy-ask`, `nessy-jobs`, `nessy-watch` оставлены для совместимости.
+
+## Скилл для Claude
+
+В `.claude/skills/nessy-orch/SKILL.md` лежит скилл, который учит Claude пользоваться сервисом. В нём описано,
+когда делегировать задачу nessy, какие команды запускать (`ask`, `spawn`, `send`, `inbox`, `show`, `kill`), как
+формулировать задачи и что делать при ошибках и таймаутах. Во внутреннее устройство оркестратора скилл Claude не
+ведёт. В Claude Code он подхватывается автоматически, если открыть этот репозиторий. Чтобы скилл был доступен
+везде, скопируйте его в `~/.claude/skills/nessy-orch/`.
 
 ## HTTP API
 

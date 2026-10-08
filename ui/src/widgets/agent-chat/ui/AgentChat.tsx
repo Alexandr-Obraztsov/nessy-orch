@@ -94,7 +94,7 @@ function ChatView({ agentId }: AgentChatProps) {
 			</div>
 			<Composer
 				to={agent.id}
-				placeholder={`Сообщение для ${agent.name}…`}
+				placeholder={`Сообщение для ${agent.name.length > 24 ? `${agent.name.slice(0, 22)}…` : agent.name}…`}
 				disabledReason={canMessage(agent.status) ? null : 'Агент остановлен — сообщения не доставляются'}
 				onSent={() => sticky.scrollToBottom()}
 			/>
