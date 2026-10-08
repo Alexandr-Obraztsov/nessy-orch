@@ -52,14 +52,14 @@ export class FakeGateway implements NessyGateway {
 		return Promise.resolve(true)
 	}
 	createSession(): Promise<{ sessionId: string }> {
-		return Promise.resolve({ sessionId: 's-' + ++this.n })
+		return Promise.resolve({ sessionId: `s-${++this.n}` })
 	}
 	resumeSession(): Promise<boolean> {
 		return Promise.resolve(true)
 	}
 	prompt(_sessionId: string, text: string): Promise<{ promptId: string | null }> {
 		this.prompts.push(text)
-		return Promise.resolve({ promptId: 'p-' + this.prompts.length })
+		return Promise.resolve({ promptId: `p-${this.prompts.length}` })
 	}
 	cancel(): Promise<void> {
 		this.cancels++

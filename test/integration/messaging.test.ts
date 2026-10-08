@@ -1,7 +1,7 @@
 /** Сообщения: spawn --wait, send/reply, inbox, очередь, межагентная переписка и защиты. */
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
-import type { ApiError, InboxResponse, Message, SendResponse, SpawnResponse } from '../../shared/types'
+import type { ApiError, InboxResponse, Message, SendResponse, SpawnResponse, UserEvent } from '../../shared/types'
 import { startHarness, type Harness } from '../support/harness'
 import { until } from '../support/wait'
 
@@ -24,7 +24,7 @@ describe('сообщения и маршрутизация', () => {
 		assert.equal(r.status, 201)
 		alpha = r.body.agent.id
 		assert.equal(r.body.reply?.text, 'ответ: привет мир')
-		assert.equal(r.body.reply?.replyTo, r.body.message.id)
+		assert.equal(r.body.reply.replyTo, r.body.message.id)
 		assert.equal(r.body.agent.name, 'alpha')
 		const kinds = msgs().map(m => `${m.from}>${m.to}:${m.kind}`)
 		assert.ok(kinds.includes(`you>${alpha}:msg`))
@@ -44,7 +44,7 @@ describe('сообщения и маршрутизация', () => {
 		assert.equal(dup.body.code, 'name_taken')
 	})
 
-	it('первый промпт содержит вводную, следующие — нет', T, async () => {
+	it('первый промпт содержит вводную, следующие — нет', T, () => {
 		const ev = h.orch.agentHistory(alpha)
 		assert.equal(ev.filter(e => e.kind === 'user').length >= 1, true)
 		assert.equal(h.orch.resolveAgent(alpha).introduced, true)
@@ -86,8 +86,8 @@ describe('сообщения и маршрутизация', () => {
 		)
 		const users = h.orch
 			.agentHistory(beta)
-			.filter(e => e.kind === 'user')
-			.map(e => (e.kind === 'user' ? e.text : ''))
+			.filter((e): e is UserEvent => e.kind === 'user')
+			.map(e => e.text)
 			.slice(-4)
 		assert.deepEqual(users, ['#slow', 'один', 'два', 'три'])
 		assert.equal(h.orch.getAgent('beta').queued, 0)

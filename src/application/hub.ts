@@ -10,7 +10,7 @@ export class Hub {
 	private readonly subs = new Set<HubListener>()
 
 	publish(input: HubInput): HubEvent {
-		const evt = { ...input, rev: ++this.rev } as HubEvent
+		const evt: HubEvent = { ...input, rev: ++this.rev }
 		for (const fn of this.subs) {
 			try {
 				fn(evt)

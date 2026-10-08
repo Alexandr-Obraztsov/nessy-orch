@@ -93,7 +93,7 @@ export class ServeSpace implements SpaceRuntime {
 			this.client = client
 			const t0 = Date.now()
 			while (Date.now() - t0 < settings.healthTimeoutMs) {
-				if (this.stopping) throw new Error('пространство остановлено во время запуска')
+				if (this.isStopping()) throw new Error('пространство остановлено во время запуска')
 				if (await client.health()) {
 					this.setStatus('ready')
 					return
@@ -108,6 +108,11 @@ export class ServeSpace implements SpaceRuntime {
 			this.kill()
 			throw e
 		}
+	}
+
+	/** Флаг меняется асинхронно (stop() во время запуска) — читаем через метод, без сужения типа. */
+	private isStopping(): boolean {
+		return this.stopping
 	}
 
 	private spawnServe(port: number): void {

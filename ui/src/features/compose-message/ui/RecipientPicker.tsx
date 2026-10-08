@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { AgentView } from '@contract'
 import { AGENT_STATUS } from '@/entities/agent'
-import { cssVars } from '@/shared/lib/cssVars'
+import { cssVars } from '@/shared/lib/style'
 import { spaceHue, useStore } from '@/shared/model'
 import { StatusDot } from '@/shared/ui'
 import s from './Composer.module.css'

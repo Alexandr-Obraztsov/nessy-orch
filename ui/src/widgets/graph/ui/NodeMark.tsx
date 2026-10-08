@@ -4,7 +4,7 @@
 import { type KeyboardEvent, type RefCallback, memo } from 'react'
 import { AGENT_STATUS, initials } from '@/entities/agent'
 import { hueColor } from '@/shared/lib/color'
-import { cssVars } from '../lib/cssVars'
+import { cssVars } from '@/shared/lib/style'
 import { AGENT_R, YOU_R } from '../model/useSimulation'
 import type { NodeDatum } from '../model/types'
 import s from './GraphScene.module.css'

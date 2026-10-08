@@ -233,7 +233,7 @@ export class Agent implements AgentIdentity {
 		this.pumping = false
 		const msg = this.queue.shift()
 		if (!msg) return
-		if (this.current) {
+		if (this.isBusy) {
 			this.queue.unshift(msg)
 			return
 		}
@@ -247,10 +247,16 @@ export class Agent implements AgentIdentity {
 			if (!client || !this.sessionId) throw new Error('нет соединения с nessy')
 			const { promptId } = await client.prompt(this.sessionId, this.buildPrompt(msg))
 			this.introduced = true
-			if (this.current?.msg === msg) this.current.promptId = promptId
+			const turn = this.turnFor(msg)
+			if (turn) turn.promptId = promptId
 		} catch (e) {
-			if (this.current?.msg === msg) this.finishTurn({ error: errMsg(e) })
+			if (this.turnFor(msg)) this.finishTurn({ error: errMsg(e) })
 		}
+	}
+
+	/** Текущий ход, если он всё ещё по этому сообщению (ход мог завершиться, пока ждали nessy). */
+	private turnFor(msg: Message): CurrentTurn | null {
+		return this.current?.msg === msg ? this.current : null
 	}
 
 	private buildPrompt(msg: Message): string {

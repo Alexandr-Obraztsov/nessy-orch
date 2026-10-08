@@ -60,6 +60,11 @@ export default tseslint.config(
 		files: ['test/**/*.ts'],
 		rules: {
 			'@typescript-eslint/no-non-null-assertion': 'off',
+			// describe/it из node:test возвращают промисы, которые раннер ждёт сам
+			'@typescript-eslint/no-floating-promises': [
+				'error',
+				{ allowForKnownSafeCalls: [{ from: 'package', package: 'node:test', name: ['describe', 'it', 'test', 'before', 'after', 'beforeEach', 'afterEach'] }] },
+			],
 		},
 	},
 )

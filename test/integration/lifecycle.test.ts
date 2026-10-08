@@ -31,8 +31,10 @@ describe('ход агента (автоподтверждение)', () => {
 				['run_shell_command', 'Shell: npm test', 'completed'],
 			],
 		)
-		assert.deepEqual(list[0]?.input, { path: 'README.md' })
-		assert.match(list[0]?.output ?? '', /^# nessy-orch/)
+		const [first] = list
+		assert.ok(first)
+		assert.deepEqual(first.input, { path: 'README.md' })
+		assert.match(first.output ?? '', /^# nessy-orch/)
 		assert.equal((await h.api<AgentView>('GET', '/agents/worker')).body.lastTool?.name, 'run_shell_command')
 		const hist = await h.api<AgentEvent[]>('GET', '/agents/worker/history?limit=1000')
 		assert.equal(tools(hist.body).length, 3, 'история отдаёт одну запись на инструмент')
@@ -48,7 +50,7 @@ describe('ход агента (автоподтверждение)', () => {
 	it('#error: ошибка хода — системное событие error, ответ с failed, агент жив', T, async () => {
 		const r = await h.api<SendResponse>('POST', '/agents/worker/send', { text: '#error', wait: true, waitTimeoutSec: 10 })
 		assert.equal(r.body.reply?.failed, 'Rate limit exceeded')
-		assert.match(r.body.reply?.text ?? '', /^⚠ ошибка: Rate limit exceeded/)
+		assert.match(r.body.reply.text, /^⚠ ошибка: Rate limit exceeded/)
 		const ev = h.orch.agentHistory('worker')
 		assert.ok(ev.some(e => e.kind === 'system' && e.level === 'error' && /Rate limit exceeded/.test(e.text)))
 		assert.ok(!ev.some(e => e.kind === 'text' && /Rate limit/.test(e.text)), 'ошибка не попала в текст')
@@ -110,7 +112,7 @@ describe('ручное подтверждение прав (ORCH_AUTO_APPROVE=0)
 		assert.ok(h.orch.agentHistory('careful').some(e => e.kind === 'permission' && !e.resolved))
 		const bad = await h.api<{ ok: boolean }>('POST', '/agents/careful/permission/nope', { approve: true })
 		assert.equal(bad.status, 404)
-		const ok = await h.api<{ ok: boolean }>('POST', `/agents/careful/permission/${pending?.requestId}`, { approve: true })
+		const ok = await h.api<{ ok: boolean }>('POST', `/agents/careful/permission/${pending.requestId}`, { approve: true })
 		assert.deepEqual(ok.body, { ok: true })
 		await until(() => h.orch.getAgent('careful').status === 'idle', 8000, 'ход завершён')
 		assert.equal(h.orch.getAgent('careful').pendingPermissions.length, 0)

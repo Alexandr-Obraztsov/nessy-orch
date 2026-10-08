@@ -1,7 +1,7 @@
 /** Форматирование вывода CLI (для человека; для машин есть --json). */
 import type { AgentView, Message, SpaceView } from '../../../shared/types'
 
-const tty = process.stdout.isTTY === true && !process.env['NO_COLOR']
+const tty = process.stdout.isTTY && !process.env['NO_COLOR']
 const c = (code: string) => (s: string): string => (tty ? `\x1b[${code}m${s}\x1b[0m` : s)
 export const dim = c('90')
 export const red = c('31')
@@ -45,7 +45,7 @@ const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '')
 export function agentLabel(id: string, agents: ReadonlyMap<string, AgentView>): string {
 	if (id === 'you' || id === 'system') return id
 	const a = agents.get(id)
-	return a ? (a.name === a.id ? a.id : `${a.name}`) : id
+	return a ? a.name : id
 }
 
 export function formatMessage(m: Message, agents: ReadonlyMap<string, AgentView>): string {

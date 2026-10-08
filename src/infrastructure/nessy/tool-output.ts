@@ -10,7 +10,7 @@ export function stringifyUnknown(value: unknown): string {
 	try {
 		return JSON.stringify(value, undefined, 2)
 	} catch {
-		return String(value)
+		return Object.prototype.toString.call(value) // циклические структуры, BigInt
 	}
 }
 

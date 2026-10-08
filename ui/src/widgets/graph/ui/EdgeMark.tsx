@@ -2,7 +2,7 @@
  * Ребро графа. Геометрию (атрибут d у всех path внутри) пишет движок графа.
  */
 import { type RefCallback, memo } from 'react'
-import { cssVars } from '../lib/cssVars'
+import { cssVars } from '@/shared/lib/style'
 import { edgeWidth } from '../lib/edgeStyle'
 import type { EdgeDatum } from '../model/types'
 import s from './GraphScene.module.css'

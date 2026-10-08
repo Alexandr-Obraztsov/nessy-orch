@@ -2,7 +2,7 @@
  * Ореол пространства: дуга вокруг его агентов с подписью. Дугу пересчитывает движок графа.
  */
 import { type RefCallback, memo } from 'react'
-import { cssVars } from '../lib/cssVars'
+import { cssVars } from '@/shared/lib/style'
 import { hueColor } from '@/shared/lib/color'
 import type { SectorDatum } from '../model/types'
 import s from './GraphScene.module.css'

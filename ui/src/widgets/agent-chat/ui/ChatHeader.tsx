@@ -1,7 +1,7 @@
 import { AgentActions } from '@/features/agent-actions'
 import { AGENT_STATUS, AgentAvatar } from '@/entities/agent'
 import { hueColor } from '@/shared/lib/color'
-import { cssVars } from '@/shared/lib/cssVars'
+import { cssVars } from '@/shared/lib/style'
 import { duration } from '@/shared/lib/time'
 import { useNow } from '@/shared/lib/useNow'
 import { closeAgent, spaceHue, useStore } from '@/shared/model'

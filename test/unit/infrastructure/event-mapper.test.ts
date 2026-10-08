@@ -67,7 +67,6 @@ describe('маппер событий nessy: инструменты', () => {
 		m.map('session_update', su({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Read: a.md', kind: 'read', rawInput: { path: 'a.md' } }))
 		const mid = m.map('session_update', su({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'in_progress' }))
 		assert.equal(mid?.kind, 'tool')
-		if (mid?.kind !== 'tool') return
 		assert.equal(mid.title, 'Read: a.md')
 		assert.equal(mid.name, 'read')
 		assert.equal(mid.status, 'in_progress')

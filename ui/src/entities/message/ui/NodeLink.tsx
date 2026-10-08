@@ -1,4 +1,4 @@
-import { cssVars } from '@/shared/lib/cssVars'
+import { cssVars } from '@/shared/lib/style'
 import { YOU, nodeLabel, openAgent, spaceHue, useStore } from '@/shared/model'
 import s from './NodeLink.module.css'
 

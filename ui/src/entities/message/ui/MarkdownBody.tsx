@@ -1,4 +1,4 @@
-import { cssVars } from '@/shared/lib/cssVars'
+import { cssVars } from '@/shared/lib/style'
 import { renderMarkdown } from '@/shared/lib/markdown'
 import { Icon } from '@/shared/ui'
 import { useCollapse } from '../lib/useCollapse'

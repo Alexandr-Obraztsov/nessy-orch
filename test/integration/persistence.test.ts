@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { after, describe, it } from 'node:test'
-import type { InboxResponse, SendResponse, SpawnResponse } from '../../shared/types'
+import type { InboxResponse, SendResponse, SpawnResponse, UserEvent } from '../../shared/types'
 import { startHarness, type Harness } from '../support/harness'
 import { until } from '../support/wait'
 
@@ -47,7 +47,7 @@ describe('рестарт и восстановление', () => {
 		// serve новый — старой сессии в нём нет: создаётся новая с пометкой о сбросе контекста
 		const r = await second.api<SendResponse>('POST', '/agents/keeper/send', { text: 'снова', wait: true, waitTimeoutSec: 10 })
 		assert.equal(r.body.reply?.text, 'ответ: снова')
-		assert.ok((r.body.message.seq ?? 0) > seqBefore, 'нумерация ленты продолжается')
+		assert.ok(r.body.message.seq > seqBefore, 'нумерация ленты продолжается')
 		assert.notEqual(second.orch.resolveAgent(id).sessionId, sessionBefore)
 		assert.ok(second.orch.agentHistory('keeper').some(e => e.kind === 'system' && /контекст диалога сброшен/.test(e.text)))
 		const seqs = second.orch.agentHistory('keeper', 1000).map(e => e.seq)
@@ -75,8 +75,8 @@ describe('рестарт и восстановление', () => {
 		assert.equal(r.body.reply?.text, 'ответ: после рестарта')
 		const users = second.orch
 			.agentHistory('keeper', 1000)
-			.filter(e => e.kind === 'user')
-			.map(e => (e.kind === 'user' ? e.text : ''))
+			.filter((e): e is UserEvent => e.kind === 'user')
+			.map(e => e.text)
 		assert.deepEqual(users.slice(-2), ['отложенное', 'после рестарта'])
 	})
 })

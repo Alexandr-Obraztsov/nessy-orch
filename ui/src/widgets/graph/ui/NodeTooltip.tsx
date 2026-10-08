@@ -8,7 +8,7 @@ import { ago, duration } from '@/shared/lib/time'
 import { useNow } from '@/shared/lib/useNow'
 import { YOU, spaceHue, useStore } from '@/shared/model'
 import { Icon, StatusDot } from '@/shared/ui'
-import { cssVars } from '../lib/cssVars'
+import { cssVars } from '@/shared/lib/style'
 import o from './Overlays.module.css'
 
 export interface NodeTooltipProps {
