@@ -8,8 +8,6 @@ export interface Config extends OrchSettings {
 	port: number
 	nessyBin: string
 	nessyServeArgs: string[]
-	/** токен nessy serve (NESSY_SERVER_TOKEN): если задан, serve требует `Authorization: Bearer` на всех запросах */
-	nessyToken: string | null
 	serveBasePort: number
 	maxSessionsPerSpace: number
 	healthTimeoutMs: number

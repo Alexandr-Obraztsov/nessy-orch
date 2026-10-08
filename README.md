@@ -201,7 +201,6 @@ bash scripts/install-skill.sh --uninstall
 | `NESSY_ORCH_HOME` | `~/.nessy-orch` | Состояние, журналы, логи |
 | `NESSY_BIN` | `~/.local/bin/nessy` | Исполняемый файл nessy |
 | `NESSY_SERVE_ARGS` | — | Дополнительные аргументы `nessy serve` |
-| `NESSY_SERVER_TOKEN` | — | Токен nessy serve. Если задан, serve требует `Authorization: Bearer`, и оркестратор передаёт его во все запросы |
 | `SERVE_BASE_PORT` | `4360` | Начало пула портов для `nessy serve` |
 | `MAX_SESSIONS` | `20` | Сессий на пространство |
 | `ORCH_AUTO_APPROVE` | `1` | Автоподтверждение прав агентов |

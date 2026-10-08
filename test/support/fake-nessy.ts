@@ -386,13 +386,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 	json(res, 404, { error: 'not found' })
 }
 
-// как настоящий serve: с NESSY_SERVER_TOKEN все запросы требуют `Authorization: Bearer <токен>`
-const token = process.env['NESSY_SERVER_TOKEN'] || null
 const server = http.createServer((req, res) => {
-	if (token && req.headers.authorization !== `Bearer ${token}`) {
-		json(res, 401, { error: 'unauthorized' })
-		return
-	}
 	handle(req, res).catch((e: unknown) => json(res, 500, { error: String(e) }))
 })
 server.listen(port, '127.0.0.1', () => console.log(`fake-nessy listening on ${port} workspace=${workspace}`))

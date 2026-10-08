@@ -53,7 +53,6 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 			home,
 			nessyBin: FAKE,
 			nessyServeArgs: [],
-			nessyToken: null,
 			serveBasePort: serveBasePort(),
 			maxSessionsPerSpace: 20,
 			autoApprove: true,

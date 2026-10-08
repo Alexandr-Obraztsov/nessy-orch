@@ -26,7 +26,7 @@ export function buildApp(config: Config, version: string): AppInstance {
 					settings: config,
 					usedPorts,
 					logPath: name => store.logPath(name),
-					makeClient: url => new NessyClient(url, config.nessyToken),
+					makeClient: url => new NessyClient(url),
 				},
 				listener,
 			),
