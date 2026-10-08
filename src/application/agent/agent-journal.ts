@@ -10,8 +10,6 @@ import { clip } from '../../lib/text'
 
 const MAX_TOOL_OUT = 4000
 
-type ToolUpdate = Extract<SessionEvent, { kind: 'tool' }>
-
 export class AgentJournal {
 	private run: LiveRun | null = null
 	private readonly tools = new Map<string, ToolEvent>()
@@ -72,7 +70,7 @@ export class AgentJournal {
 	 * Создать или обновить запись инструмента. Обновление перезаписывает запись с тем же seq
 	 * (при чтении истории позднейшая запись с тем же seq побеждает). Возвращает [запись, создана ли].
 	 */
-	upsertTool(ev: ToolUpdate): [ToolEvent, boolean] {
+	upsertTool(ev: Extract<SessionEvent, { kind: 'tool' }>): [ToolEvent, boolean] {
 		const output = ev.output ? clip(ev.output, MAX_TOOL_OUT) : undefined
 		const prev = this.tools.get(ev.toolId)
 		if (!prev) {

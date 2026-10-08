@@ -4,7 +4,8 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { after, describe, it } from 'node:test'
 import type { InboxResponse, SendResponse, SpawnResponse, UserEvent } from '../../shared/types'
-import { startHarness, type Harness } from '../support/harness'
+import { startHarness } from '../support/harness'
+import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
 
 const T = { timeout: 30000 }

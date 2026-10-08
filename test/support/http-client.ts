@@ -1,12 +1,8 @@
 /** HTTP- и SSE-клиент для интеграционных тестов. */
 import * as http from 'node:http'
 import { SseParser } from '../../src/infrastructure/sse/sse-parser'
+import type { ApiResult } from './support.types'
 import { until } from './wait'
-
-export interface ApiResult<T> {
-	status: number
-	body: T
-}
 
 export function request<T = unknown>(
 	port: number,

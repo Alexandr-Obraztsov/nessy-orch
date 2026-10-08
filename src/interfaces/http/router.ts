@@ -1,10 +1,5 @@
 /** Простой маршрутизатор: шаблоны вида `/agents/:ref/send`. */
-import type { Route, RouteHandler } from './server.types'
-
-export interface RouteMatch {
-	handler: RouteHandler
-	params: Record<string, string>
-}
+import type { Route, RouteHandler, RouteMatch } from './server.types'
 
 export class Router {
 	private readonly routes: Route[] = []

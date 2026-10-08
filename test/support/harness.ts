@@ -9,29 +9,9 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { buildApp } from '../../src/app'
 import type { AppInstance } from '../../src/app.types'
-import type { Orchestrator } from '../../src/application/orchestrator'
 import type { Config } from '../../src/infrastructure/config/config.types'
-import { request, SseClient, type ApiResult } from './http-client'
-
-export interface Harness {
-	app: AppInstance
-	orch: Orchestrator
-	port: number
-	/** каталог стенда (home + ws) */
-	base: string
-	home: string
-	ws: string
-	api: <T = unknown>(method: string, path: string, body?: unknown, headers?: Record<string, string>) => Promise<ApiResult<T>>
-	sse: (path: string) => Promise<SseClient>
-	/** остановить; keepFiles — не удалять каталог (для проверки рестарта) */
-	close: (opts?: { keepFiles?: boolean }) => Promise<void>
-}
-
-export interface HarnessOptions {
-	config?: Partial<Config>
-	/** переиспользовать каталог предыдущего стенда (рестарт) */
-	base?: string
-}
+import { request, SseClient } from './http-client'
+import type { Harness, HarnessOptions } from './support.types'
 
 const ROOT = path.resolve(__dirname, '..', '..', '..')
 const FAKE = path.join(ROOT, 'dist', 'test', 'support', 'fake-nessy.js')

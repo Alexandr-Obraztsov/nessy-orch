@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import type { ApiError, InboxResponse, Message, SendResponse, SpawnResponse, UserEvent } from '../../shared/types'
-import { startHarness, type Harness } from '../support/harness'
+import { startHarness } from '../support/harness'
+import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
 
 const T = { timeout: 25000 }

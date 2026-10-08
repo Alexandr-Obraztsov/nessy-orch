@@ -26,3 +26,8 @@ export interface Route {
 	segments: string[]
 	handler: RouteHandler
 }
+
+export interface RouteMatch {
+	handler: RouteHandler
+	params: Record<string, string>
+}

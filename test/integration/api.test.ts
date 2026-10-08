@@ -4,7 +4,8 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import type { ApiError, GraphView, SpaceView, SpawnResponse, StatusResponse } from '../../shared/types'
-import { startHarness, type Harness } from '../support/harness'
+import { startHarness } from '../support/harness'
+import type { Harness } from '../support/support.types'
 
 const T = { timeout: 20000 }
 
