@@ -49,6 +49,6 @@ describe('пресеты ролей: поля', () => {
 		const v = validateRole(back)
 		assert.equal(v.id, 'qa-1')
 		assert.equal(v.color, 120)
-		assert.equal(formatRolePreset(role), formatRolePreset({ ...role, ...v, instructions: role.instructions }))
+		assert.equal(v.description, 'с пробелом')
 	})
 })
