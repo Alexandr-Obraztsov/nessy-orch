@@ -1,29 +1,30 @@
-/** Вкладка главной панели (как вкладки заметок в Obsidian). */
-export type Tab =
-	| { kind: 'feed' }
-	| { kind: 'graph' }
-	| { kind: 'agent'; id: string }
-	/** id = null — новая роль */
-	| { kind: 'role'; id: string | null }
+/** Страница приложения: рабочий экран или справочники (открываются из меню ⚙). */
+export type Page = { kind: 'main' } | { kind: 'roles'; roleId: string | null } | { kind: 'spaces' }
 
 export type DialogKind = 'spawn' | 'space' | null
 
-/** Что показывать в общей ленте помимо ваших сообщений и итоговых ответов агентов. */
-export interface FeedOptions {
-	/** переписка агент → агент */
-	agentChatter: boolean
-	/** системные события (создан, удалён, ошибки доставки) */
-	system: boolean
-}
+/** Фильтр по сводке (клик по счётчику в верхней строке). */
+export type StatusFilter = 'all' | 'attention' | 'error' | 'working' | 'done'
+
+/** Группировка списка поручений. */
+export type Grouping = 'tasks' | 'spaces' | 'roles' | 'flat'
+
+/** Вкладки нижней панели на узких экранах. */
+export type MobileTab = 'attention' | 'tasks' | 'journal'
 
 export interface ViewState {
-	tabs: Tab[]
-	/** индекс активной вкладки в tabs */
-	active: number
-	/** левая панель (на узких экранах — выезжающая) */
-	sidebarOpen: boolean
+	page: Page
+	/** агент, чьи детали открыты справа (на узких — на весь экран) */
+	selectedAgentId: string | null
+	filter: StatusFilter
+	grouping: Grouping
+	search: string
+	/** раскрыт ли журнал внизу */
+	journalOpen: boolean
+	mobileTab: MobileTab
 	dialog: DialogKind
-	/** предвыбор для диалога создания агента */
+	/** предвыбор для диалога «+ Поручение» */
 	spawnPreset: { space?: string; role?: string } | null
-	feed: FeedOptions
+	/** свёрнутые карточки поручений (id корневого агента) */
+	collapsed: string[]
 }

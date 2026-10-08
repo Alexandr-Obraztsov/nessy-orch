@@ -1,19 +1,19 @@
-export { YOU, agentById, roleById, connect, getState, nodeLabel, onMessage, reconnectNow, spaceHue, subscribe, useStore } from './store'
+export { YOU, agentById, connect, getState, nodeLabel, onMessage, reconnectNow, roleById, spaceHue, subscribe, useStore } from './store'
 export type { Conn, State } from './types'
 export {
-	activeTab,
-	closeTab,
-	closeTabsWhere,
+	closeAgent,
 	getView,
 	openAgent,
 	openDialog,
-	openFeed,
-	openGraph,
+	openPage,
 	openRole,
-	openTab,
-	setFeedOptions,
+	setFilter,
+	setGrouping,
+	setMobileTab,
+	setSearch,
 	setView,
-	toggleSidebar,
+	toggleCollapsed,
+	toggleJournal,
 	useView,
 } from './view'
-export type { DialogKind, FeedOptions, Tab, ViewState } from './view.types'
+export type { DialogKind, Grouping, MobileTab, Page, StatusFilter, ViewState } from './view.types'

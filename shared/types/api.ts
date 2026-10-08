@@ -52,6 +52,13 @@ export interface SpaceRequest {
 	url?: string
 }
 
+/** POST /agents/:ref/plan — агент сообщает план целиком. */
+export interface PlanRequest {
+	/** id агента-автора (должен совпадать с :ref) */
+	from?: string
+	entries: Array<{ content: string; status: 'pending' | 'in_progress' | 'completed' }>
+}
+
 export interface RoleRequest {
 	name: string
 	description?: string

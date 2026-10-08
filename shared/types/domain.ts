@@ -57,6 +57,14 @@ export interface AgentView {
 	lastTool: ToolBrief | null
 	preview: string
 	pendingPermissions: PermissionBrief[]
+	/** план агента (сообщил сам через `nessy-orch plan` или ACP `plan`); null — плана нет */
+	plan: AgentPlan | null
+	/** число вызовов инструментов в текущем (или последнем) ходе */
+	turnSteps: number
+	/** длительность последнего завершённого хода, мс (null — ходов ещё не было) */
+	lastTurnMs: number | null
+	/** последний ответ агента оператору (you) */
+	lastReply: ReplyBrief | null
 }
 
 /** Единица общей ленты («группчат»). */
@@ -92,4 +100,28 @@ export interface RoleView {
 	color: number
 	createdAt: string
 	updatedAt: string
+}
+
+export type PlanStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface PlanEntry {
+	content: string
+	status: PlanStatus
+}
+
+/** План целиком; каждое обновление заменяет его полностью (как ACP `plan`). */
+export interface AgentPlan {
+	entries: PlanEntry[]
+	updatedAt: string
+	/** откуда пришёл: от агента через CLI или из протокола nessy */
+	source: 'cli' | 'acp'
+}
+
+export interface ReplyBrief {
+	msgId: string
+	ts: number
+	/** причина, если ход завершился ошибкой */
+	failed?: string
+	/** первые ~200 символов ответа */
+	preview: string
 }
