@@ -5,6 +5,11 @@ export interface ComposerProps {
 	to?: string
 	/** после успешной отправки (например, прокрутить вниз) */
 	onSent?: () => void
+	/**
+	 * Галочка «прервать текущий ход», пока адресат работает (по умолчанию включена).
+	 * Снята — сообщение встаёт в очередь (`interrupt: false`).
+	 */
+	interruptToggle?: boolean
 }
 
 export interface MentionMatch {
@@ -31,6 +36,9 @@ export interface ComposerModel {
 	archived: AgentView[]
 	sending: boolean
 	canSend: boolean
+	/** прерывать текущий ход адресата при отправке */
+	interrupt: boolean
+	setInterrupt: (v: boolean) => void
 	send: () => Promise<void>
 	/** подсказки при наборе «@…» в начале */
 	suggestions: AgentView[]

@@ -14,8 +14,8 @@ import { useComposer } from '../model/useComposer'
 import s from './Composer.module.css'
 import { RecipientSelect } from './RecipientSelect'
 
-export function Composer({ to, onSent }: ComposerProps) {
-	const m = useComposer(to, onSent)
+export function Composer({ to, onSent, interruptToggle }: ComposerProps) {
+	const m = useComposer(to, onSent, interruptToggle)
 	const hasAgents = useStore(st => st.agents.length > 0)
 	const input = useRef<HTMLTextAreaElement>(null)
 	const [hi, setHi] = useState(0)
@@ -35,7 +35,9 @@ export function Composer({ to, onSent }: ComposerProps) {
 		)
 	}
 
-	const hint = composerHint(m.recipient)
+	const busy = m.recipient?.status === 'working' || m.recipient?.status === 'starting'
+	const showToggle = !!interruptToggle && busy
+	const hint = composerHint(m.recipient, showToggle ? m.interrupt : undefined)
 
 	const onKey = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (e.nativeEvent.isComposing) return
@@ -92,13 +94,19 @@ export function Composer({ to, onSent }: ComposerProps) {
 					className={s.input}
 					rows={1}
 					value={m.text}
-					placeholder={composerPlaceholder(m.recipient)}
+					placeholder={composerPlaceholder(m.recipient, !!to)}
 					aria-label={m.recipient ? `Сообщение для ${m.recipient.name}` : 'Сообщение'}
 					onChange={e => m.setText(e.target.value)}
 					onKeyDown={onKey}
 				/>
 				<div className={s.bar}>
 					{!to && <RecipientSelect value={m.recipient} active={m.active} archived={m.archived} onPick={m.pick} />}
+					{showToggle && (
+						<label className={s.interrupt} title="Снимите, чтобы сообщение встало в очередь и не сбивало текущий ход">
+							<input type="checkbox" checked={m.interrupt} onChange={e => m.setInterrupt(e.target.checked)} data-interrupt="" />
+							прервать текущий ход
+						</label>
+					)}
 					<span className={s.keys}>
 						<kbd>Enter</kbd> отправить · <kbd>Shift+Enter</kbd> строка
 					</span>

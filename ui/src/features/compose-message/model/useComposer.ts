@@ -13,7 +13,7 @@ import { mentionQuery, parseMention, suggest } from '../lib/mention'
 import { getLastRecipient, setLastRecipient } from './lastRecipient'
 import type { ComposerModel } from './types'
 
-export function useComposer(fixedTo: string | undefined, onSent?: () => void): ComposerModel {
+export function useComposer(fixedTo: string | undefined, onSent?: () => void, interruptToggle = false): ComposerModel {
 	const agents = useStore(s => s.agents)
 	const messages = useStore(s => s.messages)
 	const active = useMemo(() => agents.filter(a => !a.archived), [agents])
@@ -21,6 +21,7 @@ export function useComposer(fixedTo: string | undefined, onSent?: () => void): C
 	const [text, setTextRaw] = useState('')
 	const [picked, setPicked] = useState<string | null>(getLastRecipient)
 	const [sending, setSending] = useState(false)
+	const [interrupt, setInterrupt] = useState(true)
 
 	const mention = fixedTo ? null : parseMention(text, agents)
 	const recipientId = fixedTo ?? mention?.agent.id ?? defaultRecipient(messages, agents, picked)
@@ -48,7 +49,9 @@ export function useComposer(fixedTo: string | undefined, onSent?: () => void): C
 		if (!canSend) return
 		setSending(true)
 		try {
-			await api.send(recipient.id, { text: body, from: YOU })
+			// галочку учитываем, только пока адресат работает: свободному агенту сообщение доставляется сразу
+			const busy = recipient.status === 'working' || recipient.status === 'starting'
+			await api.send(recipient.id, interruptToggle && busy ? { text: body, from: YOU, interrupt } : { text: body, from: YOU })
 			setTextRaw('')
 			if (!fixedTo) pick(recipient.id)
 			onSent?.()
@@ -57,7 +60,7 @@ export function useComposer(fixedTo: string | undefined, onSent?: () => void): C
 		} finally {
 			setSending(false)
 		}
-	}, [canSend, recipient, body, fixedTo, pick, onSent])
+	}, [canSend, recipient, body, fixedTo, pick, onSent, interruptToggle, interrupt])
 
-	return { text, setText, recipient, pick, active, archived, sending, canSend, send, suggestions, complete }
+	return { text, setText, recipient, pick, active, archived, sending, canSend, interrupt, setInterrupt, send, suggestions, complete }
 }

@@ -1,0 +1,186 @@
+/* Левая колонка «Внимание» (по макету A). */
+.panel {
+	padding: var(--sp-3);
+}
+.secH {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 4px 2px 8px;
+	color: var(--text-faint);
+	font-size: var(--fs-xs);
+	font-weight: 600;
+	letter-spacing: 0.8px;
+	text-transform: uppercase;
+}
+.n {
+	margin-left: auto;
+	padding: 0 7px;
+	border-radius: var(--r-full);
+	background: var(--bg-active);
+	color: var(--text-muted);
+	letter-spacing: 0;
+	font-variant-numeric: tabular-nums;
+}
+.nWarn {
+	background: var(--warn);
+	color: var(--bg);
+	font-weight: 700;
+}
+.subH {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 12px 2px 6px;
+	color: var(--text-faint);
+	font-size: var(--fs-xs);
+}
+.secH + .subH {
+	margin-top: 4px;
+}
+.empty {
+	padding: 24px 8px;
+	color: var(--text-faint);
+	text-align: center;
+}
+.empty b {
+	display: block;
+	margin-bottom: 4px;
+	color: var(--success);
+	font-size: var(--fs-lg);
+}
+.emptyNote {
+	display: block;
+	margin-top: 8px;
+	color: var(--warn);
+	font-size: var(--fs-sm);
+}
+
+/* ---------- карточка ---------- */
+.att {
+	margin-bottom: 8px;
+	padding: 10px;
+	border: 1px solid var(--border);
+	border-radius: var(--r-md);
+	background: var(--bg);
+	cursor: pointer;
+	outline: none;
+	transition:
+		border-color var(--dur) var(--ease),
+		background var(--dur) var(--ease);
+}
+.att:hover {
+	border-color: var(--border-strong);
+}
+.att:focus-visible {
+	box-shadow: 0 0 0 2px var(--accent-ring);
+}
+.perm {
+	border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+	background: linear-gradient(var(--warn-soft), var(--warn-soft)), var(--bg);
+}
+.perm:hover {
+	border-color: var(--warn);
+}
+.err {
+	border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+.err:hover {
+	border-color: var(--danger);
+}
+.sel,
+.sel:hover {
+	border-color: var(--accent);
+}
+.attH {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+.nm {
+	min-width: 0;
+	overflow: hidden;
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.unread .nm {
+	font-weight: 700;
+}
+.tm {
+	flex: none;
+	margin-left: auto;
+	color: var(--text-muted);
+	font-family: var(--font-mono);
+	font-size: var(--fs-sm);
+	font-variant-numeric: tabular-nums;
+}
+.newDot {
+	flex: none;
+	width: 7px;
+	height: 7px;
+	margin-left: auto;
+	border-radius: 50%;
+	background: var(--accent);
+}
+.newDot + .tm {
+	margin-left: 0;
+}
+.sub {
+	margin: 2px 0 6px 24px;
+	color: var(--text-faint);
+	font-size: var(--fs-xs);
+	overflow-wrap: anywhere;
+}
+.attH + .cmd,
+.attH + .body {
+	margin-top: 6px;
+}
+.body {
+	margin: 0 0 8px 24px;
+	color: var(--text-muted);
+	overflow-wrap: anywhere;
+}
+.unread .body {
+	color: var(--text);
+}
+.errText {
+	color: var(--danger);
+}
+.clamp2 {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+}
+.cmd {
+	display: block;
+	max-height: 7.5em;
+	margin: 0 0 8px 24px;
+	padding: 6px 8px;
+	overflow: auto;
+	border: 1px solid var(--border);
+	border-radius: var(--r-xs);
+	background: var(--bg-code);
+	color: var(--text);
+	font: var(--fs-sm) / 1.45 var(--font-mono);
+	word-break: break-all;
+	white-space: pre-wrap;
+}
+.acts {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-left: 24px;
+}
+@media (max-width: 899px) {
+	.panel {
+		padding: 12px;
+	}
+	.acts button {
+		height: 36px;
+		padding: 0 14px;
+		font-size: var(--fs-md);
+	}
+}

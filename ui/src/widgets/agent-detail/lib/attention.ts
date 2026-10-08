@@ -13,9 +13,9 @@ export function attentionOf(agent: AgentView, seen: (msgId: string) => boolean):
 	return null
 }
 
-/** Вкладка по умолчанию: «Шаги», пока агент работает; «Результат», если он есть; иначе «Чат». */
+/** Вкладка по умолчанию: «Шаги», пока агент работает; «Результат», если он есть (не ошибка); иначе «Чат». */
 export function defaultTab(agent: AgentView): DetailTab {
 	if (busy(agent)) return 'steps'
-	if (agent.lastReply) return 'result'
+	if (agent.lastReply && !agent.lastReply.failed) return 'result'
 	return 'chat'
 }

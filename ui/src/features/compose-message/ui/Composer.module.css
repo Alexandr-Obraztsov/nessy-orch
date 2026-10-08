@@ -328,3 +328,28 @@
 		height: 40px;
 	}
 }
+
+/* ---- «прервать текущий ход» ---- */
+.interrupt {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 24px;
+	padding: 0 4px;
+	border-radius: var(--r-sm);
+	color: var(--text-muted);
+	font-size: var(--fs-sm);
+	cursor: pointer;
+	user-select: none;
+}
+.interrupt:hover {
+	color: var(--text);
+}
+.interrupt input {
+	width: 14px;
+	height: 14px;
+	margin: 0;
+	accent-color: var(--accent);
+	cursor: pointer;
+}

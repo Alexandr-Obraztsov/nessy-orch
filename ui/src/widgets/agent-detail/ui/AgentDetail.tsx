@@ -90,6 +90,7 @@ function Detail({ agent, stream, onClose }: DetailViewProps) {
 							onRetry={retry}
 							onSeen={markSeen}
 							onOpenResult={() => openTab('result')}
+							resultShown={tab === 'result'}
 						/>
 					</div>
 				)}

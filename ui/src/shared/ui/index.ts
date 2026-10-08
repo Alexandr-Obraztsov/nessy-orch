@@ -1,6 +1,8 @@
 export { Button, IconButton } from './Button'
 export type { ButtonProps, ButtonVariant, IconButtonProps } from './Button'
 export { Dialog } from './Dialog'
+export { Elapsed, NoTimer } from './Elapsed'
+export type { ElapsedProps } from './Elapsed'
 export { Field, Select, TextArea, TextInput } from './Field'
 export { Icon } from './Icon'
 export { Kbd } from './Kbd'

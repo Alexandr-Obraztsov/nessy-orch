@@ -9,7 +9,7 @@ import { Icon } from '@/shared/ui'
 import type { BannerProps } from '../model/types'
 import s from './AgentDetail.module.css'
 
-export function AttentionBanner({ agent, attention, onRetry, onSeen, onOpenResult }: BannerProps) {
+export function AttentionBanner({ agent, attention, onRetry, onSeen, onOpenResult, resultShown }: BannerProps) {
 	const [retrying, setRetrying] = useState(false)
 
 	if (attention.kind === 'permission')
@@ -51,7 +51,6 @@ export function AttentionBanner({ agent, attention, onRetry, onSeen, onOpenResul
 						{retrying ? <span className={s.spin} /> : <Icon name="refresh" size={13} />}
 						Повторить
 					</button>
-					<span className={s.bannerNote}>агент начнёт заново</span>
 				</div>
 			</section>
 		)
@@ -62,7 +61,7 @@ export function AttentionBanner({ agent, attention, onRetry, onSeen, onOpenResul
 				<Icon name="check" size={15} />
 				<span>Готов результат</span>
 			</div>
-			{attention.preview && (
+			{attention.preview && !resultShown && (
 				<button type="button" className={s.bannerPreview} onClick={onOpenResult} title="Открыть результат">
 					{attention.preview}
 				</button>

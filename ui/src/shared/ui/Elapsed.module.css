@@ -1,0 +1,10 @@
+.tm {
+	color: var(--text-muted);
+	font-family: var(--font-mono);
+	font-size: var(--fs-sm);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.stale {
+	color: var(--warn);
+}

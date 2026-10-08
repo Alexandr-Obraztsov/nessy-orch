@@ -1,4 +1,5 @@
 export { YOU, agentById, connect, getState, nodeLabel, onMessage, reconnectNow, roleById, spaceHue, subscribe, useStore } from './store'
+export { useOrchStatus } from './status'
 export type { Conn, State } from './types'
 export {
 	closeAgent,

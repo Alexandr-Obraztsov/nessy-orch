@@ -27,20 +27,14 @@ export function ResultTab({ agent, text }: ResultTabProps) {
 	return (
 		<div className={s.result}>
 			<div className={s.resTop}>
-				<span>
-					{working ? 'Предыдущий ответ' : 'Последний ответ'} · {clock(reply.ts)}
+				<span className={reply.failed ? s.resTopFailed : undefined}>
+					{reply.failed ? 'Ход завершился ошибкой' : working ? 'Предыдущий ответ' : 'Последний ответ'} · {clock(reply.ts)}
 				</span>
 				<button type="button" className={s.ghostBtn} onClick={() => void copyText(text, 'Ответ скопирован')}>
 					<Icon name="copy" size={13} />
 					Копировать
 				</button>
 			</div>
-			{reply.failed && (
-				<div className={s.resFailed} role="note">
-					<Icon name="x" size={13} />
-					<span>Ход завершился ошибкой: {reply.failed}</span>
-				</div>
-			)}
 			{links.length > 0 && (
 				<div className={s.chips} aria-label="Ссылки из ответа">
 					{links.map(l =>

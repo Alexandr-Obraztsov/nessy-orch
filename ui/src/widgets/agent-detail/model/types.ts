@@ -75,6 +75,8 @@ export interface BannerProps {
 	onRetry: () => Promise<void>
 	onSeen: (msgId: string) => void
 	onOpenResult: () => void
+	/** результат уже открыт на вкладке — превью в баннере не дублируем */
+	resultShown: boolean
 }
 
 export interface NowProps {
