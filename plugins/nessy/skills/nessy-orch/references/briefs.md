@@ -20,22 +20,24 @@
 Общая схема для всего, что не попало в рецепты: по агенту на источник, все в фоне, потом сбор.
 
 ```bash
-nessy-orch spawn --space ~/Projects/shippy --role jira-analyst --name pay-jira "
+nessy-orch task new "Баги и регламент релиза payments" --owner claude   # → id (первая строка вывода); ниже <id>
+
+nessy-orch spawn --task <id> --space ~/Projects/shippy --role jira-analyst --name pay-jira "
 Цель: собрать открытые баги компонента payments за последние 30 дней.
 Границы: только чтение Jira.
 Результат: таблица ключ | заголовок | статус | исполнитель | приоритет, отсортированная по приоритету.
 В конце: строка «Статус: …»."
 
-nessy-orch spawn --space ~/Projects/shippy --role wiki-researcher --name pay-wiki "
+nessy-orch spawn --task <id> --space ~/Projects/shippy --role wiki-researcher --name pay-wiki "
 Цель: найти в Wiki регламент релиза payments и список ответственных.
 Результат: 5–10 пунктов со ссылками на страницы; если данные противоречат друг другу, укажи обе версии.
 В конце: строка «Статус: …»."
 
-nessy-orch inbox --wait 1500     # в фоне (run_in_background); повторять, пока не придут оба ответа
+nessy-orch inbox --task <id> --wait 1500     # в фоне (run_in_background); повторять, пока не придут оба ответа
 ```
 
 Сводка пользователю: общий вывод, затем по разделам («Jira (pay-jira)», «Wiki (pay-wiki)»), что не удалось
-найти.
+найти. В конце — `nessy-orch task done <id> --summary "<короткий итог>"`.
 
 ## Как отвечать агентам
 

@@ -5,8 +5,8 @@ description: Рецепт nessy-orch для ревью merge request в GitLab �
 
 # Рецепт: ревью MR в GitLab
 
-Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (ссылка на панель <http://127.0.0.1:4337>),
-`ls --all`, `role ls`. Здесь — то, что специфично для ревью MR.
+Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (`task new "<цель>" --owner claude` → id, ссылка на панель задачи `http://127.0.0.1:4337/?task=<id>`),
+`ls --all --task <id>`, `role ls`. Все `spawn` — с `--task <id>`, сборщик — `inbox --task <id>`, в конце — `task done <id> --summary "…"`. Здесь — то, что специфично для ревью MR.
 
 ## Когда
 
@@ -22,12 +22,12 @@ description: Рецепт nessy-orch для ревью merge request в GitLab �
 | `mr-<N>-security` | `security-reviewer` | крупный MR (сотни строк, много модулей) или трогает авторизацию, платежи, секреты, внешние входы |
 | `mr-<N>-impact` | `code-explorer` | по желанию: меняется публичный API — кто вызывает изменённое |
 
-Все запускаются **параллельно** в фоне, затем фоновый `inbox --wait 1500`, пока не придут все.
+Все запускаются **параллельно** в фоне, затем фоновый `inbox --task <id> --wait 1500`, пока не придут все.
 
 ## Поручения
 
 ```bash
-nessy-orch spawn --space ~/tmp --role gitlab-mr-reviewer --name mr-<N>-review "
+nessy-orch spawn --task <id> --space ~/tmp --role gitlab-mr-reviewer --name mr-<N>-review "
 Цель: ревью MR !<N> в проекте <группа/проект> (<ссылка>).
 Контекст: MR должен закрывать <КЛЮЧ-123>: <суть задачи, если известна>.
 Границы: НЕ публиковать комментарии и не ставить approve в GitLab — только черновики в ответе.
@@ -35,19 +35,19 @@ nessy-orch spawn --space ~/tmp --role gitlab-mr-reviewer --name mr-<N>-review "
 (блокер / важно / мелочь) — файл:строка, суть, готовый текст комментария.
 В конце: строка «Статус: …»."
 
-nessy-orch spawn --space ~/tmp --role jira-analyst --name mr-<N>-jira "
+nessy-orch spawn --task <id> --space ~/tmp --role jira-analyst --name mr-<N>-jira "
 Цель: собрать требования задачи <КЛЮЧ-123>, чтобы сверить с ними MR !<N>.
 Границы: только чтение Jira.
 Результат: критерии приёмки списком, связанные задачи, открытые вопросы в комментариях.
 В конце: строка «Статус: …»."
 
-nessy-orch spawn --space ~/tmp --role security-reviewer --name mr-<N>-security "
+nessy-orch spawn --task <id> --space ~/tmp --role security-reviewer --name mr-<N>-security "
 Цель: проверить безопасность изменений MR !<N> в <группа/проект> (<ссылка>).
 Границы: только чтение, ничего не публиковать в GitLab.
 Результат: находки по важности с файл:строка, сценарий эксплуатации, рекомендация; если находок нет — что проверено.
 В конце: строка «Статус: …»."
 
-nessy-orch inbox --wait 1500   # в фоне (run_in_background)
+nessy-orch inbox --task <id> --wait 1500   # в фоне (run_in_background)
 ```
 
 Когда пришли требования от `mr-<N>-jira`, а ревьюер ещё работает, дошли их ему без прерывания:

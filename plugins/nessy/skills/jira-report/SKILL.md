@@ -5,8 +5,8 @@ description: Рецепт nessy-orch для сводки задач Jira — «�
 
 # Рецепт: сводка задач Jira
 
-Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (ссылка на панель <http://127.0.0.1:4337>),
-`ls --all`, `role ls`. Здесь — то, что специфично для отчёта по Jira.
+Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (`task new "<цель>" --owner claude` → id, ссылка на панель задачи `http://127.0.0.1:4337/?task=<id>`),
+`ls --all --task <id>`, `role ls`. Все `spawn` — с `--task <id>`, сборщик — `inbox --task <id>`, в конце — `task done <id> --summary "…"`. Здесь — то, что специфично для отчёта по Jira.
 
 ## Когда
 
@@ -23,7 +23,7 @@ description: Рецепт nessy-orch для сводки задач Jira — «�
 ## Поручение
 
 ```bash
-nessy-orch spawn --space ~/tmp --role jira-analyst --name jira-<тема> "
+nessy-orch spawn --task <id> --space ~/tmp --role jira-analyst --name jira-<тема> "
 Цель: <что собрать: открытые баги компонента payments> — для <зачем: планирование спринта / отчёт>.
 Контекст: проект <KEY>, фильтр: <компонент, эпик, спринт, метки, исполнитель>, период <последние 30 дней>.
 Границы: только чтение Jira, ничего не менять и не комментировать.
@@ -34,9 +34,9 @@ nessy-orch spawn --space ~/tmp --role jira-analyst --name jira-<тема> "
 В конце: строка «Статус: …»."
 ```
 
-После `spawn` — фоновый `nessy-orch inbox --wait 1500` (`run_in_background`).
+После `spawn` — фоновый `nessy-orch inbox --task <id> --wait 1500` (`run_in_background`).
 Несколько срезов — несколько `spawn` без `--wait` (`jira-<проект1>`, `jira-<проект2>`), затем
-фоновый `inbox --wait 1500`, пока не придут все.
+фоновый `inbox --task <id> --wait 1500`, пока не придут все.
 
 ## Сводка пользователю
 

@@ -25,6 +25,11 @@
 - **Архив.** Агент, успешно закончивший задачу, уходит в архив: он скрыт из рабочего списка, но сессия и контекст
   сохранены. Любое сообщение будит его, поэтому к агенту по имени можно вернуться в любой момент. Ход с ошибкой
   оставляет агента на виду; упавшая сессия пересоздаётся при следующем сообщении.
+- **Задачи («ящики»).** Каждый оркестратор (сессия Claude) заводит свою задачу (`task new`), запускает агентов в ней
+  (`spawn --task <id>`) и читает ответы из её inbox (`inbox --task <id>`) с отдельным курсором — несколько Claude
+  работают параллельно и не забирают ответы друг друга. Агент, запущенный агентом, наследует задачу родителя.
+  Закрывает задачу оркестратор (`task done --summary`); панель открывается на задаче по ссылке `/?task=<id>`.
+  Задачи хранятся в `tasks.json`.
 - **Роли.** Сохранённые инструкции (`role add`), которые попадают во вводную агента: `spawn --role reviewer`.
 - **Произвольный граф общения.** `Вы ↔ агент`, `агент ↔ агент`. Ответ агента автоматически уходит отправителю.
   Агенты пишут другим сами, через shell: `nessy-orch send --from <id> <кому> "текст"`.
@@ -81,8 +86,16 @@ bin/nessy-orch feed -n 20
 чтобы посмотреть интерфейс и прогнать тесты.
 
 ```sh
-npm run demo                        # сборка + оркестратор с фейковым nessy
+npm run demo                        # сборка + оркестратор с фейковым nessy + демо-данные
+npm run demo:seed                   # только демо-данные — к уже запущенному оркестратору (ORCH_PORT)
 ```
+
+`npm run demo` вместе с сервером запускает [`scripts/demo-seed.mjs`](scripts/demo-seed.mjs): дождавшись
+оркестратора, он через API заводит две задачи от двух «Claude» — `demo-fix-ci` (владелец `claude-1`, три агента:
+разведка, исполнитель с запросом разрешения, проверяющий) и `demo-review-mr` (`claude-2`: ревьюер, запущенный им
+агент безопасности — наследует задачу — и аналитик Jira). Агенты идут по сценариям `#work` с планом, ответы — в
+формате «Итог / Детали / Источники». Панель задачи: <http://127.0.0.1:4337/?task=demo-fix-ci>. Повторный запуск
+задачи с теми же id не дублирует; чистый старт — удалить `${TMPDIR:-/tmp}/nessy-orch-demo`.
 
 Команды фейкового агента (в тексте задачи): `#tools` — серия вызовов инструментов, `#long` — длинный markdown-ответ
 потоком, `#shell <команда>` — инструмент shell, `#perm` — запрос прав, `#slow` — долгий ход (можно прервать),
@@ -118,23 +131,28 @@ npm run demo                        # сборка + оркестратор с �
 ## CLI
 
 ```text
-nessy-orch spawn [--space S] [--name N] [--role R] [--wait] [--timeout СЕК] ["задача"]
+nessy-orch task new "<заголовок>" [--owner X] [--id slug]   # печатает id и ссылку http://127.0.0.1:4337/?task=<id>
+nessy-orch task ls [--all] | task show <id> | task reopen <id> | task rm <id>
+nessy-orch task done <id> [--summary "…" | --summary-file F]
+nessy-orch spawn [--task T] [--space S] [--name N] [--role R] [--wait] [--timeout СЕК] ["задача"]
 nessy-orch send <агент|you> "текст" [--wait] [--queue] [--timeout СЕК] [--from ID]
-nessy-orch ask <путь|space> "задача"          # = spawn --wait
-nessy-orch ls [--all] | show <агент> | watch <агент> | cancel <агент> | kill <агент>
+nessy-orch ask <путь|space> "задача" [--task T]   # = spawn --wait
+nessy-orch ls [--all] [--task T] | show <агент> | watch <агент> | cancel <агент> | kill <агент>
 nessy-orch archive <агент> | restore <агент>
 nessy-orch plan <агент> | plan --from <свой id> "- [x] …" "- [~] …" "- [ ] …" [--clear]   # план агента: показать | опубликовать (агент сам)
 nessy-orch role ls | role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] | role show <id> | role rm <id>
 nessy-orch role import [путь] [--force] [--dry-run]   # роли из markdown-файлов (по умолчанию roles/); role export <id> [--out файл]
 nessy-orch feed [-n 30] [--follow]
-nessy-orch inbox [--wait СЕК] [--peek]
+nessy-orch inbox [--task T] [--wait СЕК] [--peek]    # --task — ответы агентов задачи, свой курсор на задачу
 nessy-orch space add <путь> [--name N] [--url URL] | space ls | space rm <имя> [--force]
 nessy-orch status | open | install [--print] | uninstall
 ```
 
 Полезный результат (ответ агента, JSON) выводится в stdout, служебные сообщения — в stderr. Флаг `--json` есть у всех
 команд. `send` работающему агенту прерывает его ход (`--queue` — дождаться очереди). `ls` скрывает агентов в архиве,
-`ls --all` показывает всех. Старые алиасы `nessy-ask`, `nessy-jobs`, `nessy-watch` оставлены для совместимости.
+`ls --all` показывает всех. `--task` у `spawn`, `ask`, `ls`, `inbox` по умолчанию берётся из `NESSY_ORCH_TASK`.
+`task rm` отказывает (`409 task_busy`), пока в задаче работают агенты; агенты удалённой задачи остаются вне задач.
+Старые алиасы `nessy-ask`, `nessy-jobs`, `nessy-watch` оставлены для совместимости.
 
 ## Плагин для Claude Code
 
@@ -142,16 +160,18 @@ nessy-orch status | open | install [--print] | uninstall
 в [`plugins/nessy/`](plugins/nessy/). Плагин переводит Claude в роль ведущего: работая через nessy-orch, Claude
 не выполняет задачу сам, а проходит цикл:
 
-0. Сразу пишет пользователю ссылку на панель <http://127.0.0.1:4337>.
-1. Осматривается: `ls --all`, `role ls` (ролей нет — `role import`).
+0. Заводит свою задачу (`task new "<цель>" --owner claude`) и сразу пишет пользователю ссылку на неё:
+   `http://127.0.0.1:4337/?task=<id>`. Продолжение темы — в той же задаче, новая тема — новая задача.
+1. Осматривается: `ls --all --task <id>`, `role ls` (ролей нет — `role import`).
 2. Оценивает объём и делит задачу на независимые части.
 3. Подбирает для каждой части роль.
 4. Пишет самодостаточное поручение: цель, контекст, границы, источники, формат результата, критерий готовности.
-5. Запускает агентов (независимые части параллельно) и собирает ответы фоновым `inbox --wait`
+5. Запускает агентов в задаче (`spawn --task <id>`, независимые части параллельно) и собирает ответы фоновым
+   `inbox --task <id> --wait` (один сборщик на задачу)
    (`run_in_background`): пока агенты работают, Claude не «замерзает» и продолжает разговор, а ответ приходит
    уведомлением. Ход смотрит по плану агента (`plan`), который сервер требует вести от каждого агента.
 6. Проверяет результат отдельным агентом-`verifier`.
-7. Сводит итог пользователю.
+7. Сводит итог пользователю и закрывает задачу: `task done <id> --summary "<итог>"`.
 
 Каждый агент с ролью заканчивает ответ статусом `DONE / DONE_WITH_CONCERNS / BLOCKED / NEEDS_CONTEXT`, и Claude
 решает по нему, что делать дальше. Запись во внешние системы (комментарии в GitLab, правки в Jira) разрешена
@@ -225,9 +245,11 @@ scripts/install.sh --list                   # что есть
 
 | Метод и путь | Назначение |
 |---|---|
-| `GET /health`, `GET /status`, `GET /graph` | Служебное: здоровье, состояние, пространства, агенты и роли |
+| `GET /health`, `GET /status`, `GET /graph` | Служебное: здоровье, состояние, пространства, агенты, роли и задачи |
+| `GET /tasks?status=`, `POST /tasks {title,owner?,id?}` | Задачи оркестраторов; id по умолчанию — slug заголовка + 4 hex (`409 task_exists` при занятом) |
+| `GET /tasks/:id`, `PATCH /tasks/:id {title?,status?,summary?}`, `DELETE /tasks/:id` | Задача: правка/закрытие (`status: done`), удаление (`409 task_busy`, если агенты работают; агенты → `task: null`) |
 | `GET /spaces`, `POST /spaces {path,name?,url?}`, `DELETE /spaces/:name?force=1` | Пространства |
-| `GET /agents`, `POST /agents {space?,name?,role?,prompt?,parent?,from?,wait?}` | Список (включая архивных) и создание агентов |
+| `GET /agents?task=`, `POST /agents {space?,name?,role?,task?,prompt?,parent?,from?,wait?}` | Список (включая архивных; `task` — только задачи) и создание агентов (`404 no_task`; без `task` — задача родителя) |
 | `GET /agents/:ref`, `DELETE /agents/:ref` | Агент |
 | `POST /agents/:ref/send {text,from?,interrupt?,wait?}`, `POST /agents/:ref/cancel` | Сообщение (от «Вы» по умолчанию прерывает ход), прервать ход |
 | `POST /agents/:ref/plan {from?,entries}`, `DELETE /agents/:ref/plan` | План агента (публикует сам агент; чужой `from` → `403`) |
@@ -236,8 +258,8 @@ scripts/install.sh --list                   # что есть
 | `POST /agents/:ref/permission/:requestId {approve}` | Решение по запросу прав |
 | `GET /agents/:ref/history`, `GET /agents/:ref/stream` (SSE) | Журнал и живой поток событий агента |
 | `GET /messages?agent=&since=&limit=` | Общая лента |
-| `GET /inbox?wait=&peek=1&after=` | Новые сообщения для «Вы» (long-poll) |
-| `GET /stream` (SSE) | Снапшот и все изменения графа и ленты |
+| `GET /inbox?wait=&peek=1&after=&task=` | Новые ответы для «Вы» (long-poll); с `task` — только от агентов задачи, со своим курсором |
+| `GET /stream` (SSE) | Снапшот (с `tasks`) и все изменения графа и ленты (в том числе `task` / `task_removed`) |
 
 Типы запросов, ответов и событий описаны в [`shared/types/`](shared/types). Их используют сервер, CLI и UI.
 
@@ -273,10 +295,10 @@ src/
   domain/                чистая логика без IO: маршрутизация, лимиты, граф ожиданий, статусы, план, вводная агента
   application/           сценарии: оркестратор, агенты, сообщения, пространства, шина событий, порты (интерфейсы)
     agent/               агент: очередь, ход, журнал событий
-    services/            spaces / messaging / agents / roles
+    services/            spaces / messaging / agents / roles / tasks
   infrastructure/        адаптеры портов
     nessy/               клиент nessy serve и чистый маппер событий — единственное место, знающее протокол nessy
-    persistence/         state.json и roles.json (атомарно) + JSONL-журналы
+    persistence/         state.json, roles.json и tasks.json (атомарно) + JSONL-журналы
     process/             запуск и контроль процессов nessy serve
     sse/, config/        SSE-парсер и форматтер, загрузка конфигурации
   interfaces/
@@ -291,7 +313,7 @@ ui/src/                  React + Vite, Feature-Sliced Design
   shared/                api-клиент, стор (SSE /stream), вид (фильтр, «скрыть выполненные»), утилиты, UI-примитивы
 test/
   unit/                  lib, domain, application, infrastructure, interfaces
-  integration/           api, messaging, lifecycle, archive, roles, plan, streams, persistence, startup
+  integration/           api, messaging, lifecycle, archive, roles, plan, streams, persistence, startup, tasks
   support/               тестовый стенд, фейковый nessy serve
 e2e/                     Playwright: дымовые проверки UI (десктоп и телефон)
 docs/                    требования и контракт nessy serve (ACP)

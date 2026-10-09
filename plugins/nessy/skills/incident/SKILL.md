@@ -5,8 +5,8 @@ description: Рецепт nessy-orch для расследования инци�
 
 # Рецепт: расследование инцидента
 
-Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (ссылка на панель <http://127.0.0.1:4337>),
-`ls --all`, `role ls`. Здесь — то, что специфично для инцидента.
+Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (`task new "<цель>" --owner claude` → id, ссылка на панель задачи `http://127.0.0.1:4337/?task=<id>`),
+`ls --all --task <id>`, `role ls`. Все `spawn` — с `--task <id>`, сборщик — `inbox --task <id>`, в конце — `task done <id> --summary "…"`. Здесь — то, что специфично для инцидента.
 
 ## Когда
 
@@ -27,7 +27,7 @@ description: Рецепт nessy-orch для расследования инци�
 ## Поручения
 
 ```bash
-nessy-orch spawn --space <путь к сервису или ~/tmp> --role debugger --name inc-<тема> "
+nessy-orch spawn --task <id> --space <путь к сервису или ~/tmp> --role debugger --name inc-<тема> "
 Цель: найти причину <симптом: рост 504 у shippy> с <время начала, часовой пояс>.
 Контекст: <сервис, окружение, что заметили, алерты, ссылки>.
 Источники: Sage (логи и метрики <сервис> и соседей: <список>), последние деплои и MR в GitLab, задачи Jira с меткой incident.
@@ -36,19 +36,19 @@ nessy-orch spawn --space <путь к сервису или ~/tmp> --role debugg
 не проверена); наиболее вероятная причина; что сделать дальше.
 В конце: строка «Статус: …»."
 
-nessy-orch spawn --space ~/tmp --role wiki-researcher --name inc-<тема>-wiki "
+nessy-orch spawn --task <id> --space ~/tmp --role wiki-researcher --name inc-<тема>-wiki "
 Цель: найти runbook <сервис>, схему его зависимостей и разборы похожих инцидентов (<симптом>).
 Границы: только чтение.
 Результат: 5–10 пунктов со ссылками; что из runbook применимо к симптому.
 В конце: строка «Статус: …»."
 
-nessy-orch spawn --space ~/tmp --role jira-analyst --name inc-<тема>-jira "
+nessy-orch spawn --task <id> --space ~/tmp --role jira-analyst --name inc-<тема>-jira "
 Цель: найти в Jira похожие инциденты <сервис> и изменения, закрытые за последние <7> дней.
 Границы: только чтение Jira.
 Результат: таблица ключ | заголовок | статус | дата | связь с симптомом.
 В конце: строка «Статус: …»."
 
-nessy-orch inbox --wait 1500   # в фоне (run_in_background)
+nessy-orch inbox --task <id> --wait 1500   # в фоне (run_in_background)
 ```
 
 Пришёл контекст от wiki или jira — передай важное отладчику, не прерывая:

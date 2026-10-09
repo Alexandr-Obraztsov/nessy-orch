@@ -27,7 +27,7 @@
 | GET | `/graph` | `GraphView` = `{rev, spaces[], agents[], roles[]}` (агенты — включая архивных) |
 | GET | любой путь, не начинающийся с API-сегмента | статика из `ORCH_UI_DIR` (`/` → `index.html`, `Cache-Control: no-store`); нет SPA-fallback — для роутинга в UI используйте hash. Нет файла → `404 not_found`, выход за каталог → `403 forbidden` |
 
-API-сегменты (первые сегменты маршрутов): `health status graph stream spaces agents roles messages inbox`. Неизвестный маршрут → `404 not_found`.
+API-сегменты (первые сегменты маршрутов): `health status graph stream spaces agents roles tasks messages inbox`. Неизвестный маршрут → `404 not_found`.
 
 ## Пространства
 
@@ -41,8 +41,8 @@ API-сегменты (первые сегменты маршрутов): `health
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/agents` | — | `AgentView[]` (включая архивных — фильтрует клиент по `archived`) |
-| POST | `/agents` | `SpawnRequest` | `201 SpawnResponse` |
+| GET | `/agents?task=<id>` | — | `AgentView[]` (включая архивных — фильтрует клиент по `archived`); `task` — только агенты задачи, неизвестная → `404 no_task` |
+| POST | `/agents` | `SpawnRequest` | `201 SpawnResponse`. `task` — id задачи (`404 no_task`); без него агент получает задачу родителя (`parent`/`from`-агента) или `null` |
 | GET | `/agents/:ref` | — | `AgentView` |
 | DELETE | `/agents/:ref` | — | `{ok:true}` (отмена хода, закрытие сессии, архив истории) |
 | POST | `/agents/:ref/send` | `SendRequest` | `SendResponse` |
@@ -50,6 +50,11 @@ API-сегменты (первые сегменты маршрутов): `health
 | POST | `/agents/:ref/archive` | `{}` | `AgentView` (`archived:true`); агент работает или у него очередь → `409 busy` |
 | POST | `/agents/:ref/restore` | `{}` | `AgentView` (`archived:false`, без сообщения) |
 | POST | `/agents/:ref/permission/:requestId` | `{approve:boolean}` (по умолчанию `true`) | `{ok:true}`; если запрос не найден (или нет соединения) — `404 {ok:false}`. Тело без `approve:false` означает «разрешить» |
+| GET | `/tasks?status=active\|done` | — | `TaskView[]`: сначала активные, затем по свежести |
+| POST | `/tasks` | `TaskRequest {title, owner?, id?}` | `201 TaskView`; id по умолчанию — slug заголовка (кириллица транслитерируется, пусто → `task`) + `-` + 4 hex; занятый явный id → `409 task_exists` |
+| GET | `/tasks/:id` | — | `TaskView` или `404 no_task` |
+| PATCH | `/tasks/:id` | `TaskPatch {title?, status?, summary?}` | `TaskView` (`updatedAt` обновляется); `status: done` ставит только оркестратор |
+| DELETE | `/tasks/:id` | — | `{ok:true}`; в задаче работают агенты (ход или очередь) → `409 task_busy`; агенты задачи остаются с `task:null`, курсор inbox задачи удаляется |
 | POST | `/agents/:ref/plan` | `PlanRequest {from?, entries:[{content, status}]}` | `AgentView` с новым планом (заменяет прежний целиком). Неверные записи → `400 bad_plan`; `from` указан и ≠ id агента → `403 forbidden` |
 | DELETE | `/agents/:ref/plan?from=<id>` | — | `AgentView` с `plan:null` (те же правила `from`) |
 | GET | `/agents/:ref/history?limit=400` | — | `AgentEvent[]` по возрастанию `seq` (последняя запись с данным `seq` побеждает); включает незавершённый блок текста |
@@ -142,7 +147,7 @@ API-сегменты (первые сегменты маршрутов): `health
 | Метод | Путь | Ответ |
 |---|---|---|
 | GET | `/messages?agent=&since=&limit=200` | `Message[]` по возрастанию `seq`; `agent` — все сообщения, где он отправитель или получатель; `since` — только `seq > since` |
-| GET | `/inbox?wait=СЕК&peek=1&after=SEQ` | `InboxResponse` = `{messages, cursor}`; новые `reply` для `you`. Без `peek`/`after` курсор сдвигается. `wait` — long-poll |
+| GET | `/inbox?wait=СЕК&peek=1&after=SEQ&task=<id>` | `InboxResponse` = `{messages, cursor}`; новые `reply` для `you`. Без `peek`/`after` курсор сдвигается. `wait` — long-poll. С `task` — только ответы агентов этой задачи и **свой курсор на задачу** (общий курсор не трогается); неизвестная задача → `404 no_task` |
 
 ## Потоки (SSE)
 
@@ -154,7 +159,7 @@ API-сегменты (первые сегменты маршрутов): `health
 Первый кадр — снапшот, дальше изменения (`StreamEvent`):
 
 ```jsonc
-{"t":"snapshot","rev":42,"spaces":[…],"agents":[…],"roles":[…],"messages":[…последние 300…]}
+{"t":"snapshot","rev":42,"spaces":[…],"agents":[…],"roles":[…],"tasks":[…],"messages":[…последние 300…]}
 {"t":"message","rev":43,"message":{…}}
 {"t":"agent","rev":44,"agent":{…}}           // upsert узла (статус, очередь, превью, права…)
 {"t":"agent_removed","rev":45,"id":"a-7f3k"}
@@ -162,6 +167,8 @@ API-сегменты (первые сегменты маршрутов): `health
 {"t":"space_removed","rev":47,"name":"main"}
 {"t":"role","rev":48,"role":{…}}             // upsert роли
 {"t":"role_removed","rev":49,"id":"reviewer"}
+{"t":"task","rev":50,"task":{…TaskView}}
+{"t":"task_removed","rev":51,"id":"fix-ci-3f2a"}
 ```
 
 Правила клиента: при **каждом (пере)подключении** приходит новый `snapshot` — состояние заменяется целиком. События чата
