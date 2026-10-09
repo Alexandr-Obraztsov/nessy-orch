@@ -76,9 +76,15 @@ describe('план агента', () => {
 		assert.equal(ctx.orch.setPlan(id, { from: id, entries: null }).plan, null)
 	})
 
-	it('вводная учит публиковать план своим id', async () => {
+	it('вводная: план обязателен для любой задачи, публикуется своим id, шаги отмечаются', async () => {
 		const id = await spawn(ctx)
-		assert.match(ctx.orch.preambleFor(ctx.orch.resolveAgent(id)), new RegExp(`nessy-orch plan --from ${id} "- \\[x\\]`))
+		const text = ctx.orch.preambleFor(ctx.orch.resolveAgent(id))
+		assert.match(text, /ПЛАН ОБЯЗАТЕЛЕН для любой задачи/)
+		assert.match(text, /Первое действие — опубликуй план/)
+		assert.match(text, new RegExp(`nessy-orch plan --from ${id} "- \\[~\\] шаг 1" "- \\[ \\] шаг 2"`))
+		assert.match(text, /Закончив КАЖДЫЙ шаг.*\[x\].*\[~\]/)
+		assert.match(text, /Перед финальным ответом все шаги — \[x\]/)
+		assert.doesNotMatch(text, /больше 2 шагов/)
 	})
 
 	it('чужой from → 403 forbidden; неверные записи → 400 bad_plan; неизвестный агент → 404', async () => {

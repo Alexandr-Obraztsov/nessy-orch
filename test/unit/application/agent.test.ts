@@ -4,6 +4,7 @@ import * as os from 'node:os'
 import { beforeEach, describe, it } from 'node:test'
 import type { AgentEvent, HubEvent, Message, ToolEvent } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
+import { planReminder } from '../../../src/domain/preamble'
 import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
 import { until } from '../../support/wait'
 
@@ -69,7 +70,7 @@ describe('агент: события сессии', () => {
 				['text', 'Второе'],
 			],
 		)
-		assert.equal(replies(ctx)[0]?.text, 'ПриветВторое')
+		assert.equal(replies(ctx)[0]?.text, 'Второе', 'результат — только финальное сообщение')
 		const chunks = ctx.hub.filter(e => e.t === 'chunk')
 		assert.equal(chunks.length, 5)
 		assert.equal(ctx.orch.resolveAgent(id).status, 'idle')
@@ -143,6 +144,81 @@ describe('агент: события сессии', () => {
 	})
 })
 
+describe('агент: результат хода — финальное сообщение', () => {
+	it('промежуточный текст между инструментами — в истории, но не в ответе', async () => {
+		const ctx = setup()
+		const id = await startTurn(ctx)
+		const tool = (toolId: string) => ({ kind: 'tool', toolId, name: 'grep', title: toolId, input: {}, status: 'completed', output: '' }) as const
+		ctx.gw.emit(
+			{ kind: 'text', text: 'Сначала ', messageId: 'm1' },
+			{ kind: 'text', text: 'поищу.', messageId: 'm1' },
+			tool('t1'),
+			{ kind: 'text', text: 'Нашёл, проверю.', messageId: 'm1' }, // тот же messageId, но после инструмента — новый блок
+			tool('t2'),
+			{ kind: 'thought', text: 'свожу', messageId: 'm2' },
+			{ kind: 'text', text: 'Итог: ', messageId: 'm2' },
+			{ kind: 'text', text: 'всё хорошо.', messageId: 'm2' },
+			{ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' },
+		)
+		assert.equal(replies(ctx)[0]?.text, 'Итог: всё хорошо.')
+		assert.equal(ctx.orch.getAgent(id).preview, 'Итог: всё хорошо.')
+		const texts = history(ctx, id).flatMap(e => (e.kind === 'text' ? [e.text] : []))
+		assert.deepEqual(texts, ['Сначала поищу.', 'Нашёл, проверю.', 'Итог: всё хорошо.'])
+	})
+
+	it('после последнего инструмента текста нет — последний непустой блок хода', async () => {
+		const ctx = setup()
+		await startTurn(ctx)
+		ctx.gw.emit(
+			{ kind: 'text', text: 'Промежуточно.', messageId: 'm1' },
+			{ kind: 'text', text: 'Ответ.', messageId: 'm2' },
+			{ kind: 'tool', toolId: 't1', name: 'grep', title: 't1', input: {}, status: 'completed', output: '' },
+			{ kind: 'text', text: '  ', messageId: 'm3' },
+			{ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' },
+		)
+		assert.equal(replies(ctx)[0]?.text, 'Ответ.')
+	})
+
+	it('прерванный ход с промежуточным текстом — «(ход прерван)»', async () => {
+		const ctx = setup()
+		await startTurn(ctx)
+		ctx.gw.emit({ kind: 'text', text: 'начинаю', messageId: 'm1' }, { kind: 'cancelled', promptId: 'p-1' })
+		assert.match(replies(ctx)[0]?.text ?? '', /ход прерван/)
+	})
+})
+
+describe('агент: напоминание о плане', () => {
+	const tool = (toolId: string) => ({ kind: 'tool', toolId, name: 'grep', title: toolId, input: {}, status: 'in_progress', output: '' }) as const
+	const warnings = (ctx: Ctx, id: string): AgentEvent[] => history(ctx, id).filter(e => e.kind === 'system' && e.text === 'агент не опубликовал план')
+
+	it('в промпт добавлено напоминание, в истории — исходный текст', async () => {
+		const ctx = setup()
+		const id = await startTurn(ctx, 'сделай дело')
+		const prompt = ctx.gw.prompts[0] ?? ''
+		assert.ok(prompt.endsWith(`сделай дело\n\n${planReminder(id, 'nessy-orch')}`))
+		assert.match(planReminder(id, 'nessy-orch'), new RegExp(`^\\[nessy-orch\\] Веди план: .*nessy-orch plan --from ${id}`))
+		assert.ok(!planReminder(id, 'nessy-orch').includes('\n'), 'одна строка')
+		assert.deepEqual(users(ctx, id), ['сделай дело'])
+	})
+
+	it('3 инструмента без плана в ходе — одно системное предупреждение', async () => {
+		const ctx = setup()
+		const id = await startTurn(ctx)
+		ctx.gw.emit(tool('t1'), tool('t2'))
+		assert.equal(warnings(ctx, id).length, 0)
+		ctx.gw.emit(tool('t3'), tool('t4'), tool('t5'))
+		assert.equal(warnings(ctx, id).length, 1)
+	})
+
+	it('план опубликован в ходе — предупреждения нет', async () => {
+		const ctx = setup()
+		const id = await startTurn(ctx)
+		ctx.orch.setPlan(id, { from: id, entries: [{ content: 'шаг', status: 'in_progress' }] })
+		ctx.gw.emit(tool('t1'), tool('t2'), tool('t3'))
+		assert.equal(warnings(ctx, id).length, 0)
+	})
+})
+
 describe('агент: разрешения', () => {
 	it('автоподтверждение голосует allow и пишет аудит', async () => {
 		const ctx = setup(true)
@@ -186,7 +262,7 @@ describe('агент: архив и прерывание', () => {
 		await ctx.orch.send(id, { text: 'ещё' })
 		assert.equal(ctx.orch.getAgent(id).archived, false)
 		await until(() => ctx.gw.prompts.length === 2, 1000, 'второй промпт')
-		assert.equal(ctx.gw.prompts[1], 'ещё', 'контекст прежний — без повторной вводной')
+		assert.equal(ctx.gw.prompts[1], `ещё\n\n${planReminder(id, 'nessy-orch')}`, 'контекст прежний — без повторной вводной')
 		assert.equal(ctx.orch.resolveAgent(id).sessionId, session)
 	})
 

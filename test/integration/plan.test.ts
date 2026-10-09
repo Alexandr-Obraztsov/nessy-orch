@@ -71,6 +71,7 @@ describe('план агента: HTTP, CLI, ACP, рестарт', () => {
 		// ACP-план фейкового nessy: статусы продвигаются по ходу трёх инструментов
 		const r = await h.api<SpawnResponse>('POST', `/agents/${a}/send`, { text: '#plan', wait: true, waitTimeoutSec: 15 })
 		assert.match(r.body.reply?.text ?? '', /План выполнен/)
+		assert.ok(!h.orch.agentHistory(a).some(e => e.kind === 'system' && e.text === 'агент не опубликовал план'), 'план есть — без предупреждения')
 		const v = h.orch.getAgent(a)
 		assert.equal(v.plan?.source, 'acp')
 		assert.deepEqual(v.plan.entries.map(e => e.status), ['completed', 'completed', 'completed'])

@@ -22,6 +22,8 @@ export interface AgentDeps {
 	autoApprove: boolean
 	/** ожидание подтверждения отмены от nessy (мс) */
 	cancelGraceMs: number
+	/** команда CLI оркестратора (для напоминания о плане в промпте) */
+	cliPath: string
 }
 
 export interface AgentInit {
@@ -48,7 +50,16 @@ export interface LiveRun {
 export interface CurrentTurn {
 	msg: Message
 	promptId: string | null
-	text: string
+	/** блоки текста хода по порядку; новый блок — при смене messageId или после вызова инструмента */
+	texts: string[]
+	/** messageId последнего текстового чанка */
+	textMsgId: string | null
+	/** после последнего текстового чанка был вызов инструмента: следующий чанк начинает новый блок */
+	textBreak: boolean
+	/** агент опубликовал план в этом ходе */
+	planned: boolean
+	/** предупреждение «нет плана» уже выдано в этом ходе */
+	planWarned: boolean
 	startedAt: string
 	/** начало хода, мс (для lastTurnMs) */
 	startedMs: number

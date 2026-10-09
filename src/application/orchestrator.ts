@@ -74,6 +74,7 @@ export class Orchestrator implements AgentHost {
 				clock,
 				autoApprove: deps.settings.autoApprove,
 				cancelGraceMs: deps.settings.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS,
+				cliPath: deps.settings.cliPath,
 			},
 			saveSoon: () => this.saveSoon(),
 			isShuttingDown: () => this.shuttingDown,

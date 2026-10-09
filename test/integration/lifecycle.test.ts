@@ -22,7 +22,10 @@ describe('ход агента (автоподтверждение)', () => {
 
 	it('#tools: три инструмента с заголовками, входом и выводом, статус completed', T, async () => {
 		const r = await h.api<SendResponse>('POST', '/agents/worker/send', { text: '#tools', wait: true, waitTimeoutSec: 15 })
-		assert.match(r.body.reply?.text ?? '', /тесты зелёные/)
+		assert.equal(r.body.reply?.text, 'Готово: README прочитан, найдено 2 TODO, тесты зелёные.', 'результат — только финальное сообщение')
+		const texts = h.orch.agentHistory('worker').flatMap(e => (e.kind === 'text' ? [e.text] : []))
+		assert.ok(['Читаю README.', 'README прочитан, ищу TODO.', 'Запускаю тесты.'].every(t => texts.includes(t)), 'промежуточный текст остался в истории')
+		assert.ok(h.orch.agentHistory('worker').some(e => e.kind === 'system' && e.text === 'агент не опубликовал план'))
 		const list = tools(h.orch.agentHistory('worker'))
 		assert.deepEqual(
 			list.map(t => [t.name, t.title, t.status]),
@@ -39,6 +42,14 @@ describe('ход агента (автоподтверждение)', () => {
 		assert.equal((await h.api<AgentView>('GET', '/agents/worker')).body.lastTool?.name, 'run_shell_command')
 		const hist = await h.api<AgentEvent[]>('GET', '/agents/worker/history?limit=1000')
 		assert.equal(tools(hist.body).length, 3, 'история отдаёт одну запись на инструмент')
+	})
+
+	it('#long: промежуточный комментарий не входит в результат', T, async () => {
+		const r = await h.api<SendResponse>('POST', '/agents/worker/send', { text: '#long', wait: true, waitTimeoutSec: 15 })
+		const text = r.body.reply?.text ?? ''
+		assert.ok(text.startsWith('## План проверки'))
+		assert.ok(!text.includes('Смотрю исходники'))
+		assert.ok(h.orch.agentHistory('worker').some(e => e.kind === 'text' && e.text === 'Смотрю исходники.'))
 	})
 
 	it('#perm при автоподтверждении: голос «разрешить», аудит, инструмент выполнен', T, async () => {

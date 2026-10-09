@@ -16,6 +16,7 @@ import { archiveAfterTurn, restoredStatus, statusAfterAttach, statusAfterTurn } 
 import { YOU } from '../../domain/constants'
 import { pickPermissionOption } from '../../domain/permission'
 import { coercePlanEntries, planOnTurnStart } from '../../domain/plan'
+import { planReminder } from '../../domain/preamble'
 import { framePrompt } from '../../domain/routing'
 import type { AgentIdentity, TurnOutcome } from '../../domain/types'
 import { errMsg } from '../../lib/json'
@@ -125,7 +126,7 @@ export class Agent implements AgentIdentity {
 			queued: this.queue.length,
 			turnStartedAt: this.current?.startedAt ?? null,
 			lastTool: this.lastTool,
-			preview: clip(this.current?.text || this.lastReply, 140),
+			preview: clip(this.current?.texts.at(-1) || this.lastReply, 140),
 			pendingPermissions: [...this.pending.values()].map(p => ({ requestId: p.requestId, title: p.title })),
 			plan: this.plan,
 			turnSteps: this.turnSteps,
@@ -210,6 +211,7 @@ export class Agent implements AgentIdentity {
 	/** Заменить план целиком (null — убрать). Правила проверки — domain/plan.ts. */
 	setPlan(entries: readonly PlanEntry[] | null, source: AgentPlan['source']): void {
 		this.plan = entries && entries.length ? { entries: [...entries], updatedAt: this.isoNow(), source } : null
+		if (this.plan && this.current) this.current.planned = true
 		this.touch()
 		this.publishNode()
 	}
@@ -318,7 +320,20 @@ export class Agent implements AgentIdentity {
 		if (!msg) return
 		if (this.urgent > 0) this.urgent--
 
-		this.current = { msg, promptId: null, text: '', startedAt: this.isoNow(), startedMs: this.deps.clock.now(), error: null, cancelRequested: false, sent: false }
+		this.current = {
+			msg,
+			promptId: null,
+			texts: [],
+			textMsgId: null,
+			textBreak: false,
+			planned: false,
+			planWarned: false,
+			startedAt: this.isoNow(),
+			startedMs: this.deps.clock.now(),
+			error: null,
+			cancelRequested: false,
+			sent: false,
+		}
 		this.journal.resetTools()
 		this.turnSteps = 0
 		// новая задача от оператора после выполненного плана — план сбрасывается (уточнения его сохраняют)
@@ -349,7 +364,8 @@ export class Agent implements AgentIdentity {
 
 	private buildPrompt(msg: Message): string {
 		const { host } = this.deps
-		const body = framePrompt(msg, host.labelOf(msg.from))
+		// напоминание о плане — в каждом промпте (в истории чата хранится исходный текст без него)
+		const body = `${framePrompt(msg, host.labelOf(msg.from))}\n\n${planReminder(this.id, this.deps.cliPath)}`
 		return this.introduced ? body : `${host.preambleFor(this)}\n\n${body}`
 	}
 
@@ -418,7 +434,7 @@ export class Agent implements AgentIdentity {
 			case 'thought':
 				if (!this.current) return // реплей вне хода игнорируем
 				this.touch()
-				if (ev.kind === 'text') this.current.text += ev.text
+				if (ev.kind === 'text') this.appendText(ev.text, ev.messageId)
 				this.journal.chunk(ev.kind, ev.text, ev.messageId)
 				return
 			case 'tool':
@@ -475,8 +491,30 @@ export class Agent implements AgentIdentity {
 		if (created) {
 			this.turnSteps++
 			this.lastTool = { name: rec.name, title: clip(rec.title || JSON.stringify(rec.input), 120) }
+			if (this.current) {
+				this.current.textBreak = true
+				this.checkPlan(this.current)
+			}
 			this.publishNode()
 		}
+	}
+
+	/** Текст хода по блокам: новый блок — при смене messageId или после вызова инструмента. */
+	private appendText(delta: string, messageId: string | null): void {
+		const cur = this.current
+		if (!cur) return
+		const fresh = !cur.texts.length || cur.textBreak || (messageId !== null && cur.textMsgId !== null && messageId !== cur.textMsgId)
+		if (fresh) cur.texts.push(delta)
+		else cur.texts.push((cur.texts.pop() ?? '') + delta)
+		cur.textBreak = false
+		cur.textMsgId = messageId ?? cur.textMsgId
+	}
+
+	/** После 3+ инструментов без плана в этом ходе — одно предупреждение в ленте агента. */
+	private checkPlan(cur: CurrentTurn): void {
+		if (cur.planned || cur.planWarned || this.turnSteps < 3) return
+		cur.planWarned = true
+		this.addSystem('агент не опубликовал план')
 	}
 
 	private onPermission(ev: Extract<SessionEvent, { kind: 'permission' }>): void {
@@ -524,7 +562,8 @@ export class Agent implements AgentIdentity {
 		if (info.error || cancelled) this.journal.failOpenTools()
 		// запросы разрешений, не решённые до конца хода, больше не актуальны
 		this.pending.clear()
-		const text = cur.text.trim()
+		// результат хода — только финальное сообщение: последний непустой блок текста
+		const text = finalText(cur.texts)
 		if (text) this.lastReply = text
 		if (info.error) this.addSystem('ход завершился ошибкой: ' + info.error, 'error')
 		else if (cancelled) this.addSystem('ход прерван')
@@ -542,4 +581,13 @@ export class Agent implements AgentIdentity {
 		if (reply.failed) this.replyBrief.failed = reply.failed
 		return true
 	}
+}
+
+/** Последний непустой блок текста хода (промежуточные комментарии между инструментами в ответ не входят). */
+function finalText(texts: readonly string[]): string {
+	for (let i = texts.length - 1; i >= 0; i--) {
+		const t = (texts[i] ?? '').trim()
+		if (t) return t
+	}
+	return ''
 }

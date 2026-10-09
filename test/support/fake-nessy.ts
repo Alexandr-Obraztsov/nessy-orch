@@ -7,12 +7,12 @@
  * События как у настоящего serve: чанки с messageId, мысли, tool_call (title/rawInput) →
  * tool_call_update (in_progress) → tool_call_update (completed, rawOutput "" + content[]).
  *
- * Поведение по последней строке промпта (без вводной оркестратора):
+ * Поведение по последней строке промпта (без вводной и напоминаний оркестратора — строк «[nessy-orch] …»):
  *   «#shell <cmd>»     → вызов run_shell_command (без реального запуска)
  *   «#perm <cmd>»      → то же, но сначала permission_request; продолжает только после голосования
  *   «#slow»            → долгий ответ (~1.5 с), можно прервать cancel
- *   «#long»            → ответ с markdown (заголовки, список, код, таблица), стримится ~3 с
- *   «#tools»           → три инструмента подряд: read_file, grep, run_shell_command
+ *   «#long»            → короткий комментарий, инструмент, затем ответ с markdown (заголовки, список, код, таблица), стримится ~3 с
+ *   «#tools»           → три инструмента подряд (read_file, grep, run_shell_command) с комментариями между ними и итоговым сообщением
  *   «#plan»            → ACP-план из трёх шагов; статусы продвигаются по мере трёх инструментов, в конце все completed
  *   «#error»           → ошибка хода (agent_message_chunk с _meta['nessy/error']) + turn_complete
  *   «#fail»            → аварийное завершение сессии (session_died)
@@ -173,7 +173,11 @@ parser.push('data: {"a":1}\\n\\n')
 function runPrompt(s: Session, promptId: string, text: string): void {
 	const turn: Turn = { promptId, timers: new Set(), done: false, permission: new Map() }
 	s.turn = turn
-	const body = text.split('\n').filter(Boolean).pop() ?? ''
+	const body =
+		text
+			.split('\n')
+			.filter(l => l && !l.startsWith('[nessy-orch]'))
+			.pop() ?? ''
 	const msgId = 'msg_' + randomUUID().slice(0, 8)
 	const sc = new Script(s, turn)
 	update(s, { sessionUpdate: 'user_message_chunk', messageId: 'user_' + promptId.slice(0, 8), content: { type: 'text', text } })
@@ -209,13 +213,19 @@ function runPrompt(s: Session, promptId: string, text: string): void {
 	if (body.startsWith('#long')) {
 		sc.thought('Собираю обзор: посмотрю парсер, маппер и очередь, потом сведу в таблицу.', msgId)
 		const step = Math.max(5, Math.floor(3000 / Math.ceil(LONG_ANSWER.length / 8)))
-		sc.text(LONG_ANSWER, msgId, step, 8).finish()
+		sc.text('Смотрю исходники.', msgId)
+			.tool('read_file', 'read', 'Read: src/sse.ts', { path: 'src/sse.ts' }, 'export class SseParser {}')
+			.text(LONG_ANSWER, 'msg_' + randomUUID().slice(0, 8), step, 8)
+			.finish()
 		return
 	}
 	if (body.startsWith('#tools')) {
 		sc.thought('Сначала прочитаю README, потом поищу TODO и запущу тесты.', msgId)
+			.text('Читаю README.', msgId)
 			.tool('read_file', 'read', 'Read: README.md', { path: 'README.md' }, '# nessy-orch\nОркестратор агентов nessy.')
+			.text('README прочитан, ищу TODO.', 'msg_' + randomUUID().slice(0, 8))
 			.tool('grep', 'search', 'Grep: TODO', { pattern: 'TODO', path: 'src' }, 'src/app.ts:12: // TODO: метрики\nsrc/main.ts:40: // TODO: graceful reload')
+			.text('Запускаю тесты.', 'msg_' + randomUUID().slice(0, 8))
 			.tool('run_shell_command', 'execute', 'Shell: npm test', { command: 'npm test' }, 'tests 42\npass 42\nfail 0')
 			.text('Готово: README прочитан, найдено 2 TODO, тесты зелёные.', 'msg_' + randomUUID().slice(0, 8))
 			.finish()
