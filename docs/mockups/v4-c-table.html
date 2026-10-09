@@ -1,0 +1,924 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nessy-orch — Вариант C: Таблица</title>
+<style>
+/* ============ ДИЗАЙН-ТОКЕНЫ (v4) ============ */
+:root{
+	/* 4px-сетка */
+	--space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-7:32px;--space-8:40px;
+	/* типошкала */
+	--text-xs:11px;--text-sm:12px;--text-base:13px;--text-md:14px;--text-lg:16px;--text-xl:20px;
+	--lh-tight:1.25;--lh-base:1.45;--lh-loose:1.6;
+	--font-ui:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+	--font-mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+	/* радиусы */
+	--radius-sm:4px;--radius-md:6px;--radius-lg:10px;--radius-pill:999px;
+	/* движение */
+	--dur-fast:120ms;--dur-base:200ms;--dur-slow:360ms;
+	--ease-out:cubic-bezier(.2,.8,.2,1);--ease-spring:cubic-bezier(.34,1.56,.64,1);
+	/* размеры */
+	--row-h:40px;--colh:32px;--gh:32px;--panel-w:440px;
+}
+:root,:root[data-theme="dark"]{
+	color-scheme:dark;
+	--gray-0:#0b0d11;--gray-1:#10131a;--gray-2:#161a23;--gray-3:#1c212c;--gray-4:#252b39;--gray-5:#2f3647;
+	--gray-6:#3d455b;--gray-7:#525b75;--gray-8:#6f7992;--gray-9:#8f98ad;--gray-10:#adb4c4;--gray-11:#cfd4df;--gray-12:#eff1f6;
+	--accent:#6ea8ff;--accent-ink:#0b1220;
+	--working:#5aa2ff;--wait:#f5b544;--error:#ff6b6b;--done:#4cc38a;--stopped:#8f98ad;
+	--bg:var(--gray-0);--surface:var(--gray-1);--surface-2:var(--gray-2);--hover:var(--gray-3);
+	--border:var(--gray-4);--border-soft:#1b202b;--text:var(--gray-12);--text-2:var(--gray-10);--text-3:var(--gray-9);
+	--shadow-1:0 1px 2px rgba(0,0,0,.4);--shadow-2:0 12px 40px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.4);
+	--on-status:#0b0d11;
+}
+:root[data-theme="light"]{
+	color-scheme:light;
+	--gray-0:#f4f6f9;--gray-1:#ffffff;--gray-2:#f0f2f6;--gray-3:#e7eaf0;--gray-4:#dce0e8;--gray-5:#ccd2dc;
+	--gray-6:#b3bbc9;--gray-7:#8e98ab;--gray-8:#677184;--gray-9:#566073;--gray-10:#3f4858;--gray-11:#2a3140;--gray-12:#12161f;
+	--accent:#1f6feb;--accent-ink:#fff;
+	--working:#1f6feb;--wait:#a86400;--error:#d1242f;--done:#1a7f4b;--stopped:#677184;
+	--bg:var(--gray-0);--surface:var(--gray-1);--surface-2:var(--gray-2);--hover:var(--gray-3);
+	--border:var(--gray-4);--border-soft:#e9ecf1;--text:var(--gray-12);--text-2:var(--gray-10);--text-3:var(--gray-8);
+	--shadow-1:0 1px 2px rgba(20,30,50,.08);--shadow-2:0 12px 40px rgba(20,30,50,.16),0 2px 6px rgba(20,30,50,.08);
+	--on-status:#fff;
+}
+
+/* ============ БАЗА ============ */
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:var(--text-base)/var(--lh-base) var(--font-ui);overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+code,.mono{font-family:var(--font-mono);font-size:.92em}
+code{background:var(--surface-2);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:0 4px}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--gray-5);border-radius:8px;border:3px solid transparent;background-clip:content-box}
+[hidden]{display:none!important}
+.app{display:flex;flex-direction:column;height:100vh;height:100dvh;min-width:0}
+
+/* ---------- шапка ---------- */
+.top{display:flex;align-items:center;gap:var(--space-3);min-height:48px;padding:var(--space-2) var(--space-4);border-bottom:1px solid var(--border);background:var(--surface);flex:none;flex-wrap:wrap}
+.brand{font-weight:650;letter-spacing:.2px;white-space:nowrap;display:flex;align-items:center;gap:var(--space-2)}
+.brand svg{width:18px;height:18px;color:var(--accent)}
+.vtag{font-size:var(--text-xs);color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:var(--radius-pill);padding:2px 10px;white-space:nowrap;font-weight:600}
+.sp{flex:1}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-2);font-size:var(--text-sm);white-space:nowrap;transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),transform var(--dur-fast)}
+.btn:hover{background:var(--hover);color:var(--text)}
+.btn:active{transform:scale(.97)}
+.btn svg{width:14px;height:14px}
+.switch{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px 0 8px;border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-2);font-size:var(--text-sm);white-space:nowrap}
+.switch:hover{background:var(--hover)}
+.switch .trk{width:26px;height:14px;border-radius:var(--radius-pill);background:var(--gray-5);position:relative;transition:background var(--dur-base)}
+.switch .trk::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--gray-12);transition:transform var(--dur-base) var(--ease-spring)}
+.switch[aria-checked=true]{color:var(--text)}
+.switch[aria-checked=true] .trk{background:var(--accent)}
+.switch[aria-checked=true] .trk::after{transform:translateX(12px);background:#fff}
+
+/* ---------- сводка-фильтры ---------- */
+.sumbar{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-4);border-bottom:1px solid var(--border-soft);background:var(--bg);flex:none;overflow-x:auto;scrollbar-width:none}
+.sumbar::-webkit-scrollbar{display:none}
+.chip{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 12px 0 10px;border:1px solid var(--border);border-radius:var(--radius-pill);color:var(--text-2);font-size:var(--text-sm);white-space:nowrap;background:var(--surface);transition:background var(--dur-fast),border-color var(--dur-fast),color var(--dur-fast)}
+.chip:hover{background:var(--hover)}
+.chip i{width:8px;height:8px;border-radius:50%;background:var(--c,var(--gray-7))}
+.chip b{color:var(--text);font-weight:650;font-variant-numeric:tabular-nums;display:inline-block}
+.chip[aria-pressed=true]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--text)}
+.chip.zero{opacity:.55}
+.chip.bump b{animation:bump var(--dur-slow) var(--ease-spring)}
+.hint{margin-left:auto;color:var(--text-3);font-size:var(--text-xs);white-space:nowrap;display:flex;gap:var(--space-2);align-items:center}
+kbd{font:600 var(--text-xs)/1 var(--font-mono);padding:2px 5px;border:1px solid var(--border);border-bottom-width:2px;border-radius:var(--radius-sm);color:var(--text-2);background:var(--surface)}
+
+/* ---------- основная раскладка ---------- */
+.main{flex:1;min-height:0;display:flex}
+.tw{flex:1;min-width:0;overflow:auto;container:tw/inline-size;position:relative;background:var(--bg);scroll-behavior:smooth}
+.panel{flex:none;width:0;overflow:hidden;border-left:1px solid transparent;background:var(--surface);transition:width var(--dur-slow) var(--ease-out),border-color var(--dur-slow)}
+.app.has-panel .panel{width:var(--panel-w);border-left-color:var(--border)}
+.panel-in{width:var(--panel-w);height:100%;overflow:auto;display:flex;flex-direction:column}
+.scrim{display:none}
+
+/* ---------- таблица ---------- */
+.colhead,.row{display:grid;grid-template-columns:28px minmax(140px,180px) minmax(120px,1.1fr) minmax(230px,1.6fr) minmax(150px,1.1fr) 56px 264px;column-gap:var(--space-3);align-items:center;padding:0 var(--space-4) 0 var(--space-3)}
+.colhead{position:sticky;top:0;z-index:6;height:var(--colh);background:var(--surface);border-bottom:1px solid var(--border);font-size:var(--text-xs);color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.colhead .c-tm{text-align:right}
+.grp{position:relative}
+.gh{position:sticky;top:var(--colh);z-index:5;height:var(--gh);display:flex;align-items:center;gap:var(--space-2);padding:0 var(--space-4) 0 var(--space-2);background:color-mix(in srgb,var(--bg) 88%,var(--surface-2));border-bottom:1px solid var(--border-soft);font-size:var(--text-sm);font-weight:650;cursor:pointer;user-select:none;overflow:hidden;transition:height var(--dur-base) var(--ease-out),opacity var(--dur-base),border-color var(--dur-base);backdrop-filter:blur(6px)}
+.gh:hover{background:var(--hover)}
+.gh .chev{width:20px;height:20px;display:grid;place-items:center;color:var(--text-3);transition:transform var(--dur-base) var(--ease-out)}
+.gh .chev svg{width:12px;height:12px}
+.grp.collapsed .gh .chev{transform:rotate(-90deg)}
+.gh .gn{background:var(--surface-2);border:1px solid var(--border-soft);border-radius:var(--radius-pill);padding:0 8px;font-size:var(--text-xs);color:var(--text-2);font-variant-numeric:tabular-nums;font-weight:600;min-width:22px;text-align:center}
+.gh .gn.bump{animation:bump var(--dur-slow) var(--ease-spring)}
+.gh .gnote{margin-left:auto;font-weight:400;color:var(--text-3);font-size:var(--text-xs)}
+.gh .gi{width:8px;height:8px;border-radius:50%;background:var(--c)}
+.grp.is-off .gh{height:0;opacity:0;border-color:transparent}
+.gb{display:grid;grid-template-rows:1fr;transition:grid-template-rows var(--dur-slow) var(--ease-out),opacity var(--dur-base)}
+.gbi{min-height:0;overflow:hidden}
+.grp.collapsed .gb,.grp.is-off .gb{grid-template-rows:0fr;opacity:0}
+.grp.is-empty{display:none}
+
+.row{position:relative;height:var(--row-h);border-bottom:1px solid var(--border-soft);background:var(--bg);cursor:pointer;outline:none;scroll-margin-top:calc(var(--colh) + var(--gh) + 4px);transition:background var(--dur-fast)}
+.row:hover{background:var(--surface-2)}
+.row.cur{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--accent) 60%,transparent)}
+.row.sel{background:color-mix(in srgb,var(--accent) 11%,var(--bg))}
+.row.f-off{display:none}
+.row .bar{position:absolute;left:0;top:0;bottom:0;width:3px;background:transparent;transition:background var(--dur-base),opacity var(--dur-slow)}
+.row[data-s=wait]{background:color-mix(in srgb,var(--wait) 7%,var(--bg))}
+.row[data-s=wait] .bar{background:var(--wait)}
+.row[data-s=error]{background:color-mix(in srgb,var(--error) 6%,var(--bg))}
+.row[data-s=error] .bar{background:var(--error)}
+.row[data-s=wait].sel,.row[data-s=error].sel{background:color-mix(in srgb,var(--accent) 12%,var(--bg))}
+.row > span{min-width:0}
+.c-st{display:grid;place-items:center}
+.c-ag{display:flex;flex-direction:column;justify-content:center;gap:1px;line-height:var(--lh-tight)}
+.nm{font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.rl{font-size:var(--text-xs);color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:5px}
+.rl i{width:6px;height:6px;border-radius:50%;background:hsl(var(--h) 65% 60%);flex:none}
+.newtag{font-size:10px;font-weight:700;color:var(--done);background:color-mix(in srgb,var(--done) 16%,transparent);border-radius:var(--radius-pill);padding:0 6px;line-height:15px;animation:popin var(--dur-slow) var(--ease-spring)}
+.c-tk{color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-pr{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.segs{display:flex;gap:2px;width:88px;flex:none;height:4px}
+.seg{flex:1;background:var(--gray-5);border-radius:2px;overflow:hidden;position:relative}
+.seg i{position:absolute;inset:0;background:var(--working);border-radius:2px;transform:scaleX(0);transform-origin:left;transition:transform 700ms var(--ease-out),background var(--dur-slow)}
+.seg.d i{transform:scaleX(1)}
+.seg.a i{transform:scaleX(.5);animation:segpulse 1.6s ease-in-out infinite}
+.seg.e i{transform:scaleX(.5);background:var(--error)}
+.row[data-s=done] .seg.d i,.p-done .seg.d i{background:var(--done)}
+.row[data-s=stopped] .seg.d i{background:var(--stopped)}
+.row[data-s=wait] .seg.a i{background:var(--wait)}
+.segs.ind{background:var(--gray-5);border-radius:2px;overflow:hidden;position:relative}
+.segs.ind::after{content:"";position:absolute;inset:0;width:40%;background:linear-gradient(90deg,transparent,var(--working),transparent);animation:shimmer 1.4s linear infinite}
+.segs.off{opacity:.35}
+.cnt{font:600 var(--text-sm)/1 var(--font-mono);color:var(--text);font-variant-numeric:tabular-nums;flex:none;min-width:28px}
+.stp{color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.sp-perm,.sp-res{display:none}
+.c-nw{display:flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--text-sm)}
+.tn{font-weight:650;color:var(--text);flex:none;font-size:var(--text-sm)}
+.ta{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tmr{font:600 var(--text-xs)/1 var(--font-mono);color:var(--working);font-variant-numeric:tabular-nums;margin-left:auto;flex:none;padding-left:4px}
+.dim{color:var(--text-3)}
+.warnx{color:var(--wait);font-weight:650}
+.errx{color:var(--error)}
+.permx{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.badge{font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;border-radius:var(--radius-pill);padding:0 7px;line-height:17px;flex:none;color:var(--on-status);background:var(--wait);animation:badgepulse 2s ease-in-out infinite}
+.c-tm{text-align:right;font:var(--text-sm)/1 var(--font-mono);color:var(--text-2);font-variant-numeric:tabular-nums}
+.c-ac{display:flex;justify-content:flex-end;gap:6px;align-items:center}
+.ab{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:26px;padding:0 10px;border-radius:var(--radius-md);font-size:var(--text-sm);font-weight:600;border:1px solid var(--border);color:var(--text-2);background:var(--surface);white-space:nowrap;transition:background var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast),transform var(--dur-fast) var(--ease-spring)}
+.ab svg{width:12px;height:12px;flex:none}
+.ab:hover{background:var(--hover);color:var(--text)}
+.ab:active{transform:scale(.94)}
+.ab.ok{background:var(--done);border-color:var(--done);color:var(--on-status)}
+.ab.ok:hover{filter:brightness(1.08)}
+.ab.stop:hover,.ab.armed{border-color:var(--error);color:var(--error)}
+.ab.armed{background:color-mix(in srgb,var(--error) 12%,var(--surface));animation:popin var(--dur-base) var(--ease-spring)}
+.ab.okd{animation:okpop 520ms var(--ease-spring);background:var(--done);color:var(--on-status);border-color:var(--done)}
+.ab.nod{animation:shake 360ms}
+.row .hov{opacity:0;transform:translateX(4px);transition:opacity var(--dur-fast),transform var(--dur-base) var(--ease-out);pointer-events:none}
+.row:hover .hov,.row:focus-within .hov,.row.cur .hov{opacity:1;transform:none;pointer-events:auto}
+.row[data-s=wait] .hov{opacity:1;transform:none;pointer-events:auto}
+.row.is-new{animation:newflash 1.5s var(--ease-out)}
+.row.flash-ok{animation:okflash 800ms var(--ease-out)}
+.empty{padding:var(--space-8) var(--space-4);text-align:center;color:var(--text-3)}
+
+/* ---------- иконка статуса ---------- */
+.sti{width:20px;height:20px;display:block;position:relative;--c:var(--working)}
+.sti svg{width:20px;height:20px;overflow:visible;display:block}
+.sti .ring{fill:transparent;stroke:var(--c);stroke-width:1.5;stroke-opacity:.35;transition:fill var(--dur-base),stroke var(--dur-base),stroke-opacity var(--dur-base)}
+.sti .spin{fill:none;stroke:var(--c);stroke-width:1.6;stroke-linecap:round;stroke-dasharray:11 33;transform-origin:10px 10px;animation:spin 900ms linear infinite;opacity:0;transition:opacity var(--dur-base)}
+.sti .chk,.sti .xx{fill:none;stroke:var(--on-status);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:16;stroke-dashoffset:16;transition:stroke-dashoffset 380ms var(--ease-out) 120ms}
+.sti .xx{stroke-dasharray:20;stroke-dashoffset:20}
+.sti .dot{fill:var(--c);opacity:0;transform-origin:10px 10px;transition:opacity var(--dur-base)}
+.sti .sq{fill:var(--c);opacity:0;transition:opacity var(--dur-base)}
+.sti .pulse{fill:var(--c);opacity:0;transform-origin:10px 10px}
+.sti[data-s=working] .spin{opacity:1}
+.sti[data-s=starting]{--c:var(--gray-8)}
+.sti[data-s=starting] .spin{opacity:1;stroke-dasharray:2 5}
+.sti[data-s=wait]{--c:var(--wait)}
+.sti[data-s=wait] .ring{stroke-opacity:.6}
+.sti[data-s=wait] .dot{opacity:1;animation:dotpulse 1.8s ease-in-out infinite}
+.sti[data-s=wait] .pulse{animation:ping 1.8s ease-out infinite}
+.sti[data-s=error]{--c:var(--error)}
+.sti[data-s=error] .ring{fill:var(--c);stroke-opacity:1}
+.sti[data-s=error] .xx{stroke-dashoffset:0}
+.sti[data-s=done]{--c:var(--done)}
+.sti[data-s=done] .ring{fill:var(--c);stroke-opacity:1}
+.sti[data-s=done] .chk{stroke-dashoffset:0}
+.sti[data-s=stopped]{--c:var(--stopped)}
+.sti[data-s=stopped] .sq{opacity:1}
+.sti[data-s=idle]{--c:var(--gray-8)}
+.sti[data-s=idle] .ring{stroke-dasharray:3 3;stroke-opacity:.8}
+
+/* ---------- панель деталей ---------- */
+.p-head{position:sticky;top:0;z-index:3;background:var(--surface);border-bottom:1px solid var(--border);padding:var(--space-3) var(--space-4);display:flex;align-items:center;gap:var(--space-3)}
+.p-head .ttl{min-width:0;flex:1}
+.p-head .ttl b{font-size:var(--text-lg);display:block;line-height:var(--lh-tight);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-head .ttl span{font-size:var(--text-xs);color:var(--text-3);display:flex;gap:6px;align-items:center}
+.p-head .ttl .rl{font-size:var(--text-xs)}
+.iconbtn{width:28px;height:28px;display:grid;place-items:center;border-radius:var(--radius-md);color:var(--text-3);transition:background var(--dur-fast),color var(--dur-fast)}
+.iconbtn:hover{background:var(--hover);color:var(--text)}
+.iconbtn svg{width:14px;height:14px}
+.p-sec{padding:var(--space-4);border-bottom:1px solid var(--border-soft)}
+.p-sec h4{margin:0 0 var(--space-2);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.6px;color:var(--text-3);font-weight:650;display:flex;align-items:center;gap:var(--space-2)}
+.p-sec h4 em{font-style:normal;margin-left:auto;font-family:var(--font-mono);color:var(--text-2);text-transform:none;letter-spacing:0;font-size:var(--text-sm)}
+.p-task{font-size:var(--text-md);font-weight:600;line-height:var(--lh-base)}
+.p-meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;font-size:var(--text-xs);color:var(--text-3)}
+.p-meta b{color:var(--text-2);font-weight:600}
+.p-prog{display:flex;align-items:center;gap:var(--space-3)}
+.p-prog .segs{width:auto;flex:1;height:6px;gap:3px}
+.p-prog .seg{border-radius:3px}.p-prog .seg i{border-radius:3px}
+.p-prog .cnt{font-size:var(--text-md)}
+.p-step{margin-top:var(--space-2);color:var(--text-2);font-size:var(--text-sm)}
+.p-now{margin-top:var(--space-2);display:flex;align-items:center;gap:var(--space-2);padding:6px 10px;border-radius:var(--radius-md);background:var(--surface-2);border:1px solid var(--border-soft)}
+.alert{margin:var(--space-4);margin-bottom:0;padding:var(--space-3);border-radius:var(--radius-lg);border:1px solid color-mix(in srgb,var(--c) 45%,transparent);background:color-mix(in srgb,var(--c) 9%,var(--surface));animation:slidedown var(--dur-slow) var(--ease-out)}
+.alert.warn{--c:var(--wait)}.alert.err{--c:var(--error)}
+.alert b{display:flex;align-items:center;gap:var(--space-2);color:var(--c);font-size:var(--text-sm)}
+.alert code{display:block;margin:var(--space-2) 0;padding:6px 8px;word-break:break-all;background:var(--bg)}
+.alert .acts{display:flex;gap:var(--space-2)}
+.plan{list-style:none;margin:0;padding:0}
+.plan li{display:flex;gap:10px;align-items:flex-start;padding:5px 0;color:var(--text-3);transition:color var(--dur-base)}
+.plan li .bx{width:18px;height:18px;flex:none;margin-top:1px;position:relative}
+.plan li svg{width:18px;height:18px;overflow:visible}
+.plan .cir{fill:transparent;stroke:var(--gray-7);stroke-width:1.5;transition:fill var(--dur-base),stroke var(--dur-base)}
+.plan .tick{fill:none;stroke:var(--on-status);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:14;stroke-dashoffset:14;transition:stroke-dashoffset 420ms var(--ease-out) 100ms}
+.plan .core{fill:var(--working);opacity:0;transform-origin:9px 9px;transition:opacity var(--dur-base)}
+.plan li.d{color:var(--text-2)}
+.plan li.d .cir{fill:var(--done);stroke:var(--done)}
+.plan li.d .tick{stroke-dashoffset:0}
+.plan li.a{color:var(--text);font-weight:600}
+.plan li.a .cir{stroke:var(--working)}
+.plan li.a .core{opacity:1;animation:dotpulse 1.4s ease-in-out infinite}
+.plan li.a.err .cir{stroke:var(--error)}.plan li.a.err .core{fill:var(--error)}
+.plan li.a.wt .cir{stroke:var(--wait)}.plan li.a.wt .core{fill:var(--wait)}
+.plan li .pt{flex:1;min-width:0}
+.plan li .pd{font:var(--text-xs)/1.6 var(--font-mono);color:var(--text-3)}
+.tl{list-style:none;margin:0;padding:0 0 0 2px;position:relative}
+.tl li{position:relative;padding:0 0 12px 22px;font-size:var(--text-sm);animation:slidein var(--dur-slow) var(--ease-out)}
+.tl li.noanim{animation:none}
+.tl li::before{content:"";position:absolute;left:4px;top:14px;bottom:-2px;width:1px;background:var(--border)}
+.tl li:last-child::before{display:none}
+.tl li i{position:absolute;left:0;top:4px;width:9px;height:9px;border-radius:50%;background:var(--done);box-shadow:0 0 0 3px var(--surface)}
+.tl li.a i{background:var(--working);animation:dotpulse 1.4s ease-in-out infinite}
+.tl li.e i{background:var(--error)}
+.tl li.w i{background:var(--wait)}
+.tl .l1{display:flex;gap:var(--space-2);align-items:baseline}
+.tl .l1 .tn{font-size:var(--text-sm)}
+.tl .l1 .ta{flex:1}
+.tl .l1 .dur{font:var(--text-xs)/1 var(--font-mono);color:var(--text-3);flex:none}
+.tl .l2{color:var(--text-3);font-size:var(--text-xs);margin-top:1px}
+.res{border:1px solid color-mix(in srgb,var(--done) 35%,var(--border));background:color-mix(in srgb,var(--done) 5%,var(--surface));border-radius:var(--radius-lg);padding:var(--space-3) var(--space-4);animation:reveal var(--dur-slow) var(--ease-out)}
+.res.stopped{border-color:var(--border);background:var(--surface-2)}
+.res .sum{font-size:var(--text-md);font-weight:600;line-height:var(--lh-base);margin:0 0 var(--space-2)}
+.res ul{margin:0 0 var(--space-3);padding-left:18px;color:var(--text-2)}
+.res li{margin:3px 0}
+.res table{border-collapse:collapse;width:100%;margin:0 0 var(--space-3);font-size:var(--text-sm)}
+.res th,.res td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--border-soft)}
+.res th{color:var(--text-3);font-weight:600;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.4px}
+.res h5{margin:var(--space-3) 0 var(--space-2);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.6px;color:var(--text-3)}
+.srcs{display:flex;flex-wrap:wrap;gap:6px}
+.src{display:inline-flex;align-items:center;gap:6px;max-width:100%;height:26px;padding:0 10px 0 4px;border:1px solid var(--border);border-radius:var(--radius-pill);background:var(--surface);color:var(--text);text-decoration:none;font-size:var(--text-sm);transition:background var(--dur-fast),border-color var(--dur-fast),transform var(--dur-fast) var(--ease-spring)}
+.src:hover{background:var(--hover);border-color:var(--accent);transform:translateY(-1px)}
+.src .fv{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:700 9px/1 var(--font-ui);color:#fff;background:hsl(var(--h) 55% 45%);flex:none}
+.src .st{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.src .sh{color:var(--text-3);font-size:var(--text-xs);flex:none}
+.src svg{width:10px;height:10px;color:var(--text-3);flex:none}
+details.chat{padding:var(--space-4)}
+details.chat summary{cursor:pointer;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:.6px;color:var(--text-3);font-weight:650;list-style:none;display:flex;gap:var(--space-2);align-items:center}
+details.chat summary::-webkit-details-marker{display:none}
+details.chat summary::before{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform var(--dur-base)}
+details.chat[open] summary::before{transform:rotate(45deg)}
+.msgs{display:flex;flex-direction:column;gap:var(--space-2);margin-top:var(--space-3)}
+.msg{max-width:92%;padding:8px 10px;border-radius:var(--radius-lg);background:var(--surface-2);border:1px solid var(--border-soft);font-size:var(--text-sm);color:var(--text-2)}
+.msg small{display:block;color:var(--text-3);font-size:var(--text-xs);margin-bottom:2px}
+.msg.me{align-self:flex-end;background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+
+/* ---------- анимации ---------- */
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+@keyframes segpulse{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes dotpulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(.7);opacity:.6}}
+@keyframes ping{0%{transform:scale(1);opacity:.5}100%{transform:scale(2.6);opacity:0}}
+@keyframes badgepulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--wait) 55%,transparent)}50%{box-shadow:0 0 0 5px transparent}}
+@keyframes bump{0%{transform:scale(1)}40%{transform:scale(1.35)}100%{transform:scale(1)}}
+@keyframes popin{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+@keyframes newflash{0%{background:color-mix(in srgb,var(--done) 0%,var(--bg))}12%,70%{background:color-mix(in srgb,var(--done) 22%,var(--bg))}100%{background:var(--bg)}}
+@keyframes okflash{0%{background:color-mix(in srgb,var(--done) 28%,var(--bg))}100%{background:var(--bg)}}
+@keyframes okpop{0%{transform:scale(1)}35%{transform:scale(1.18)}100%{transform:scale(1)}}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+@keyframes slidein{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@keyframes slidedown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@keyframes reveal{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+.fade{animation:fadein var(--dur-base) var(--ease-out)}
+@media (prefers-reduced-motion:reduce){
+	*,*::before,*::after{animation:none!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+	.sti .spin{opacity:0!important}
+	.sti[data-s=working] .ring{stroke-opacity:1}
+}
+
+/* ---------- адаптив таблицы (по ширине контейнера) ---------- */
+@container tw (max-width:1180px){
+	.colhead,.row{grid-template-columns:28px minmax(140px,180px) minmax(230px,1.6fr) minmax(150px,1fr) 56px 264px}
+	.c-tk{display:none}
+	.ab .abt-stop{display:none}
+}
+@container tw (max-width:860px){
+	.colhead,.row{grid-template-columns:28px minmax(120px,160px) minmax(150px,1fr) 52px 180px}
+	.c-nw{display:none}
+	.c-ac .abt-deny{display:none}
+	.c-ac .ab{padding:0 8px}
+	.row[data-s=done] .stp > .sp-res,.row[data-s=stopped] .stp > .sp-res{display:inline}
+	.row[data-s=wait] .stp > .sp-step{display:none}
+	.row[data-s=wait] .stp > .sp-perm{display:inline}
+}
+@container tw (max-width:640px){
+	.colhead{display:none}
+	:root{--colh:0px}
+	.gh{top:0}
+	.row{height:auto;min-height:60px;grid-template-columns:24px minmax(0,1fr) auto;grid-template-areas:"st ag tm" "st pr pr";column-gap:var(--space-2);row-gap:3px;padding:9px var(--space-3) 9px var(--space-3);align-content:center}
+	.c-st{grid-area:st;align-self:start;margin-top:1px}
+	.c-ag{grid-area:ag;flex-direction:row;align-items:baseline;gap:8px}
+	.c-ag .rl{flex:1;min-width:0}
+	.c-tm{grid-area:tm}
+	.c-pr{grid-area:pr}
+	.c-tk,.c-nw{display:none}
+	.c-ac{display:none}
+	.segs{width:64px}
+	.row[data-s=wait]{grid-template-areas:"st ag tm" "st pr pr" "ac ac ac"}
+	.row[data-s=wait] .c-ac{display:flex;grid-area:ac;justify-content:stretch;margin-top:6px}
+	.row[data-s=wait] .c-ac .ab{flex:1;height:44px;font-size:var(--text-base)}
+	.row[data-s=wait] .c-ac .ab.stop{flex:none;width:44px;padding:0}
+	.row[data-s=wait] .c-ac .abt-stop{display:none}
+	.c-ac .abt-deny{display:inline}
+	.gh{padding-left:var(--space-1)}
+}
+@media (max-width:760px){
+	.top{padding:var(--space-2) var(--space-3);gap:var(--space-2)}
+	.sumbar{padding:var(--space-2) var(--space-3)}
+	.hint{display:none}
+	.top{flex-wrap:nowrap}
+	.vtag{overflow:hidden;text-overflow:ellipsis;min-width:0}
+	.bt{display:none}
+	.btn .lbl,.switch .lbl-long{display:none}
+	.panel{position:fixed;left:0;right:0;bottom:0;width:auto!important;height:82dvh;border-left:0;border-top:1px solid var(--border);border-radius:16px 16px 0 0;transform:translateY(105%);transition:transform var(--dur-slow) var(--ease-out);z-index:30;box-shadow:var(--shadow-2);overflow:hidden}
+	.app.has-panel .panel{transform:none}
+	.panel-in{width:100%}
+	.scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:29;opacity:0;pointer-events:none;transition:opacity var(--dur-slow)}
+	.app.has-panel .scrim{opacity:1;pointer-events:auto}
+	.p-head::before{content:"";position:absolute;top:5px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:var(--gray-6)}
+	.p-head{padding-top:var(--space-4)}
+}
+@media (max-width:1100px) and (min-width:761px){:root{--panel-w:380px}}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+	<header class="top">
+		<div class="brand">
+			<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 5h14M3 10h14M3 15h8"/></svg>
+			<span class="bt">nessy-orch</span>
+		</div>
+		<span class="vtag">Вариант C — Таблица</span>
+		<span class="sp"></span>
+		<button class="switch" id="hideDone" role="switch" aria-checked="false" title="Скрыть секцию «Выполнено»"><span class="trk"></span><span>Скрыть <span class="lbl-long">выполненные</span></span></button>
+		<button class="btn" id="restart" title="Перезапустить симуляцию"><span>↻</span><span class="lbl">перезапустить демо</span></button>
+		<button class="btn" id="theme" title="Тема" aria-label="Переключить тему"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg></button>
+	</header>
+	<nav class="sumbar" id="sumbar" aria-label="Фильтры"></nav>
+	<div class="main">
+		<div class="tw" id="tw">
+			<div class="colhead" aria-hidden="true"><span></span><span>Агент</span><span class="c-tk">Задача</span><span>Прогресс</span><span class="c-nw">Сейчас</span><span class="c-tm">Время</span><span></span></div>
+			<section class="grp" id="g-work"><div class="gh" data-g="work"><span class="chev"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg></span><span class="gi" style="--c:var(--working)"></span><span>Работают</span><span class="gn" id="n-work">0</span><span class="gnote">сначала требующие внимания</span></div><div class="gb"><div class="gbi"><div class="rows" id="rows-work"></div></div></div></section>
+			<section class="grp" id="g-done"><div class="gh" data-g="done"><span class="chev"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg></span><span class="gi" style="--c:var(--done)"></span><span>Выполнено</span><span class="gn" id="n-done">0</span><span class="gnote">новые сверху</span></div><div class="gb"><div class="gbi"><div class="rows" id="rows-done"></div></div></div></section>
+			<div class="empty" id="empty" hidden>Нет агентов под этот фильтр</div>
+		</div>
+		<aside class="panel" id="panel" aria-label="Детали агента"><div class="panel-in" id="panelIn"></div></aside>
+	</div>
+	<div class="scrim" id="scrim"></div>
+</div>
+
+<script src="./data.js"></script>
+<script>
+(() => {
+'use strict'
+const M = window.MOCK
+const $ = (s, r = document) => r.querySelector(s)
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+const md = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+const fmt = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60; return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}` }
+const store = { get(k) { try { return localStorage.getItem(k) } catch { return null } }, set(k, v) { try { localStorage.setItem(k, v) } catch {} } }
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+
+/* ---------- данные: берём MOCK + расширяем ---------- */
+const pl = (...a) => a.map(s => { const [t, tool = '', dur = ''] = s.split('|'); return { t, tool, dur: dur ? +dur : 0 } })
+const U = {
+	gl: 'https://gitlab.example.com/platform/', jira: 'https://jira.example.com/browse/', wiki: 'https://wiki.example.com/display/', sage: 'https://sage.example.com/d/',
+}
+const RESULTS = {
+	'a-ex02': { sum: 'Падает один тест: `gateway.e2e.ts:118`', pts: ['Причина: таймаут 5 с при холодном старте Redis', 'Конфиг таймаута: `jest.config.ts:12`', 'Остальные 212 тестов проходят стабильно'], src: [['gateway.e2e.ts:118', U.gl + 'api-gateway/-/blob/main/test/gateway.e2e.ts#L118'], ['jest.config.ts', U.gl + 'api-gateway/-/blob/main/jest.config.ts'], ['Pipeline #48190', U.gl + 'api-gateway/-/pipelines/48190']] },
+	'a-jr04': { sum: '12 открытых багов payments, 3 из них критичные', pts: ['Самый старый баг открыт 41 день назад', 'Критичные: PAY-812 (двойное списание), PAY-799, PAY-777', 'PAY-799 без исполнителя, нужно назначить'], tbl: { h: ['Ключ', 'Приоритет', 'Исполнитель'], r: [['PAY-812', 'Critical', 'ivanov'], ['PAY-799', 'Critical', '—'], ['PAY-777', 'Critical', 'petrova']] }, src: [['PAY-812', U.jira + 'PAY-812'], ['PAY-799', U.jira + 'PAY-799'], ['PAY-777', U.jira + 'PAY-777'], ['Фильтр: баги за сентябрь', U.jira + 'issues/?filter=18204']] },
+	'a-mr08': { sum: 'Вердикт по MR !1234: нужны правки', pts: ['Блокер: ретрай не идемпотентен для `POST /refund` (`client.ts:88`)', 'Две мелочи по формату логов', 'Тесты на ретрай отсутствуют'], src: [['MR !1234', U.gl + 'shippy/-/merge_requests/1234'], ['client.ts:88', U.gl + 'shippy/-/blob/mr-1234/src/payments/client.ts#L88'], ['RFC: идемпотентные ретраи', U.wiki + 'ARCH/Idempotent+retries']] },
+	'a-vf09': { sum: 'Блокер подтверждён', pts: ['Воспроизведено тестом: двойной вызов возврата', 'Тест приложен к MR'], src: [['MR !1234 — тест', U.gl + 'shippy/-/merge_requests/1234#note_88120'], ['Pipeline #48101', U.gl + 'shippy/-/pipelines/48101']] },
+	'a-dl10': { sum: 'В README найдено 2 битые ссылки из 31', pts: ['`docs/deploy.md` — страница перенесена в Wiki', 'Ссылка на старый Jenkins больше не существует', 'Исправления подготовлены в ветке `docs/links`'], src: [['README.md', U.gl + 'shippy/-/blob/main/README.md'], ['Wiki: Deploy shippy', U.wiki + 'SHIP/Deploy']] },
+	'a-sl11': { sum: 'p95 latency shippy выросла на 18 % после релиза 2.41', pts: ['Рост начался 14:02 по Москве, сразу после выкладки', 'Больше всего выросли `/v2/pay` (+31 %) и `/v2/refund` (+22 %)', 'Остальные эндпоинты в пределах нормы'], tbl: { h: ['Эндпоинт', 'p95 до', 'p95 после'], r: [['/v2/pay', '210 мс', '275 мс'], ['/v2/refund', '180 мс', '220 мс']] }, src: [['Sage: p95 shippy, 7 дней', U.sage + 'shippy-p95'], ['Релиз 2.41', U.gl + 'shippy/-/releases/2.41'], ['Sage: распределение по эндпоинтам', U.sage + 'shippy-endpoints']] },
+}
+const FIXCI_RESULT = { sum: 'CI починен: таймаут холодного старта Redis поднят с 5 до 15 с', pts: ['Изменение в `jest.config.ts:12`, остальные тесты не затронуты', 'Локально и в CI `npm test` проходит: 214 из 214', 'Открыт MR !2210, ждёт ревью'], src: [['MR !2210', U.gl + 'api-gateway/-/merge_requests/2210'], ['jest.config.ts', U.gl + 'api-gateway/-/blob/fix/ci-timeout/jest.config.ts'], ['Pipeline #48213', U.gl + 'api-gateway/-/pipelines/48213'], ['Wiki: тесты и CI', U.wiki + 'PLAT/CI']] }
+
+function makeAgents() {
+	const now = Date.now()
+	const A = []
+	const add = o => A.push(Object.assign({ cur: 0, plan: [], perm: null, err: null, tool: '', queued: 0, steps: 0 }, o))
+	const rootOf = id => M.tasks.flatMap(t => t.agents.map(a => [t, a])).find(([, a]) => a.id === id)
+	const base = id => { const [t, a] = rootOf(id); return { id, name: a.name, role: a.role, task: t.title, space: t.space, parent: a.parent || null } }
+	add({ ...base('a-fx01'), status: 'working', perm: 'git push origin fix/ci-timeout', cur: 3, startAgo: 400, toolAgo: 14, tool: 'Bash: npm test -- --grep gateway',
+		plan: pl('найти падающий шаг|Grep: gateway.e2e|41', 'воспроизвести локально|Bash: npm test -- --grep gateway|96', 'поправить таймаут в jest.config|Edit: jest.config.ts|22', 'прогнать тесты|Bash: npm test -- --grep gateway|70', 'открыть MR|GitLab: create_merge_request|9') })
+	add({ ...base('a-db07'), status: 'error', err: 'Sage: 429 Too Many Requests', cur: 3, startAgo: 900, dur: 610,
+		plan: pl('собрать графики 504|Sage: query 5xx by service|44', 'найти начало роста|Sage: query p95 shippy|61', 'сопоставить с релизами|GitLab: list_deployments|38', 'проверить логи пода|Sage: logs shippy-api|120', 'сравнить с конфигом|Read: deploy/values.yaml', 'сформулировать причину') })
+	add({ ...base('a-wk05'), status: 'working', cur: 1, startAgo: 125, toolAgo: 6, tool: 'Wiki: поиск «shippy deploy»',
+		plan: pl('найти текущие страницы|Wiki: список страниц Deploy|38', 'сверить с README репозитория|Wiki: поиск «shippy deploy»', 'подготовить правки|Wiki: edit_page', 'показать дифф|Wiki: diff') })
+	add({ ...base('a-wr06'), status: 'starting', startAgo: 5,
+		plan: pl('собрать правки от wiki-deploy|Read: handoff.md', 'обновить текст страницы|Wiki: edit_page', 'проверить форматирование|Wiki: preview') })
+	add({ ...base('a-rv03'), status: 'idle', queued: 2, startAgo: 40 })
+	add({ id: 'a-mr12', name: 'mr-1301', role: 'code-reviewer', task: 'Ревью MR !1301 «миграция схемы orders»', space: 'shippy', status: 'working', cur: 2, startAgo: 210, toolAgo: 31, tool: 'Bash: npm run migrate:down -- --dry',
+		plan: pl('прочитать описание MR|GitLab: get_merge_request !1301|8', 'просмотреть миграции|GitLab: get_diff db/migrations|52', 'проверить откат миграции|Bash: npm run migrate:down -- --dry', 'проверить влияние на orders-api|Grep: orders', 'написать вердикт') })
+	add({ id: 'a-ep13', name: 'explore-pay', role: 'code-explorer', task: 'Найти все места вызова PaymentClient.refund', space: 'payments', status: 'working', cur: 3, startAgo: 70, toolAgo: 4, tool: 'Read: src/refund/service.ts',
+		plan: pl('клонировать репозиторий|Bash: git clone payments-core|23', 'искать вызовы refund|Bash: rg "client.refund" src|11', 'разобрать по модулям|Read: src/refund/service.ts|9', 'свести список') })
+	add({ id: 'a-sr14', name: 'sprint-report', role: 'jira-analyst', task: 'Сводка по спринту 42 для планёрки', space: 'reports', status: 'working', cur: 1, startAgo: 305, toolAgo: 19, tool: 'Jira: velocity board 42',
+		plan: pl('выгрузить задачи спринта|Jira: search sprint = 42|35', 'посчитать velocity|Jira: velocity board 42', 'найти блокеры|Jira: search flagged = true', 'собрать сводку') })
+	add({ id: 'a-wa15', name: 'wiki-audit', role: 'wiki-researcher', task: 'Найти устаревшие страницы в разделе Runbooks', space: 'docs-site', status: 'working', cur: 2, startAgo: 1020, toolAgo: 52, tool: 'Wiki: история правок «Runbooks/db-failover»',
+		plan: pl('получить дерево Runbooks|Wiki: list_children|14', 'проверить даты правок|Wiki: get_page_history|240', 'сверить с реальной конфигурацией|Wiki: history «Runbooks/db-failover»', 'пометить устаревшие', 'подготовить список владельцев|Wiki: get_page_author', 'свести отчёт') })
+	// выполненные
+	const done = (id, extra) => add({ ...base(id), status: 'done', ...extra })
+	done('a-ex02', { finishedAgo: 61, dur: 48, plan: pl('прочитать лог пайплайна|GitLab: get_job_log|12', 'найти упавший тест|Grep: FAIL|9', 'найти причину в конфиге|Read: jest.config.ts|27') })
+	add({ id: 'a-dl10', name: 'doc-lint', role: 'writer', task: 'Проверить ссылки в README shippy', space: 'shippy', status: 'done', finishedAgo: 240, dur: 140, plan: pl('извлечь ссылки|Read: README.md|6', 'проверить доступность|Bash: curl -I (31 ссылка)|102', 'подготовить правки|Edit: README.md|32') })
+	done('a-jr04', { finishedAgo: 1120, dur: 380, plan: pl('выбрать баги payments|Jira: search project=PAY type=Bug|60', 'отфильтровать за сентябрь|Jira: search created >= -30d|84', 'сгруппировать по приоритету|', '|' ).slice(0, 3).concat(pl('собрать таблицу|Write: report.md|180')) })
+	add({ id: 'a-sl11', name: 'sage-latency', role: 'debugger', task: 'Сравнить p95 latency shippy за неделю', space: 'shippy', status: 'done', finishedAgo: 1500, dur: 520, plan: pl('выгрузить p95 по эндпоинтам|Sage: query p95 7d|140', 'сопоставить с релизами|GitLab: list_deployments|75', 'разложить по эндпоинтам|Sage: group by route|190', 'сформулировать вывод||115') })
+	done('a-mr08', { finishedAgo: 3300, dur: 290, plan: pl('прочитать MR|GitLab: get_merge_request !1234|14', 'изучить diff клиента|GitLab: get_diff|66', 'проверить идемпотентность|Read: client.ts|88', 'проверить тесты|Grep: retry|44', 'написать вердикт||78') })
+	done('a-vf09', { finishedAgo: 3200, dur: 95, plan: pl('воспроизвести блокер|Bash: npm test -- retry|52', 'написать тест|Write: retry.spec.ts|28', 'приложить к MR|GitLab: add_note|15') })
+	A.forEach(a => {
+		a.startedAt = now - (a.startAgo ?? ((a.dur || 100) + (a.finishedAgo || 0))) * 1000
+		if (a.status === 'done') { a.cur = a.plan.length; a.finishedAt = now - a.finishedAgo * 1000; a.result = RESULTS[a.id] }
+		a.toolStart = now - (a.toolAgo || 0) * 1000
+		if (a.status === 'error') a.finishedAt = a.startedAt + a.dur * 1000
+	})
+	return A
+}
+
+/* ---------- состояние ---------- */
+let agents = [], rows = new Map(), selId = null, curId = null, filter = 'all'
+let simT = 0, simTimer = null, tickTimer = null, pending = []
+let hideDone = store.get('v4c.hideDone') === '1'
+const GRP = { working: 'work', starting: 'work', idle: 'work', error: 'work', done: 'done', stopped: 'done' }
+const disp = a => a.perm ? 'wait' : a.status
+const grpOf = a => GRP[a.status]
+const role = a => M.roles[a.role]
+const stateLabel = { working: 'Работает', wait: 'Ждёт разрешения', error: 'Ошибка', done: 'Выполнено', stopped: 'Остановлен', starting: 'Запускается', idle: 'Ждёт поручения' }
+const elapsed = a => ((a.finishedAt || Date.now()) - a.startedAt) / 1000
+const activeIdx = a => (a.status === 'working' || a.status === 'error') && a.cur < a.plan.length ? a.cur : -1
+const stepText = a => {
+	if (a.status === 'done' || a.status === 'stopped') return ''
+	if (a.status === 'idle') return a.queued ? `в очереди сообщений: ${a.queued}` : 'ожидает поручения'
+	if (a.status === 'starting') return 'запускается…'
+	const i = activeIdx(a)
+	return i >= 0 ? a.plan[i].t : ''
+}
+const splitTool = t => { const i = t.indexOf(': '); return i < 0 ? [t, ''] : [t.slice(0, i), t.slice(i + 2)] }
+
+/* ---------- иконки ---------- */
+const stiHTML = s => `<span class="sti" data-s="${s}"><svg viewBox="0 0 20 20"><circle class="pulse" cx="10" cy="10" r="3"/><circle class="ring" cx="10" cy="10" r="8"/><circle class="spin" cx="10" cy="10" r="8"/><circle class="dot" cx="10" cy="10" r="3.2"/><rect class="sq" x="7" y="7" width="6" height="6" rx="1"/><path class="chk" d="M6 10.3l2.9 2.9L14 7.4"/><path class="xx" d="M7.2 7.2l5.6 5.6M12.8 7.2l-5.6 5.6"/></svg></span>`
+const IC_X = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>'
+const IC_OK = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.3 5 8.8l4.5-5"/></svg>'
+const IC_STOP = '<svg viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1.2"/></svg>'
+const IC_EXT = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 1.5H1.5v7h7V6M6 1.5h2.5V4M8.5 1.5 4.5 5.5"/></svg>'
+
+/* ---------- сегментный прогресс ---------- */
+function setSegs(el, a) {
+	const n = a.plan.length
+	if (!n) { if (!el.classList.contains('ind')) { el.className = 'segs ind'; el.innerHTML = '' } el.classList.toggle('off', a.status === 'idle' || a.status === 'starting'); return }
+	el.classList.remove('ind', 'off')
+	if (el.children.length !== n || !el.classList.contains('segs')) { el.className = 'segs'; el.innerHTML = '<span class="seg"><i></i></span>'.repeat(n) }
+	const act = activeIdx(a)
+	for (let i = 0; i < n; i++) {
+		const c = el.children[i]
+		const cls = i < a.cur ? 'seg d' : i === act ? (a.status === 'error' ? 'seg e' : 'seg a') : 'seg'
+		if (c.className !== cls) c.className = cls
+	}
+}
+
+/* ---------- строка ---------- */
+function nowHTML(a) {
+	const s = disp(a)
+	if (s === 'wait') return `<span class="permx"><span class="badge">разрешение</span><span class="ta" title="${esc(a.perm)}">${esc(a.perm)}</span></span>`
+	if (s === 'error') return `<span class="errx ta" style="font-family:var(--font-ui);font-size:var(--text-sm)" title="${esc(a.err)}">${esc(a.err)}</span>`
+	if (s === 'working') {
+		if (!a.tool) return `<span class="dim">Думает…</span><span class="tmr" data-tm="tool"></span>`
+		const [n, arg] = splitTool(a.tool)
+		return `<span class="tn">${esc(n)}</span><span class="ta" title="${esc(a.tool)}">${esc(arg)}</span><span class="tmr" data-tm="tool"></span>`
+	}
+	if (s === 'starting') return '<span class="dim">запускается…</span>'
+	if (s === 'idle') return `<span class="dim">ждёт поручения${a.queued ? ` · очередь ${a.queued}` : ''}</span>`
+	const r = a.result
+	return `<span class="dim ta" style="font-family:var(--font-ui);font-size:var(--text-sm)" title="${esc(r ? r.sum.replace(/`/g, '') : '')}">${r ? md(r.sum) : ''}</span>`
+}
+function actsHTML(a) {
+	const s = disp(a)
+	if (s === 'wait') return `<button class="ab ok" data-act="allow" data-id="${a.id}">${IC_OK}Разрешить</button><button class="ab" data-act="deny" data-id="${a.id}">${IC_X}<span class="abt-deny">Отклонить</span></button><button class="ab stop" data-act="stop" data-id="${a.id}" title="Остановить" aria-label="Остановить">${IC_STOP}<span class="abt-stop" hidden></span></button>`
+	if (s === 'working' || s === 'starting' || s === 'idle') return `<span class="hov"><button class="ab stop" data-act="stop" data-id="${a.id}" title="Остановить">${IC_STOP}<span class="abt-stop">Остановить</span></button></span>`
+	return ''
+}
+function buildRow(a) {
+	const el = document.createElement('div')
+	el.className = 'row'; el.tabIndex = 0; el.dataset.id = a.id; el.setAttribute('role', 'row')
+	el.innerHTML = `<span class="bar"></span><span class="c-st">${stiHTML(disp(a))}</span>
+<span class="c-ag"><span class="nm"><span class="nm-t">${esc(a.name)}</span></span><span class="rl" style="--h:${role(a).hue}"><i></i>${esc(role(a).name)}</span></span>
+<span class="c-tk" title="${esc(a.task)}">${esc(a.task)}</span>
+<span class="c-pr"><span class="segs"></span><span class="cnt"></span><span class="stp"></span></span>
+<span class="c-nw"></span><span class="c-tm"></span><span class="c-ac"></span>`
+	const r = { el, key: '', akey: '', sti: $('.sti', el), segs: $('.segs', el), cnt: $('.cnt', el), stp: $('.stp', el), nw: $('.c-nw', el), tm: $('.c-tm', el), ac: $('.c-ac', el), nmt: $('.nm', el) }
+	rows.set(a.id, r)
+	updateRow(a)
+	return el
+}
+function updateRow(a) {
+	const r = rows.get(a.id); if (!r) return
+	const s = disp(a)
+	r.el.dataset.s = s
+	if (r.sti.dataset.s !== s) r.sti.dataset.s = s
+	setSegs(r.segs, a)
+	r.cnt.textContent = a.plan.length ? `${a.cur}/${a.plan.length}` : (a.status === 'working' || a.status === 'error' ? `${a.steps || 0}` : '')
+	const st = stepText(a)
+	const permTxt = a.perm ? `<span class="sp-perm warnx">запрос: ${esc(a.perm)}</span>` : ''
+	const resTxt = a.result ? `<span class="sp-res">${md(a.result.sum)}</span>` : ''
+	const stKey = st + '|' + a.perm + '|' + (a.result ? 1 : 0)
+	if (r.stpKey !== stKey) { r.stpKey = stKey; r.stp.title = st; r.stp.innerHTML = `<span class="sp-step">${esc(st)}</span>${permTxt}${resTxt}` }
+	const key = s + '|' + a.tool + '|' + a.perm + '|' + a.err + '|' + (a.result ? 1 : 0)
+	if (r.key !== key) { r.key = key; r.nw.innerHTML = nowHTML(a); r.toolTmr = $('[data-tm=tool]', r.nw) }
+	const akey = s
+	if (r.akey !== akey) { r.akey = akey; r.ac.innerHTML = actsHTML(a) }
+	r.el.setAttribute('aria-label', `${a.name}, ${stateLabel[s]}, ${a.task}`)
+	r.el.classList.toggle('sel', a.id === selId)
+	tickRow(a)
+}
+function tickRow(a) {
+	const r = rows.get(a.id); if (!r) return
+	const live = a.status === 'working' || a.status === 'starting' || a.status === 'idle'
+	const t = a.status === 'done' || a.status === 'stopped' ? (a.dur ?? elapsed(a)) : a.status === 'error' ? a.dur : elapsed(a)
+	r.tm.textContent = a.status === 'idle' ? '—' : fmt(t)
+	if (r.toolTmr) r.toolTmr.textContent = fmt((Date.now() - a.toolStart) / 1000)
+	void live
+}
+
+/* ---------- сортировка и группы ---------- */
+const rank = a => disp(a) === 'wait' ? 0 : a.status === 'error' ? 1 : 2
+function desiredOrder(g) {
+	const list = agents.filter(a => grpOf(a) === g)
+	if (g === 'work') list.sort((x, y) => rank(x) - rank(y) || x.startedAt - y.startedAt)
+	else list.sort((x, y) => y.finishedAt - x.finishedAt)
+	return list
+}
+function reorder(g) {
+	const cont = $('#rows-' + g)
+	const want = desiredOrder(g).map(a => rows.get(a.id).el)
+	const cur = [...cont.children]
+	if (want.length === cur.length && want.every((e, i) => e === cur[i])) return
+	const first = new Map(cur.map(e => [e, e.getBoundingClientRect().top]))
+	want.forEach(e => cont.appendChild(e))
+	if (reduced) return
+	want.forEach(e => {
+		const d = first.get(e) - e.getBoundingClientRect().top
+		if (!d) return
+		e.style.transition = 'none'; e.style.transform = `translateY(${d}px)`; e.style.position = 'relative'; e.style.zIndex = '2'
+		requestAnimationFrame(() => requestAnimationFrame(() => {
+			e.style.transition = 'transform 420ms var(--ease-out)'; e.style.transform = ''
+			setTimeout(() => { e.style.transition = ''; e.style.position = ''; e.style.zIndex = '' }, 460)
+		}))
+	})
+}
+function counts() {
+	const c = { all: agents.length, wait: 0, working: 0, error: 0, done: 0 }
+	agents.forEach(a => { const s = disp(a); if (s === 'wait') c.wait++; else if (s === 'error') c.error++; else if (grpOf(a) === 'done') c.done++; else c.working++ })
+	return c
+}
+const CHIPS = [['all', 'Все', 'var(--gray-8)'], ['wait', 'Ждут разрешения', 'var(--wait)'], ['working', 'Работают', 'var(--working)'], ['error', 'Ошибки', 'var(--error)'], ['done', 'Выполнено', 'var(--done)']]
+let lastCounts = {}
+function renderChips() {
+	const c = counts(); const bar = $('#sumbar')
+	if (!bar.children.length) {
+		bar.innerHTML = CHIPS.map(([k, l, col]) => `<button class="chip" data-f="${k}" style="--c:${col}" aria-pressed="false"><i></i><span>${l}</span><b>0</b></button>`).join('') +
+			'<span class="hint"><kbd>j</kbd><kbd>k</kbd> навигация <kbd>Enter</kbd> детали <kbd>Esc</kbd> закрыть</span>'
+	}
+	bar.querySelectorAll('.chip').forEach(ch => {
+		const k = ch.dataset.f; const b = $('b', ch)
+		if (b.textContent !== String(c[k])) { b.textContent = c[k]; if (lastCounts[k] !== undefined) { ch.classList.remove('bump'); void ch.offsetWidth; ch.classList.add('bump') } }
+		ch.classList.toggle('zero', c[k] === 0 && k !== 'all')
+		ch.setAttribute('aria-pressed', String(filter === k || (filter === 'all' && k === 'all')))
+	})
+	lastCounts = c
+	const nw = agents.filter(a => grpOf(a) === 'work').length, nd = agents.length - nw
+	for (const [id, n] of [['n-work', nw], ['n-done', nd]]) { const e = $('#' + id); if (e.textContent !== String(n)) { e.textContent = n; e.classList.remove('bump'); void e.offsetWidth; e.classList.add('bump') } }
+	const w = c.wait + c.error
+	document.title = (w ? `(${w}) ` : '') + 'nessy-orch — Вариант C: Таблица'
+}
+function matches(a) {
+	if (filter === 'all') return true
+	const s = disp(a)
+	if (filter === 'wait') return s === 'wait'
+	if (filter === 'error') return s === 'error'
+	if (filter === 'done') return grpOf(a) === 'done'
+	return grpOf(a) === 'work' && s !== 'wait' && s !== 'error'
+}
+function applyFilter() {
+	let any = false
+	agents.forEach(a => { const ok = matches(a); rows.get(a.id).el.classList.toggle('f-off', !ok); if (ok) any = true })
+	for (const g of ['work', 'done']) $('#g-' + g).classList.toggle('is-empty', ![...$('#rows-' + g).children].some(e => !e.classList.contains('f-off')))
+	$('#g-done').classList.toggle('is-off', hideDone)
+	$('#empty').hidden = any
+	$('#hideDone').setAttribute('aria-checked', String(hideDone))
+	renderChips()
+}
+function refresh() { reorder('work'); reorder('done'); applyFilter() }
+
+/* ---------- выбор и панель ---------- */
+function visibleRows() {
+	return [...document.querySelectorAll('.row')].filter(e => !e.classList.contains('f-off') && !e.closest('.grp.collapsed,.grp.is-off,.grp.is-empty'))
+}
+function setCursor(id, scroll = true) {
+	curId = id
+	document.querySelectorAll('.row.cur').forEach(e => e.classList.remove('cur'))
+	const r = rows.get(id); if (!r) return
+	r.el.classList.add('cur')
+	if (scroll) r.el.scrollIntoView({ block: 'nearest' })
+}
+function select(id) {
+	const was = selId
+	selId = id
+	document.querySelectorAll('.row.sel').forEach(e => e.classList.remove('sel'))
+	if (!id) { $('#app').classList.remove('has-panel'); return }
+	rows.get(id).el.classList.add('sel')
+	setCursor(id, false)
+	const a = agents.find(x => x.id === id)
+	const r = rows.get(id)
+	r.el.querySelector('.newtag')?.remove()
+	$('#app').classList.add('has-panel')
+	buildPanel(a, was !== null)
+	if (!reduced) setTimeout(() => r.el.scrollIntoView({ block: 'nearest' }), 380)
+}
+function closePanel() { select(null) }
+
+let P = null
+function buildPanel(a, swap) {
+	const pi = $('#panelIn')
+	pi.innerHTML = `
+<div class="p-head"><span id="ph-sti"></span><div class="ttl"><b id="ph-name"></b><span id="ph-sub"></span></div><span id="ph-act"></span><button class="iconbtn" id="ph-close" aria-label="Закрыть (Esc)" title="Закрыть (Esc)">${IC_X}</button></div>
+<div id="p-alert"></div>
+<div class="p-sec"><div class="p-task" id="p-task"></div><div class="p-meta" id="p-meta"></div></div>
+<div class="p-sec"><h4>Прогресс <em id="p-cnt"></em></h4><div class="p-prog"><span class="segs"></span></div><div class="p-step" id="p-step"></div><div class="p-now" id="p-now" hidden></div></div>
+<div class="p-sec" id="s-res" hidden><h4>Итоговый ответ</h4><div id="p-res"></div></div>
+<div class="p-sec"><h4>План <em id="p-plan-n"></em></h4><ol class="plan" id="p-plan"></ol></div>
+<div class="p-sec"><h4>Шаги</h4><ol class="tl" id="p-tl"></ol></div>
+<details class="chat"><summary>Чат с оркестратором</summary><div class="msgs" id="p-chat"></div></details>`
+	if (swap) pi.classList.remove('fade'), void pi.offsetWidth, pi.classList.add('fade')
+	P = { id: a.id, segs: $('.segs', pi), plan: $('#p-plan'), tl: $('#p-tl'), resKey: '', chatKey: '', tlN: 0, first: true }
+	pi.scrollTop = 0
+	updatePanel(a)
+	P.first = false
+}
+function updatePanel(a) {
+	if (!P || P.id !== a.id) return
+	const s = disp(a), first = P.first
+	$('#ph-sti').innerHTML = stiHTML(s)
+	$('#ph-name').textContent = a.name
+	$('#ph-sub').innerHTML = `<span class="rl" style="--h:${role(a).hue}"><i></i>${esc(role(a).name)}</span><span>·</span><span>${stateLabel[s]}</span>`
+	$('#ph-act').innerHTML = (s === 'working' || s === 'wait' || s === 'starting' || s === 'idle') ? `<button class="ab stop" data-act="stop" data-id="${a.id}">${IC_STOP}Остановить</button>` : ''
+	$('#ph-close').onclick = closePanel
+	const al = $('#p-alert')
+	const alKey = s + a.perm + a.err
+	if (al.dataset.k !== alKey) {
+		al.dataset.k = alKey
+		al.innerHTML = s === 'wait' ? `<div class="alert warn"><b><span class="badge">разрешение</span>Агент просит разрешение</b><code>${esc(a.perm)}</code><div class="acts"><button class="ab ok" data-act="allow" data-id="${a.id}">${IC_OK}Разрешить</button><button class="ab" data-act="deny" data-id="${a.id}">${IC_X}Отклонить</button></div></div>`
+			: s === 'error' ? `<div class="alert err"><b>Ошибка</b><code>${esc(a.err)}</code><span class="dim">Агент остановился на шаге «${esc(a.plan[a.cur]?.t || '')}»</span></div>` : ''
+	}
+	$('#p-task').textContent = a.task
+	const par = a.parent ? agents.find(x => x.id === a.parent) : null
+	$('#p-meta').innerHTML = `<span>пространство <b>${esc(a.space)}</b></span>${par ? `<span>родитель <b>${esc(par.name)}</b></span>` : ''}<span>${a.status === 'done' || a.status === 'stopped' ? 'длительность' : 'в работе'} <b data-tm="el">${fmt(a.dur ?? elapsed(a))}</b></span>`
+	setSegs(P.segs, a)
+	P.segs.parentElement.classList.toggle('p-done', a.status === 'done')
+	$('#p-cnt').textContent = a.plan.length ? `${a.cur} из ${a.plan.length}` : ''
+	$('#p-step').textContent = a.plan.length ? (stepText(a) ? 'Сейчас: ' + stepText(a) : (a.status === 'done' ? 'Все шаги выполнены' : '')) : stepText(a)
+	const pn = $('#p-now')
+	if (s === 'working') { pn.hidden = false; const [n, arg] = a.tool ? splitTool(a.tool) : ['Думает…', '']; pn.innerHTML = `<span class="tn">${esc(n)}</span><span class="ta">${esc(arg)}</span><span class="tmr" data-tm="tool">${fmt((Date.now() - a.toolStart) / 1000)}</span>` } else pn.hidden = true
+	// план
+	const pl_ = P.plan
+	if (!a.plan.length) { pl_.innerHTML = '<li><span class="pt">Агент не публиковал план.</span></li>' }
+	else {
+		if (pl_.children.length !== a.plan.length || pl_.dataset.plan !== '1') {
+			pl_.dataset.plan = '1'
+			pl_.innerHTML = a.plan.map(p => `<li><span class="bx"><svg viewBox="0 0 18 18"><circle class="cir" cx="9" cy="9" r="7.5"/><circle class="core" cx="9" cy="9" r="3"/><path class="tick" d="M5.4 9.3l2.4 2.4 4.6-5"/></svg></span><span class="pt">${esc(p.t)}</span></li>`).join('')
+		}
+		const act = activeIdx(a)
+		;[...pl_.children].forEach((li, i) => {
+			const cls = i < a.cur ? 'd' : i === act ? 'a' + (s === 'error' ? ' err' : s === 'wait' ? ' wt' : '') : ''
+			if (li.className !== cls) li.className = cls
+		})
+	}
+	// шаги
+	const tl = P.tl
+	const upto = a.status === 'done' ? a.plan.length : Math.min(a.plan.length, a.cur + (activeIdx(a) >= 0 ? 1 : 0))
+	let t0 = 0
+	const offs = a.plan.map(p => { const o = t0; t0 += p.dur || 20; return o })
+	if (!a.plan.length) tl.innerHTML = '<li class="noanim"><i></i><div class="l1"><span class="dim">Шагов пока нет</span></div></li>'
+	else {
+		if (tl.dataset.plan !== '1') { tl.innerHTML = ''; tl.dataset.plan = '1' }
+		for (let i = 0; i < upto; i++) {
+			let li = tl.children[i]
+			if (!li) { li = document.createElement('li'); if (first) li.className = 'noanim'; tl.appendChild(li) }
+			const p = a.plan[i]
+			const state = i < a.cur ? '' : (s === 'error' ? 'e' : s === 'wait' ? 'w' : 'a')
+			const [n, arg] = p.tool ? splitTool(p.tool) : ['Думает', '']
+			const dur = state ? (a.status === 'error' ? 'ошибка' : `<span data-tm="stepdur">${fmt((Date.now() - a.toolStart) / 1000)}</span>`) : (p.dur ? fmt(p.dur) : '')
+			const html = `<div class="l1"><span class="tn">${esc(n)}</span><span class="ta" title="${esc(arg)}">${esc(arg)}</span><span class="dur">${dur}</span></div><div class="l2">${esc(p.t)} · +${fmt(offs[i])}</div>`
+			const k = state + html
+			if (li.dataset.k !== k) { li.dataset.k = k; const c = li.className.includes('noanim') ? ' noanim' : ''; li.className = state + c; li.innerHTML = `<i></i>${html}` }
+		}
+		while (tl.children.length > upto) tl.lastChild.remove()
+	}
+	// итог
+	const sres = $('#s-res'), res = a.result
+	const rk = a.status + (res ? '1' : '0')
+	if (P.resKey !== rk) {
+		P.resKey = rk
+		if ((a.status === 'done' || a.status === 'stopped') && res) {
+			sres.hidden = false
+			$('#p-res').innerHTML = resHTML(a, res)
+			if (first) $('#p-res .res').style.animation = 'none'
+		} else sres.hidden = true
+	}
+	// чат
+	const ck = a.status
+	if (P.chatKey !== ck) {
+		P.chatKey = ck
+		const m = [['me', 'Оркестратор', `Поручение: ${a.task}`], ['', a.name, a.plan.length ? `Принял. План из ${a.plan.length} шагов, начинаю.` : 'Принял, запускаюсь.']]
+		if (a.perm) m.push(['', a.name, `Нужно разрешение: \`${a.perm}\``])
+		if (a.status === 'done' && res) m.push(['', a.name, res.sum])
+		if (a.status === 'stopped') m.push(['me', 'Оркестратор', 'Остановить агента.'])
+		$('#p-chat').innerHTML = m.map(([c, w, t]) => `<div class="msg ${c}"><small>${esc(w)}</small>${md(t)}</div>`).join('')
+	}
+}
+function resHTML(a, r) {
+	const host = u => { try { return new URL(u).hostname } catch { return u } }
+	const letters = h => h.startsWith('gitlab') ? 'GL' : h.startsWith('jira') ? 'JI' : h.startsWith('wiki') ? 'WK' : h.startsWith('sage') ? 'SG' : h[0].toUpperCase()
+	const hue = h => h.startsWith('gitlab') ? 18 : h.startsWith('jira') ? 215 : h.startsWith('wiki') ? 150 : h.startsWith('sage') ? 280 : 200
+	const chips = (r.src || []).map(([t, u]) => { const h = host(u); return `<a class="src" href="${esc(u)}" target="_blank" rel="noopener noreferrer" title="${esc(u)}"><span class="fv" style="--h:${hue(h)}">${letters(h)}</span><span class="st">${esc(t)}</span><span class="sh">${esc(h)}</span>${IC_EXT}</a>` }).join('')
+	const tbl = r.tbl ? `<table><thead><tr>${r.tbl.h.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${r.tbl.r.map(row => `<tr>${row.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : ''
+	return `<div class="res ${a.status === 'stopped' ? 'stopped' : ''}"><p class="sum">${md(r.sum)}</p>${r.pts ? `<ul>${r.pts.map(p => `<li>${md(p)}</li>`).join('')}</ul>` : ''}${tbl}${chips ? `<h5>Источники · ${r.src.length}</h5><div class="srcs">${chips}</div>` : ''}</div>`
+}
+
+/* ---------- действия ---------- */
+function allow(a, ok) {
+	const btns = document.querySelectorAll(`[data-act="${ok ? 'allow' : 'deny'}"][data-id="${a.id}"]`)
+	btns.forEach(b => { b.classList.add(ok ? 'okd' : 'nod'); if (ok) b.innerHTML = IC_OK + 'Разрешено' })
+	const r = rows.get(a.id)
+	setTimeout(() => {
+		if (!a.perm) return
+		a.perm = null; a.toolStart = Date.now()
+		if (!ok) a.tool = 'Думает…'
+		if (!ok) a.tool = ''
+		r.el.classList.remove('flash-ok'); void r.el.offsetWidth; if (ok) r.el.classList.add('flash-ok')
+		updateRow(a); updatePanel(a); refresh()
+	}, reduced ? 0 : 520)
+}
+function stop(a, btn) {
+	if (!btn.classList.contains('armed')) {
+		btn.classList.add('armed'); btn.dataset.html = btn.innerHTML; btn.innerHTML = IC_STOP + 'Точно?'
+		const hv = btn.closest('.hov'); if (hv) hv.style.opacity = 1
+		setTimeout(() => { if (btn.isConnected && btn.classList.contains('armed')) { btn.classList.remove('armed'); btn.innerHTML = btn.dataset.html; if (hv) hv.style.opacity = '' } }, 2600)
+		return
+	}
+	a.perm = null; a.status = 'stopped'; a.finishedAt = Date.now(); a.dur = (a.finishedAt - a.startedAt) / 1000
+	a.result = { sum: 'Остановлен пользователем', pts: [`Выполнено шагов: ${a.cur}${a.plan.length ? ' из ' + a.plan.length : ''}`, 'Незавершённая работа не сохранена'] }
+	updateRow(a); updatePanel(a); applyFilter()
+	setTimeout(() => moveToDone(a), 500)
+}
+function moveToDone(a) {
+	const r = rows.get(a.id), el = r.el, dst = $('#rows-done')
+	if (el.parentElement === dst) return
+	const h = el.offsetHeight
+	if (reduced) { dst.prepend(el); refresh(); return }
+	el.style.overflow = 'hidden'; el.style.height = h + 'px'; void el.offsetHeight
+	el.style.transition = 'height 340ms var(--ease-out), opacity 240ms, border-color 340ms'
+	el.style.height = '0px'; el.style.opacity = '0'; el.style.borderColor = 'transparent'
+	setTimeout(() => {
+		el.style.transition = 'none'; el.style.height = ''; el.style.opacity = '0'
+		dst.prepend(el)
+		const nat = el.offsetHeight
+		el.style.height = '0px'; void el.offsetHeight
+		el.style.transition = 'height 380ms var(--ease-out), opacity 380ms'
+		el.style.height = nat + 'px'; el.style.opacity = '1'
+		setTimeout(() => { el.style.cssText = ''; refresh() }, 420)
+		applyFilter()
+	}, 360)
+}
+
+/* ---------- симуляция ---------- */
+function advance(a) {
+	if (!a || a.status !== 'working' || a.cur >= a.plan.length - 1) return
+	a.cur++
+	a.toolStart = Date.now(); a.tool = a.plan[a.cur].tool
+	updateRow(a); updatePanel(a)
+}
+function complete(a) {
+	if (a.status !== 'working') return
+	a.perm = null; a.cur = a.plan.length; a.status = 'done'
+	a.finishedAt = Date.now(); a.dur = (a.finishedAt - a.startedAt) / 1000; a.tool = ''
+	a.result = RESULTS[a.id] || FIXCI_RESULT
+	updateRow(a); updatePanel(a)
+	const r = rows.get(a.id)
+	r.el.classList.add('is-new')
+	const tag = document.createElement('span'); tag.className = 'newtag'; tag.textContent = 'новое'; r.nmt.appendChild(tag)
+	renderChips()
+	setTimeout(() => { r.el.classList.remove('is-new'); moveToDone(a) }, reduced ? 0 : 1500)
+	setTimeout(() => tag.remove(), 9000)
+}
+function simTick() {
+	simT++
+	const by = id => agents.find(a => a.id === id)
+	if (simT % 4 === 0) {
+		const order = ['a-fx01', 'a-wk05', 'a-mr12', 'a-ep13', 'a-sr14', 'a-wa15']
+		advance(by(order[(simT / 4 - 1) % order.length]))
+	}
+	if (simT === 9 && by('a-fx01').perm) allow(by('a-fx01'), true)
+	if (simT === 12) complete(by('a-fx01'))
+	if (simT === 20) { const w = by('a-wr06'); if (w.status === 'starting') { w.status = 'working'; w.toolStart = Date.now(); w.tool = w.plan[0].tool; updateRow(w); updatePanel(w); refresh() } }
+}
+function tick() {
+	agents.forEach(tickRow)
+	if (P) {
+		const a = agents.find(x => x.id === P.id)
+		document.querySelectorAll('#panelIn [data-tm=tool],#panelIn [data-tm=stepdur]').forEach(e => { e.textContent = fmt((Date.now() - a.toolStart) / 1000) })
+		const el = $('#panelIn [data-tm=el]'); if (el && a.status !== 'done' && a.status !== 'stopped' && a.status !== 'error') el.textContent = fmt(elapsed(a))
+	}
+	simTick()
+}
+
+/* ---------- запуск ---------- */
+function start() {
+	clearInterval(tickTimer); pending.forEach(clearTimeout)
+	simT = 0; selId = null; curId = null; filter = 'all'; P = null; lastCounts = {}
+	$('#app').classList.remove('has-panel')
+	$('#rows-work').innerHTML = ''; $('#rows-done').innerHTML = ''
+	rows = new Map(); agents = makeAgents()
+	document.querySelectorAll('.grp').forEach(g => g.classList.remove('collapsed'))
+	for (const g of ['work', 'done']) desiredOrder(g).forEach(a => $('#rows-' + g).appendChild(buildRow(a)))
+	applyFilter()
+	tickTimer = setInterval(tick, 1000)
+}
+window.__demo = { restart: start, get t() { return simT }, select, agents: () => agents }
+
+/* ---------- события ---------- */
+document.addEventListener('click', e => {
+	const act = e.target.closest('[data-act]')
+	if (act) {
+		e.stopPropagation()
+		const a = agents.find(x => x.id === act.dataset.id); if (!a) return
+		if (act.dataset.act === 'allow') allow(a, true)
+		else if (act.dataset.act === 'deny') allow(a, false)
+		else if (act.dataset.act === 'stop') stop(a, act)
+		return
+	}
+	if (e.target.closest('a')) return
+	const chip = e.target.closest('.chip')
+	if (chip) { filter = filter === chip.dataset.f ? 'all' : chip.dataset.f; applyFilter(); return }
+	const gh = e.target.closest('.gh')
+	if (gh) { gh.parentElement.classList.toggle('collapsed'); return }
+	const row = e.target.closest('.row')
+	if (row) { select(row.dataset.id); row.focus({ preventScroll: true }); return }
+	if (e.target.closest('#scrim')) closePanel()
+})
+$('#hideDone').addEventListener('click', () => { hideDone = !hideDone; store.set('v4c.hideDone', hideDone ? '1' : '0'); applyFilter() })
+$('#restart').addEventListener('click', start)
+const root = document.documentElement
+const setTheme = t => { root.dataset.theme = t; store.set('v4c.theme', t) }
+$('#theme').addEventListener('click', () => setTheme(root.dataset.theme === 'dark' ? 'light' : 'dark'))
+document.addEventListener('keydown', e => {
+	if (e.metaKey || e.ctrlKey || e.altKey) return
+	if (e.key === 'Escape') { if (selId) { closePanel(); e.preventDefault() } return }
+	const inCtl = e.target.closest && e.target.closest('button,a,summary,input')
+	if (e.key === 'j' || e.key === 'k' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+		if (e.key.startsWith('Arrow') && inCtl) return
+		const v = visibleRows(); if (!v.length) return
+		const down = e.key === 'j' || e.key === 'ArrowDown'
+		let i = v.findIndex(x => x.dataset.id === curId)
+		i = i < 0 ? 0 : Math.max(0, Math.min(v.length - 1, i + (down ? 1 : -1)))
+		const id = v[i].dataset.id
+		e.preventDefault()
+		if (selId) select(id); else setCursor(id)
+		v[i].focus({ preventScroll: true }); v[i].scrollIntoView({ block: 'nearest' })
+	} else if (e.key === 'Enter' && !inCtl) {
+		if (curId) { e.preventDefault(); select(curId) }
+	}
+})
+const saved = store.get('v4c.theme'); if (saved === 'light' || saved === 'dark') root.dataset.theme = saved
+start()
+})()
+</script>
+</body>
+</html>
