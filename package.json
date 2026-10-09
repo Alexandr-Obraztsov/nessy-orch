@@ -23,8 +23,8 @@
     "check": "npm run typecheck && npm run lint && npm test",
     "start": "npm run build && node dist/src/main.js",
     "skills:install": "bash scripts/install.sh",
-    "demo": "npm run build && (node scripts/demo-seed.mjs &) && NESSY_BIN=$PWD/dist/test/support/fake-nessy.js NESSY_ORCH_HOME=${TMPDIR:-/tmp}/nessy-orch-demo node dist/src/main.js",
-    "demo:seed": "node scripts/demo-seed.mjs"
+    "demo": "npm run build && export NESSY_ORCH_HOME=${TMPDIR:-/tmp}/nessy-orch-demo ORCH_AUTO_APPROVE=0 NESSY_BIN=$PWD/dist/test/support/fake-nessy.js && (node scripts/demo-seed.mjs &) && node dist/src/main.js",
+    "demo:seed": "NESSY_ORCH_HOME=${TMPDIR:-/tmp}/nessy-orch-demo node scripts/demo-seed.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

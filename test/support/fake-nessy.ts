@@ -24,10 +24,19 @@
  *                        Ответ после «||», «\n» — перевод строки. K ≥ числа шагов — сразу ответ.
  *   иначе              → эхо: «ответ: <текст>»
  *
+ * Сценарий вне промпта (для демо с человеческими поручениями): если последняя строка не начинается с «#»,
+ * ищется файл `$NESSY_ORCH_HOME/fake-scenarios.json` — объект {«подстрока промпта»: сценарий}. Сценарий — либо строка
+ * с любым из «#…» выше (в т.ч. многострочным ответом `#work`), либо массив операций:
+ *   {thought}, {text}, {plan: {steps, statuses}}, {tool: {name, kind, title, input, output}},
+ *   {ask: «заголовок»} (запрос разрешения; после «Разрешить» сценарий идёт дальше, иначе — остановка),
+ *   {hang: «заголовок»} (инструмент «в работе», ход не завершается).
+ *
  * FAKE_NESSY_DELAY_MS — шаг стриминга (по умолчанию 20 мс).
  */
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import * as http from 'node:http'
 
 interface Frame {
@@ -179,17 +188,28 @@ parser.push('data: {"a":1}\\n\\n')
 function runPrompt(s: Session, promptId: string, text: string): void {
 	const turn: Turn = { promptId, timers: new Set(), done: false, permission: new Map() }
 	s.turn = turn
-	const body =
+	let body =
 		text
 			.split('\n')
 			.filter(l => l && !l.startsWith('[nessy-orch]'))
 			.pop() ?? ''
 	const msgId = 'msg_' + randomUUID().slice(0, 8)
 	const sc = new Script(s, turn)
+	const inline = /^#(fail|error|slow|long|tools|plan|shell|perm|work|relay)/.test(body)
+	const external = inline ? null : lookupScenario(text)
 	update(s, { sessionUpdate: 'user_message_chunk', messageId: 'user_' + promptId.slice(0, 8), content: { type: 'text', text } })
 	if (!s.named) {
 		s.named = true
-		sc.at(STEP, () => emit(s, 'session_metadata_updated', { displayName: body.slice(0, 40), titleSource: 'auto' }))
+		const displayName = (external ? external.key : body).slice(0, 40)
+		sc.at(STEP, () => emit(s, 'session_metadata_updated', { displayName, titleSource: 'auto' }))
+	}
+
+	if (external) {
+		if (typeof external.scenario === 'string') body = external.scenario
+		else {
+			runOps(s, turn, sc, external.scenario, 0)
+			return
+		}
 	}
 
 	if (body.startsWith('#fail')) {
@@ -307,7 +327,68 @@ function runPrompt(s: Session, promptId: string, text: string): void {
 		})
 		return
 	}
-	sc.thought('обдумываю запрос', msgId).text(`ответ: ${body}`, msgId).finish()
+	// ответ другого агента (последняя строка — «Статус: …») не эхо-ем: просто принимаем к сведению
+	const reaction = /^Статус:/.test(body) ? 'Принято, учту в отчёте.' : `ответ: ${body}`
+	sc.thought('обдумываю запрос', msgId).text(reaction, msgId).finish()
+}
+
+type Op = Json
+/** Сценарий для промпта из `$NESSY_ORCH_HOME/fake-scenarios.json`: первое совпадение по подстроке. */
+function lookupScenario(text: string): { key: string; scenario: string | Op[] } | null {
+	const home = process.env['NESSY_ORCH_HOME']
+	if (!home) return null
+	try {
+		const all = JSON.parse(fs.readFileSync(path.join(home, 'fake-scenarios.json'), 'utf8')) as Record<string, string | Op[]>
+		for (const [key, scenario] of Object.entries(all)) if (text.includes(key)) return { key, scenario }
+	} catch {
+		/* файла нет или он битый — обычное эхо */
+	}
+	return null
+}
+
+const opStr = (v: unknown): string => (typeof v === 'string' ? v : '')
+const opObj = (v: unknown): Json => (typeof v === 'object' && v !== null ? (v as Json) : {})
+
+/** Играет массив операций; на {ask} ждёт голосования и продолжает с следующей операции. */
+function runOps(s: Session, turn: Turn, sc: Script, ops: Op[], from: number): void {
+	for (let i = from; i < ops.length; i++) {
+		const op = ops[i] ?? {}
+		const id = 'msg_' + randomUUID().slice(0, 8)
+		if (typeof op['thought'] === 'string') sc.thought(op['thought'], id)
+		else if (typeof op['text'] === 'string') sc.text(op['text'], id, STEP, 24)
+		else if (op['plan']) {
+			const p = opObj(op['plan'])
+			sc.plan((p['steps'] as string[] | undefined) ?? [], (p['statuses'] as string[] | undefined) ?? [])
+		} else if (op['tool']) {
+			const t = opObj(op['tool'])
+			sc.tool(opStr(t['name']), opStr(t['kind']) || 'execute', opStr(t['title']), opObj(t['input']), opStr(t['output']))
+		} else if (typeof op['hang'] === 'string') {
+			const title = op['hang']
+			const toolCallId = 'call_' + randomUUID().slice(0, 8)
+			sc.at(STEP, () => update(s, { sessionUpdate: 'tool_call', toolCallId, title, kind: 'execute', status: 'in_progress', rawInput: {}, _meta: { toolName: 'shell' } }))
+			return
+		} else if (typeof op['ask'] === 'string') {
+			const title = op['ask']
+			const requestId = 'perm_' + randomUUID().slice(0, 8)
+			sc.at(STEP, () => {
+				turn.permission.set(requestId, approved => {
+					sc.restart()
+					if (approved) runOps(s, turn, sc, ops, i + 1)
+					else sc.text('Пользователь отклонил команду — останавливаюсь.', id).finish()
+				})
+				emit(s, 'permission_request', {
+					requestId,
+					toolCall: { toolCallId: 'call_' + requestId, title, _meta: { toolName: 'shell' } },
+					options: [
+						{ optionId: 'proceed_once', kind: 'allow_once', name: 'Разрешить' },
+						{ optionId: 'cancel', kind: 'reject_once', name: 'Отклонить' },
+					],
+				})
+			})
+			return
+		}
+	}
+	sc.finish()
 }
 
 /** «#work[~] K шаг => Tool: арг; … || ответ» — см. шапку файла. */
