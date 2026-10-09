@@ -1,6 +1,0 @@
-export { AgentActions } from './ui/AgentActions'
-export { AgentConfirmHost } from './ui/AgentConfirmHost'
-export { AgentMenu } from './ui/AgentMenu'
-export { useAgentActions } from './model/useAgentActions'
-export { archiveAgent, cancelTurn, copyText, removeAgent, restoreAgent } from './model/actions'
-export type { AgentActionsApi, AgentActionsProps, AgentMenuProps } from './model/types'

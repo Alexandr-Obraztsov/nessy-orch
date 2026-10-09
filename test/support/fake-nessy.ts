@@ -17,6 +17,11 @@
  *   «#error»           → ошибка хода (agent_message_chunk с _meta['nessy/error']) + turn_complete
  *   «#fail»            → аварийное завершение сессии (session_died)
  *   «#relay <args>»    → выполнить shell `$FAKE_NESSY_CLI send <args>` (как сделал бы реальный агент)
+ *   «#work[~] K шаг => Tool: арг; шаг => ?Tool: арг; … || ответ» — план из шагов (для демо и e2e UI):
+ *                        первые K шагов проходятся сразу, на шаге K+1 агент «работает» (инструмент не завершается),
+ *                        пока ход не прервут; «~» — дальше идти по шагу раз в FAKE_NESSY_WORK_MS (2500 мс) до ответа;
+ *                        «?» перед инструментом — сначала запрос разрешения, после «Разрешить» — до конца с ответом.
+ *                        Ответ после «||», «\n» — перевод строки. K ≥ числа шагов — сразу ответ.
  *   иначе              → эхо: «ответ: <текст>»
  *
  * FAKE_NESSY_DELAY_MS — шаг стриминга (по умолчанию 20 мс).
@@ -60,6 +65,7 @@ const port = parseInt(flag('--port') ?? '0', 10)
 const workspace = flag('--workspace') ?? process.cwd()
 const sessions = new Map<string, Session>()
 const STEP = parseInt(process.env['FAKE_NESSY_DELAY_MS'] ?? '20', 10)
+const WORK_STEP = parseInt(process.env['FAKE_NESSY_WORK_MS'] ?? '2500', 10)
 
 // ---------- события ----------
 const write = (r: http.ServerResponse, f: Frame): void => {
@@ -273,6 +279,10 @@ function runPrompt(s: Session, promptId: string, text: string): void {
 		})
 		return
 	}
+	if (body.startsWith('#work')) {
+		runWork(s, turn, sc, body, msgId)
+		return
+	}
 	if (body.startsWith('#relay')) {
 		const cmd = `${process.env['FAKE_NESSY_CLI'] ?? 'nessy-orch'} send ${body.replace(/^#relay\s+/, '')}`
 		const toolCallId = 'call_' + randomUUID().slice(0, 8)
@@ -298,6 +308,82 @@ function runPrompt(s: Session, promptId: string, text: string): void {
 		return
 	}
 	sc.thought('обдумываю запрос', msgId).text(`ответ: ${body}`, msgId).finish()
+}
+
+/** «#work[~] K шаг => Tool: арг; … || ответ» — см. шапку файла. */
+function runWork(s: Session, turn: Turn, sc: Script, body: string, msgId: string): void {
+	const m = /^#work(~?)\s+(\d+)\s+([^|]*)(?:\|\|\s*([\s\S]*))?$/.exec(body)
+	const slow = m?.[1] === '~'
+	const fast = parseInt(m?.[2] ?? '0', 10)
+	const steps = (m?.[3] ?? '')
+		.split(';')
+		.map(x => x.trim())
+		.filter(Boolean)
+		.map(x => {
+			const [content = x, tool = ''] = x.split('=>').map(y => y.trim())
+			const ask = tool.startsWith('?')
+			const title = ask ? tool.slice(1).trim() : tool
+			return { content, title: title || `Think: ${content}`, ask }
+		})
+	const reply = (m?.[4] ?? 'Готово.').replace(/\\n/g, '\n')
+	const names = steps.map(x => x.content)
+	const statuses = (done: number, active: number): string[] => steps.map((_, i) => (i < done ? 'completed' : i === active ? 'in_progress' : 'pending'))
+	const toolName = (title: string): string => (title.split(':')[0] ?? 'tool').trim().toLowerCase() || 'tool'
+	/** шаг i целиком: план «в работе» → инструмент → план «сделан» */
+	const step = (i: number): void => {
+		const x = steps[i]
+		if (!x) return
+		sc.plan(names, statuses(i, i)).tool(toolName(x.title), 'execute', x.title, { step: x.content }, `ok: ${x.content}`).plan(names, statuses(i + 1, i + 1))
+	}
+	const finish = (): void => {
+		sc.text(reply, 'msg_' + randomUUID().slice(0, 8), STEP, 24).finish()
+	}
+	/** остаток плана с шага i в медленном темпе */
+	const slowFrom = (i: number): void => {
+		for (let j = i; j < steps.length; j++) {
+			sc.at(WORK_STEP, () => undefined)
+			step(j)
+		}
+		finish()
+	}
+	sc.thought('Составляю план.', msgId)
+	for (let i = 0; i < Math.min(fast, steps.length); i++) step(i)
+	if (fast >= steps.length) return finish()
+	const cur = steps[fast]
+	if (!cur) return finish()
+	sc.plan(names, statuses(fast, fast))
+	if (cur.ask) {
+		const requestId = 'perm_' + randomUUID().slice(0, 8)
+		sc.at(STEP, () => {
+			turn.permission.set(requestId, approved => {
+				sc.restart()
+				if (!approved) {
+					sc.text('Пользователь отклонил команду — останавливаюсь.', msgId).finish()
+					return
+				}
+				step(fast)
+				slowFrom(fast + 1)
+			})
+			emit(s, 'permission_request', {
+				requestId,
+				toolCall: { toolCallId: 'call_' + requestId, title: cur.title, _meta: { toolName: toolName(cur.title) } },
+				options: [
+					{ optionId: 'proceed_once', kind: 'allow_once', name: 'Разрешить' },
+					{ optionId: 'cancel', kind: 'reject_once', name: 'Отклонить' },
+				],
+			})
+		})
+		return
+	}
+	if (slow) {
+		slowFrom(fast)
+		return
+	}
+	// агент «работает» над шагом: инструмент запущен и не завершается, пока ход не прервут
+	const toolCallId = 'call_' + randomUUID().slice(0, 8)
+	sc.at(STEP, () =>
+		update(s, { sessionUpdate: 'tool_call', toolCallId, title: cur.title, kind: 'execute', status: 'in_progress', rawInput: { step: cur.content }, _meta: { toolName: toolName(cur.title) } }),
+	)
 }
 
 function cancelTurn(s: Session): void {

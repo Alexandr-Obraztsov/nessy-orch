@@ -1,23 +1,9 @@
 /**
- * Клиент HTTP API оркестратора. UI раздаётся тем же сервером, поэтому пути относительные
+ * Клиент HTTP API оркестратора. Панель только наблюдает: из действий над агентами здесь
+ * лишь «Остановить» (cancel хода) и ответ на запрос разрешения. UI раздаётся тем же сервером, поэтому пути относительные
  * (в dev их проксирует Vite). Типы — общие с сервером (`shared/types.ts`).
  */
-import type {
-	AgentEvent,
-	AgentView,
-	ApiError,
-	GraphView,
-	Message,
-	RoleRequest,
-	RoleView,
-	SendRequest,
-	SendResponse,
-	SpaceRequest,
-	SpaceView,
-	SpawnRequest,
-	SpawnResponse,
-	StatusResponse,
-} from '@contract'
+import type { AgentView, ApiError, RoleRequest, RoleView, SpaceRequest, SpaceView, StatusResponse } from '@contract'
 
 export class ApiFailure extends Error {
 	constructor(
@@ -64,35 +50,18 @@ const enc = encodeURIComponent
 
 export const api = {
 	status: () => request<StatusResponse>('GET', '/status'),
-	graph: () => request<GraphView>('GET', '/graph'),
 
 	addSpace: (req: SpaceRequest) => request<SpaceView>('POST', '/spaces', req),
 	removeSpace: (name: string, force = false) =>
 		request<{ ok: boolean }>('DELETE', `/spaces/${enc(name)}${force ? '?force=1' : ''}`),
 
-	spawn: (req: SpawnRequest) => request<SpawnResponse>('POST', '/agents', req),
-	removeAgent: (id: string) => request<{ ok: boolean }>('DELETE', `/agents/${enc(id)}`),
-	send: (id: string, req: SendRequest) => request<SendResponse>('POST', `/agents/${enc(id)}/send`, req),
 	cancel: (id: string) => request<AgentView>('POST', `/agents/${enc(id)}/cancel`),
 	permission: (id: string, requestId: string, approve: boolean) =>
 		request<{ ok: boolean }>('POST', `/agents/${enc(id)}/permission/${enc(requestId)}`, { approve }),
-	history: (id: string, limit = 400) => request<AgentEvent[]>('GET', `/agents/${enc(id)}/history?limit=${limit}`),
 
-	roles: () => request<RoleView[]>('GET', '/roles'),
 	createRole: (req: RoleRequest) => request<RoleView>('POST', '/roles', req),
 	updateRole: (id: string, req: RoleRequest) => request<RoleView>('PUT', `/roles/${enc(id)}`, req),
 	removeRole: (id: string) => request<{ ok: boolean }>('DELETE', `/roles/${enc(id)}`),
-
-	archive: (id: string) => request<AgentView>('POST', `/agents/${enc(id)}/archive`),
-	restore: (id: string) => request<AgentView>('POST', `/agents/${enc(id)}/restore`),
-
-	messages: (opts: { agent?: string; since?: number; limit?: number } = {}) => {
-		const q = new URLSearchParams()
-		if (opts.agent) q.set('agent', opts.agent)
-		if (opts.since !== undefined) q.set('since', String(opts.since))
-		if (opts.limit !== undefined) q.set('limit', String(opts.limit))
-		return request<Message[]>('GET', `/messages?${q.toString()}`)
-	},
 }
 
 export function errorText(e: unknown): string {

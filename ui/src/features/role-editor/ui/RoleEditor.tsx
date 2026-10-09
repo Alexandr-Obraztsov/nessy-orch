@@ -3,11 +3,11 @@
  * свойства (цвет, агенты с ролью), инструкции в markdown с предпросмотром.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AgentAvatar, agentStatusMeta } from '@/entities/agent'
+import { AGENT_STATE_LABEL, StatusIcon, agentState } from '@/entities/agent'
 import { ROLE_HUES, roleColor } from '@/entities/role'
 import { renderMarkdown } from '@/shared/lib/markdown'
 import { cssVars } from '@/shared/lib/style'
-import { openAgent, openDialog } from '@/shared/model'
+import { openAgent } from '@/shared/model'
 import { Button, Dialog, Icon, Kbd } from '@/shared/ui'
 import type { RoleEditorProps } from '../model/types'
 import { openOtherRole, useRoleEditor } from '../model/useRoleEditor'
@@ -88,12 +88,6 @@ export function RoleEditor({ id }: RoleEditorProps) {
 					>
 						<span className={s.hideNarrow}>{preview ? 'Редактировать' : 'Предпросмотр'}</span>
 					</Button>
-					{id && (
-						<Button size="sm" variant="ghost" icon="play" onClick={() => openDialog('spawn', { role: id })}>
-							<span className={s.wide}>Новое поручение с этой ролью</span>
-							<span className={s.narrow}>Запустить</span>
-						</Button>
-					)}
 					<Button
 						size="sm"
 						variant="ghost"
@@ -169,16 +163,16 @@ export function RoleEditor({ id }: RoleEditorProps) {
 							{r.users.length ? (
 								<div className={s.agents}>
 									{r.users.map(a => {
-										const st = agentStatusMeta(a)
+										const st = agentState(a)
 										return (
 											<button
 												key={a.id}
 												type="button"
 												className={`${s.agent} ${a.archived ? s.agentArchived : ''}`}
 												onClick={() => openAgent(a.id)}
-												title={`${a.name} — ${st.label}`}
+												title={`${a.name} — ${AGENT_STATE_LABEL[st].toLowerCase()}`}
 											>
-												<AgentAvatar name={a.name} roleHue={r.color} status={a.status} archived={a.archived} size={16} />
+												<StatusIcon state={st} size={14} />
 												{a.name}
 											</button>
 										)

@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import type { InputHTMLAttributes, ReactNode } from 'react'
 import s from './Field.module.css'
 
 export interface FieldProps {
@@ -24,10 +24,3 @@ export function TextInput({ mono, className, ...rest }: InputHTMLAttributes<HTML
 	return <input className={cx(mono, className)} {...rest} />
 }
 
-export function TextArea({ mono, className, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement> & { mono?: boolean }) {
-	return <textarea className={cx(mono, className)} {...rest} />
-}
-
-export function Select({ className, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
-	return <select className={cx(false, className)} {...rest} />
-}

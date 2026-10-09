@@ -1,2 +1,2 @@
 export { AgentDetail } from './ui/AgentDetail'
-export type { AgentDetailProps, DetailTab } from './model/types'
+export type { AgentDetailProps } from './model/types'

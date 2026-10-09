@@ -1,10 +1,23 @@
-export { AgentAvatar, initials } from './ui/AgentAvatar'
-export type { AgentAvatarProps } from './ui/AgentAvatar'
 export { StatusIcon } from './ui/StatusIcon'
 export type { StatusIconProps } from './ui/StatusIcon'
-export { AGENT_STATUS, ARCHIVED_STATUS, SPACE_STATUS, agentStatusMeta, canCancel, canMessage, isBusy } from './lib/status'
+export { PlanBar } from './ui/PlanBar'
+export type { PlanBarProps } from './ui/PlanBar'
+export { SPACE_STATUS } from './lib/status'
 export type { StatusMeta } from './lib/status'
-export { AGENT_STATE_LABEL, STALE_MS, agentState, currentAction, isActiveState, isStale, planCount } from './lib/state'
-export type { ActionTone, AgentAction, AgentState } from './lib/state.types'
+export {
+	AGENT_STATE_LABEL,
+	agentState,
+	canStop,
+	countStates,
+	elapsedMs,
+	finishedAt,
+	groupOf,
+	needsAttention,
+	planProgress,
+	resultSummary,
+	toolLabel,
+} from './lib/state'
+export type { AgentGroup, AgentState, PlanProgress, StateCounts, ToolLabel } from './lib/state.types'
+export { toolStartedAt } from './model/toolClock'
 export { useAgentStream } from './model/useAgentStream'
 export type { AgentStreamState, LiveRun } from './model/types'

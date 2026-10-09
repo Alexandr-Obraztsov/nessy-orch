@@ -1,15 +1,13 @@
 .kbd {
 	display: inline-grid;
 	place-items: center;
-	min-width: 16px;
-	height: 16px;
-	padding: 0 4px;
-	border-radius: var(--r-xs);
-	border: 1px solid var(--border-strong);
-	background: var(--bg-alt);
-	color: var(--text-muted);
-	font-family: var(--font-ui);
-	font-size: 10px;
-	font-weight: 500;
-	line-height: 1;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 5px;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--border);
+	border-bottom-width: 2px;
+	background: var(--surface);
+	color: var(--text-2);
+	font: var(--weight-strong) var(--text-xs) / 1 var(--font-mono);
 }

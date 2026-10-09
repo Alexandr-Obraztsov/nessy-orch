@@ -6,11 +6,13 @@ import type { PermissionChoice, PermissionModel } from './types'
 /** Разрешить / отклонить запрос агента. */
 export function usePermission(agentId: string, requestId: string): PermissionModel {
 	const [busy, setBusy] = useState<PermissionChoice | null>(null)
+	const [sent, setSent] = useState<PermissionChoice | null>(null)
 	const resolve = useCallback(
 		async (choice: PermissionChoice) => {
 			setBusy(choice)
 			try {
 				await api.permission(agentId, requestId, choice === 'approve')
+				setSent(choice)
 			} catch (e) {
 				toast(`Не удалось ответить на запрос: ${errorText(e)}`, 'error')
 			} finally {
@@ -19,5 +21,5 @@ export function usePermission(agentId: string, requestId: string): PermissionMod
 		},
 		[agentId, requestId],
 	)
-	return { busy, resolve }
+	return { busy, sent, resolve }
 }

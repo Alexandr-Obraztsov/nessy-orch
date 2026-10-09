@@ -51,9 +51,6 @@
 	color: var(--danger);
 	background: var(--danger-soft);
 }
-.narrow {
-	display: none;
-}
 .scroll {
 	flex: 1;
 	min-height: 0;
@@ -111,7 +108,7 @@
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	min-height: var(--row-h);
+	min-height: 28px;
 	color: var(--text-muted);
 }
 .props dt svg {
@@ -120,7 +117,7 @@
 .props dd {
 	display: flex;
 	align-items: center;
-	min-height: var(--row-h);
+	min-height: 28px;
 	min-width: 0;
 	margin: 0;
 }
@@ -301,7 +298,6 @@
 		height: 44px;
 	}
 	.crumbs,
-	.wide,
 	.state,
 	.hideNarrow {
 		display: none;
@@ -315,9 +311,6 @@
 		min-height: 36px;
 		min-width: 36px;
 	}
-	.narrow {
-		display: inline;
-	}
 	.page {
 		padding: var(--sp-4) var(--sp-4) 80px;
 	}
@@ -330,13 +323,5 @@
 	.swatch {
 		width: 26px;
 		height: 26px;
-	}
-}
-@media (max-width: 1100px) {
-	.wide {
-		display: none;
-	}
-	.narrow {
-		display: inline;
 	}
 }

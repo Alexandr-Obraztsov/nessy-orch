@@ -1,204 +1,84 @@
-/* Рабочий экран: три колонки + журнал (по макету A). */
 .page {
 	display: flex;
-	flex: 1;
 	flex-direction: column;
-	min-width: 0;
-	min-height: 0;
-}
-.cols {
-	position: relative;
-	display: grid;
-	flex: 1;
-	grid-template-columns: 300px minmax(0, 1fr) 440px;
-	min-height: 0;
-}
-.att {
-	min-width: 0;
-	min-height: 0;
-	overflow: auto;
-	border-right: 1px solid var(--border);
-	background: var(--bg-sidebar);
-}
-.center {
-	display: flex;
-	min-width: 0;
-	min-height: 0;
-}
-.center > * {
-	flex: 1;
-}
-.detail {
-	display: flex;
-	flex-direction: column;
-	min-width: 0;
-	min-height: 0;
-	border-left: 1px solid var(--border);
-	background: var(--bg-alt);
-}
-.detail > * {
 	flex: 1;
 	min-height: 0;
+	min-width: 0;
 }
-
-/* ---------- пустые детали ---------- */
-.dEmptyWrap {
+.main {
 	display: flex;
-	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	min-width: 0;
 }
-.dHead {
+/* панель деталей: ширина 0 → --panel-w, таблица сужается вместе с ней */
+.panel {
 	flex: none;
-	padding: 12px var(--sp-4) 10px;
-	border-bottom: 1px solid var(--border);
+	width: 0;
+	overflow: hidden;
+	border-left: 1px solid transparent;
+	background: var(--surface);
+	transition:
+		width var(--dur-slow) var(--ease-out),
+		border-color var(--dur-slow);
 }
-.dHead h2 {
-	margin: 0;
-	font-size: var(--fs-lg);
-	font-weight: 650;
-	line-height: 24px;
+.page[data-panel] .panel {
+	width: var(--panel-w);
+	border-left-color: var(--border);
 }
-.dEmpty {
-	padding: var(--sp-5) var(--sp-4);
-	color: var(--text-muted);
+.panelIn {
+	width: var(--panel-w);
+	height: 100%;
+	overflow-y: auto;
+	overflow-x: hidden;
+	overscroll-behavior: contain;
 }
-.dEmpty h3 {
-	margin: 0 0 6px;
-	color: var(--text);
-	font-size: var(--fs-lg);
-}
-.dEmpty p {
-	margin: 0;
-}
-.keys {
-	display: grid;
-	gap: 6px;
-	margin-top: 14px;
-	font-size: var(--fs-sm);
-}
-.key {
-	display: grid;
-	grid-template-columns: 56px 1fr;
-	align-items: center;
-	gap: 12px;
-}
-.kbds {
-	display: inline-flex;
-	gap: 4px;
+.scrim {
+	display: none;
 }
 
-/* ---------- мобильные вкладки ---------- */
-.tabbar {
-	display: flex;
-	flex: none;
-	padding-bottom: env(safe-area-inset-bottom);
-	border-top: 1px solid var(--border-strong);
-	background: var(--bg-alt);
-}
-.tabbar button {
-	position: relative;
-	display: flex;
-	flex: 1;
-	flex-direction: column;
-	align-items: center;
-	gap: 2px;
-	padding: 7px 0 6px;
-	border: 0;
-	background: none;
-	color: var(--text-muted);
-	font-size: var(--fs-xs);
-}
-.tabbar button[aria-selected='true'] {
-	color: var(--accent-text);
-}
-.tabbar button[aria-selected='true']::before {
-	content: '';
-	position: absolute;
-	top: -1px;
-	left: 25%;
-	right: 25%;
-	height: 2px;
-	background: var(--accent);
-}
-.tabbar svg {
-	width: 20px;
-	height: 20px;
-}
-.nb {
-	position: absolute;
-	top: 3px;
-	left: calc(50% + 6px);
-	min-width: 16px;
-	padding: 0 5px;
-	border-radius: var(--r-full);
-	background: var(--warn);
-	color: var(--bg);
-	font-size: 10px;
-	font-weight: 700;
-	text-align: center;
-}
-
-@media (min-width: 1600px) {
-	.cols {
-		grid-template-columns: 320px minmax(0, 1fr) 500px;
+@media (max-width: 1100px) and (min-width: 761px) {
+	.page {
+		--panel-w: 380px;
 	}
 }
 
-/* ---------- 900–1279: детали поверх списка ---------- */
-@media (max-width: 1279px) {
-	.cols {
-		grid-template-columns: 250px minmax(0, 1fr);
-	}
-	.detail {
-		position: absolute;
-		z-index: 20;
-		top: 0;
+/* телефон: нижний лист поверх таблицы */
+@media (max-width: 760px) {
+	.panel {
+		position: fixed;
+		z-index: 30;
+		left: 0;
 		right: 0;
 		bottom: 0;
-		display: none;
-		width: min(460px, 100%);
-		box-shadow: var(--shadow-3);
-		animation: slideIn 160ms var(--ease);
-	}
-	.page[data-sel] .detail {
-		display: flex;
-	}
-}
-
-/* ---------- < 900: вкладки, детали на весь экран ---------- */
-@media (max-width: 899px) {
-	.cols {
-		display: block;
-		overflow: hidden;
-	}
-	.att,
-	.center {
-		display: none;
-		height: 100%;
-	}
-	.page[data-tab='attention'] .att {
-		display: block;
-		border-right: 0;
-	}
-	.page[data-tab='tasks'] .center {
-		display: flex;
-	}
-	.page[data-tab='journal'] .cols {
-		display: none;
-	}
-	.detail {
-		position: fixed;
-		z-index: 60;
-		inset: 0;
 		width: auto;
+		height: 82dvh;
 		border-left: 0;
-		box-shadow: none;
-		padding-top: env(safe-area-inset-top);
+		border-top: 1px solid var(--border);
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+		box-shadow: var(--shadow-2);
+		transform: translateY(105%);
+		transition: transform var(--dur-slow) var(--ease-out);
 	}
-}
-
-@keyframes slideIn {
-	from {
-		transform: translateX(16px);
-		opacity: 0.6;
+	.page[data-panel] .panel {
+		width: auto;
+		transform: none;
+	}
+	.panelIn {
+		width: 100%;
+	}
+	.scrim {
+		display: block;
+		position: fixed;
+		z-index: 29;
+		inset: 0;
+		background: var(--scrim);
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity var(--dur-slow);
+	}
+	.page[data-panel] .scrim {
+		opacity: 1;
+		pointer-events: auto;
 	}
 }

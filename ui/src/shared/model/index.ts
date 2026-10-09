@@ -1,20 +1,5 @@
-export { YOU, agentById, connect, getState, nodeLabel, onMessage, reconnectNow, roleById, spaceHue, subscribe, useStore } from './store'
+export { YOU, connect, getState, nodeLabel, reconnectNow, useStore } from './store'
 export { useOrchStatus } from './status'
 export type { Conn, State } from './types'
-export {
-	closeAgent,
-	getView,
-	openAgent,
-	openDialog,
-	openPage,
-	openRole,
-	setFilter,
-	setGrouping,
-	setMobileTab,
-	setSearch,
-	setView,
-	toggleCollapsed,
-	toggleJournal,
-	useView,
-} from './view'
-export type { DialogKind, Grouping, MobileTab, Page, StatusFilter, ViewState } from './view.types'
+export { closeAgent, getView, openAgent, openDialog, openPage, openRole, setFilter, setHideDone, setView, toggleCollapsed, useView } from './view'
+export type { DialogKind, GroupKey, Page, StatusFilter, ViewState } from './view.types'

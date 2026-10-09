@@ -1,11 +1,11 @@
 /**
- * Глобальное состояние UI: граф (пространства, агенты) и общая лента.
+ * Глобальное состояние UI: пространства, агенты, роли и общая лента (из неё — тексты задач и ответов).
  * Источник — SSE `/stream` (снапшот + изменения). Переподключение с экспоненциальной паузой.
  * Подписка из React — через `useStore(selector)` (useSyncExternalStore).
  */
 import { useSyncExternalStore } from 'react'
-import type { AgentView, Message, RoleView, SpaceView, StreamEvent } from '@contract'
-import type { MessageListener, State } from './types'
+import type { AgentView, Message, StreamEvent } from '@contract'
+import type { State } from './types'
 
 const MAX_MESSAGES = 2000
 
@@ -41,15 +41,6 @@ export function useStore<T>(selector: (s: State) => T): T {
 	return useSyncExternalStore(subscribe, () => selector(state))
 }
 
-/** Подписка на каждое новое сообщение ленты (анимация «пакета» по ребру графа, уведомления). */
-const messageListeners = new Set<MessageListener>()
-export function onMessage(fn: MessageListener): () => void {
-	messageListeners.add(fn)
-	return () => {
-		messageListeners.delete(fn)
-	}
-}
-
 function upsert<T>(list: T[], item: T, key: (x: T) => string): T[] {
 	const k = key(item)
 	const i = list.findIndex(x => key(x) === k)
@@ -79,7 +70,6 @@ function apply(evt: StreamEvent): void {
 			if (!last || evt.message.seq > last.seq) next = [...msgs, evt.message]
 			else next = upsert(msgs, evt.message, m => m.id).sort((a, b) => a.seq - b.seq)
 			set({ rev: evt.rev, messages: next.slice(-MAX_MESSAGES), lastEventAt: now })
-			for (const fn of messageListeners) fn(evt.message)
 			return
 		}
 		case 'agent':
@@ -145,18 +135,6 @@ export function reconnectNow(): void {
 
 // ---------- селекторы / хелперы ----------
 export const YOU = 'you'
-
-export function agentById(id: string): AgentView | undefined {
-	return state.agents.find(a => a.id === id)
-}
-
-export function roleById(id: string | null): RoleView | undefined {
-	return id ? state.roles.find(r => r.id === id) : undefined
-}
-
-export function spaceHue(spaces: SpaceView[], name: string): number {
-	return spaces.find(s => s.name === name)?.color ?? 170
-}
 
 /** Подпись узла для ленты: имя агента или «Вы». */
 export function nodeLabel(agents: AgentView[], id: string): string {

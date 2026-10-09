@@ -13,5 +13,3 @@ export interface State {
 	/** момент последнего полученного события */
 	lastEventAt: number
 }
-
-export type MessageListener = (m: Message) => void

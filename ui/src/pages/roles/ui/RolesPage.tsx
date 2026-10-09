@@ -14,7 +14,7 @@ export function RolesPage({ roleId }: { roleId: string | null }) {
 		<RefPage
 			title="Роли"
 			count={roles.length}
-			backLabel="К поручениям"
+			backLabel="К агентам"
 			onBack={() => openPage({ kind: 'main' })}
 			actions={
 				<Button size="sm" variant="primary" icon="plus" onClick={() => openRole(null)}>

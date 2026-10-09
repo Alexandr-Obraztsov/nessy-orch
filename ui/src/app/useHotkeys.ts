@@ -1,43 +1,37 @@
 import { useEffect } from 'react'
-import { api, errorText } from '@/shared/api'
-import { agentById, closeAgent, getView, openAgent, openDialog, openPage, setMobileTab } from '@/shared/model'
-import { toast } from '@/shared/ui'
+import { closeAgent, getView, openAgent, openPage } from '@/shared/model'
 
 const isField = (t: EventTarget | null): boolean =>
 	t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
 
-/** Строки агентов в порядке на экране (видимые). */
+/** Строки агентов в порядке на экране (без свёрнутых и скрытых групп). */
 function rows(): HTMLElement[] {
-	return [...document.querySelectorAll<HTMLElement>('[data-row]')].filter(el => el.offsetParent !== null)
+	return [...document.querySelectorAll<HTMLElement>('[data-row]')].filter(el => !el.closest('[data-hidden]'))
 }
 
-/** Агент, к которому относится действие с клавиатуры: строка в фокусе, иначе открытый. */
-function targetAgent(): string | null {
-	const el = document.activeElement
-	if (el instanceof HTMLElement && el.dataset['row']) return el.dataset['row']
-	return getView().selectedAgentId
-}
-
+/** Перейти к соседней строке; если детали открыты — сразу показать их для новой строки. */
 function move(dir: 1 | -1): void {
 	const list = rows()
 	if (list.length === 0) return
-	const cur = document.activeElement instanceof HTMLElement ? list.indexOf(document.activeElement) : -1
-	let i: number
+	const active = document.activeElement
+	let cur = active instanceof HTMLElement ? list.indexOf(active) : -1
 	if (cur === -1) {
 		const sel = getView().selectedAgentId
-		const at = sel ? list.findIndex(el => el.dataset['row'] === sel) : -1
-		i = at === -1 ? (dir === 1 ? 0 : list.length - 1) : at + dir
-	} else i = cur + dir
-	const el = list[Math.max(0, Math.min(list.length - 1, i))]
-	el?.focus()
-	el?.scrollIntoView({ block: 'nearest' })
+		cur = sel ? list.findIndex(el => el.dataset['row'] === sel) : -1
+	}
+	const i = cur === -1 ? (dir === 1 ? 0 : list.length - 1) : Math.max(0, Math.min(list.length - 1, cur + dir))
+	const el = list[i]
+	if (!el) return
+	el.focus({ preventScroll: true })
+	el.scrollIntoView({ block: 'nearest' })
+	const id = el.dataset['row']
+	if (id && getView().selectedAgentId) openAgent(id)
 }
 
 /**
  * Глобальные горячие клавиши (вне полей ввода и диалогов):
- *   j / k — вниз / вверх по строкам агентов; Enter — открыть (обрабатывает сама строка);
- *   a — разрешить первый запрос агента; x — прервать ход; / — поиск; n — новое поручение;
- *   Esc — закрыть детали агента.
+ *   j / k (и стрелки вне кнопок) — вниз / вверх по строкам; Enter — открыть детали (обрабатывает строка);
+ *   Esc — закрыть детали (на справочниках — вернуться к таблице).
  */
 export function useHotkeys(): void {
 	useEffect(() => {
@@ -53,56 +47,15 @@ export function useHotkeys(): void {
 				} else if (v.page.kind !== 'main') openPage({ kind: 'main' })
 				return
 			}
-			if (e.metaKey || e.ctrlKey || e.altKey || isField(e.target)) return
+			if (e.metaKey || e.ctrlKey || e.altKey || isField(e.target) || v.page.kind !== 'main') return
+			const onControl = e.target instanceof HTMLElement && e.target.closest('button, a, summary') !== null
 			// раскладка не важна: e.code — физическая клавиша
-			switch (e.code) {
-				case 'KeyN':
-					e.preventDefault()
-					openDialog('spawn')
-					return
-				case 'Slash': {
-					const input = document.querySelector<HTMLInputElement>('[data-search]')
-					if (input) {
-						e.preventDefault()
-						if (v.page.kind === 'main') setMobileTab('tasks')
-						input.focus()
-						input.select()
-					}
-					return
-				}
-			}
-			if (v.page.kind !== 'main') return
-			switch (e.code) {
-				case 'KeyJ':
-					e.preventDefault()
-					move(1)
-					return
-				case 'KeyK':
-					e.preventDefault()
-					move(-1)
-					return
-				case 'KeyO': {
-					const id = targetAgent()
-					if (id) openAgent(id)
-					return
-				}
-				case 'KeyA': {
-					const id = targetAgent()
-					const a = id ? agentById(id) : undefined
-					const req = a?.pendingPermissions[0]
-					if (!a || !req) return
-					e.preventDefault()
-					api.permission(a.id, req.requestId, true).catch((err: unknown) => toast(`Не удалось разрешить: ${errorText(err)}`, 'error'))
-					return
-				}
-				case 'KeyX': {
-					const id = targetAgent()
-					const a = id ? agentById(id) : undefined
-					if (!a || (a.status !== 'working' && a.status !== 'starting')) return
-					e.preventDefault()
-					api.cancel(a.id).catch((err: unknown) => toast(`Не удалось прервать: ${errorText(err)}`, 'error'))
-					return
-				}
+			if (e.code === 'KeyJ' || (e.key === 'ArrowDown' && !onControl)) {
+				e.preventDefault()
+				move(1)
+			} else if (e.code === 'KeyK' || (e.key === 'ArrowUp' && !onControl)) {
+				e.preventDefault()
+				move(-1)
 			}
 		}
 		window.addEventListener('keydown', onKey)

@@ -1,54 +1,44 @@
 /**
- * Тема: системная по умолчанию, ручной выбор сохраняется в localStorage.
+ * Тема: тёмная по умолчанию, ручной выбор сохраняется в localStorage.
+ * Атрибут data-theme на <html> ставится всегда — токены (tokens.css) смотрят только на него.
  */
 import { useSyncExternalStore } from 'react'
+import { readStorage, writeStorage } from './storage'
 
 export type Theme = 'dark' | 'light'
 const KEY = 'nessy-orch:theme'
 const listeners = new Set<() => void>()
 
 function stored(): Theme | null {
-	try {
-		const v = localStorage.getItem(KEY)
-		return v === 'dark' || v === 'light' ? v : null
-	} catch {
-		return null
-	}
-}
-
-function system(): Theme {
-	return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+	const v = readStorage(KEY)
+	return v === 'dark' || v === 'light' ? v : null
 }
 
 export function currentTheme(): Theme {
-	return stored() ?? system()
+	return stored() ?? 'dark'
+}
+
+function apply(t: Theme): void {
+	document.documentElement.dataset['theme'] = t
+	document.querySelector('meta[name="theme-color"]')?.setAttribute('content', t === 'dark' ? '#0b0d11' : '#f4f6f9')
+	for (const fn of listeners) fn()
 }
 
 export function initTheme(): void {
-	const t = stored()
-	if (t) document.documentElement.dataset['theme'] = t
+	apply(currentTheme())
 }
 
 export function toggleTheme(): void {
 	const next: Theme = currentTheme() === 'dark' ? 'light' : 'dark'
-	try {
-		localStorage.setItem(KEY, next)
-	} catch {
-		/* приватный режим — тема не запомнится */
-	}
-	document.documentElement.dataset['theme'] = next
-	document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'dark' ? '#1e1e1e' : '#ffffff')
-	for (const fn of listeners) fn()
+	writeStorage(KEY, next)
+	apply(next)
 }
 
 export function useTheme(): Theme {
 	return useSyncExternalStore(fn => {
 		listeners.add(fn)
-		const m = window.matchMedia('(prefers-color-scheme: light)')
-		m.addEventListener('change', fn)
 		return () => {
 			listeners.delete(fn)
-			m.removeEventListener('change', fn)
 		}
 	}, currentTheme)
 }

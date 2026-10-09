@@ -2,7 +2,7 @@
  * Справочник «Пространства»: путь, статус nessy serve, режим, число агентов; добавить / удалить.
  */
 import { SPACE_STATUS } from '@/entities/agent'
-import { copyText } from '@/features/agent-actions'
+import { copyText } from '@/shared/lib/clipboard'
 import { plural } from '@/shared/lib/plural'
 import { openDialog, openPage, useStore } from '@/shared/model'
 import { Button, Dialog, IconButton, PathText, RefPage, StatusDot } from '@/shared/ui'
@@ -18,7 +18,7 @@ export function SpacesPage() {
 		<RefPage
 			title="Пространства"
 			count={spaces.length}
-			backLabel="К поручениям"
+			backLabel="К агентам"
 			onBack={() => openPage({ kind: 'main' })}
 			actions={
 				<Button size="sm" variant="primary" icon="plus" onClick={() => openDialog('space')}>
@@ -72,9 +72,6 @@ export function SpacesPage() {
 										{working > 0 && <span className={s.spWorking}> · {working} в работе</span>}
 									</span>
 									<span className={s.spActs} role="cell">
-										<Button size="sm" variant="ghost" icon="plus" onClick={() => openDialog('spawn', { space: sp.name })} title="Новое поручение в этом пространстве">
-											<span className={s.hideNarrow}>Поручение</span>
-										</Button>
 										<IconButton size="sm" icon="copy" label="Копировать путь" onClick={() => void copyText(sp.path, 'Путь скопирован')} />
 										<IconButton size="sm" icon="trash" label={`Удалить ${sp.name}`} className={s.del} onClick={() => r.ask(sp)} />
 									</span>

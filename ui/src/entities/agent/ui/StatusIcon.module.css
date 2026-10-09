@@ -1,7 +1,8 @@
 .ic {
+	--c: var(--status-working);
 	display: inline-block;
 	flex: none;
-	vertical-align: middle;
+	position: relative;
 }
 .ic svg {
 	display: block;
@@ -9,51 +10,127 @@
 	height: 100%;
 	overflow: visible;
 }
-.wait {
-	color: var(--warn);
+
+.ring {
+	fill: transparent;
+	stroke: var(--c);
+	stroke-width: 1.5;
+	stroke-opacity: 0.35;
+	transition:
+		fill var(--dur-base) var(--ease-out),
+		stroke var(--dur-base),
+		stroke-opacity var(--dur-base);
 }
-.error {
-	color: var(--danger);
+.spin {
+	fill: none;
+	stroke: var(--c);
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-dasharray: 11 40;
+	transform-origin: 10px 10px;
+	opacity: 0;
+	animation: spin 900ms linear infinite;
+	transition: opacity var(--dur-base);
 }
-.working {
-	color: var(--accent-text);
+.dot,
+.ping {
+	fill: var(--c);
+	opacity: 0;
+	transform-origin: 10px 10px;
+	transition: opacity var(--dur-base);
 }
-.starting {
-	color: var(--st-starting);
+.check,
+.cross {
+	fill: none;
+	stroke: var(--on-status);
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	stroke-dasharray: 20;
+	stroke-dashoffset: 20;
+	transition: stroke-dashoffset 380ms var(--ease-out) 120ms;
 }
-.idle {
-	color: var(--text-faint);
+
+.ic[data-state='working'] .spin {
+	opacity: 1;
 }
-.done {
-	color: var(--success);
+.ic[data-state='starting'] {
+	--c: var(--gray-8);
 }
-.working svg {
-	animation: spin 1.1s linear infinite;
+.ic[data-state='starting'] .spin {
+	opacity: 1;
+	stroke-dasharray: 2 5;
+	animation-duration: 2.4s;
 }
-.starting svg {
-	animation: spin 3s linear infinite;
+.ic[data-state='wait'] {
+	--c: var(--status-wait);
 }
-.wait svg {
-	animation: pulse 1.6s ease-in-out infinite;
+.ic[data-state='wait'] .ring {
+	stroke-opacity: 0.6;
 }
+.ic[data-state='wait'] .dot {
+	opacity: 1;
+	animation: dotpulse 1.8s ease-in-out infinite;
+}
+.ic[data-state='wait'] .ping {
+	animation: ping 1.8s ease-out infinite;
+}
+.ic[data-state='error'] {
+	--c: var(--status-error);
+}
+.ic[data-state='done'] {
+	--c: var(--status-done);
+}
+.ic[data-state='error'] .ring,
+.ic[data-state='done'] .ring {
+	fill: var(--c);
+	stroke-opacity: 1;
+}
+.ic[data-state='error'] .cross,
+.ic[data-state='done'] .check {
+	stroke-dashoffset: 0;
+}
+.ic[data-state='idle'] {
+	--c: var(--gray-8);
+}
+.ic[data-state='idle'] .ring {
+	stroke-dasharray: 3 3;
+	stroke-opacity: 0.8;
+}
+
 @keyframes spin {
 	to {
 		transform: rotate(360deg);
 	}
 }
-@keyframes pulse {
+@keyframes dotpulse {
 	0%,
 	100% {
-		opacity: 1;
 		transform: scale(1);
+		opacity: 1;
 	}
 	50% {
-		opacity: 0.45;
-		transform: scale(0.88);
+		transform: scale(0.7);
+		opacity: 0.6;
 	}
 }
+@keyframes ping {
+	0% {
+		transform: scale(1);
+		opacity: 0.5;
+	}
+	100% {
+		transform: scale(2.6);
+		opacity: 0;
+	}
+}
+
+/* без движения «работает» — сплошное кольцо вместо вращающейся дуги */
 @media (prefers-reduced-motion: reduce) {
-	.ic svg {
-		animation: none !important;
+	.ic[data-state='working'] .ring {
+		stroke-opacity: 1;
+	}
+	.ic[data-state='working'] .spin {
+		opacity: 0;
 	}
 }

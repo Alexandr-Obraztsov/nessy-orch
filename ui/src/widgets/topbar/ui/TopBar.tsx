@@ -1,21 +1,19 @@
 /**
- * Верхняя строка: бренд, сводка-фильтры, авто-разрешения, поиск («/»), «+ Поручение», меню ⚙, тема.
- * Строка состояния свёрнута сюда же: «нет связи» показывается бейджем, версия — в меню.
+ * Верхняя строка: бренд, состояние связи, авто-разрешения, «Скрыть выполненные», меню
+ * справочников (Роли, Пространства) и тема. Создавать агентов и писать им панель не умеет —
+ * это делает оркестратор (Claude) через CLI.
  */
 import { useRef, useState } from 'react'
 import { toggleTheme, useTheme } from '@/shared/lib/theme'
-import { NARROW, useMedia } from '@/shared/lib/useMedia'
-import { closeAgent, getState, openDialog, openPage, openRole, reconnectNow, setSearch, useOrchStatus, useStore, useView } from '@/shared/model'
-import { Button, Icon, IconButton, MenuItem, MenuLabel, MenuSeparator, Popover } from '@/shared/ui'
-import { SummaryChips } from './SummaryChips'
+import { closeAgent, getState, openPage, openRole, reconnectNow, setHideDone, useOrchStatus, useStore, useView } from '@/shared/model'
+import { Icon, IconButton, MenuItem, MenuLabel, MenuSeparator, Popover } from '@/shared/ui'
 import s from './TopBar.module.css'
 
 const CONN = { connecting: 'подключение…', offline: 'нет связи' } as const
 
 export function TopBar() {
-	const narrow = useMedia(NARROW)
 	const page = useView(v => v.page.kind)
-	const search = useView(v => v.search)
+	const hideDone = useView(v => v.hideDone)
 	const conn = useStore(st => st.conn)
 	const status = useOrchStatus()
 	const theme = useTheme()
@@ -30,12 +28,14 @@ export function TopBar() {
 
 	return (
 		<header className={s.top}>
-			<button type="button" className={s.brand} onClick={home} title="К поручениям">
-				nessy-orch
+			<button type="button" className={s.brand} onClick={home} title="К агентам">
+				<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+					<path d="M3 5h14M3 10h14M3 15h8" />
+				</svg>
+				<span>nessy-orch</span>
 			</button>
-			{!narrow && page === 'main' && <SummaryChips />}
 			{status?.autoApprove && (
-				<span className={s.auto} title="Запросы разрешений одобряются автоматически — секция «Разрешения» будет пустой">
+				<span className={s.auto} title="Запросы разрешений одобряются автоматически — кнопок «Разрешить» не будет">
 					авто-разрешения
 				</span>
 			)}
@@ -47,30 +47,13 @@ export function TopBar() {
 			)}
 			<span className={s.sp} />
 			{page === 'main' && (
-				<label className={s.search}>
-					<Icon name="search" size={13} />
-					<input
-						data-search
-						value={search}
-						onChange={e => setSearch(e.target.value)}
-						onKeyDown={e => {
-							if (e.key === 'Escape') {
-								e.preventDefault()
-								if (search) setSearch('')
-								else e.currentTarget.blur()
-							}
-						}}
-						placeholder="Поиск по поручениям и результатам"
-						aria-label="Поиск"
-						spellCheck={false}
-					/>
-					{!search && <kbd className={s.kbd}>/</kbd>}
-				</label>
+				<button type="button" className={s.switch} role="switch" aria-checked={hideDone} onClick={() => setHideDone(!hideDone)} title="Скрыть группу «Выполнено»">
+					<span className={s.track} aria-hidden="true" />
+					<span>
+						Скрыть<span className={s.long}> выполненные</span>
+					</span>
+				</button>
 			)}
-			<Button variant="primary" className={s.new} onClick={() => openDialog('spawn')} title="Новое поручение (n)">
-				<Icon name="plus" size={14} strokeWidth={2.2} />
-				<span className={s.long}>Поручение</span>
-			</Button>
 			<IconButton
 				ref={menuBtn}
 				icon="settings"
@@ -82,7 +65,7 @@ export function TopBar() {
 			/>
 			<Popover open={menu} anchor={menuBtn.current} onClose={() => setMenu(false)} align="end" label="Справочники" role="menu">
 				<MenuItem icon="feed" onClick={go(home)}>
-					Поручения
+					Агенты
 				</MenuItem>
 				<MenuItem
 					icon="tag"
@@ -107,12 +90,7 @@ export function TopBar() {
 					{status ? `v${status.version} · ${status.autoApprove ? 'авто-разрешения включены' : 'разрешения вручную'}` : 'nessy-orch'}
 				</MenuLabel>
 			</Popover>
-			<IconButton
-				icon={theme === 'dark' ? 'moon' : 'sun'}
-				label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-				className={s.iconBtn}
-				onClick={toggleTheme}
-			/>
+			<IconButton icon={theme === 'dark' ? 'sun' : 'moon'} label={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'} className={s.iconBtn} onClick={toggleTheme} />
 		</header>
 	)
 }
