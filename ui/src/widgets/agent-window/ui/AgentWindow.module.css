@@ -31,7 +31,9 @@
 }
 .sub {
 	display: flex;
-	flex-wrap: wrap;
+	flex-wrap: nowrap;
+	overflow: hidden;
+	white-space: nowrap;
 	align-items: center;
 	column-gap: 10px;
 	row-gap: 2px;
@@ -43,6 +45,11 @@
 	content: '·';
 	margin-right: 10px;
 	color: var(--text-4);
+}
+.role,
+.state,
+.space {
+	flex: none;
 }
 .role {
 	display: inline-flex;
@@ -67,6 +74,8 @@
 	color: var(--accent-text);
 }
 .task {
+	flex: 0 1 auto;
+	min-width: 0;
 	max-width: 280px;
 	overflow: hidden;
 	padding: 0;
@@ -161,6 +170,13 @@
 	}
 	.space {
 		display: none;
+	}
+	.head :global([data-act='stop'][aria-label='Остановить']) [data-label] {
+		display: none;
+	}
+	.head :global([data-act='stop'][aria-label='Остановить']) {
+		width: 32px;
+		padding: 0;
 	}
 	.head {
 		padding: 12px 10px 10px 16px;

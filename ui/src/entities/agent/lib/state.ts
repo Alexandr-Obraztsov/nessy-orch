@@ -76,9 +76,3 @@ export function sortCards(agents: AgentView[]): AgentView[] {
 		.sort((x, y) => x.r - y.r || x.t - y.t || x.a.id.localeCompare(y.a.id))
 		.map(x => x.a)
 }
-
-/** Агент ждёт решения человека. */
-export const isWaiting = (a: Pick<AgentView, 'pendingPermissions'>): boolean => a.pendingPermissions.length > 0
-
-/** Агент сейчас работает (ход идёт). */
-export const isLive = (a: Pick<AgentView, 'status'>): boolean => a.status === 'working' || a.status === 'starting'

@@ -172,8 +172,7 @@
 		color var(--dur-fast);
 }
 .li:hover .beside,
-.beside:focus-visible,
-.beside[aria-pressed='true'] {
+.beside:focus-visible {
 	opacity: 1;
 }
 .li:hover .wait {

@@ -1,7 +1,7 @@
 /** Цвета ролей: 8 спокойных оттенков (hue), одинаково читаемых в обеих темах. */
 export const ROLE_HUES = [262, 215, 185, 145, 45, 20, 350, 300] as const
 
-export const roleColor = (hue: number): string => `hsl(${Math.round(hue)} 62% 60%)`
+export const roleColor = (hue: number): string => `hsl(${Math.round(hue)} 38% 56%)`
 
 /** Цвет по умолчанию для нового имени (как на сервере — стабильный хеш). */
 export function hueFromName(name: string): number {
