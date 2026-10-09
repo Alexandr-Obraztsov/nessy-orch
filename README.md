@@ -169,11 +169,11 @@ nessy-orch status | open | install [--print] | uninstall
 | Компонент | Вызов | Что делает |
 |---|---|---|
 | Скилл `nessy-orch` | `/nessy:nessy-orch`, загружается сам | Цикл оркестратора, выбор роли, шаблон поручения, правила, «красные флаги», ошибки; `references/commands.md` — справочник команд, `references/briefs.md` — общие схемы и указатель рецептов |
-| Скилл `nessy-code-question` | `/nessy:nessy-code-question` | Вопрос по коду чужого репозитория: `code-explorer` (+ `verifier`) |
-| Скилл `nessy-mr-review` | `/nessy:nessy-mr-review` | Ревью MR: `gitlab-mr-reviewer` ‖ `jira-analyst` (+ `security-reviewer`), черновики комментариев без публикации |
-| Скилл `nessy-incident` | `/nessy:nessy-incident` | Инцидент: `debugger` ‖ `wiki-researcher` / `jira-analyst`, хронология и гипотезы |
-| Скилл `nessy-jira-report` | `/nessy:nessy-jira-report` | Сводка задач Jira таблицей: `jira-analyst` |
-| Скилл `nessy-implement` | `/nessy:nessy-implement` | Изменение кода: `analyst` → `executor` → `verifier` |
+| Скилл `code-question` | `/nessy:code-question` | Вопрос по коду чужого репозитория: `code-explorer` (+ `verifier`) |
+| Скилл `mr-review` | `/nessy:mr-review` | Ревью MR: `gitlab-mr-reviewer` ‖ `jira-analyst` (+ `security-reviewer`), черновики комментариев без публикации |
+| Скилл `incident` | `/nessy:incident` | Инцидент: `debugger` ‖ `wiki-researcher` / `jira-analyst`, хронология и гипотезы |
+| Скилл `jira-report` | `/nessy:jira-report` | Сводка задач Jira таблицей: `jira-analyst` |
+| Скилл `implement` | `/nessy:implement` | Изменение кода: `analyst` → `executor` → `verifier` |
 | Команда `ui` | `/nessy:ui` | Ссылка на панель и `nessy-orch status` |
 | Команда `status` | `/nessy:status` | `nessy-orch ls --all` и короткая сводка |
 

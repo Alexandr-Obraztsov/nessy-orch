@@ -78,11 +78,11 @@ Sage, Wiki, долгая работа в чужом репозитории.
 
 | Задача | Рецепт |
 |---|---|
-| Вопрос по коду чужого репозитория | `nessy-code-question` |
-| Ревью MR в GitLab | `nessy-mr-review` |
-| Расследование инцидента | `nessy-incident` |
-| Сводка задач Jira | `nessy-jira-report` |
-| Изменение кода в репозитории | `nessy-implement` |
+| Вопрос по коду чужого репозитория | `code-question` |
+| Ревью MR в GitLab | `mr-review` |
+| Расследование инцидента | `incident` |
+| Сводка задач Jira | `jira-report` |
+| Изменение кода в репозитории | `implement` |
 
 ### Роли (готовые, из `roles/` репозитория nessy-orch)
 

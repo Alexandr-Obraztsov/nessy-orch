@@ -7,11 +7,11 @@
 
 | Сценарий | Рецепт | Роли |
 |---|---|---|
-| Вопрос по коду чужого репозитория | `nessy-code-question` | `code-explorer` (+ `verifier`) |
-| Ревью MR в GitLab | `nessy-mr-review` | `gitlab-mr-reviewer` ‖ `jira-analyst` (+ `security-reviewer`) |
-| Расследование инцидента | `nessy-incident` | `debugger` ‖ `wiki-researcher` / `jira-analyst` |
-| Сводка задач Jira | `nessy-jira-report` | `jira-analyst` |
-| Изменение кода: план → исполнение → проверка | `nessy-implement` | `analyst` → `executor` → `verifier` |
+| Вопрос по коду чужого репозитория | `code-question` | `code-explorer` (+ `verifier`) |
+| Ревью MR в GitLab | `mr-review` | `gitlab-mr-reviewer` ‖ `jira-analyst` (+ `security-reviewer`) |
+| Расследование инцидента | `incident` | `debugger` ‖ `wiki-researcher` / `jira-analyst` |
+| Сводка задач Jira | `jira-report` | `jira-analyst` |
+| Изменение кода: план → исполнение → проверка | `implement` | `analyst` → `executor` → `verifier` |
 
 (‖ — параллельно, → — последовательно.)
 
