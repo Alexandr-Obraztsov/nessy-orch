@@ -9,14 +9,17 @@ export interface SparkleProps {
 	/** dim — приглушённая (запуск), иначе цвет акцента */
 	tone?: 'accent' | 'dim' | 'inherit'
 	size?: number
+	/** cycle — перебор начертаний, как в Claude Code; spin — одна ✻ медленно вращается и пульсирует */
+	motion?: 'cycle' | 'spin'
 	className?: string
 }
 
-export function Sparkle({ tone = 'accent', size, className }: SparkleProps) {
+export function Sparkle({ tone = 'accent', size, motion = 'cycle', className }: SparkleProps) {
 	return (
 		<span
 			className={[s.sp, className].filter(Boolean).join(' ')}
 			data-tone={tone}
+			data-motion={motion}
 			style={size ? { fontSize: size } : undefined}
 			aria-hidden="true"
 		/>

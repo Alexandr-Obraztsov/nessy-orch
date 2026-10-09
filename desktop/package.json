@@ -1,0 +1,16 @@
+{
+  "name": "nessy-desktop",
+  "productName": "nessy",
+  "version": "2.0.0",
+  "description": "Приложение nessy-orch для macOS: стеклянное окно, строка меню, уведомления",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "dist/src/main.js",
+  "author": "nessy-orch",
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "electron": "44.7.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.9.3"
+  }
+}

@@ -104,7 +104,7 @@ export function Sidebar() {
 	return (
 		<>
 			<aside className={s.side} data-drawer={drawer || undefined} aria-label="Задачи">
-				<div className={s.top}>
+				<div className={s.top} data-drag="">
 					<button type="button" className={s.brand} onClick={() => openColumn(ALL_AGENTS)}>
 						<span className={s.mark} aria-hidden="true">
 							✻
@@ -115,9 +115,9 @@ export function Sidebar() {
 				</div>
 
 				{conn !== 'live' && (
-					<button type="button" className={s.conn} onClick={reconnectNow}>
-						<Icon name="wifiOff" size={13} />
-						{conn === 'offline' ? 'Нет связи — переподключить' : 'Подключение…'}
+					<button type="button" className={s.conn} onClick={reconnectNow} title="Переподключить сейчас" data-conn-state={conn}>
+						<i className={s.connDot} aria-hidden="true" />
+						{conn === 'offline' ? 'Переподключение…' : 'Подключение…'}
 					</button>
 				)}
 

@@ -1,0 +1,242 @@
+/*
+ * Поповер 400×560: шапка (бренд, сводка, «Открыть окно»), лента чипов задач, список карточек.
+ * Фон — общее стекло окна (App.module.css .popover); здесь только раскладка.
+ */
+.page {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+.head {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	flex: none;
+	padding: 12px 0 12px;
+	border-bottom: 1px solid var(--glass-border);
+}
+.top {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	min-width: 0;
+	height: 28px;
+	padding: 0 8px 0 16px;
+}
+.brand {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	flex: none;
+	color: var(--text);
+	font-family: var(--font-serif);
+	font-size: var(--text-md);
+	letter-spacing: -0.01em;
+}
+.mark {
+	color: var(--accent);
+	font-family: var(--font-sans);
+	font-size: 16px;
+	line-height: 1;
+}
+.summary {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--text-3);
+	font-size: var(--text-xs);
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.conn {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1;
+	min-width: 0;
+	height: 24px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: var(--text-3);
+	font-size: var(--text-xs);
+	text-align: left;
+	transition: background var(--dur-fast) var(--ease-out);
+}
+.conn:hover {
+	background: var(--hover);
+}
+.connDot {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--status-wait);
+	animation: pulse 1.6s var(--ease-in-out) infinite;
+}
+.openMain {
+	flex: none;
+	margin-left: auto;
+	color: var(--text-3);
+}
+
+/* чипы задач: горизонтальная лента с затуханием по краям */
+.chips {
+	display: flex;
+	gap: 4px;
+	overflow-x: auto;
+	padding: 0 16px;
+	scrollbar-width: none;
+	-webkit-mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 16px), transparent);
+	mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 16px), transparent);
+}
+.chips::-webkit-scrollbar {
+	display: none;
+}
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex: none;
+	max-width: 200px;
+	height: 28px;
+	padding: 0 12px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-pill);
+	background: transparent;
+	color: var(--text-2);
+	font-size: var(--text-xs);
+	font-weight: var(--weight-medium);
+	transition:
+		background var(--dur-fast) var(--ease-out),
+		color var(--dur-fast) var(--ease-out),
+		border-color var(--dur-fast) var(--ease-out);
+}
+.chip:hover {
+	background: var(--hover);
+	color: var(--text);
+}
+.chip:active {
+	background: var(--active);
+}
+.chip[aria-pressed='true'] {
+	border-color: var(--glass-border);
+	background: var(--glass-card-hover);
+	box-shadow: var(--glass-edge);
+	color: var(--text);
+}
+.chipLabel {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.chipWait {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--status-wait);
+}
+
+.scroll {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+	overscroll-behavior: contain;
+	padding: 12px 12px 16px;
+}
+.list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.done {
+	margin-top: 12px;
+}
+.doneHead {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 28px;
+	margin: 0 0 4px;
+	padding: 0 8px 0 4px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: none;
+	color: var(--text-2);
+	font-size: var(--text-xs);
+	font-weight: var(--weight-medium);
+	transition: background var(--dur-fast) var(--ease-out);
+}
+.doneHead:hover {
+	background: var(--hover);
+	color: var(--text);
+}
+.doneHead:active {
+	background: var(--active);
+}
+.n {
+	color: var(--text-3);
+	font-weight: 400;
+}
+.chev {
+	color: var(--text-3);
+	transition: transform var(--dur-base) var(--ease-out);
+}
+.done[data-open] .chev {
+	transform: rotate(90deg);
+}
+
+/* пустое состояние: большая ✻ медленно вращается */
+.empty {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+	min-height: 280px;
+	padding: 32px 24px;
+	text-align: center;
+	animation: enter var(--dur-slow) var(--ease-out);
+}
+.emptyMark {
+	margin-bottom: 12px;
+	color: var(--accent);
+	font-size: 44px;
+	line-height: 1;
+	animation: drift 12s linear infinite;
+}
+.emptyTitle {
+	margin: 0;
+	color: var(--text);
+	font-family: var(--font-serif);
+	font-size: var(--text-lg);
+}
+.emptySub {
+	max-width: 240px;
+	margin: 0;
+	color: var(--text-3);
+	font-size: var(--text-sm);
+}
+
+@keyframes pulse {
+	50% {
+		opacity: 0.4;
+	}
+}
+@keyframes enter {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+}
+@keyframes drift {
+	to {
+		transform: rotate(360deg);
+	}
+}

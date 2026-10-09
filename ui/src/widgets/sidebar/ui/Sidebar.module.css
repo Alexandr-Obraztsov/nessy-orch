@@ -1,11 +1,16 @@
 .side {
 	display: flex;
+	flex: none;
 	flex-direction: column;
 	width: var(--sidebar-w);
 	min-width: 0;
 	height: 100%;
-	border-right: 1px solid var(--border-soft);
-	background: var(--bg-sidebar);
+	border-right: 1px solid var(--glass-border);
+	/* тонкое стекло: сквозь него видно обои (в приложении) или тёплый градиент (в браузере) */
+	background: var(--glass-side);
+	box-shadow: var(--glass-edge);
+	-webkit-backdrop-filter: var(--glass-blur);
+	backdrop-filter: var(--glass-blur);
 	transition: margin-left var(--dur-move) var(--ease-out);
 }
 :global([data-sidebar='closed']) .side {
@@ -17,7 +22,11 @@
 	justify-content: space-between;
 	flex: none;
 	height: 52px;
-	padding: 0 8px 0 14px;
+	padding: 0 8px 0 16px;
+}
+/* приложение на macOS: слева сверху — «светофор» окна */
+:global([data-desktop='window']) .top {
+	padding-left: calc(var(--traffic-w) + 12px);
 }
 .brand {
 	display: inline-flex;
@@ -48,15 +57,32 @@
 .conn {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	margin: 0 10px 6px;
-	padding: 6px 10px;
+	gap: 8px;
+	margin: 0 8px 4px;
+	padding: 4px 8px;
 	border: 0;
 	border-radius: var(--radius-sm);
-	background: color-mix(in srgb, var(--status-wait) 12%, transparent);
-	color: var(--status-wait);
+	background: none;
+	color: var(--text-3);
 	font-size: var(--text-xs);
 	text-align: left;
+	animation: in var(--dur-slow) var(--ease-out);
+	transition:
+		background var(--dur-fast) var(--ease-out),
+		color var(--dur-fast) var(--ease-out);
+}
+.conn:hover {
+	background: var(--hover);
+	color: var(--text-2);
+}
+/* тонкий индикатор переподключения: точка с мягким пульсом */
+.connDot {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--status-wait);
+	animation: pulse 1.6s var(--ease-in-out) infinite;
 }
 .scroll {
 	flex: 1;
@@ -78,10 +104,11 @@
 .item {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	gap: 12px;
 	width: 100%;
 	min-width: 0;
-	padding: 7px 10px;
+	min-height: 44px;
+	padding: 6px 8px 6px 12px;
 	border: 0;
 	border-radius: var(--radius-md);
 	background: none;
@@ -95,9 +122,13 @@
 	background: var(--hover);
 	color: var(--text);
 }
+.item:active {
+	background: var(--active);
+}
 .item[aria-current] {
 	background: var(--active);
 	color: var(--text);
+	box-shadow: var(--glass-edge);
 }
 .ind {
 	display: inline-flex;
@@ -155,14 +186,14 @@
 .beside {
 	position: absolute;
 	top: 50%;
-	right: 6px;
+	right: 8px;
 	display: grid;
 	place-items: center;
-	width: 26px;
-	height: 26px;
+	width: 24px;
+	height: 24px;
 	border: 0;
 	border-radius: var(--radius-sm);
-	background: var(--bg-sidebar);
+	background: transparent;
 	color: var(--text-3);
 	opacity: 0;
 	transform: translateY(-50%);
@@ -179,7 +210,7 @@
 	opacity: 0;
 }
 .beside:hover {
-	background: var(--active);
+	background: var(--hover);
 	color: var(--text);
 }
 .beside[aria-pressed='true'] {
@@ -188,9 +219,9 @@
 .section {
 	display: flex;
 	align-items: center;
-	gap: 6px;
-	margin: 18px 0 4px;
-	padding: 0 10px;
+	gap: 4px;
+	margin: 20px 0 4px;
+	padding: 0 12px;
 	color: var(--text-3);
 	font-size: var(--text-xs);
 	font-weight: var(--weight-medium);
@@ -223,24 +254,24 @@
 	color: var(--text-3);
 }
 .none {
-	margin: 4px 10px;
+	margin: 4px 12px;
 	color: var(--text-4);
 	font-size: var(--text-sm);
 }
 .foot {
 	display: flex;
 	flex-direction: column;
-	gap: 1px;
+	gap: 0;
 	flex: none;
-	padding: 8px 8px 10px;
-	border-top: 1px solid var(--border-soft);
+	padding: 8px 8px 12px;
+	border-top: 1px solid var(--glass-border);
 }
 .link {
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	height: 34px;
-	padding: 0 10px;
+	gap: 12px;
+	height: 36px;
+	padding: 0 12px;
 	border: 0;
 	border-radius: var(--radius-md);
 	background: none;
@@ -248,6 +279,9 @@
 	font-size: var(--text-base);
 	text-align: left;
 	transition: background var(--dur-fast);
+}
+.link:active {
+	background: var(--active);
 }
 .link:hover,
 .link[aria-current] {
@@ -258,7 +292,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	padding: 4px 4px 0 10px;
+	padding: 4px 4px 0 12px;
 }
 .ver {
 	min-width: 0;
@@ -290,6 +324,10 @@
 		z-index: 60;
 		width: min(86vw, 300px);
 		margin-left: 0;
+		/* поверх страницы стекло плотнее — текст под ним не должен мешать */
+		background: var(--glass-window);
+		-webkit-backdrop-filter: var(--glass-blur-strong);
+		backdrop-filter: var(--glass-blur-strong);
 		box-shadow: var(--shadow-window);
 		transform: translateX(-102%);
 		transition: transform var(--dur-move) var(--ease-out);

@@ -23,6 +23,24 @@
 		glyph 1.4s steps(1) infinite,
 		breathe 1.4s var(--ease-in-out) infinite;
 }
+.sp[data-motion='spin']::before {
+	content: '✻';
+	animation: spin 2.8s linear infinite;
+}
+@keyframes spin {
+	0% {
+		transform: rotate(0deg) scale(0.9);
+		opacity: 0.85;
+	}
+	50% {
+		transform: rotate(180deg) scale(1.08);
+		opacity: 1;
+	}
+	100% {
+		transform: rotate(360deg) scale(0.9);
+		opacity: 0.85;
+	}
+}
 @keyframes glyph {
 	0% {
 		content: '·';
@@ -81,7 +99,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.sp::before {
+	.sp::before,
+	.sp[data-motion='spin']::before {
 		animation: none;
 		content: '✻';
 	}

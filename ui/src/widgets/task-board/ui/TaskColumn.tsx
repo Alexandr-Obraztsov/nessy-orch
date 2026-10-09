@@ -14,7 +14,7 @@ import { ALL_AGENTS, NO_TASK, closeColumn, openAgent, useStore } from '@/shared/
 import { Icon, IconButton, Sparkle } from '@/shared/ui'
 import { AgentCard } from '@/widgets/agent-card'
 import type { TaskColumnProps } from '../model/types'
-import { useFlip } from '../model/useFlip'
+import { useFlip } from '@/shared/lib/useFlip'
 import s from './TaskColumn.module.css'
 
 export function TaskColumn({ column, parallel }: TaskColumnProps) {
@@ -39,8 +39,8 @@ export function TaskColumn({ column, parallel }: TaskColumnProps) {
 	const title = column === ALL_AGENTS ? 'Все агенты' : column === NO_TASK ? 'Без задачи' : (task?.title ?? column)
 	const missing = !special && !task
 
-	const card = (a: AgentView) => (
-		<AgentCard key={a.id} agent={a} brief={briefOf(a, first)} taskTitle={column === ALL_AGENTS ? titleOf(a, titles) : null} onOpen={openAgent} />
+	const card = (a: AgentView, i: number) => (
+		<AgentCard key={a.id} agent={a} brief={briefOf(a, first)} taskTitle={column === ALL_AGENTS ? titleOf(a, titles) : undefined} index={i} onOpen={openAgent} />
 	)
 
 	return (
@@ -67,7 +67,10 @@ export function TaskColumn({ column, parallel }: TaskColumnProps) {
 					<div className={s.group} data-open={showDone || undefined}>
 						<button type="button" className={s.groupHead} aria-expanded={showDone} onClick={() => setDoneOpen(!showDone)}>
 							<Icon name="chevronRight" size={13} className={s.chev} />
-							Выполнено <span className={s.n}>· {done.length}</span>
+							Выполнено{' '}
+							<span key={done.length} className={s.n}>
+								· {done.length}
+							</span>
 						</button>
 						<div className={s.groupBody}>
 							<div className={s.groupIn}>{showDone && <div className={s.grid}>{done.map(card)}</div>}</div>

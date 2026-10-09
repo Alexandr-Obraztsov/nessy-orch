@@ -4,6 +4,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { AgentEvent, AgentStreamEvent } from '@contract'
+import { apiUrl } from '@/shared/lib/desktop'
 import type { AgentStreamState, LiveRun } from './types'
 
 const EMPTY: AgentStreamState = { events: [], live: [], agent: null, ready: false, connected: false }
@@ -59,7 +60,7 @@ export function useAgentStream(id: string | null): AgentStreamState {
 		let attempt = 0
 
 		const open = (): void => {
-			es = new EventSource(`/agents/${encodeURIComponent(id)}/stream`)
+			es = new EventSource(apiUrl(`/agents/${encodeURIComponent(id)}/stream`))
 			es.onopen = () => {
 				attempt = 0
 				// сервер заново проигрывает историю — начинаем с чистого листа

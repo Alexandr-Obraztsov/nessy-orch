@@ -4,6 +4,11 @@
  * интерфейс — системный sans, код — моноширинный. Границы вместо теней; тени только у всплывающих окон.
  * Тема: атрибут data-theme="dark|light" на <html> ставит shared/lib/theme.ts
  * (по умолчанию — системная, ручной выбор запоминается). Компоненты используют только эти переменные.
+ *
+ * Стекло (--glass-*): сайдбар, основная область, карточки-плитки, окно агента и поповер — полупрозрачные
+ * поверхности в тон Claude с backdrop-filter. Под ними — --app-bg: в браузере мягкий тёплый градиент,
+ * в приложении (data-desktop на <html>, shared/lib/desktop.ts) — прозрачный фон: стекло даёт система (vibrancy).
+ * Без поддержки backdrop-filter стекло становится плотным (запасной вариант внизу файла).
  */
 :root {
 	/* ---------- шрифты и типошкала ---------- */
@@ -55,7 +60,7 @@
 
 	/* ---------- каркас ---------- */
 	--sidebar-w: 268px;
-	--board-max: 1240px;
+	--board-max: 1400px;
 	--window-max: 920px;
 
 	/* ---------- цвет: тёмная тема (по умолчанию до инициализации) ---------- */
@@ -95,6 +100,27 @@
 	--focus: color-mix(in srgb, var(--accent) 70%, transparent);
 	--shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.25), 0 12px 32px rgba(0, 0, 0, 0.35);
 	--shadow-window: 0 2px 6px rgba(0, 0, 0, 0.25), 0 24px 64px rgba(0, 0, 0, 0.45);
+
+	/* ---------- стекло: тёмная тема ---------- */
+	--app-bg:
+		radial-gradient(1200px 800px at 8% -10%, rgba(217, 119, 87, 0.22), transparent 60%),
+		radial-gradient(900px 700px at 100% 0%, rgba(201, 164, 107, 0.14), transparent 55%),
+		radial-gradient(1000px 900px at 60% 120%, rgba(150, 96, 74, 0.18), transparent 60%),
+		#1c1b1a;
+	--glass-side: rgba(31, 30, 29, 0.5);
+	--glass-main: rgba(38, 38, 36, 0.72);
+	--glass-card: rgba(250, 249, 245, 0.035);
+	--glass-card-hover: rgba(250, 249, 245, 0.06);
+	--glass-inset: rgba(0, 0, 0, 0.16);
+	--glass-window: rgba(36, 36, 34, 0.9);
+	--glass-pop: rgba(36, 35, 33, 0.78);
+	--glass-border: rgba(255, 255, 255, 0.08);
+	--glass-border-hover: rgba(255, 255, 255, 0.14);
+	--glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+	--glass-blur: blur(28px) saturate(1.6);
+	--glass-blur-strong: blur(40px) saturate(1.5);
+	--shadow-tile: 0 1px 2px rgba(0, 0, 0, 0.18), 0 4px 14px rgba(0, 0, 0, 0.14);
+	--shadow-tile-hover: 0 2px 4px rgba(0, 0, 0, 0.2), 0 12px 28px rgba(0, 0, 0, 0.22);
 
 	/* подсветка синтаксиса */
 	--hl-text: #e8e6dc;
@@ -153,6 +179,24 @@
 	--shadow-pop: 0 1px 2px rgba(31, 30, 29, 0.06), 0 12px 32px rgba(31, 30, 29, 0.12);
 	--shadow-window: 0 2px 6px rgba(31, 30, 29, 0.06), 0 24px 64px rgba(31, 30, 29, 0.18);
 
+	--app-bg:
+		radial-gradient(1200px 800px at 8% -10%, rgba(217, 119, 87, 0.2), transparent 60%),
+		radial-gradient(900px 700px at 100% 0%, rgba(214, 186, 140, 0.26), transparent 55%),
+		radial-gradient(1000px 900px at 60% 120%, rgba(217, 160, 130, 0.2), transparent 60%),
+		#f1efe6;
+	--glass-side: rgba(245, 244, 237, 0.55);
+	--glass-main: rgba(250, 249, 245, 0.74);
+	--glass-card: rgba(255, 255, 255, 0.6);
+	--glass-card-hover: rgba(255, 255, 255, 0.8);
+	--glass-inset: rgba(31, 30, 29, 0.035);
+	--glass-window: rgba(250, 249, 245, 0.92);
+	--glass-pop: rgba(248, 247, 242, 0.8);
+	--glass-border: rgba(31, 30, 29, 0.08);
+	--glass-border-hover: rgba(31, 30, 29, 0.14);
+	--glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+	--shadow-tile: 0 1px 2px rgba(31, 30, 29, 0.04), 0 4px 14px rgba(31, 30, 29, 0.05);
+	--shadow-tile-hover: 0 2px 4px rgba(31, 30, 29, 0.05), 0 12px 28px rgba(31, 30, 29, 0.1);
+
 	--hl-text: #29261b;
 	--hl-comment: #8c8a82;
 	--hl-keyword: #b5502e;
@@ -167,6 +211,44 @@
 	--hl-add: #3f7a31;
 	--hl-del-bg: rgba(191, 74, 54, 0.1);
 	--hl-del: #a8402e;
+}
+
+/*
+ * Приложение (Electron): фон прозрачный — под окном системное стекло (vibrancy). Тонировка поверхностей
+ * чуть плотнее, чем в браузере: под ними не наш градиент, а обои и окна пользователя.
+ */
+:root[data-desktop] {
+	--app-bg: transparent;
+	--glass-side: rgba(31, 30, 29, 0.42);
+	--glass-main: rgba(38, 38, 36, 0.78);
+}
+:root[data-desktop][data-theme='light'] {
+	--glass-side: rgba(245, 244, 237, 0.42);
+	--glass-main: rgba(250, 249, 245, 0.8);
+}
+/* приложение на macOS: отступ под «светофор» и высота заголовка окна */
+:root {
+	--titlebar-h: 0px;
+	--traffic-w: 0px;
+}
+:root[data-desktop='window'] {
+	--titlebar-h: 40px;
+}
+:root[data-desktop='window'][data-platform='darwin'] {
+	--traffic-w: 78px;
+}
+
+/* запасной вариант без размытия: стекло становится плотной поверхностью */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+	:root[data-theme][data-theme] {
+		--glass-side: var(--bg-sidebar);
+		--glass-main: var(--bg);
+		--glass-window: var(--window);
+		--glass-pop: var(--bg);
+	}
+	:root[data-theme][data-theme]:not([data-desktop]) {
+		--app-bg: var(--bg);
+	}
 }
 
 /*

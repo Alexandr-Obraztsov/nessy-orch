@@ -57,6 +57,24 @@
 	border-radius: 50%;
 	border: 1.5px solid var(--text-4);
 }
+/* одна строка на шаг: высота окна плана на карточке постоянна */
+.plan[data-lines] {
+	gap: 0;
+}
+.plan[data-lines] .step {
+	align-items: center;
+	height: 20px;
+}
+.plan[data-lines] .text {
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.plan[data-lines] .more {
+	display: flex;
+	align-items: center;
+	height: 20px;
+}
 .more {
 	padding-left: 24px;
 	color: var(--text-3);

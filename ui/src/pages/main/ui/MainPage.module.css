@@ -13,16 +13,14 @@
 }
 .colWrap {
 	min-width: 0;
-	padding: 36px 40px 64px;
-}
-.page[data-cols='1'] .colWrap {
-	padding-top: 44px;
+	/* в приложении сверху уже есть заголовок окна (--titlebar-h) — отступ до заголовка задачи тот же */
+	padding: max(12px, calc(48px - var(--titlebar-h))) 40px 64px;
 }
 .colWrap + .colWrap {
-	border-left: 1px solid var(--border-soft);
+	border-left: 1px solid var(--glass-border);
 }
 .page:not([data-cols='1']) .colWrap {
-	padding: 28px 22px 64px;
+	padding: max(12px, calc(32px - var(--titlebar-h))) 24px 64px;
 }
 @media (max-width: 899px) {
 	.cols {
@@ -35,6 +33,6 @@
 	}
 	.colWrap + .colWrap {
 		border-left: 0;
-		border-top: 1px solid var(--border-soft);
+		border-top: 1px solid var(--glass-border);
 	}
 }

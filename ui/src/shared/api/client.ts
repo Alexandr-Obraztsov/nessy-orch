@@ -3,6 +3,7 @@
  * лишь «Остановить» (cancel хода) и ответ на запрос разрешения. UI раздаётся тем же сервером, поэтому пути относительные
  * (в dev их проксирует Vite). Типы — общие с сервером (`shared/types.ts`).
  */
+import { apiUrl } from '@/shared/lib/desktop'
 import type { AgentView, ApiError, RoleRequest, RoleView, SpaceRequest, SpaceView, StatusResponse } from '@contract'
 
 export class ApiFailure extends Error {
@@ -22,7 +23,7 @@ function isApiError(v: unknown): v is ApiError {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
 	let res: Response
 	try {
-		res = await fetch(path, {
+		res = await fetch(apiUrl(path), {
 			method,
 			headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
 			body: body === undefined ? undefined : JSON.stringify(body),

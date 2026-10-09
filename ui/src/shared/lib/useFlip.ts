@@ -1,10 +1,12 @@
 /**
  * FLIP-анимация карточек: когда порядок меняется (агент запросил разрешение и поднялся, закончил
  * и ушёл в «Выполнено»), каждая карточка плавно едет со старого места на новое (по x и y).
- * Позиции — относительно контейнера. При prefers-reduced-motion — без анимаций.
+ * Позиции — относительно контейнера; карточки помечены data-card. Если карточка при переезде
+ * смонтирована заново (другая группа), её CSS-появление снимаем — едет только FLIP.
+ * При prefers-reduced-motion — без анимаций.
  */
 import { useLayoutEffect, useRef, type RefObject } from 'react'
-import { reducedMotion } from '@/shared/lib/motion'
+import { reducedMotion } from './motion'
 
 const MOVE_MS = 320
 const EASE = 'cubic-bezier(0.2, 0.8, 0.2, 1)'
@@ -43,6 +45,7 @@ export function useFlip(ref: RefObject<HTMLElement>, orderKey: string): void {
 			const dx = was.x - now.x
 			const dy = was.y - now.y
 			if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue
+			for (const a of el.getAnimations()) if (a instanceof CSSAnimation && a.animationName.includes('enter')) a.finish()
 			el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: MOVE_MS, easing: EASE })
 		}
 	})

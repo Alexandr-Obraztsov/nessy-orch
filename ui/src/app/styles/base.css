@@ -11,8 +11,14 @@ body,
 	margin: 0;
 }
 
+html {
+	background: transparent;
+}
+
 body {
-	background: var(--bg);
+	/* в браузере — тёплый градиент под стеклом, в приложении — прозрачный (стекло даёт система) */
+	background: var(--app-bg);
+	background-attachment: fixed;
 	color: var(--text);
 	font-family: var(--font-sans);
 	font-size: var(--text-base);
@@ -79,6 +85,17 @@ kbd {
 	overflow: hidden;
 	clip: rect(0 0 0 0);
 	white-space: nowrap;
+}
+
+/* приложение: шапки окна — область перетаскивания, кнопки и ссылки в них — нет */
+[data-drag] {
+	-webkit-app-region: drag;
+	app-region: drag;
+	user-select: none;
+}
+[data-drag] :is(button, a, input, select, textarea, [role='button'], [tabindex]) {
+	-webkit-app-region: no-drag;
+	app-region: no-drag;
 }
 
 /* анимации выключены целиком: и CSS, и FLIP-переезды карточек (их JS проверяет тот же media query) */

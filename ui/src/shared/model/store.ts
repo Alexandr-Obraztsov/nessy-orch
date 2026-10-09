@@ -6,6 +6,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import type { AgentView, Message, StreamEvent } from '@contract'
+import { apiUrl } from '@/shared/lib/desktop'
 import type { State } from './types'
 
 const MAX_MESSAGES = 2000
@@ -110,7 +111,7 @@ let retryTimer: number | undefined
 export function connect(): void {
 	if (es) return
 	set({ conn: 'connecting' })
-	const src = new EventSource('/stream')
+	const src = new EventSource(apiUrl('/stream'))
 	es = src
 	src.onopen = () => {
 		retry = 0

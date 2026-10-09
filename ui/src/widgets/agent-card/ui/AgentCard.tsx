@@ -1,7 +1,8 @@
 /**
- * Карточка агента (как карточки в Claude): шапка — статус, имя, роль, таймер хода, тихая «Остановить»;
- * поручение целиком (до 4 строк с затуханием), план-чеклист, последняя команда в стиле Claude Code;
- * запрос разрешения — блок «Разрешить / Отклонить», ошибка — её текст, у выполненных — начало итога.
+ * Карточка агента — «стеклянная плитка» с постоянной вертикальной структурой, чтобы карточки в ряду
+ * были ровными: шапка (статус, имя, роль, таймер, тихая «Остановить») → поручение ровно в 3 строки
+ * с затуханием → окно плана в 5 строк («+n») → разделитель → низ, прижатый к низу карточки:
+ * последняя команда, запрос разрешения («Разрешить / Отклонить»), ошибка или начало итога.
  * Клик по карточке открывает окно агента.
  */
 import { memo, useMemo, useRef, type KeyboardEvent, type MouseEvent } from 'react'
@@ -19,12 +20,13 @@ import { Shimmer, Sparkle } from '@/shared/ui'
 import type { AgentCardProps } from '../model/types'
 import s from './AgentCard.module.css'
 
-const PLAN_WINDOW = 6
+/** строк в окне плана (вместе с «+n») — высота окна постоянна */
+const PLAN_LINES = 5
 
 /** Клик по кнопке или ссылке внутри карточки — не открывать окно. */
 const onControl = (t: EventTarget): boolean => t instanceof Element && t.closest('button:not([data-open]), a') !== null
 
-export const AgentCard = memo(function AgentCard({ agent, brief, taskTitle, onOpen }: AgentCardProps) {
+export const AgentCard = memo(function AgentCard({ agent, brief, taskTitle, index = 0, onOpen }: AgentCardProps) {
 	const state = agentState(agent)
 	const role = useRole(agent.role)
 	const live = state === 'working' || state === 'starting' || state === 'wait'
@@ -46,9 +48,16 @@ export const AgentCard = memo(function AgentCard({ agent, brief, taskTitle, onOp
 	}
 
 	return (
-		<article className={s.card} data-card={agent.id} data-state={state} aria-label={`${agent.name}, ${AGENT_STATE_LABEL[state]}`} onClick={open}>
-			<header className={s.head}>
-				<StatusGlyph state={state} size={15} label={AGENT_STATE_LABEL[state]} />
+		<article
+			className={s.card}
+			data-card={agent.id}
+			data-state={state}
+			aria-label={`${agent.name}, ${AGENT_STATE_LABEL[state]}`}
+			style={cssVars({ '--i': Math.min(index, 12) })}
+			onClick={open}
+		>
+			<header className={s.head} data-stoppable={canStop(agent) || undefined}>
+				<StatusGlyph state={state} size={16} label={AGENT_STATE_LABEL[state]} />
 				<button type="button" className={s.name} data-open="" onClick={() => onOpen(agent.id)} onKeyDown={onKey} title={`Открыть ${agent.name}`}>
 					{agent.name}
 				</button>
@@ -58,38 +67,40 @@ export const AgentCard = memo(function AgentCard({ agent, brief, taskTitle, onOp
 					</span>
 				)}
 				<span className={s.sp} />
-				{ms !== null && <span className={s.timer}>{timer(ms)}</span>}
+				<span className={s.timer}>{ms !== null ? timer(ms) : ''}</span>
 				{canStop(agent) && <StopButton agentId={agent.id} iconOnly className={s.stop} />}
 			</header>
 
-			{taskTitle && <div className={s.task}>{taskTitle}</div>}
+			{taskTitle !== undefined && <div className={s.task}>{taskTitle ?? 'Без задачи'}</div>}
 
-			{brief && (
-				<div ref={briefRef} className={s.brief} data-clipped={clipped || undefined}>
-					{brief}
-				</div>
-			)}
+			<div ref={briefRef} className={s.brief} data-clipped={clipped || undefined} data-empty={!brief || undefined}>
+				{brief || 'Поручение ещё не пришло'}
+			</div>
 
-			{entries.length > 0 && <PlanList entries={entries} live={state === 'working'} max={PLAN_WINDOW} className={s.plan} />}
+			<div className={s.plan} data-empty={entries.length === 0 || undefined}>
+				{entries.length > 0 ? <PlanList entries={entries} live={state === 'working'} max={PLAN_LINES} lines /> : <span className={s.planNone}>Плана нет</span>}
+			</div>
 
-			{state === 'wait' && perm && (
-				<div className={s.ask} role="group" aria-label={`${agent.name}: запрос разрешения`}>
-					<div className={s.askTitle}>Просит разрешение</div>
-					<code className={s.askCmd}>{perm.title}</code>
-					<div className={s.askActs}>
-						<PermissionButtons key={perm.requestId} agentId={agent.id} requestId={perm.requestId} />
-						{agent.pendingPermissions.length > 1 && <span className={s.more}>ещё {agent.pendingPermissions.length - 1}</span>}
+			<div className={s.foot}>
+				{state === 'wait' && perm && (
+					<div className={s.ask} role="group" aria-label={`${agent.name}: запрос разрешения`}>
+						<div className={s.askTitle}>Просит разрешение</div>
+						<code className={s.askCmd}>{perm.title}</code>
+						<div className={s.askActs}>
+							<PermissionButtons key={perm.requestId} agentId={agent.id} requestId={perm.requestId} />
+							{agent.pendingPermissions.length > 1 && <span className={s.more}>ещё {agent.pendingPermissions.length - 1}</span>}
+						</div>
 					</div>
-				</div>
-			)}
+				)}
 
-			{(state === 'working' || state === 'starting') && <Now agent={agent} />}
+				{(state === 'working' || state === 'starting') && <Now agent={agent} />}
 
-			{state === 'error' && <div className={s.error}>{agent.error ?? agent.lastReply?.failed ?? 'Ход завершился ошибкой'}</div>}
+				{state === 'error' && <div className={s.error}>{agent.error ?? agent.lastReply?.failed ?? 'Ход завершился ошибкой'}</div>}
 
-			{state === 'done' && <Result agent={agent} />}
+				{state === 'done' && <Result agent={agent} />}
 
-			{state === 'idle' && <div className={s.quiet}>{agent.queued > 0 ? `В очереди: ${plural(agent.queued, 'сообщение', 'сообщения', 'сообщений')}` : 'Ждёт поручения'}</div>}
+				{state === 'idle' && <div className={s.quiet}>{agent.queued > 0 ? `В очереди: ${plural(agent.queued, 'сообщение', 'сообщения', 'сообщений')}` : 'Ждёт поручения'}</div>}
+			</div>
 		</article>
 	)
 })
@@ -123,7 +134,7 @@ function Result({ agent }: Pick<AgentCardProps, 'agent'>) {
 	const text = useReplyText(agent)
 	const parsed = useMemo(() => (text ? parseReply(text) : null), [text])
 	const summary = parsed ? summaryOf(parsed.body) : resultSummary(agent)
-	if (!summary && !parsed?.sources.length) return null
+	if (!summary && !parsed?.sources.length) return <div className={s.quiet}>Готово</div>
 	return (
 		<div className={s.result}>
 			{summary && <p className={s.resultText}>{summary}</p>}
