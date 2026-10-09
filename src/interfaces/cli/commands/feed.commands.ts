@@ -4,8 +4,10 @@ import { flagBool, flagNum } from '../args'
 import type { Parsed } from '../args.types'
 import { asStreamEvent, sse } from '../client'
 import { dim, formatMessage } from '../format'
-import { ep, get, info, json, out } from '../io'
+import { enc, ep, get, info, json, out } from '../io'
 import type { CommandTable } from './command.types'
+import { INBOX_FLAGS } from './flags'
+import { taskOption } from './tasks.commands'
 
 async function cmdFeed(p: Parsed): Promise<void> {
 	const g = await get<GraphView>('/graph')
@@ -32,7 +34,8 @@ async function cmdFeed(p: Parsed): Promise<void> {
 
 async function cmdInbox(p: Parsed): Promise<void> {
 	const wait = flagNum(p, 'wait')
-	const r = await get<InboxResponse>(`/inbox?wait=${wait ?? 0}${flagBool(p, 'peek') ? '&peek=1' : ''}`)
+	const task = taskOption(p)
+	const r = await get<InboxResponse>(`/inbox?wait=${wait ?? 0}${flagBool(p, 'peek') ? '&peek=1' : ''}${task ? `&task=${enc(task)}` : ''}`)
 	if (flagBool(p, 'json')) return json(r)
 	if (!r.messages.length) {
 		info(dim('новых сообщений нет'))
@@ -46,5 +49,5 @@ async function cmdInbox(p: Parsed): Promise<void> {
 
 export const feedCommands: CommandTable = {
 	feed: { run: cmdFeed, spec: { bool: ['json', 'help', 'follow'], value: ['n'], short: { f: 'follow' } } },
-	inbox: { run: cmdInbox, spec: { bool: ['json', 'help', 'peek'], value: ['wait'] } },
+	inbox: { run: cmdInbox, spec: INBOX_FLAGS },
 }

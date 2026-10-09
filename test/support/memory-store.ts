@@ -1,5 +1,5 @@
 /** Хранилище в памяти и поддельный шлюз nessy для unit-тестов прикладного слоя. */
-import type { AgentEvent, Message, RoleView, SpaceView } from '../../shared/types'
+import type { AgentEvent, Message, RoleView, SpaceView, TaskView } from '../../shared/types'
 import type { PersistedState } from '../../src/application/persisted.types'
 import type { NessyGateway, SessionSubscription, SpaceRuntime, StorePort, SubscribeOptions } from '../../src/application/ports'
 
@@ -8,6 +8,7 @@ export class MemoryStore implements StorePort {
 	messages: Message[] = []
 	events = new Map<string, AgentEvent[]>()
 	roles: RoleView[] = []
+	tasks: TaskView[] = []
 	private pending: (() => PersistedState) | null = null
 
 	loadState(): PersistedState {
@@ -30,6 +31,12 @@ export class MemoryStore implements StorePort {
 	}
 	saveRoles(roles: readonly RoleView[]): void {
 		this.roles = structuredClone([...roles])
+	}
+	loadTasks(): TaskView[] {
+		return structuredClone(this.tasks)
+	}
+	saveTasks(tasks: readonly TaskView[]): void {
+		this.tasks = structuredClone([...tasks])
 	}
 	appendMessage(m: Message): void {
 		this.messages.push(m)

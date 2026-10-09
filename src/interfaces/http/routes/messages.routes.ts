@@ -21,6 +21,7 @@ export function registerMessageRoutes(r: Router): void {
 			res,
 			200,
 			await orch.inbox({
+				task: query.get('task') ?? undefined,
 				wait: queryNum(query.get('wait'), 0),
 				peek: query.get('peek') === '1',
 				after: after === null ? undefined : queryNum(after, 0),

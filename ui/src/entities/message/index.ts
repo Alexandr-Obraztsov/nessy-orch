@@ -1,2 +1,5 @@
 export { MarkdownBody } from './ui/MarkdownBody'
-export type { MarkdownBodyProps } from './model/types'
+export { Sources, Verdict } from './ui/Sources'
+export { STATUS_LABEL, hostBadge, parseReply, shortUrl } from './lib/reply'
+export { useReplyText } from './model/useReplyText'
+export type { MarkdownBodyProps, ParsedReply, ReplyStatus, SourceChip } from './model/types'

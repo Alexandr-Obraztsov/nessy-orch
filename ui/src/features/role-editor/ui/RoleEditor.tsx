@@ -3,7 +3,7 @@
  * свойства (цвет, агенты с ролью), инструкции в markdown с предпросмотром.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AGENT_STATE_LABEL, StatusIcon, agentState } from '@/entities/agent'
+import { AGENT_STATE_LABEL, StatusGlyph, agentState } from '@/entities/agent'
 import { ROLE_HUES, roleColor } from '@/entities/role'
 import { renderMarkdown } from '@/shared/lib/markdown'
 import { cssVars } from '@/shared/lib/style'
@@ -172,7 +172,7 @@ export function RoleEditor({ id }: RoleEditorProps) {
 												onClick={() => openAgent(a.id)}
 												title={`${a.name} — ${AGENT_STATE_LABEL[st].toLowerCase()}`}
 											>
-												<StatusIcon state={st} size={14} />
+												<StatusGlyph state={st} size={14} />
 												{a.name}
 											</button>
 										)

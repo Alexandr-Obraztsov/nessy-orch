@@ -87,3 +87,10 @@ export interface RoleSeedResult {
 	added: string[]
 	invalid: string[]
 }
+
+/** Поля новой задачи после проверки (id = null — сгенерировать из заголовка). */
+export interface TaskFields {
+	id: string | null
+	title: string
+	owner: string | null
+}

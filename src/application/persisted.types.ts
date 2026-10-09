@@ -13,6 +13,8 @@ export interface PersistedAgent {
 	name: string
 	space: string
 	parent: string
+	/** id задачи; нет в состояниях старых версий (→ null) */
+	task?: string | null
 	/** id роли; нет в состояниях старых версий */
 	role?: string | null
 	/** в архиве; нет в состояниях старых версий */
@@ -43,4 +45,6 @@ export interface PersistedState {
 	agents: PersistedAgent[]
 	msgSeq: number
 	inboxCursor: number
+	/** курсоры inbox по задачам (id задачи → seq); нет в состояниях старых версий */
+	taskCursors?: Record<string, number>
 }

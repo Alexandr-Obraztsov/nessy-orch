@@ -1,6 +1,6 @@
 /**
  * Feed — общая лента сообщений («группчат»): нумерация, хранение, ожидание ответов (--wait)
- * и входящие для `you` (inbox с курсором и long-poll).
+ * и входящие для `you` (inbox с курсором и long-poll): общий курсор и отдельный курсор на каждую задачу.
  */
 import type { InboxResponse, Message } from '../../shared/types'
 import { YOU } from '../domain/constants'
@@ -13,15 +13,20 @@ export class Feed {
 	private messages: Message[] = []
 	private seq = 0
 	private cursor = 0
+	/** курсоры inbox по задачам: каждый оркестратор читает ответы своей задачи, не сдвигая чужие */
+	private readonly taskCursors = new Map<string, number>()
+	private closed = false
 	private readonly waiters = new Map<string, (reply: Message) => void>()
 	private readonly inboxWaiters = new Set<() => void>()
 
 	constructor(private readonly deps: FeedDeps) {}
 
-	load(msgSeq: number, inboxCursor: number): void {
+	load(msgSeq: number, inboxCursor: number, taskCursors: Readonly<Record<string, number>> = {}): void {
 		this.messages = this.deps.store.loadMessages(MAX_MEMORY_MESSAGES)
 		this.seq = Math.max(msgSeq, ...this.messages.map(m => m.seq), 0)
 		this.cursor = inboxCursor
+		this.taskCursors.clear()
+		for (const [task, c] of Object.entries(taskCursors)) this.taskCursors.set(task, c)
 	}
 
 	get msgSeq(): number {
@@ -30,6 +35,16 @@ export class Feed {
 
 	get inboxCursor(): number {
 		return this.cursor
+	}
+
+	/** Курсоры inbox по задачам (для сохранения). */
+	taskCursorsSnapshot(): Record<string, number> {
+		return Object.fromEntries(this.taskCursors)
+	}
+
+	/** Задачу удалили — её курсор больше не нужен. */
+	forgetTask(task: string): void {
+		if (this.taskCursors.delete(task)) this.deps.onChange()
 	}
 
 	append(draft: MessageDraft): Message {
@@ -87,34 +102,47 @@ export class Feed {
 		return list.slice(-(q.limit ?? 200))
 	}
 
-	/** Входящие для `you`. peek=true не двигает курсор. wait — long-poll (сек). */
+	/**
+	 * Входящие для `you`. peek=true не двигает курсор. wait — long-poll (сек).
+	 * task — только ответы агентов этой задачи, со своим курсором (по умолчанию — с начала ленты).
+	 */
 	async inbox(q: InboxQuery = {}): Promise<InboxResponse> {
-		const after = q.after ?? this.cursor
-		const read = (): Message[] => this.messages.filter(m => m.to === YOU && m.kind === 'reply' && m.seq > after)
+		const task = q.task
+		const after = q.after ?? (task === undefined ? this.cursor : (this.taskCursors.get(task) ?? 0))
+		const mine = (m: Message): boolean => task === undefined || this.deps.taskOf(m.from) === task
+		const read = (): Message[] => this.messages.filter(m => m.to === YOU && m.kind === 'reply' && m.seq > after && mine(m))
 		let list = read()
-		const waitSec = q.wait ?? 0
-		if (!list.length && waitSec > 0) {
-			await new Promise<void>(resolve => {
-				const done = (): void => {
-					clearTimeout(timer)
-					this.inboxWaiters.delete(done)
-					resolve()
-				}
-				const timer = setTimeout(done, waitSec * 1000)
-				this.inboxWaiters.add(done)
-			})
+		const deadline = Date.now() + (q.wait ?? 0) * 1000
+		// будят любые сообщения к you (в том числе чужих задач) — ждём своего до дедлайна
+		while (!list.length && !this.closed && Date.now() < deadline) {
+			await this.sleepUntilMessage(deadline - Date.now())
 			list = read()
 		}
 		const cursor = list.length ? (list[list.length - 1] as Message).seq : after
 		if (!q.peek && q.after === undefined && list.length) {
-			this.cursor = cursor
+			if (task === undefined) this.cursor = cursor
+			else this.taskCursors.set(task, cursor)
 			this.deps.onChange()
 		}
 		return { messages: list, cursor }
 	}
 
+	/** Ждать нового сообщения к you не дольше ms. */
+	private sleepUntilMessage(ms: number): Promise<void> {
+		return new Promise<void>(resolve => {
+			const done = (): void => {
+				clearTimeout(timer)
+				this.inboxWaiters.delete(done)
+				resolve()
+			}
+			const timer = setTimeout(done, ms)
+			this.inboxWaiters.add(done)
+		})
+	}
+
 	/** Освободить висящие long-poll/ожидания (при остановке). */
 	close(): void {
+		this.closed = true
 		for (const wake of [...this.inboxWaiters]) wake()
 	}
 }

@@ -4,7 +4,7 @@ import type { PermissionButtonsProps } from '../model/types'
 import { usePermission } from '../model/usePermission'
 
 /**
- * «Разрешить» / «Отклонить» для запроса разрешения агента. Клик не всплывает к строке таблицы.
+ * «Разрешить» / «Отклонить» для запроса разрешения агента. Клик не всплывает к карточке.
  * Отправленный ответ отмечается микро-анимацией, пока запрос не исчезнет из данных агента.
  */
 export function PermissionButtons({ agentId, requestId, size = 'sm', className }: PermissionButtonsProps) {
@@ -17,9 +17,8 @@ export function PermissionButtons({ agentId, requestId, size = 'sm', className }
 	return (
 		<>
 			<ActionButton
-				tone="ok"
+				tone="accent"
 				size={size}
-				icon="check"
 				className={className}
 				busy={p.busy === 'approve'}
 				pulse={p.sent === 'approve' ? 'pop' : null}
@@ -31,7 +30,6 @@ export function PermissionButtons({ agentId, requestId, size = 'sm', className }
 			</ActionButton>
 			<ActionButton
 				size={size}
-				icon="x"
 				className={className}
 				busy={p.busy === 'deny'}
 				pulse={p.sent === 'deny' ? 'shake' : null}

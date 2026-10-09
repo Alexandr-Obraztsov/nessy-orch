@@ -1,5 +1,5 @@
 /** Форматирование вывода CLI (для человека; для машин есть --json). */
-import type { AgentPlan, AgentView, Message, RoleView, SpaceView } from '../../../shared/types'
+import type { AgentPlan, AgentView, Message, RoleView, SpaceView, TaskView } from '../../../shared/types'
 import { formatPlanLine } from '../../domain/plan'
 
 const tty = process.stdout.isTTY && !process.env['NO_COLOR']
@@ -23,6 +23,8 @@ const STATUS_COLOR: Record<string, (s: string) => string> = {
 	ready: green,
 	failed: red,
 	stopped: dim,
+	active: yellow,
+	done: green,
 }
 export const status = (s: string): string => (STATUS_COLOR[s] ?? ((x: string) => x))(s)
 
@@ -103,4 +105,48 @@ export function planText(plan: AgentPlan): string {
 	const done = plan.entries.filter(e => e.status === 'completed').length
 	const head = dim(`план ${done}/${plan.entries.length} · ${plan.source} · ${plan.updatedAt}`)
 	return [head, ...plan.entries.map(e => (e.status === 'in_progress' ? yellow(formatPlanLine(e)) : e.status === 'completed' ? dim(formatPlanLine(e)) : formatPlanLine(e)))].join('\n')
+}
+
+/** Прогресс плана `x/y` (пусто, если плана нет). */
+export function planProgress(plan: AgentPlan | null): string {
+	if (!plan?.entries.length) return ''
+	return `${plan.entries.filter(e => e.status === 'completed').length}/${plan.entries.length}`
+}
+
+/** Таблица задач; agents — все агенты (для счётчика «работают/всего»). */
+export function tasksTable(tasks: readonly TaskView[], agents: readonly AgentView[], hiddenDone = 0): string {
+	const hint = hiddenDone ? dim(`завершённых: ${hiddenDone} (показать: nessy-orch task ls --all)`) : ''
+	if (!tasks.length) return [dim('активных задач нет. Заведите: nessy-orch task new "<цель>" --owner claude'), hint].filter(Boolean).join('\n')
+	const rows = table(
+		tasks.map(t => {
+			const mine = agents.filter(a => a.task === t.id)
+			const working = mine.filter(a => a.status === 'working').length
+			return [
+				bold(t.id),
+				status(t.status),
+				t.owner ?? dim('—'),
+				`${mine.length}${working ? yellow(` (${working} работ.)`) : ''}`,
+				t.title.slice(0, 60),
+				dim(t.updatedAt.slice(0, 16).replace('T', ' ')),
+			]
+		}),
+		['ID', 'СТАТУС', 'ВЛАДЕЛЕЦ', 'АГЕНТЫ', 'ЗАГОЛОВОК', 'ОБНОВЛЕНА'],
+	)
+	return hint ? `${rows}\n${hint}` : rows
+}
+
+/** Агенты задачи: статус и прогресс плана x/y. */
+export function taskAgentsTable(agents: readonly AgentView[]): string {
+	if (!agents.length) return dim('агентов в задаче нет')
+	return table(
+		agents.map(a => [
+			bold(a.id),
+			a.name === a.id ? dim('—') : a.name,
+			a.role ?? dim('—'),
+			status(a.status) + (a.archived ? dim(' · архив') : '') + (a.pendingPermissions.length ? yellow(' · ждёт разрешения') : ''),
+			planProgress(a.plan) || dim('—'),
+			a.lastTool ? dim(`⚙ ${a.lastTool.name}`) : a.preview ? dim(a.preview.replace(/\s+/g, ' ').slice(0, 50)) : '',
+		]),
+		['ID', 'ИМЯ', 'РОЛЬ', 'СТАТУС', 'ПЛАН', 'ПОСЛЕДНЕЕ'],
+	)
 }

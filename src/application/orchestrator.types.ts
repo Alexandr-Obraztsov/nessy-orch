@@ -9,4 +9,6 @@ export interface OrchestratorDeps {
 	clock?: Clock
 	/** по умолчанию — короткие случайные id */
 	ids?: IdGenerator
+	/** суффикс id задачи; по умолчанию — 4 hex */
+	taskSuffix?: () => string
 }

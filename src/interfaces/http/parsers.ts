@@ -1,6 +1,7 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
-import type { RoleRequest, SendRequest, SpaceRequest, SpawnRequest } from '../../../shared/types'
+import type { RoleRequest, SendRequest, SpaceRequest, SpawnRequest, TaskPatch, TaskRequest, TaskStatus } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
+import { isTaskStatus } from '../../domain/tasks'
 import { isObject } from '../../lib/json'
 
 const optStr = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
@@ -17,6 +18,7 @@ export function parseSpawnRequest(b: unknown): SpawnRequest {
 		space: optStr(b['space']),
 		name: optStr(b['name']),
 		role: optStr(b['role']),
+		task: optStr(b['task']),
 		prompt: optStr(b['prompt']),
 		parent: optStr(b['parent']),
 		from: optStr(b['from']),
@@ -60,4 +62,37 @@ export function parsePlanRequest(b: unknown): { from?: string; entries: unknown[
 /** Решение по разрешению: всё, кроме явного `approve: false`, — разрешить. */
 export function parseApprove(b: unknown): boolean {
 	return !(isObject(b) && b['approve'] === false)
+}
+
+/** Тело новой задачи: title — строка, owner и id — необязательные строки (формат проверяет домен). */
+export function parseTaskRequest(b: unknown): TaskRequest {
+	if (!isObject(b) || typeof b['title'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле title (строка)')
+	const owner = b['owner']
+	if (owner !== undefined && owner !== null && typeof owner !== 'string') throw new AppError(400, 'bad_request', 'owner — строка')
+	const id = b['id']
+	if (id !== undefined && typeof id !== 'string') throw new AppError(400, 'bad_request', 'id — строка')
+	return { title: b['title'], owner: typeof owner === 'string' ? owner : undefined, id }
+}
+
+/** Правка задачи: title — строка, status — active|done, summary — строка или null. */
+export function parseTaskPatch(b: unknown): TaskPatch {
+	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
+	const out: TaskPatch = {}
+	const { title, status, summary } = b
+	if (title !== undefined) {
+		if (typeof title !== 'string') throw new AppError(400, 'bad_request', 'title — строка')
+		out.title = title
+	}
+	if (status !== undefined) out.status = parseTaskStatus(status)
+	if (summary !== undefined) {
+		if (summary !== null && typeof summary !== 'string') throw new AppError(400, 'bad_request', 'summary — строка или null')
+		out.summary = summary
+	}
+	return out
+}
+
+/** Статус задачи из запроса (тело или query): active | done. */
+export function parseTaskStatus(v: unknown): TaskStatus {
+	if (!isTaskStatus(v)) throw new AppError(400, 'bad_request', 'status — active или done')
+	return v
 }

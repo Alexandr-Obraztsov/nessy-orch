@@ -10,7 +10,8 @@ import { agentsTable, bold, dim, green, planText, red, status, time } from '../f
 import { del, enc, ep, get, info, json, out, post } from '../io'
 import { renderEvent } from '../render-event'
 import type { CommandTable } from './command.types'
-import { COMMON, PLAN_FLAGS, SEND_FLAGS, SPAWN_FLAGS, WAIT_FLAGS } from './flags'
+import { ASK_FLAGS, COMMON, LS_FLAGS, PLAN_FLAGS, SEND_FLAGS, SPAWN_FLAGS } from './flags'
+import { taskOption } from './tasks.commands'
 
 /** Пространство задают именем или путём; относительный путь считаем от текущего каталога CLI, а не сервера. */
 function spaceArg(v: string | undefined): string | undefined {
@@ -28,16 +29,19 @@ function printSendResult(p: Parsed, agent: AgentView | null, r: SendResponse): v
 	} else if (r.timedOut) {
 		throw new CliError(`ответ не получен за отведённое время; агент продолжает работу: nessy-orch watch ${agent?.id ?? r.message.to}`, 3)
 	} else {
-		info(dim(`отправлено ${r.message.id} → ${r.message.to}. Ответ придёт в inbox: nessy-orch inbox --wait 60`))
+		const task = agent?.task ? ` --task ${agent.task}` : ''
+		info(dim(`отправлено ${r.message.id} → ${r.message.to}. Ответ придёт в inbox: nessy-orch inbox${task} --wait 60`))
 	}
 }
 
 async function cmdLs(p: Parsed): Promise<void> {
 	const g = await get<GraphView>('/graph')
-	const all = flagBool(p, 'all')
-	const list = all ? g.agents : g.agents.filter(a => !a.archived)
+	const task = taskOption(p)
+	if (task !== undefined && !g.tasks.some(t => t.id === task)) throw new CliError(`задача «${task}» не найдена [no_task]`)
+	const scope = task === undefined ? g.agents : g.agents.filter(a => a.task === task)
+	const list = flagBool(p, 'all') ? scope : scope.filter(a => !a.archived)
 	if (flagBool(p, 'json')) return json(list)
-	out(agentsTable(list, g.spaces, g.roles, g.agents.length - list.length))
+	out(agentsTable(list, g.spaces, g.roles, scope.length - list.length))
 }
 
 async function cmdSpawn(p: Parsed): Promise<void> {
@@ -48,6 +52,7 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 		space: spaceArg(flagStr(p, 'space')),
 		name: flagStr(p, 'name'),
 		role: flagStr(p, 'role'),
+		task: taskOption(p),
 		from: flagStr(p, 'from'),
 		prompt: prompt || undefined,
 		wait,
@@ -75,7 +80,13 @@ async function cmdAsk(p: Parsed): Promise<void> {
 	const [space, ...rest] = p.positionals
 	const prompt = rest.join(' ').trim()
 	if (!space || !prompt) throw new CliError('использование: nessy-orch ask <путь|пространство> "задача"', 2)
-	const r = await post<SpawnResponse>('/agents', { space: spaceArg(space), prompt, wait: true, waitTimeoutSec: flagNum(p, 'timeout') })
+	const r = await post<SpawnResponse>('/agents', {
+		space: spaceArg(space),
+		task: taskOption(p),
+		prompt,
+		wait: true,
+		waitTimeoutSec: flagNum(p, 'timeout'),
+	})
 	printSendResult(p, r.agent, r)
 }
 
@@ -87,7 +98,7 @@ async function cmdShow(p: Parsed): Promise<void> {
 		get<AgentEvent[]>(`/agents/${enc(ref)}/history?limit=${flagNum(p, 'n') ?? 40}`),
 	])
 	if (flagBool(p, 'json')) return json({ agent: a, events: ev })
-	const tags = [a.role ? `роль ${a.role}` : '', a.archived ? 'в архиве' : ''].filter(Boolean).join(', ')
+	const tags = [a.task ? `задача ${a.task}` : '', a.role ? `роль ${a.role}` : '', a.archived ? 'в архиве' : ''].filter(Boolean).join(', ')
 	out(`${bold(a.id)} ${a.name !== a.id ? `(${a.name}) ` : ''}${status(a.status)}${tags ? dim(` [${tags}]`) : ''}  ${a.space}${a.displayName ? `  «${a.displayName}»` : ''}`)
 	for (const e of ev) out(renderEvent(e))
 }
@@ -183,10 +194,10 @@ async function cmdKill(p: Parsed): Promise<void> {
 }
 
 export const agentCommands: CommandTable = {
-	ls: { run: cmdLs, spec: { bool: ['json', 'help', 'all'], short: { a: 'all' } } },
+	ls: { run: cmdLs, spec: LS_FLAGS },
 	spawn: { run: cmdSpawn, spec: SPAWN_FLAGS },
 	send: { run: cmdSend, spec: SEND_FLAGS },
-	ask: { run: cmdAsk, spec: WAIT_FLAGS },
+	ask: { run: cmdAsk, spec: ASK_FLAGS },
 	show: { run: cmdShow, spec: { bool: ['json', 'help'], value: ['n'] } },
 	watch: { run: cmdWatch, spec: COMMON },
 	plan: { run: cmdPlan, spec: PLAN_FLAGS },

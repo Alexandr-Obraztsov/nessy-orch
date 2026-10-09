@@ -3,13 +3,14 @@
  *
  *   <home>/state.json            пространства, агенты, курсоры
  *   <home>/roles.json            роли субагентов
+ *   <home>/tasks.json            задачи оркестраторов
  *   <home>/messages.jsonl        лента сообщений (группчат)
  *   <home>/agents/<id>.jsonl     поток событий агента (мысли, инструменты, текст)
  *   <home>/logs/space-<n>.log    вывод процессов nessy serve
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { AgentEvent, Message, RoleView } from '../../../shared/types'
+import type { AgentEvent, Message, RoleView, TaskView } from '../../../shared/types'
 import type { PersistedAgent, PersistedSpace, PersistedState } from '../../application/persisted.types'
 import type { StorePort } from '../../application/ports'
 import { arr, isObject, parseJson } from '../../lib/json'
@@ -23,6 +24,7 @@ export class FileStore implements StorePort {
 	private readonly statePath: string
 	private readonly msgPath: string
 	private readonly rolesPath: string
+	private readonly tasksPath: string
 	private saveTimer: NodeJS.Timeout | null = null
 	private getState: (() => PersistedState) | null = null
 	private closed = false
@@ -35,6 +37,7 @@ export class FileStore implements StorePort {
 		this.statePath = path.join(home, 'state.json')
 		this.msgPath = path.join(home, 'messages.jsonl')
 		this.rolesPath = path.join(home, 'roles.json')
+		this.tasksPath = path.join(home, 'tasks.json')
 	}
 
 	loadState(): PersistedState {
@@ -45,6 +48,7 @@ export class FileStore implements StorePort {
 			agents: arr(raw['agents']) as PersistedAgent[],
 			msgSeq: typeof raw['msgSeq'] === 'number' ? raw['msgSeq'] : 0,
 			inboxCursor: typeof raw['inboxCursor'] === 'number' ? raw['inboxCursor'] : 0,
+			taskCursors: parseCursors(raw['taskCursors']),
 		}
 	}
 
@@ -85,6 +89,16 @@ export class FileStore implements StorePort {
 
 	saveRoles(roles: readonly RoleView[]): void {
 		if (!this.closed) writeAtomic(this.rolesPath, JSON.stringify({ roles }, null, 2))
+	}
+
+	loadTasks(): TaskView[] {
+		const raw = parseJson(readText(this.tasksPath))
+		const list = isObject(raw) ? arr(raw['tasks']) : arr(raw)
+		return list.filter(isTaskView)
+	}
+
+	saveTasks(tasks: readonly TaskView[]): void {
+		if (!this.closed) writeAtomic(this.tasksPath, JSON.stringify({ tasks }, null, 2))
 	}
 
 	appendMessage(m: Message): void {
@@ -129,4 +143,26 @@ function isRoleView(v: unknown): v is RoleView {
 		typeof v['createdAt'] === 'string' &&
 		typeof v['updatedAt'] === 'string'
 	)
+}
+
+/** Минимальная проверка записи tasks.json (файл могли править руками). */
+function isTaskView(v: unknown): v is TaskView {
+	return (
+		isObject(v) &&
+		typeof v['id'] === 'string' &&
+		typeof v['title'] === 'string' &&
+		(v['owner'] === null || typeof v['owner'] === 'string') &&
+		(v['status'] === 'active' || v['status'] === 'done') &&
+		(v['summary'] === null || typeof v['summary'] === 'string') &&
+		typeof v['createdAt'] === 'string' &&
+		typeof v['updatedAt'] === 'string'
+	)
+}
+
+/** Курсоры inbox по задачам: только числовые значения. */
+function parseCursors(v: unknown): Record<string, number> {
+	const out: Record<string, number> = {}
+	if (!isObject(v)) return out
+	for (const [k, n] of Object.entries(v)) if (typeof n === 'number' && Number.isFinite(n)) out[k] = n
+	return out
 }

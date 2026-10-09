@@ -31,6 +31,8 @@ export class Agent implements AgentIdentity {
 	readonly name: string
 	readonly space: string
 	readonly parent: string
+	/** id задачи (null — вне задач); сбрасывается при удалении задачи */
+	task: string | null
 	/** id роли (роль могли удалить — id остаётся) */
 	readonly role: string | null
 	createdAt: string
@@ -81,6 +83,7 @@ export class Agent implements AgentIdentity {
 		this.name = init.name
 		this.space = init.space
 		this.parent = init.parent
+		this.task = init.task ?? null
 		this.role = init.role ?? null
 		this.status = init.status ?? 'starting'
 		this.createdAt = this.isoNow()
@@ -91,7 +94,7 @@ export class Agent implements AgentIdentity {
 	static restore(p: PersistedAgent, deps: AgentDeps): Agent {
 		let evSeq = p.evSeq
 		for (const e of deps.store.readEvents(p.id, 50)) if (e.seq > evSeq) evSeq = e.seq
-		const a = new Agent({ id: p.id, name: p.name, space: p.space, parent: p.parent, role: p.role ?? null, status: restoredStatus() }, deps, evSeq)
+		const a = new Agent({ id: p.id, name: p.name, space: p.space, parent: p.parent, task: p.task ?? null, role: p.role ?? null, status: restoredStatus() }, deps, evSeq)
 		a.createdAt = p.createdAt
 		a.sessionId = p.sessionId
 		a.displayName = p.displayName
@@ -116,6 +119,7 @@ export class Agent implements AgentIdentity {
 			name: this.name,
 			space: this.space,
 			parent: this.parent,
+			task: this.task,
 			role: this.role,
 			status: this.status,
 			archived: this.archived,
@@ -141,6 +145,7 @@ export class Agent implements AgentIdentity {
 			name: this.name,
 			space: this.space,
 			parent: this.parent,
+			task: this.task,
 			role: this.role,
 			archived: this.archived,
 			createdAt: this.createdAt,
@@ -194,6 +199,13 @@ export class Agent implements AgentIdentity {
 		this.status = status
 		this.error = error
 		this.touch()
+		this.publishNode()
+	}
+
+	/** Перепривязать к задаче (null — вне задач) и опубликовать узел. */
+	setTask(task: string | null): void {
+		if (this.task === task) return
+		this.task = task
 		this.publishNode()
 	}
 

@@ -2,13 +2,13 @@ import { ActionButton } from '@/shared/ui'
 import type { StopButtonProps } from '../model/types'
 import { useStop } from '../model/useStop'
 
-/** Кнопка «Остановить» с подтверждением вторым кликом. Клик не всплывает к строке таблицы. */
+/** Кнопка «Остановить» с подтверждением вторым кликом. Клик не всплывает к карточке. */
 export function StopButton({ agentId, size = 'sm', iconOnly, className }: StopButtonProps) {
 	const m = useStop(agentId)
 	const label = m.armed ? 'Точно?' : 'Остановить'
 	return (
 		<ActionButton
-			tone={m.armed ? 'danger' : 'plain'}
+			tone={m.armed ? 'danger' : iconOnly ? 'quiet' : 'plain'}
 			size={size}
 			icon="stop"
 			className={className}

@@ -1,9 +1,9 @@
 /**
- * Отображаемое состояние агента: одна иконка, одна подпись, одна группа таблицы.
+ * Отображаемое состояние агента: одна иконка, одна подпись, одно место в порядке карточек.
  * Порядок важности: ждёт разрешения → ошибка → работает → запуск → выполнено → свободен.
  */
-import type { AgentView, ToolBrief } from '@contract'
-import type { AgentGroup, AgentState, PlanProgress, StateCounts, ToolLabel } from './state.types'
+import type { AgentView } from '@contract'
+import type { AgentState, PlanProgress } from './state.types'
 
 type StateInput = Pick<AgentView, 'status' | 'archived' | 'pendingPermissions' | 'lastReply'>
 
@@ -25,12 +25,6 @@ export const AGENT_STATE_LABEL: Record<AgentState, string> = {
 	done: 'Выполнено',
 }
 
-/** «Выполнено» — только закончившие задачу; остальные, включая ошибки, — в «Работают». */
-export const groupOf = (s: AgentState): AgentGroup => (s === 'done' ? 'done' : 'work')
-
-/** Требует вашего внимания: запрос разрешения или ошибка (они же — число в заголовке вкладки). */
-export const needsAttention = (s: AgentState): boolean => s === 'wait' || s === 'error'
-
 /** Ход идёт — его можно остановить. */
 export const canStop = (a: Pick<AgentView, 'status'>): boolean => a.status === 'working' || a.status === 'starting'
 
@@ -47,14 +41,6 @@ export function planProgress(a: Pick<AgentView, 'plan'>): PlanProgress | null {
 	}
 }
 
-/** Разбор заголовка инструмента: «Shell: npm test» → { name: 'Shell', arg: 'npm test' }. */
-export function toolLabel(t: ToolBrief | { name: string; title: string }): ToolLabel {
-	const title = t.title.trim()
-	const i = title.indexOf(': ')
-	if (i > 0 && i <= 24) return { name: title.slice(0, i), arg: title.slice(i + 2) }
-	return { name: t.name || title, arg: t.name && title !== t.name ? title : '' }
-}
-
 const time = (iso: string | null): number | null => {
 	if (!iso) return null
 	const t = Date.parse(iso)
@@ -62,7 +48,7 @@ const time = (iso: string | null): number | null => {
 }
 
 /**
- * Время в колонке «Время», мс: у идущего хода — от его начала до «сейчас»,
+ * Таймер хода на карточке, мс: у идущего хода — от его начала до «сейчас»,
  * у закончившего — длительность последнего хода; null — показать «—».
  */
 export function elapsedMs(a: AgentView, now: number): number | null {
@@ -78,16 +64,21 @@ export function resultSummary(a: Pick<AgentView, 'lastReply'>): string {
 	return p.replace(/^(?:итог|ответ|резюме|вердикт)\s*[:—–-]\s*/i, '')
 }
 
-/** Момент, по которому сортируются выполненные (новые сверху). */
-export const finishedAt = (a: AgentView): number => a.lastReply?.ts ?? time(a.lastActivityAt) ?? 0
+/**
+ * Порядок карточек в задаче: ждут разрешения → работают → ошибка → ждут поручения → выполненные.
+ * Внутри ранга — в порядке запуска (карточки не прыгают при каждом событии).
+ */
+const RANK: Record<AgentState, number> = { wait: 0, working: 1, starting: 1, error: 2, idle: 3, done: 4 }
 
-/** Счётчики по состояниям (без фильтров). */
-export function countStates(agents: AgentView[]): StateCounts {
-	const c: StateCounts = { all: agents.length, wait: 0, working: 0, error: 0, done: 0 }
-	for (const a of agents) {
-		const st = agentState(a)
-		if (st === 'wait' || st === 'error' || st === 'done') c[st]++
-		else c.working++
-	}
-	return c
+export function sortCards(agents: AgentView[]): AgentView[] {
+	return agents
+		.map(a => ({ a, r: RANK[agentState(a)], t: time(a.createdAt) ?? 0 }))
+		.sort((x, y) => x.r - y.r || x.t - y.t || x.a.id.localeCompare(y.a.id))
+		.map(x => x.a)
 }
+
+/** Агент ждёт решения человека. */
+export const isWaiting = (a: Pick<AgentView, 'pendingPermissions'>): boolean => a.pendingPermissions.length > 0
+
+/** Агент сейчас работает (ход идёт). */
+export const isLive = (a: Pick<AgentView, 'status'>): boolean => a.status === 'working' || a.status === 'starting'

@@ -10,6 +10,7 @@ import type { ServiceContext } from './context.types'
 import type { MessagingService } from './messaging.service'
 import type { RolesService } from './roles.service'
 import type { SpacesService } from './spaces.service'
+import type { TasksService } from './tasks.service'
 
 export class AgentsService {
 	constructor(
@@ -17,6 +18,7 @@ export class AgentsService {
 		private readonly spaces: SpacesService,
 		private readonly messaging: MessagingService,
 		private readonly roles: RolesService,
+		private readonly tasks: TasksService,
 	) {}
 
 	/** Вводная для нового контекста агента: соседи (архивные помечены) и инструкции роли. */
@@ -34,6 +36,8 @@ export class AgentsService {
 		const from = registry.resolveSender(req.from)
 		const parent = req.parent ?? from
 		const role = req.role?.trim() ? this.roles.resolve(req.role) : null
+		// задача: явная (проверяем существование) или задача родителя — агент, запущенный агентом, наследует её
+		const task = req.task?.trim() ? this.tasks.resolve(req.task).id : (registry.agents.get(parent)?.task ?? null)
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)
 		while (registry.agents.has(id))
@@ -42,9 +46,9 @@ export class AgentsService {
 		const name = explicit || (role ? uniqueName(role.id, n => registry.isNameTaken(n)) : id)
 		if (registry.isNameTaken(name)) throw new AppError(409, 'name_taken', `имя «${name}» уже занято`)
 
-		const agent = new Agent({ id, name, space: space.name, parent, role: role?.id ?? null }, this.ctx.agentDeps)
+		const agent = new Agent({ id, name, space: space.name, parent, task, role: role?.id ?? null }, this.ctx.agentDeps)
 		registry.agents.set(id, agent)
-		agent.addSystem(`агент создан в пространстве «${space.name}» (${space.path})${role ? `, роль «${role.name}»` : ''}`)
+		agent.addSystem(`агент создан в пространстве «${space.name}» (${space.path})${role ? `, роль «${role.name}»` : ''}${task ? `, задача «${task}»` : ''}`)
 		agent.publishNode()
 		this.messaging.postEvent(`${registry.labelOf(from)} создал агента ${registry.labelOf(id)}`, id)
 

@@ -1,23 +1,28 @@
 /*
- * Дизайн-токены nessy-orch (UI v4, «Таблица»). Спокойный деловой вид: нейтральная шкала серого,
- * один синий акцент, четыре цвета статусов, тонкие границы вместо теней, 4px-сетка.
- * Тема: тёмная по умолчанию; светлая — атрибут data-theme="light" на <html>
- * (его ставит shared/lib/theme.ts: ручной выбор или системная тема).
- * Компоненты используют только эти переменные.
+ * Дизайн-токены nessy-orch (UI v5, «как Claude»). Тёплая палитра Claude: бумажный светлый фон
+ * и графитовый тёмный, акцент — терракота, статусы приглушены в тон. Заголовки — serif,
+ * интерфейс — системный sans, код — моноширинный. Границы вместо теней; тени только у всплывающих окон.
+ * Тема: атрибут data-theme="dark|light" на <html> ставит shared/lib/theme.ts
+ * (по умолчанию — системная, ручной выбор запоминается). Компоненты используют только эти переменные.
  */
 :root {
 	/* ---------- шрифты и типошкала ---------- */
-	--font-ui: 'Onest', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-	--font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+	--font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	--font-serif: 'Tiempos Text', 'Copernicus', ui-serif, Georgia, Cambria, 'Times New Roman', serif;
+	--font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+	--font-ui: var(--font-sans);
+
 	--text-xs: 11px;
-	--text-sm: 12px;
-	--text-base: 13px;
-	--text-md: 14px;
-	--text-lg: 16px;
-	--text-xl: 20px;
+	--text-sm: 12.5px;
+	--text-base: 14px;
+	--text-md: 15px;
+	--text-lg: 17px;
+	--text-xl: 22px;
+	--text-2xl: 28px;
+	--text-code: 12.5px;
 	--lh-tight: 1.25;
-	--lh-base: 1.45;
-	--lh-loose: 1.6;
+	--lh-base: 1.5;
+	--lh-loose: 1.65;
 	--weight-medium: 500;
 	--weight-strong: 600;
 
@@ -31,109 +36,137 @@
 	--space-7: 32px;
 	--space-8: 40px;
 
-	/* ---------- радиусы ---------- */
-	--radius-sm: 4px;
-	--radius-md: 6px;
-	--radius-lg: 10px;
-	--radius-xl: 16px;
+	/* ---------- радиусы: 6 / 10 / 14 / 20 ---------- */
+	--radius-xs: 4px;
+	--radius-sm: 6px;
+	--radius-md: 10px;
+	--radius-lg: 14px;
+	--radius-xl: 20px;
 	--radius-pill: 999px;
 
-	/* ---------- движение ---------- */
+	/* ---------- движение: короткие ease-out, как у Claude ---------- */
 	--dur-fast: 120ms;
-	--dur-base: 200ms;
-	--dur-slow: 360ms;
-	/* рост бара прогресса и переезд строк — чуть дольше, чтобы глаз успел проследить */
-	--dur-progress: 700ms;
-	--dur-move: 420ms;
+	--dur-base: 180ms;
+	--dur-slow: 240ms;
+	--dur-move: 320ms;
 	--ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-	/* «пружинистые» появления: бейджи, галочки, счётчики */
-	--ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+	--ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 
-	/* ---------- размеры каркаса ---------- */
-	--topbar-h: 48px;
-	--row-h: 40px;
-	--colhead-h: 32px;
-	--grouphead-h: 32px;
-	--panel-w: 440px;
+	/* ---------- каркас ---------- */
+	--sidebar-w: 268px;
+	--board-max: 1240px;
+	--window-max: 920px;
 
-	/* ---------- цвет: тёмная тема ---------- */
+	/* ---------- цвет: тёмная тема (по умолчанию до инициализации) ---------- */
 	color-scheme: dark;
-	--gray-0: #0b0d11;
-	--gray-1: #10131a;
-	--gray-2: #161a23;
-	--gray-3: #1c212c;
-	--gray-4: #252b39;
-	--gray-5: #2f3647;
-	--gray-6: #3d455b;
-	--gray-7: #525b75;
-	--gray-8: #6f7992;
-	--gray-9: #8f98ad;
-	--gray-10: #adb4c4;
-	--gray-11: #cfd4df;
-	--gray-12: #eff1f6;
+	--bg: #262624;
+	--bg-sidebar: #1f1e1d;
+	--surface: #30302e;
+	--surface-2: #2b2b29;
+	--card: #2a2a28;
+	--card-hover: #2e2e2c;
+	--window: #262624;
+	--code-bg: #1f1e1d;
+	--hover: rgba(222, 220, 209, 0.06);
+	--active: rgba(222, 220, 209, 0.1);
+	--border: rgba(222, 220, 209, 0.12);
+	--border-soft: rgba(222, 220, 209, 0.08);
+	--border-strong: rgba(222, 220, 209, 0.18);
+	--text: #faf9f5;
+	--text-2: #c2c0b6;
+	--text-3: #9c9a92;
+	--text-4: #75736c;
 
-	--accent: #6ea8ff;
-	--accent-strong: #8bb9ff;
-	--accent-ink: #0b1220;
+	--accent: #d97757;
+	--accent-hover: #c6613f;
+	--accent-ink: #ffffff;
+	--accent-soft: rgba(217, 119, 87, 0.14);
+	--accent-text: #e58e6f;
 
-	--status-working: #5aa2ff;
-	--status-wait: #f5b544;
-	--status-error: #ff6b6b;
-	--status-done: #4cc38a;
-	--status-idle: var(--gray-8);
-	/* текст поверх залитого цвета статуса */
-	--on-status: #0b0d11;
+	--status-working: var(--accent);
+	--status-wait: #d9a441;
+	--status-error: #e0705e;
+	--status-done: #8bb17a;
+	--status-idle: #8a887f;
+	--on-status: #1f1e1d;
 
-	--bg: var(--gray-0);
-	--surface: var(--gray-1);
-	--surface-2: var(--gray-2);
-	--hover: var(--gray-3);
-	--border: var(--gray-4);
-	--border-soft: #1b202b;
-	--border-strong: var(--gray-5);
-	--text: var(--gray-12);
-	--text-2: var(--gray-10);
-	--text-3: var(--gray-9);
-	--scrim: rgba(0, 0, 0, 0.5);
-	--focus: var(--accent);
+	--scrim: rgba(12, 11, 10, 0.55);
+	--focus: color-mix(in srgb, var(--accent) 70%, transparent);
+	--shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.25), 0 12px 32px rgba(0, 0, 0, 0.35);
+	--shadow-window: 0 2px 6px rgba(0, 0, 0, 0.25), 0 24px 64px rgba(0, 0, 0, 0.45);
 
-	--shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-	--shadow-2: 0 12px 40px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.4);
+	/* подсветка синтаксиса */
+	--hl-text: #e8e6dc;
+	--hl-comment: #8a877d;
+	--hl-keyword: #e08b6b;
+	--hl-string: #b5c48f;
+	--hl-number: #e0b36a;
+	--hl-title: #e9c98a;
+	--hl-function: #94b8d6;
+	--hl-attr: #c9a3d4;
+	--hl-builtin: #dda07a;
+	--hl-meta: #9c9a92;
+	--hl-add-bg: rgba(139, 177, 122, 0.16);
+	--hl-add: #a9c99a;
+	--hl-del-bg: rgba(224, 112, 94, 0.16);
+	--hl-del: #eb9888;
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
 }
 
 :root[data-theme='light'] {
 	color-scheme: light;
-	--gray-0: #f4f6f9;
-	--gray-1: #ffffff;
-	--gray-2: #f0f2f6;
-	--gray-3: #e7eaf0;
-	--gray-4: #dce0e8;
-	--gray-5: #ccd2dc;
-	--gray-6: #b3bbc9;
-	--gray-7: #8e98ab;
-	--gray-8: #677184;
-	--gray-9: #566073;
-	--gray-10: #3f4858;
-	--gray-11: #2a3140;
-	--gray-12: #12161f;
+	--bg: #faf9f5;
+	--bg-sidebar: #f5f4ed;
+	--surface: #ffffff;
+	--surface-2: #f5f4ed;
+	--card: #ffffff;
+	--card-hover: #fefdfa;
+	--window: #faf9f5;
+	--code-bg: #f5f4ed;
+	--hover: rgba(31, 30, 29, 0.05);
+	--active: rgba(31, 30, 29, 0.08);
+	--border: rgba(31, 30, 29, 0.12);
+	--border-soft: rgba(31, 30, 29, 0.07);
+	--border-strong: rgba(31, 30, 29, 0.18);
+	--text: #141413;
+	--text-2: #3d3d3a;
+	--text-3: #73726c;
+	--text-4: #9c9a92;
 
-	--accent: #1f6feb;
-	--accent-strong: #1858c4;
+	--accent: #d97757;
+	--accent-hover: #c6613f;
 	--accent-ink: #ffffff;
+	--accent-soft: rgba(217, 119, 87, 0.12);
+	--accent-text: #b9542f;
 
-	--status-working: #1f6feb;
-	--status-wait: #a86400;
-	--status-error: #d1242f;
-	--status-done: #1a7f4b;
+	--status-wait: #a8701a;
+	--status-error: #bf4a36;
+	--status-done: #4f8a3f;
+	--status-idle: #8c8a82;
 	--on-status: #ffffff;
 
-	--border-soft: #e9ecf1;
-	--text-3: var(--gray-8);
-	--scrim: rgba(16, 22, 34, 0.32);
+	--scrim: rgba(31, 30, 29, 0.28);
+	--shadow-pop: 0 1px 2px rgba(31, 30, 29, 0.06), 0 12px 32px rgba(31, 30, 29, 0.12);
+	--shadow-window: 0 2px 6px rgba(31, 30, 29, 0.06), 0 24px 64px rgba(31, 30, 29, 0.18);
 
-	--shadow-1: 0 1px 2px rgba(20, 30, 50, 0.08);
-	--shadow-2: 0 12px 40px rgba(20, 30, 50, 0.16), 0 2px 6px rgba(20, 30, 50, 0.08);
+	--hl-text: #29261b;
+	--hl-comment: #8c8a82;
+	--hl-keyword: #b5502e;
+	--hl-string: #4d7a36;
+	--hl-number: #9a6412;
+	--hl-title: #8a5a12;
+	--hl-function: #2f6690;
+	--hl-attr: #7b4a91;
+	--hl-builtin: #a3542b;
+	--hl-meta: #73726c;
+	--hl-add-bg: rgba(79, 138, 63, 0.12);
+	--hl-add: #3f7a31;
+	--hl-del-bg: rgba(191, 74, 54, 0.1);
+	--hl-del: #a8402e;
 }
 
 /*
@@ -141,6 +174,15 @@
  * на прежних именах. Здесь они выражены через новые токены — отдельной палитры у них нет.
  */
 :root {
+	--gray-3: var(--hover);
+	--gray-4: var(--active);
+	--gray-5: var(--border-strong);
+	--gray-6: var(--text-4);
+	--gray-7: var(--text-4);
+	--gray-8: var(--text-3);
+	--gray-9: var(--text-3);
+	--gray-12: var(--text);
+
 	--fs-xs: var(--text-xs);
 	--fs-sm: var(--text-sm);
 	--fs-md: var(--text-base);
@@ -155,7 +197,7 @@
 	--sp-5: var(--space-6);
 	--sp-6: var(--space-7);
 
-	--r-xs: var(--radius-sm);
+	--r-xs: var(--radius-xs);
 	--r-sm: var(--radius-sm);
 	--r-md: var(--radius-md);
 	--r-lg: var(--radius-lg);
@@ -164,22 +206,19 @@
 	--ease: var(--ease-out);
 	--dur: var(--dur-fast);
 
-	--bg-alt: var(--surface);
-	--bg-sidebar: var(--surface);
-	--bg-card: var(--surface);
-	--bg-input: var(--surface-2);
-	--bg-code: var(--surface-2);
+	--bg-alt: var(--surface-2);
+	--bg-card: var(--card);
+	--bg-input: var(--surface);
+	--bg-code: var(--code-bg);
 	--bg-hover: var(--hover);
-	--bg-active: var(--gray-4);
+	--bg-active: var(--active);
 	--overlay: var(--scrim);
 
 	--text-muted: var(--text-2);
 	--text-faint: var(--text-3);
 	--text-on-accent: var(--accent-ink);
 
-	--accent-hover: var(--accent-strong);
-	--accent-text: var(--accent);
-	--accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+	--accent-strong: var(--accent-hover);
 	--accent-ring: color-mix(in srgb, var(--accent) 50%, transparent);
 
 	--danger: var(--status-error);
@@ -188,5 +227,7 @@
 	--warn-soft: color-mix(in srgb, var(--status-wait) 14%, transparent);
 	--success: var(--status-done);
 
-	--shadow-3: var(--shadow-2);
+	--shadow-1: none;
+	--shadow-2: var(--shadow-pop);
+	--shadow-3: var(--shadow-pop);
 }

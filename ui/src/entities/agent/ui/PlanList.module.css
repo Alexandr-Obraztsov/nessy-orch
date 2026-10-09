@@ -1,0 +1,70 @@
+.plan {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+	font-size: var(--text-sm);
+	line-height: 1.45;
+}
+.step {
+	display: grid;
+	grid-template-columns: 16px 1fr;
+	align-items: start;
+	gap: 8px;
+	min-width: 0;
+	animation: in var(--dur-slow) var(--ease-out);
+}
+.mark {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 18px;
+	font-size: 13px;
+}
+.mark svg {
+	width: 14px;
+	height: 14px;
+	stroke: var(--text-3);
+	stroke-width: 1.8;
+}
+.text {
+	min-width: 0;
+	overflow-wrap: anywhere;
+	color: var(--text-2);
+	transition: color var(--dur-base) var(--ease-out);
+}
+.step[data-s='completed'] .text {
+	color: var(--text-3);
+	text-decoration: line-through;
+	text-decoration-color: color-mix(in srgb, var(--text-3) 60%, transparent);
+}
+.step[data-s='in_progress'] .text {
+	color: var(--text);
+	font-weight: var(--weight-medium);
+}
+.cur {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--accent);
+}
+.todo {
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	border: 1.5px solid var(--text-4);
+}
+.more {
+	padding-left: 24px;
+	color: var(--text-3);
+	font-size: var(--text-xs);
+}
+@keyframes in {
+	from {
+		opacity: 0;
+		transform: translateY(2px);
+	}
+}

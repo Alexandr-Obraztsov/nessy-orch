@@ -1,22 +1,23 @@
-/** Страница приложения: панель агентов или справочники (открываются из меню ⚙). */
+/** Страница приложения: панель задач или справочники (ссылки внизу сайдбара). */
 export type Page = { kind: 'main' } | { kind: 'roles'; roleId: string | null } | { kind: 'spaces' }
 
 export type DialogKind = 'space' | null
 
-/** Фильтр по чипам сводки: все, ждут разрешения, работают, ошибки, выполнено. */
-export type StatusFilter = 'all' | 'wait' | 'working' | 'error' | 'done'
-
-/** Группа таблицы агентов. */
-export type GroupKey = 'work' | 'done'
+/**
+ * Колонка основной области: id задачи либо псевдо-задача — ALL_AGENTS («Все агенты»)
+ * или NO_TASK («Без задачи», агенты с task=null).
+ */
+export type ColumnId = string
 
 export interface ViewState {
 	page: Page
-	/** агент, чьи детали открыты справа (на телефоне — снизу) */
-	selectedAgentId: string | null
-	filter: StatusFilter
-	/** скрыть группу «Выполнено» (запоминается) */
-	hideDone: boolean
-	/** свёрнутые группы таблицы (запоминается) */
-	collapsed: GroupKey[]
+	/** открытые рядом колонки (1–3), в порядке слева направо */
+	columns: ColumnId[]
+	/** агент, чьё окно открыто */
+	agentId: string | null
+	/** сайдбар развёрнут (десктоп, запоминается) */
+	sidebar: boolean
+	/** сайдбар выехал поверх (узкий экран) */
+	drawer: boolean
 	dialog: DialogKind
 }

@@ -25,7 +25,7 @@ describe('API: служебное и защита', () => {
 		assert.equal(s.body.autoApprove, true)
 		assert.equal(s.body.pid, process.pid)
 		const g = await h.api<GraphView>('GET', '/graph')
-		assert.deepEqual(g.body, { rev: g.body.rev, spaces: [], agents: [], roles: [] })
+		assert.deepEqual(g.body, { rev: g.body.rev, spaces: [], agents: [], roles: [], tasks: [] })
 		assert.equal(s.body.roles, 0)
 	})
 

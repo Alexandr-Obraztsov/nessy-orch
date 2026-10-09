@@ -1,0 +1,79 @@
+/*
+ * Подсветка синтаксиса (highlight.js) в тон Claude: цвета — токены --hl-* из tokens.css,
+ * поэтому тёмная и светлая темы переключаются сами. Классы hljs-* глобальные — их пишет highlight.js.
+ */
+.hljs {
+	color: var(--hl-text);
+}
+.hljs-comment,
+.hljs-quote {
+	color: var(--hl-comment);
+	font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-section,
+.hljs-name {
+	color: var(--hl-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-symbol,
+.hljs-template-tag,
+.hljs-link {
+	color: var(--hl-string);
+}
+.hljs-number,
+.hljs-bullet,
+.hljs-variable.constant_ {
+	color: var(--hl-number);
+}
+.hljs-title,
+.hljs-title.class_,
+.hljs-type,
+.hljs-selector-id,
+.hljs-selector-class {
+	color: var(--hl-title);
+}
+.hljs-title.function_,
+.hljs-function .hljs-title {
+	color: var(--hl-function);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params {
+	color: var(--hl-attr);
+}
+.hljs-built_in,
+.hljs-builtin-name {
+	color: var(--hl-builtin);
+}
+.hljs-meta,
+.hljs-meta .hljs-keyword,
+.hljs-subst,
+.hljs-punctuation {
+	color: var(--hl-meta);
+}
+.hljs-emphasis {
+	font-style: italic;
+}
+.hljs-strong {
+	font-weight: 600;
+}
+.hljs-addition {
+	display: inline-block;
+	width: 100%;
+	background: var(--hl-add-bg);
+	color: var(--hl-add);
+}
+.hljs-deletion {
+	display: inline-block;
+	width: 100%;
+	background: var(--hl-del-bg);
+	color: var(--hl-del);
+}

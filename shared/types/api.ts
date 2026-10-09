@@ -1,11 +1,12 @@
 /** Тела запросов и ответов REST API. */
-import type { AgentView, Message, NodeId, RoleView, SpaceView } from './domain'
+import type { AgentView, Message, NodeId, RoleView, SpaceView, TaskStatus, TaskView } from './domain'
 
 export interface GraphView {
 	rev: number
 	spaces: SpaceView[]
 	agents: AgentView[]
 	roles: RoleView[]
+	tasks: TaskView[]
 }
 
 export interface SpawnRequest {
@@ -14,6 +15,8 @@ export interface SpawnRequest {
 	name?: string
 	/** id или имя роли */
 	role?: string
+	/** id задачи; по умолчанию — задача родителя (агент, запущенный агентом, наследует её) */
+	task?: string
 	prompt?: string
 	parent?: NodeId
 	from?: NodeId
@@ -69,6 +72,21 @@ export interface RoleRequest {
 	id?: string
 }
 
+/** POST /tasks — завести задачу; PATCH /tasks/:id — переименовать, закрыть, записать итог. */
+export interface TaskRequest {
+	title: string
+	owner?: string
+	/** slug; по умолчанию — из заголовка + короткий суффикс */
+	id?: string
+}
+
+export interface TaskPatch {
+	title?: string
+	status?: TaskStatus
+	summary?: string | null
+}
+
+/** GET /inbox?task=<id> — только ответы агентов этой задачи, со своим курсором на каждую задачу. */
 export interface InboxResponse {
 	messages: Message[]
 	cursor: number

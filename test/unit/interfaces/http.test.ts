@@ -3,7 +3,7 @@ import type * as http from 'node:http'
 import { describe, it } from 'node:test'
 import { AppError } from '../../../src/domain/errors'
 import { assertLocalClient } from '../../../src/interfaces/http/guard'
-import { parseApprove, parseRoleRequest, parseSendRequest, parseSpaceRequest, parseSpawnRequest } from '../../../src/interfaces/http/parsers'
+import { parseApprove, parseRoleRequest, parseSendRequest, parseSpaceRequest, parseSpawnRequest, parseTaskPatch, parseTaskRequest } from '../../../src/interfaces/http/parsers'
 import { queryNum } from '../../../src/interfaces/http/respond'
 import { Router } from '../../../src/interfaces/http/router'
 import { buildRouter } from '../../../src/interfaces/http/server'
@@ -29,7 +29,7 @@ describe('HTTP: маршрутизатор', () => {
 	})
 	it('все маршруты API на месте', () => {
 		const r = buildRouter()
-		assert.deepEqual([...r.roots()].sort(), ['agents', 'graph', 'health', 'inbox', 'messages', 'roles', 'spaces', 'status', 'stream'])
+		assert.deepEqual([...r.roots()].sort(), ['agents', 'graph', 'health', 'inbox', 'messages', 'roles', 'spaces', 'status', 'stream', 'tasks'])
 		const routes: Array<[string, string[]]> = [
 			['GET', ['health']],
 			['GET', ['status']],
@@ -40,6 +40,11 @@ describe('HTTP: маршрутизатор', () => {
 			['DELETE', ['spaces', 'x']],
 			['GET', ['agents']],
 			['POST', ['agents']],
+			['GET', ['tasks']],
+			['POST', ['tasks']],
+			['GET', ['tasks', 'x']],
+			['PATCH', ['tasks', 'x']],
+			['DELETE', ['tasks', 'x']],
 			['GET', ['agents', 'x']],
 			['DELETE', ['agents', 'x']],
 			['GET', ['agents', 'x', 'history']],
@@ -78,10 +83,11 @@ describe('HTTP: разбор тел запросов', () => {
 		assert.equal(errCode(() => parseSpaceRequest({})), '400:bad_request')
 	})
 	it('spawn', () => {
-		assert.deepEqual(parseSpawnRequest({ space: 's', prompt: 'p', role: 'rev', wait: true, waitTimeoutSec: 5, junk: 1 }), {
+		assert.deepEqual(parseSpawnRequest({ space: 's', prompt: 'p', role: 'rev', task: 't-1', wait: true, waitTimeoutSec: 5, junk: 1 }), {
 			space: 's',
 			name: undefined,
 			role: 'rev',
+			task: 't-1',
 			prompt: 'p',
 			parent: undefined,
 			from: undefined,
@@ -99,6 +105,17 @@ describe('HTTP: разбор тел запросов', () => {
 		assert.equal(parseApprove({}), true)
 		assert.equal(parseApprove({ approve: false }), false)
 		assert.equal(parseApprove(null), true)
+	})
+	it('задачи', () => {
+		assert.deepEqual(parseTaskRequest({ title: 'T', owner: 'claude', junk: 1 }), { title: 'T', owner: 'claude', id: undefined })
+		assert.deepEqual(parseTaskRequest({ title: 'T', owner: null, id: 'x' }), { title: 'T', owner: undefined, id: 'x' })
+		assert.equal(errCode(() => parseTaskRequest({})), '400:bad_request')
+		assert.equal(errCode(() => parseTaskRequest({ title: 'T', id: 1 })), '400:bad_request')
+		assert.deepEqual(parseTaskPatch({ status: 'done', summary: null, junk: 1 }), { status: 'done', summary: null })
+		assert.deepEqual(parseTaskPatch({}), {})
+		assert.equal(errCode(() => parseTaskPatch({ status: 'closed' })), '400:bad_request')
+		assert.equal(errCode(() => parseTaskPatch({ summary: 1 })), '400:bad_request')
+		assert.equal(errCode(() => parseTaskPatch(null)), '400:bad_request')
 	})
 	it('роли', () => {
 		assert.deepEqual(parseRoleRequest({ name: 'R', instructions: 'i', color: 10, junk: 1 }), {

@@ -35,10 +35,32 @@ export interface PermissionBrief {
 	title: string
 }
 
+/**
+ * Задача («ящик») — единица работы одного оркестратора (сессии Claude). Каждый Claude заводит свою
+ * задачу и запускает агентов в ней; несколько Claude работают параллельно, не мешая друг другу:
+ * у каждой задачи свой inbox. UI показывает задачи по отдельности или рядом.
+ */
+export type TaskStatus = 'active' | 'done'
+
+export interface TaskView {
+	/** slug: латиница, цифры, дефис (например `fix-ci-3f2a`) */
+	id: string
+	title: string
+	/** кто ведёт задачу: свободная метка оркестратора (например `claude`, имя окна) или null */
+	owner: string | null
+	status: TaskStatus
+	/** итог задачи от оркестратора (task done --summary), markdown */
+	summary: string | null
+	createdAt: string
+	updatedAt: string
+}
+
 export interface AgentView {
 	id: string
 	name: string
 	space: string
+	/** id задачи (TaskView.id) или null — агент вне задач */
+	task: string | null
 	parent: NodeId
 	/** id роли (RoleView.id) или null */
 	role: string | null

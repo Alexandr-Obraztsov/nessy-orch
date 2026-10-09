@@ -1,0 +1,93 @@
+.sp {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: none;
+	width: 1.15em;
+	height: 1.15em;
+	line-height: 1;
+	font-family: var(--font-sans);
+	font-weight: 600;
+	color: var(--accent);
+}
+.sp[data-tone='dim'] {
+	color: var(--text-3);
+}
+.sp[data-tone='inherit'] {
+	color: inherit;
+}
+.sp::before {
+	content: '✻';
+	display: inline-block;
+	animation:
+		glyph 1.4s steps(1) infinite,
+		breathe 1.4s var(--ease-in-out) infinite;
+}
+@keyframes glyph {
+	0% {
+		content: '·';
+	}
+	10% {
+		content: '✢';
+	}
+	20% {
+		content: '✳';
+	}
+	30% {
+		content: '✶';
+	}
+	40% {
+		content: '✻';
+	}
+	50% {
+		content: '✽';
+	}
+	60% {
+		content: '✻';
+	}
+	70% {
+		content: '✶';
+	}
+	80% {
+		content: '✳';
+	}
+	90% {
+		content: '✢';
+	}
+}
+@keyframes breathe {
+	0%,
+	100% {
+		transform: scale(0.92) rotate(0deg);
+	}
+	50% {
+		transform: scale(1.06) rotate(45deg);
+	}
+}
+
+.shimmer {
+	color: transparent;
+	background: linear-gradient(90deg, var(--text-3) 0%, var(--text-3) 38%, var(--text) 50%, var(--text-3) 62%, var(--text-3) 100%);
+	background-size: 300% 100%;
+	background-position: 100% 0;
+	-webkit-background-clip: text;
+	background-clip: text;
+	animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer {
+	to {
+		background-position: 0% 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.sp::before {
+		animation: none;
+		content: '✻';
+	}
+	.shimmer {
+		animation: none;
+		color: var(--text-3);
+		background: none;
+	}
+}

@@ -18,6 +18,10 @@ import type {
 	SpawnResponse,
 	StatusResponse,
 	StreamEvent,
+	TaskPatch,
+	TaskRequest,
+	TaskStatus,
+	TaskView,
 } from '../../shared/types'
 import type { AgentIdentity, MessageDraft, RolePresetFile, RoleSeedResult, TurnOutcome } from '../domain/types'
 import { rid } from '../lib/ids'
@@ -35,6 +39,7 @@ import type { ServiceContext } from './services/context.types'
 import { MessagingService } from './services/messaging.service'
 import { RolesService } from './services/roles.service'
 import { SpacesService } from './services/spaces.service'
+import { TasksService } from './services/tasks.service'
 
 const SNAPSHOT_MESSAGES = 300
 const DEFAULT_CANCEL_GRACE_MS = 3000
@@ -50,6 +55,7 @@ export class Orchestrator implements AgentHost {
 	private readonly messaging: MessagingService
 	private readonly agentsSvc: AgentsService
 	private readonly rolesSvc: RolesService
+	private readonly tasksSvc: TasksService
 	private readonly ctx: ServiceContext
 	private shuttingDown = false
 
@@ -58,7 +64,14 @@ export class Orchestrator implements AgentHost {
 		const ids = deps.ids ?? { next: (len: number) => rid(len) }
 		this.store = deps.store
 		this.startedAt = clock.now()
-		this.feed = new Feed({ hub: this.hub, store: deps.store, clock, ids, onChange: () => this.saveSoon() })
+		this.feed = new Feed({
+			hub: this.hub,
+			store: deps.store,
+			clock,
+			ids,
+			onChange: () => this.saveSoon(),
+			taskOf: id => this.registry.agents.get(id)?.task ?? null,
+		})
 		this.ctx = {
 			registry: this.registry,
 			feed: this.feed,
@@ -82,7 +95,8 @@ export class Orchestrator implements AgentHost {
 		this.spacesSvc = new SpacesService(this.ctx, deps.spaceFactory)
 		this.messaging = new MessagingService(this.ctx)
 		this.rolesSvc = new RolesService(this.ctx)
-		this.agentsSvc = new AgentsService(this.ctx, this.spacesSvc, this.messaging, this.rolesSvc)
+		this.tasksSvc = new TasksService(this.ctx, deps.taskSuffix)
+		this.agentsSvc = new AgentsService(this.ctx, this.spacesSvc, this.messaging, this.rolesSvc, this.tasksSvc)
 	}
 
 	get settings(): OrchestratorDeps['settings'] {
@@ -93,11 +107,16 @@ export class Orchestrator implements AgentHost {
 	load(): void {
 		const st = this.store.loadState()
 		this.rolesSvc.load()
-		this.feed.load(st.msgSeq, st.inboxCursor)
+		this.tasksSvc.load()
+		// курсоры удалённых (пропавших из tasks.json) задач не восстанавливаем
+		const cursors = Object.fromEntries(Object.entries(st.taskCursors ?? {}).filter(([t]) => this.tasksSvc.has(t)))
+		this.feed.load(st.msgSeq, st.inboxCursor, cursors)
 		for (const s of st.spaces) this.registry.spaces.set(s.name, this.spacesSvc.make(s))
 		for (const p of st.agents) {
 			if (!this.registry.spaces.has(p.space)) continue
-			this.registry.agents.set(p.id, Agent.restore(p, this.ctx.agentDeps))
+			// старые состояния без задачи и ссылки на пропавшую задачу → вне задач
+			const task = p.task && this.tasksSvc.has(p.task) ? p.task : null
+			this.registry.agents.set(p.id, Agent.restore({ ...p, task }, this.ctx.agentDeps))
 		}
 	}
 
@@ -121,6 +140,7 @@ export class Orchestrator implements AgentHost {
 			agents: [...this.registry.agents.values()].map(a => a.persist()),
 			msgSeq: this.feed.msgSeq,
 			inboxCursor: this.feed.inboxCursor,
+			taskCursors: this.feed.taskCursorsSnapshot(),
 		}
 	}
 
@@ -236,6 +256,36 @@ export class Orchestrator implements AgentHost {
 		this.rolesSvc.remove(ref)
 	}
 
+	// ---------- задачи ----------
+	listTasks(status?: TaskStatus): TaskView[] {
+		return this.tasksSvc.list(status)
+	}
+
+	getTask(id: string): TaskView {
+		return this.tasksSvc.resolve(id)
+	}
+
+	createTask(req: TaskRequest): TaskView {
+		return this.tasksSvc.create(req)
+	}
+
+	updateTask(id: string, patch: TaskPatch): TaskView {
+		return this.tasksSvc.update(id, patch)
+	}
+
+	/** Удалить задачу (агенты остаются вне задач); 409 task_busy, если в ней работают агенты. */
+	removeTask(id: string): void {
+		this.tasksSvc.remove(id)
+	}
+
+	/** Агенты: все или только задачи `task` (неизвестная задача → 404 no_task). */
+	listAgents(task?: string): AgentView[] {
+		const all = [...this.registry.agents.values()].map(a => a.toJSON())
+		if (task === undefined) return all
+		const id = this.tasksSvc.resolve(task).id
+		return all.filter(a => a.task === id)
+	}
+
 	// ---------- сообщения ----------
 	post(draft: MessageDraft): Message {
 		return this.messaging.post(draft)
@@ -250,7 +300,9 @@ export class Orchestrator implements AgentHost {
 		return this.feed.list({ involving, since: opts.since, limit: opts.limit })
 	}
 
-	inbox(opts: InboxQuery = {}): Promise<InboxResponse> {
+	/** Входящие для you; с task — только ответы агентов задачи, со своим курсором (неизвестная → 404 no_task). */
+	async inbox(opts: InboxQuery = {}): Promise<InboxResponse> {
+		if (opts.task !== undefined) return this.feed.inbox({ ...opts, task: this.tasksSvc.resolve(opts.task).id })
 		return this.feed.inbox(opts)
 	}
 
@@ -261,6 +313,7 @@ export class Orchestrator implements AgentHost {
 			spaces: [...this.registry.spaces.values()].map(s => s.toJSON()),
 			agents: [...this.registry.agents.values()].map(a => a.toJSON()),
 			roles: this.rolesSvc.list(),
+			tasks: this.tasksSvc.list(),
 		}
 	}
 

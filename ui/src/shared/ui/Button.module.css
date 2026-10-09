@@ -3,9 +3,9 @@
 	align-items: center;
 	justify-content: center;
 	gap: 6px;
-	height: 28px;
+	height: 32px;
 	padding: 0 var(--sp-3);
-	border-radius: var(--r-sm);
+	border-radius: 8px;
 	border: 1px solid transparent;
 	font-size: var(--fs-md);
 	font-weight: 500;
@@ -22,11 +22,11 @@
 	cursor: not-allowed;
 }
 .sm {
-	height: 24px;
-	padding: 0 var(--sp-2);
-	gap: 4px;
+	height: 28px;
+	padding: 0 10px;
+	gap: 5px;
 	font-size: var(--fs-sm);
-	border-radius: var(--r-xs);
+	border-radius: 7px;
 }
 .primary {
 	background: var(--accent);
@@ -36,8 +36,8 @@
 	background: var(--accent-hover);
 }
 .secondary {
-	background: var(--bg-input);
-	border-color: var(--border-strong);
+	background: var(--surface);
+	border-color: var(--border);
 	color: var(--text);
 }
 .secondary:hover:not(:disabled) {
@@ -65,11 +65,11 @@
 	color: var(--text-on-accent);
 }
 .icon {
-	width: 28px;
+	width: 32px;
 	padding: 0;
 }
 .icon.sm {
-	width: 24px;
+	width: 28px;
 }
 .spinner {
 	width: 12px;

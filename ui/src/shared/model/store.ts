@@ -1,5 +1,6 @@
 /**
- * Глобальное состояние UI: пространства, агенты, роли и общая лента (из неё — тексты задач и ответов).
+ * Глобальное состояние UI: задачи (ящики оркестраторов), пространства, агенты, роли и общая лента
+ * (из неё — поручения агентов и тексты ответов).
  * Источник — SSE `/stream` (снапшот + изменения). Переподключение с экспоненциальной паузой.
  * Подписка из React — через `useStore(selector)` (useSyncExternalStore).
  */
@@ -15,6 +16,7 @@ let state: State = {
 	spaces: [],
 	agents: [],
 	roles: [],
+	tasks: [],
 	messages: [],
 	lastEventAt: 0,
 }
@@ -59,6 +61,8 @@ function apply(evt: StreamEvent): void {
 				spaces: evt.spaces,
 				agents: evt.agents,
 				roles: evt.roles,
+				// сервер без задач (старая версия) их не присылает
+				tasks: Array.isArray(evt.tasks) ? evt.tasks : [],
 				messages: evt.messages.slice(-MAX_MESSAGES),
 				lastEventAt: now,
 			})
@@ -89,6 +93,12 @@ function apply(evt: StreamEvent): void {
 			return
 		case 'space_removed':
 			set({ rev: evt.rev, spaces: state.spaces.filter(s => s.name !== evt.name), lastEventAt: now })
+			return
+		case 'task':
+			set({ rev: evt.rev, tasks: upsert(state.tasks, evt.task, t => t.id), lastEventAt: now })
+			return
+		case 'task_removed':
+			set({ rev: evt.rev, tasks: state.tasks.filter(t => t.id !== evt.id), lastEventAt: now })
 			return
 	}
 }

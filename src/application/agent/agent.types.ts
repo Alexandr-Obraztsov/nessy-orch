@@ -31,6 +31,8 @@ export interface AgentInit {
 	name: string
 	space: string
 	parent: string
+	/** id задачи (null — вне задач) */
+	task?: string | null
 	role?: string | null
 	status?: AgentStatus
 }

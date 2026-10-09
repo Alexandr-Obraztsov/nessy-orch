@@ -57,6 +57,9 @@ const PATHS = {
 	eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 100-6 3 3 0 000 6z',
 	play: 'M7 4l13 8-13 8z',
 	save: 'M5 3h11l3 3v15H5zM8 3v5h7V3M8 21v-7h8v7',
+	columns: 'M4 5h16v14H4zM12 5v14',
+	monitor: 'M3 5h18v11H3zM8 20h8M12 16v4',
+	panel: 'M4 4h16v16H4zM9.5 4v16M6.2 8h1.2M6.2 11h1.2',
 	bot: 'M12 4v3M5 8h14v11H5zM9 13h.01M15 13h.01M2 13v3M22 13v3',
 } as const
 

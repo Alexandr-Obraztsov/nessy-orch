@@ -1,7 +1,7 @@
 export interface PermissionButtonsProps {
 	agentId: string
 	requestId: string
-	/** sm — в строке таблицы и в панели, lg — крупные кнопки на телефоне */
+	/** sm — на карточке и в окне агента, lg — крупные кнопки на телефоне */
 	size?: 'sm' | 'lg'
 	className?: string
 }
