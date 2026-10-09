@@ -87,6 +87,18 @@ describe('план агента', () => {
 		assert.doesNotMatch(text, /больше 2 шагов/)
 	})
 
+	it('вводная: стандартный формат финального ответа с обязательными источниками', async () => {
+		const id = await spawn(ctx)
+		const text = ctx.orch.preambleFor(ctx.orch.resolveAgent(id))
+		assert.match(text, /\*\*Итог\*\*/)
+		assert.match(text, /\*\*Детали\*\*.*\[n\]/)
+		assert.match(text, /\*\*Источники\*\* — нумерованный список ВСЕХ источников: URL/)
+		assert.match(text, /репозиторий@коммит:путь:строка/)
+		assert.match(text, /\*\*Не проверено \/ риски\*\*/)
+		assert.match(text, /до ~250 слов/)
+		assert.match(text, /Статус: DONE \| DONE_WITH_CONCERNS \| BLOCKED \| NEEDS_CONTEXT/)
+	})
+
 	it('чужой from → 403 forbidden; неверные записи → 400 bad_plan; неизвестный агент → 404', async () => {
 		const id = await spawn(ctx)
 		const other = (await ctx.orch.spawn({ space: 'main', name: 'beta' })).agent.id
