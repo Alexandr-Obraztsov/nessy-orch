@@ -1,0 +1,16 @@
+{
+  "name": "nessy-orch",
+  "description": "Плагины для работы с оркестратором агентов nessy",
+  "owner": {
+    "name": "a.s.obraztsov"
+  },
+  "plugins": [
+    {
+      "name": "nessy",
+      "source": "./plugins/nessy",
+      "description": "Оркестратор над агентами nessy: цикл поручений, рецепты (код, MR, инцидент, Jira, изменения), команды /nessy:ui и /nessy:status",
+      "category": "productivity",
+      "tags": ["nessy", "orchestrator", "agents"]
+    }
+  ]
+}

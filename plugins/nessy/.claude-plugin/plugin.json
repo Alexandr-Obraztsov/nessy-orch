@@ -1,0 +1,11 @@
+{
+  "name": "nessy",
+  "displayName": "nessy",
+  "version": "1.0.0",
+  "description": "Режим оркестратора над агентами nessy (nessy-orch): цикл поручений и проверки, рецепты для вопросов по коду, ревью MR, инцидентов, отчётов Jira и изменений кода, команды /nessy:ui и /nessy:status",
+  "author": {
+    "name": "a.s.obraztsov"
+  },
+  "license": "UNLICENSED",
+  "keywords": ["nessy", "nessy-orch", "orchestrator", "agents", "gitlab", "jira"]
+}

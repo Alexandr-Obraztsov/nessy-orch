@@ -129,16 +129,19 @@ nessy-orch status | open | install [--print] | uninstall
 команд. `send` работающему агенту прерывает его ход (`--queue` — дождаться очереди). `ls` скрывает агентов в архиве,
 `ls --all` показывает всех. Старые алиасы `nessy-ask`, `nessy-jobs`, `nessy-watch` оставлены для совместимости.
 
-## Скилл для Claude: режим оркестратора
+## Плагин для Claude Code
 
-`.claude/skills/nessy-orch/` переводит Claude в роль ведущего. Работая через nessy-orch, Claude не выполняет
-задачу сам, а проходит цикл:
+Репозиторий — маркетплейс плагинов Claude Code (`.claude-plugin/marketplace.json`) с одним плагином `nessy`
+в [`plugins/nessy/`](plugins/nessy/). Плагин переводит Claude в роль ведущего: работая через nessy-orch, Claude
+не выполняет задачу сам, а проходит цикл:
 
-1. Осматривается: `ls --all`, `role ls`.
+0. Сразу пишет пользователю ссылку на панель <http://127.0.0.1:4337>.
+1. Осматривается: `ls --all`, `role ls` (ролей нет — `role import`).
 2. Оценивает объём и делит задачу на независимые части.
 3. Подбирает для каждой части роль.
 4. Пишет самодостаточное поручение: цель, контекст, границы, источники, формат результата, критерий готовности.
-5. Запускает агентов (независимые части параллельно) и собирает ответы через `inbox`.
+5. Запускает агентов (независимые части параллельно) и собирает ответы через `inbox`; ход смотрит по плану
+   агента (`plan`), который сервер требует вести от каждого агента.
 6. Проверяет результат отдельным агентом-`verifier`.
 7. Сводит итог пользователю.
 
@@ -146,23 +149,40 @@ nessy-orch status | open | install [--print] | uninstall
 решает по нему, что делать дальше. Запись во внешние системы (комментарии в GitLab, правки в Jira) разрешена
 только по прямой просьбе пользователя.
 
-| Файл | Что там |
-|---|---|
-| `SKILL.md` | Цикл, выбор роли, шаблон поручения, правила, «красные флаги», ошибки |
-| `references/briefs.md` | Готовые сценарии: вопрос по коду, сбор из нескольких источников, план → исполнение → проверка, ревью MR, инцидент |
-| `references/commands.md` | Полный справочник команд и ошибок |
+### Установка
 
-Подход собран из obra/superpowers, wshobson/agents, oh-my-claudecode и статьи Anthropic о мультиагентной системе
-(см. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). В этом репозитории скилл подхватывается автоматически. Чтобы он работал в любом проекте, установите его
-в пользовательские скиллы Claude Code:
+В Claude Code:
 
-```sh
-npm run skill:install                    # симлинк в ~/.claude/skills/nessy-orch (обновляется вместе с репозиторием)
-bash scripts/install-skill.sh --copy     # копия вместо ссылки
-bash scripts/install-skill.sh --uninstall
+```text
+/plugin marketplace add Alexandr-Obraztsov/nessy-orch      # или git URL, или локальный путь: ./путь/к/nessy-orch
+/plugin install nessy@nessy-orch
 ```
 
-Скрипт подскажет, если `nessy-orch` нет в PATH.
+Из shell — то же самое: `claude plugin marketplace add <источник>` и `claude plugin install nessy@nessy-orch`.
+Обновить: `/plugin marketplace update nessy-orch` (затем `/reload-plugins`), или в `/plugin` → **Marketplaces** →
+**Update marketplace**. Маркетплейс, добавленный из локального каталога, читается на месте: правки в
+`plugins/nessy/` подхватываются после `/reload-plugins`. CLI `nessy-orch` должен быть в PATH (или лежать в
+`~/Projects/nessy-orch/bin/`). Проверить манифесты: `claude plugin validate .`.
+
+### Что внутри
+
+| Компонент | Вызов | Что делает |
+|---|---|---|
+| Скилл `nessy-orch` | `/nessy:nessy-orch`, загружается сам | Цикл оркестратора, выбор роли, шаблон поручения, правила, «красные флаги», ошибки; `references/commands.md` — справочник команд, `references/briefs.md` — общие схемы и указатель рецептов |
+| Скилл `nessy-code-question` | `/nessy:nessy-code-question` | Вопрос по коду чужого репозитория: `code-explorer` (+ `verifier`) |
+| Скилл `nessy-mr-review` | `/nessy:nessy-mr-review` | Ревью MR: `gitlab-mr-reviewer` ‖ `jira-analyst` (+ `security-reviewer`), черновики комментариев без публикации |
+| Скилл `nessy-incident` | `/nessy:nessy-incident` | Инцидент: `debugger` ‖ `wiki-researcher` / `jira-analyst`, хронология и гипотезы |
+| Скилл `nessy-jira-report` | `/nessy:nessy-jira-report` | Сводка задач Jira таблицей: `jira-analyst` |
+| Скилл `nessy-implement` | `/nessy:nessy-implement` | Изменение кода: `analyst` → `executor` → `verifier` |
+| Команда `ui` | `/nessy:ui` | Ссылка на панель и `nessy-orch status` |
+| Команда `status` | `/nessy:status` | `nessy-orch ls --all` и короткая сводка |
+
+Роли в плагин не входят: они живут в [`roles/`](roles/) и загружаются в оркестратор (см. ниже).
+Внутри этого репозитория скилл `nessy-orch` доступен и без установки плагина: `.claude/skills/nessy-orch` —
+симлинк на `plugins/nessy/skills/nessy-orch`.
+
+Подход собран из obra/superpowers, wshobson/agents, oh-my-claudecode и статьи Anthropic о мультиагентной системе
+(см. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 
 ## Роли агентов
 
