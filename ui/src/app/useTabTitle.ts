@@ -1,14 +1,9 @@
-import { useEffect, useMemo } from 'react'
-import { countStates } from '@/entities/agent'
+import { useEffect } from 'react'
 import { useStore } from '@/shared/model'
 
-/** Заголовок вкладки: «(3) nessy-orch», где 3 — запросы разрешений и ошибки (требуют внимания). */
+/** Заголовок вкладки: «(2) nessy-orch», где 2 — запросы разрешений, ждущие вас. */
 export function useTabTitle(): void {
-	const agents = useStore(st => st.agents)
-	const n = useMemo(() => {
-		const c = countStates(agents)
-		return c.wait + c.error
-	}, [agents])
+	const n = useStore(st => st.agents.reduce((k, a) => k + a.pendingPermissions.length, 0))
 	useEffect(() => {
 		document.title = n > 0 ? `(${n}) nessy-orch` : 'nessy-orch'
 	}, [n])

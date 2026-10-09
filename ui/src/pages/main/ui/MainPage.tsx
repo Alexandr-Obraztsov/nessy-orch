@@ -1,48 +1,39 @@
 /**
- * Главный экран: чипы-фильтры, таблица агентов и панель деталей. Панель выезжает справа,
- * таблица плавно сужается и прячет колонки по своей ширине; на телефоне панель — нижний лист.
- * При закрытии содержимое панели остаётся на месте, пока она уезжает.
+ * Главный экран: одна задача или несколько рядом (2–3 колонки, у каждой свой заголовок и карточки),
+ * поверх — окно агента. Агента, которого удалили, окно закрывает само.
  */
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { closeAgent, useStore, useView } from '@/shared/model'
-import { AgentDetail } from '@/widgets/agent-detail'
-import { AgentTable } from '@/widgets/agent-table'
-import { FilterBar } from '@/widgets/filter-bar'
+import { AgentWindow } from '@/widgets/agent-window'
+import { TaskColumn } from '@/widgets/task-board'
 import s from './MainPage.module.css'
 
-const CLOSE_MS = 380
-
 export function MainPage() {
-	const selected = useView(v => v.selectedAgentId)
+	const columns = useView(v => v.columns)
+	const agentId = useView(v => v.agentId)
 	const conn = useStore(st => st.conn)
-	const exists = useStore(st => (selected ? st.agents.some(a => a.id === selected) : false))
-	const [shown, setShown] = useState(selected)
-
-	// агента удалили — закрываем детали (после снапшота, чтобы не закрыть до загрузки)
-	useEffect(() => {
-		if (selected && conn === 'live' && !exists) closeAgent()
-	}, [selected, conn, exists])
+	const exists = useStore(st => (agentId ? st.agents.some(a => a.id === agentId) : false))
 
 	useEffect(() => {
-		if (selected) {
-			setShown(selected)
-			return
+		if (agentId && conn === 'live' && !exists) {
+			// даём снапшоту дойти: агент мог появиться позже ссылки
+			const t = window.setTimeout(closeAgent, 4000)
+			return () => window.clearTimeout(t)
 		}
-		const t = window.setTimeout(() => setShown(null), CLOSE_MS)
-		return () => window.clearTimeout(t)
-	}, [selected])
+		return undefined
+	}, [agentId, conn, exists])
 
-	const open = selected !== null
+	const parallel = columns.length > 1
 	return (
-		<div className={s.page} data-panel={open ? 'open' : undefined}>
-			<FilterBar />
-			<div className={s.main}>
-				<AgentTable />
-				<aside className={s.panel} aria-label="Детали агента" aria-hidden={!open || undefined}>
-					<div className={s.panelIn}>{shown && <AgentDetail agentId={shown} onClose={closeAgent} />}</div>
-				</aside>
+		<main className={s.page} data-cols={columns.length}>
+			<div className={s.cols}>
+				{columns.map(c => (
+					<div key={c} className={s.colWrap}>
+						<TaskColumn column={c} parallel={parallel} />
+					</div>
+				))}
 			</div>
-			<div className={s.scrim} onClick={closeAgent} aria-hidden="true" />
-		</div>
+			<AgentWindow agentId={agentId} onClose={closeAgent} />
+		</main>
 	)
 }

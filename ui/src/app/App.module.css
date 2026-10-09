@@ -1,14 +1,45 @@
 /*
- * Каркас: верхняя строка 48px, ниже — страница на всю оставшуюся высоту.
- * Раскладка рабочего экрана (колонки, журнал, мобильные вкладки) — в pages/main.
+ * Каркас: сайдбар слева (сворачивается; на узком экране выезжает поверх), справа — страница.
  */
 .app {
 	display: flex;
-	flex-direction: column;
 	width: 100%;
 	height: 100vh;
 	height: 100dvh;
 	min-width: 0;
 	overflow: hidden;
 	background: var(--bg);
+}
+.content {
+	position: relative;
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+}
+.strip {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: none;
+	height: 48px;
+	padding: 0 10px;
+	color: var(--text-3);
+}
+.brand {
+	font-family: var(--font-serif);
+	font-size: var(--text-lg);
+	color: var(--text);
+}
+@media (min-width: 900px) {
+	/* на десктопе кнопка не отнимает высоту: висит в левом верхнем углу */
+	.strip {
+		position: absolute;
+		top: 8px;
+		left: 8px;
+		z-index: 5;
+		height: auto;
+		padding: 0;
+	}
 }
