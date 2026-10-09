@@ -22,6 +22,7 @@
     "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm test",
     "start": "npm run build && node dist/src/main.js",
+    "skills:install": "bash scripts/install.sh",
     "demo": "npm run build && NESSY_BIN=$PWD/dist/test/support/fake-nessy.js NESSY_ORCH_HOME=${TMPDIR:-/tmp}/nessy-orch-demo node dist/src/main.js"
   },
   "devDependencies": {

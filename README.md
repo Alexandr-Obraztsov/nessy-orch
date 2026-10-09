@@ -140,8 +140,9 @@ nessy-orch status | open | install [--print] | uninstall
 2. Оценивает объём и делит задачу на независимые части.
 3. Подбирает для каждой части роль.
 4. Пишет самодостаточное поручение: цель, контекст, границы, источники, формат результата, критерий готовности.
-5. Запускает агентов (независимые части параллельно) и собирает ответы через `inbox`; ход смотрит по плану
-   агента (`plan`), который сервер требует вести от каждого агента.
+5. Запускает агентов (независимые части параллельно) и собирает ответы фоновым `inbox --wait`
+   (`run_in_background`): пока агенты работают, Claude не «замерзает» и продолжает разговор, а ответ приходит
+   уведомлением. Ход смотрит по плану агента (`plan`), который сервер требует вести от каждого агента.
 6. Проверяет результат отдельным агентом-`verifier`.
 7. Сводит итог пользователю.
 
@@ -163,6 +164,26 @@ nessy-orch status | open | install [--print] | uninstall
 **Update marketplace**. Маркетплейс, добавленный из локального каталога, читается на месте: правки в
 `plugins/nessy/` подхватываются после `/reload-plugins`. CLI `nessy-orch` должен быть в PATH (или лежать в
 `~/Projects/nessy-orch/bin/`). Проверить манифесты: `claude plugin validate .`.
+
+#### Без плагина: `scripts/install.sh`
+
+Скрипт кладёт скиллы из `plugins/nessy/skills` в любой каталог скиллов — Claude Code (`.claude/skills`) или
+nessy (`.nessy/skills`, устроен так же), глобально или в проект. По умолчанию ставит симлинки, поэтому
+`git pull` обновляет скиллы сам. Чужие скиллы с теми же именами не трогает.
+
+```bash
+scripts/install.sh                          # ~/.claude/skills
+scripts/install.sh nessy                    # ~/.nessy/skills
+scripts/install.sh claude --project ~/Projects/shippy   # ~/Projects/shippy/.claude/skills
+scripts/install.sh nessy --project ~/Projects/shippy    # ~/Projects/shippy/.nessy/skills
+scripts/install.sh --dir ~/somewhere/skills # произвольный каталог
+scripts/install.sh --only nessy-orch,code-question --copy   # выборочно и копиями
+scripts/install.sh nessy --uninstall        # удалить
+scripts/install.sh --list                   # что есть
+```
+
+То же через npm: `npm run skills:install -- nessy --project <путь>`. При установке скиллами (а не плагином)
+они вызываются без префикса: `/nessy-orch`, `/code-question` и т. д.
 
 ### Что внутри
 

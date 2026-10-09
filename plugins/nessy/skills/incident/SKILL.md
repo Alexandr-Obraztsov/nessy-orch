@@ -48,7 +48,7 @@ nessy-orch spawn --space ~/tmp --role jira-analyst --name inc-<тема>-jira "
 Результат: таблица ключ | заголовок | статус | дата | связь с симптомом.
 В конце: строка «Статус: …»."
 
-nessy-orch inbox --wait 600
+nessy-orch inbox --wait 1500   # в фоне (run_in_background)
 ```
 
 Пришёл контекст от wiki или jira — передай важное отладчику, не прерывая:
