@@ -221,14 +221,15 @@ public enum SourceSections {
 public enum WindowSessions {
 	/// - sessions: все сессии; origin — первая сессия окна (сессии окна: она сама и те, у кого `origin` = она).
 	/// Предпочтение: чаты, чьё состояние не «завершён», по свежести хука; затем завершённые (по свежести); затем по `updatedAt`; без сессий — origin.
-	public static func current(_ sessions: [SessionView], origin: String) -> String {
-		let mine = sessions.filter { $0.id == origin || $0.origin == origin }
+	public static func current(_ sessions: [SessionView], origin: String, initial: String? = nil) -> String {
+		// сессии терминала: привязанные к его ключу хуками, а у терминала, открытого по сессии, ещё и она сама и её «семья»
+		let mine = sessions.filter { $0.id == origin || $0.origin == origin || (initial != nil && ($0.id == initial || $0.origin == initial)) }
 		func at(_ s: SessionView) -> String { s.claude?.at ?? "" }
 		let live = mine.filter { $0.claude != nil && $0.claude?.state != .ended }
 		if let best = live.max(by: { at($0) < at($1) }) { return best.id }
 		let ended = mine.filter { $0.claude != nil }
 		if let best = ended.max(by: { at($0) < at($1) }) { return best.id }
 		if let best = mine.max(by: { $0.updatedAt < $1.updatedAt }) { return best.id }
-		return origin
+		return initial ?? origin
 	}
 }

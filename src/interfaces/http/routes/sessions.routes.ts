@@ -22,7 +22,7 @@ export function registerSessionRoutes(r: Router): void {
 		const b = await readBody(req)
 		const o = isObject(b) ? b : {}
 		const str = (k: string): string => (typeof o[k] === 'string' ? o[k] : '')
-		sendJson(res, 200, orch.bindSession(str('claudeSession'), str('session') || null, str('title')))
+		sendJson(res, 200, orch.bindSession(str('claudeSession'), str('session') || null, str('title'), str('terminal') || null))
 	})
 	r.add('POST', '/sessions/:id/ping', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)

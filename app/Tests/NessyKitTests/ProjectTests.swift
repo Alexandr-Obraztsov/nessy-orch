@@ -68,7 +68,8 @@ struct TerminalLaunchTests {
 
 	@Test func nonDefaultPortAndLangFallback() {
 		var b = base; b["LANG"] = "C"; b["PATH"] = "/Users/me/.local/bin:/usr/bin"
-		let e = TerminalLaunch.environment(base: b, sessionId: nil, orchestrator: URL(string: "http://127.0.0.1:4338")!, home: "/Users/me")
+		let e = TerminalLaunch.environment(base: b, sessionId: nil, terminalKey: "term-1", orchestrator: URL(string: "http://127.0.0.1:4338")!, home: "/Users/me")
+		#expect(e["NESSY_ORCH_TERMINAL"] == "term-1", "хуки привязывают сессию чата к терминалу по этому ключу")
 		#expect(e["ORCH_PORT"] == "4338")
 		#expect(e["LANG"] == "en_US.UTF-8")
 		#expect(e["NESSY_ORCH_SESSION"] == nil)

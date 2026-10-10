@@ -101,14 +101,15 @@ export class SessionsService {
 	 * Привязка чата Claude к сессии: уже привязанная к этому чату (resume) → она; иначе заданная `ref`, если она свободна
 	 * (первый запуск в окне приложения); иначе новая сессия (новый чат в том же окне, /clear). Привязка сохраняется на диск.
 	 */
-	bind(claudeId: string, ref: string | null, title: string): SessionView {
+	bind(claudeId: string, ref: string | null, title: string, terminal: string | null = null): SessionView {
 		const id = claudeId.trim()
 		if (!id) throw new AppError(400, 'bad_request', 'claudeSession не задан')
 		const free = ref ? this.sessions.get(ref.trim().toLowerCase()) : undefined
-		const origin = free ? (free.origin ?? free.id) : null
+		// терминал приложения, в котором идёт чат (из окружения хука): по нему окно находит свою сессию без заранее созданной пустой
+		const origin = terminal?.trim() || (free ? (free.origin ?? free.id) : null)
 		const hit = [...this.sessions.values()].find(s => s.claudeId === id)
 		if (hit) {
-			// чат продолжили в другом окне (/resume): сессия переезжает в него
+			// чат продолжили в другом терминале (/resume): сессия переезжает в него
 			if (origin && hit.origin !== origin && hit.id !== origin) {
 				const moved: SessionView = { ...hit, origin }
 				this.put(moved)

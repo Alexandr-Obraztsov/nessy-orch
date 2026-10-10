@@ -70,7 +70,7 @@ extension AppModel {
 	/// `-debug.terminalCommand "<команда>"` — выполнить команду и остаться в оболочке (для проверок).
 	func startTerminal(for win: SessionWindowModel) {
 		prepareShellIntegration()
-		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, orchestrator: AppSettings.serverURL,
+		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, terminalKey: win.key, orchestrator: AppSettings.serverURL,
 										   base: ProcessInfo.processInfo.environment, command: UserDefaults.standard.string(forKey: "debug.terminalCommand"))
 		// папки, выбранные при установке (CLI и Claude Code), — в начало PATH терминала
 		// встроенный `nessy-orch` доступен в терминале приложения без установки: его папка bin — в PATH

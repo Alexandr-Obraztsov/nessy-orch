@@ -30,13 +30,13 @@ const ping = (session: string, state: ClaudeState): Promise<unknown> => post<Ses
  * Сессия оркестратора этого чата Claude: чат (session_id хука, в том числе после /resume) привязывается к сессии один раз и навсегда.
  * Первый чат окна берёт сессию окна (`NESSY_ORCH_SESSION`), следующий (новый чат, /clear) получает новую; без session_id — сессия окна.
  */
-async function bindSession(claudeId: string, windowSession: string): Promise<string> {
-	if (!claudeId) return windowSession
+async function bindSession(claudeId: string, windowSession: string, terminal: string, title: string): Promise<string | null> {
+	if (!claudeId) return windowSession || null
 	try {
-		const s = await post<SessionView>('/sessions/bind', { claudeSession: claudeId, session: windowSession })
+		const s = await post<SessionView>('/sessions/bind', { claudeSession: claudeId, session: windowSession || undefined, terminal: terminal || undefined, title: title || undefined })
 		return s.id
 	} catch {
-		return windowSession
+		return windowSession || null
 	}
 }
 
@@ -51,9 +51,11 @@ function exportSession(session: string): void {
 	}
 }
 
-async function run(event: string, windowSession: string, input: Record<string, unknown>): Promise<void> {
+async function run(event: string, windowSession: string, terminal: string, input: Record<string, unknown>): Promise<void> {
 	const claudeId = typeof input['session_id'] === 'string' ? input['session_id'] : ''
-	const session = await bindSession(claudeId, windowSession)
+	const cwd = typeof input['cwd'] === 'string' ? input['cwd'] : ''
+	const session = await bindSession(claudeId, windowSession, terminal, cwd.split('/').filter(Boolean).pop() ?? '')
+	if (!session) return
 	if (event === 'start') exportSession(session)
 	const roles = (): Promise<RoleView[]> => get<RoleView[]>('/roles').catch(() => [])
 	const updates = (): Promise<SessionUpdates> => get<SessionUpdates>(`/sessions/${enc(session)}/updates?consume=1`)
@@ -88,10 +90,11 @@ async function run(event: string, windowSession: string, input: Record<string, u
 async function cmdHook(p: { positionals: string[] }): Promise<void> {
 	const input = readInput() // прочитать stdin целиком: Claude ждёт, пока хук заберёт ввод
 	const event = p.positionals[0] ?? ''
-	const session = process.env['NESSY_ORCH_SESSION']?.trim()
-	if (!session || !['start', 'prompt', 'stop', 'end'].includes(event)) return
+	const session = process.env['NESSY_ORCH_SESSION']?.trim() ?? ''
+	const terminal = process.env['NESSY_ORCH_TERMINAL']?.trim() ?? ''
+	if ((!session && !terminal) || !['start', 'prompt', 'stop', 'end'].includes(event)) return
 	try {
-		await Promise.race([run(event, session, input), new Promise<void>(resolve => setTimeout(resolve, HOOK_BUDGET_MS).unref())])
+		await Promise.race([run(event, session, terminal, input), new Promise<void>(resolve => setTimeout(resolve, HOOK_BUDGET_MS).unref())])
 	} catch {
 		/* хук не должен ломать Claude */
 	}

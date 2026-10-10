@@ -23,7 +23,8 @@ final class SessionWindowModel {
 	let value: TerminalWindowValue
 	var key: String { value.key }
 	var dir: String { value.dir }
-	/// первая сессия окна (id стабилен); чаты Claude, начатые в этом окне, получают свои сессии с `origin` = она
+	/// сессия, по которой терминал открыт (повторное открытие сессии из уведомления или ссылки); обычный терминал её не знает:
+	/// сессии рождаются по хукам Claude (по `session_id` чата) и привязаны к ключу терминала (`origin` = `key`)
 	private(set) var sessionId: String?
 	/// агент, чья карточка открыта в панели (nil — виден список агентов)
 	private(set) var openAgentId: String?
@@ -44,8 +45,6 @@ final class SessionWindowModel {
 	/// терминал начинается под шапкой
 	var barHeight: CGFloat { 2 * Self.barCenter - 4 }
 	private var started = false
-	/// сессию создало это окно (а не открыло уже существующую)
-	private var createdSession = false
 
 	init(app: AppModel, value: TerminalWindowValue) {
 		self.app = app
@@ -55,11 +54,14 @@ final class SessionWindowModel {
 
 	/// сессия текущего чата Claude этого окна: самая недавно активная среди сессий окна (один чат = одна сессия)
 	var currentSessionId: String? {
-		guard let origin = sessionId else { return nil }
-		return WindowSessions.current(app.store.sessions, origin: origin)
+		let id = WindowSessions.current(app.store.sessions, origin: key, initial: sessionId)
+		return app.store.session(id) == nil ? nil : id
 	}
-	/// сессия относится к этому окну (его первая сессия или чат, начатый в нём)
-	func owns(_ id: String) -> Bool { id == sessionId || app.store.session(id)?.origin == sessionId }
+	/// сессия относится к этому терминалу (открыт по ней или чат Claude шёл в нём)
+	func owns(_ id: String) -> Bool {
+		guard let s = app.store.session(id) else { return id == sessionId }
+		return id == sessionId || s.origin == key || (sessionId != nil && s.origin == sessionId)
+	}
 
 	var session: SessionView? { currentSessionId.flatMap { app.store.session($0) } }
 	var agents: [AgentView] { currentSessionId.map { app.store.agents(inSession: $0) } ?? [] }
@@ -79,21 +81,10 @@ final class SessionWindowModel {
 
 	func toggleAgents() { app.toggleAgents() }
 
-	/// Первый показ окна: сессия оркестратора (если нет) и терминал в папке. Без связи терминал всё равно запускается.
+	/// Первый показ: терминал в папке. Сессию оркестратора заранее не создаём — её заведёт хук SessionStart Claude по `session_id` чата.
 	func bootstrap() async {
 		guard !started else { return }
 		started = true
-		if sessionId == nil {
-			do {
-				let s = try await app.store.client.createSession(title: TerminalLaunch.sessionTitle(directory: dir))
-				app.store.apply(.session(s))
-				sessionId = s.id
-				createdSession = true
-				app.rememberDirectory(dir, session: s.id)
-			} catch {
-				app.flash("Сессия не создана: \(error.localizedDescription)", error: true)
-			}
-		}
 		app.startTerminal(for: self)
 	}
 

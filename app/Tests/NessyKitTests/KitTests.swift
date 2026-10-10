@@ -600,6 +600,14 @@ struct WindowSessionsTests {
 		#expect(WindowSessions.current(list, origin: "w") == "w")
 	}
 
+	@Test func terminalGroupsSessionsByKeyAndReopenedSession() {
+		// сессии терминала — по ключу `origin`; терминал, открытый по сессии, видит её и её семью
+		let list = [s("a", origin: "term-1", state: "idle", at: "2026-10-10T10:00:00Z"), s("b", origin: "term-2", state: "working", at: "2026-10-10T11:00:00Z")]
+		#expect(WindowSessions.current(list, origin: "term-1") == "a")
+		#expect(WindowSessions.current(list, origin: "term-9", initial: "b") == "b")
+		#expect(WindowSessions.current(list, origin: "term-9") == "term-9", "своих сессий ещё нет")
+	}
+
 	@Test func fallsBackToEndedThenUpdatedThenOrigin() {
 		#expect(WindowSessions.current([s("w", state: "ended", at: "2026-10-10T10:00:00Z"), s("b", origin: "w", state: "ended", at: "2026-10-10T10:09:00Z")], origin: "w") == "b")
 		#expect(WindowSessions.current([s("w", updated: "2026-10-10T09:00:00Z"), s("b", origin: "w", updated: "2026-10-10T10:30:00Z")], origin: "w") == "b")

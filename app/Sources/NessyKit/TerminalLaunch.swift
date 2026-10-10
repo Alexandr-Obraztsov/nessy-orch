@@ -20,14 +20,14 @@ public enum TerminalLaunch {
 
 	/// Переменные родителя, которые нельзя тащить в новый терминал: чужая сессия оркестратора и признаки «внутри Claude Code».
 	static let stripped: Set<String> = [
-		"NESSY_ORCH_SESSION", "ORCH_PORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH",
+		"NESSY_ORCH_SESSION", "NESSY_ORCH_TERMINAL", "ORCH_PORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH",
 		"TERM_PROGRAM", "TERM_PROGRAM_VERSION", "TERM_SESSION_ID", "INSIDE_EMACS",
 	]
 
 	/// Окружение терминала: базовое минус чужое, плюс TERM/COLORTERM/LANG, сессия оркестратора и порт (только нестандартный).
 	/// `~/.local/bin` в начале PATH — туда приложение ставит `nessy-orch`, а `claude` обычно лежит там же; login-оболочка
 	/// дополнит PATH из профилей.
-	public static func environment(base: [String: String], sessionId: String?, orchestrator: URL, home: String = NSHomeDirectory()) -> [String: String] {
+	public static func environment(base: [String: String], sessionId: String?, terminalKey: String? = nil, orchestrator: URL, home: String = NSHomeDirectory()) -> [String: String] {
 		var env = base.filter { !stripped.contains($0.key) && !$0.key.hasPrefix("CLAUDE_CODE_") }
 		env["TERM"] = "xterm-256color"
 		env["COLORTERM"] = "truecolor"
@@ -38,6 +38,8 @@ public enum TerminalLaunch {
 		let path = (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
 		env["PATH"] = ([local] + path.filter { $0 != local }).joined(separator: ":")
 		if let sessionId, !sessionId.isEmpty { env["NESSY_ORCH_SESSION"] = sessionId }
+		// ключ терминала приложения: хуки Claude по нему привязывают сессию чата (session_id) к терминалу, сессия заранее не создаётся
+		if let terminalKey, !terminalKey.isEmpty { env["NESSY_ORCH_TERMINAL"] = terminalKey }
 		if let port = orchestrator.port, port != defaultPort { env["ORCH_PORT"] = String(port) }
 		return env
 	}
@@ -46,12 +48,12 @@ public enum TerminalLaunch {
 
 	/// Терминал окна: login-оболочка пользователя (`$SHELL`) в папке, с окружением сессии и прозрачными хуками Claude
 	/// (`ShellIntegration`). `command` — для проверок: выполнить и остаться в оболочке.
-	public static func terminal(directory: String, sessionId: String?, orchestrator: URL, base: [String: String], command: String? = nil,
+	public static func terminal(directory: String, sessionId: String?, terminalKey: String? = nil, orchestrator: URL, base: [String: String], command: String? = nil,
 								home: String = NSHomeDirectory(), fm: FileManager = .default) -> LaunchSpec {
 		let shell = ShellIntegration.userShell(env: base, fm: fm)
 		let kind = ShellIntegration.kind(ofShell: shell)
 		let layout = ShellIntegration.Layout(home: URL(fileURLWithPath: home))
-		var env = environment(base: base, sessionId: sessionId, orchestrator: orchestrator, home: home)
+		var env = environment(base: base, sessionId: sessionId, terminalKey: terminalKey, orchestrator: orchestrator, home: home)
 		env["NESSY_ORCH_DIR"] = directory
 		env["SHELL"] = shell
 		for (k, v) in ShellIntegration.environment(kind: kind, layout: layout, base: base, home: home) { env[k] = v }
