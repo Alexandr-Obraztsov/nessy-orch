@@ -37,20 +37,27 @@ public enum ShellIntegration {
 	// MARK: тексты скриптов
 
 	/// Функция для zsh и bash. Путь к файлу хуков — в одинарных кавычках (с экранированием).
-	public static func claudeFunction(settings: String) -> String {
+	public static func claudeFunction(settings: String, plugin: String? = nil) -> String {
 		let q = ClaudeHooks.shellQuote(settings)
+		let p = pluginArgs(plugin)
 		return """
 		claude() {
 		  if [ -f \(q) ]; then
 		    case " $* " in
 		      *" --settings "*|*" --settings="*) command claude "$@" ;;
-		      *) command claude --settings \(q) "$@" ;;
+		      *) command claude --settings \(q)\(p) "$@" ;;
 		    esac
 		  else
 		    command claude "$@"
 		  fi
 		}
 		"""
+	}
+
+	/// ` --plugin-dir '<путь>'`: плагин nessy со скиллом `nessy-orch` подключается к каждому запуску `claude` из терминала приложения.
+	static func pluginArgs(_ plugin: String?) -> String {
+		guard let plugin, !plugin.isEmpty else { return "" }
+		return " --plugin-dir " + ClaudeHooks.shellQuote(plugin)
 	}
 
 	public static func zshenv() -> String { zshSource(".zshenv", header: "# TClaude-Orch: подгружает настоящий ~/.zshenv, файлы пользователя не меняются") }
@@ -72,7 +79,7 @@ public enum ShellIntegration {
 	}
 
 	/// `.zshrc`: возвращает ZDOTDIR пользователю (дальше zsh читает его `.zlogin` сам), подгружает его `.zshrc`, затем определяет `claude`.
-	public static func zshrc(settings: String) -> String {
+	public static func zshrc(settings: String, plugin: String? = nil) -> String {
 		"""
 		# TClaude-Orch: подгружает настоящий ~/.zshrc и добавляет функцию claude с хуками
 		_nessy_orig="${NESSY_USER_ZDOTDIR:-$HOME}"
@@ -81,13 +88,13 @@ public enum ShellIntegration {
 		[[ "$HISTFILE" == "$_nessy_mine/.zsh_history" ]] && HISTFILE="$_nessy_orig/.zsh_history"
 		[[ -r "$_nessy_orig/.zshrc" ]] && source "$_nessy_orig/.zshrc"
 		unset _nessy_orig _nessy_mine
-		\(claudeFunction(settings: settings))
+		\(claudeFunction(settings: settings, plugin: plugin))
 
 		"""
 	}
 
 	/// Файл для `bash --rcfile`: как login-оболочка (`/etc/profile`, затем первый из `~/.bash_profile`, `~/.bash_login`, `~/.profile`), затем функция.
-	public static func bashrc(settings: String) -> String {
+	public static func bashrc(settings: String, plugin: String? = nil) -> String {
 		"""
 		# TClaude-Orch: запуск как login-оболочка и функция claude с хуками
 		[ -f /etc/profile ] && . /etc/profile
@@ -95,14 +102,15 @@ public enum ShellIntegration {
 		elif [ -f "$HOME/.bash_login" ]; then . "$HOME/.bash_login"
 		elif [ -f "$HOME/.profile" ]; then . "$HOME/.profile"
 		fi
-		\(claudeFunction(settings: settings))
+		\(claudeFunction(settings: settings, plugin: plugin))
 
 		"""
 	}
 
 	/// Запасной вариант для остальных оболочек: исполняемый `claude` в начале PATH; настоящий ищется в PATH без своей папки.
-	public static func wrapper(settings: String) -> String {
+	public static func wrapper(settings: String, plugin: String? = nil) -> String {
 		let q = ClaudeHooks.shellQuote(settings)
+		let p = pluginArgs(plugin)
 		return """
 		#!/bin/sh
 		# TClaude-Orch: claude с хуками оркестратора
@@ -111,7 +119,7 @@ public enum ShellIntegration {
 		if [ -f \(q) ]; then
 		  case " $* " in
 		    *" --settings "*|*" --settings="*) exec claude "$@" ;;
-		    *) exec claude --settings \(q) "$@" ;;
+		    *) exec claude --settings \(q)\(p) "$@" ;;
 		  esac
 		fi
 		exec claude "$@"
@@ -123,21 +131,21 @@ public enum ShellIntegration {
 
 	public struct File: Equatable, Sendable { public var url: URL; public var text: String; public var executable: Bool }
 
-	public static func files(layout: Layout) -> [File] {
+	public static func files(layout: Layout, plugin: String? = nil) -> [File] {
 		let s = layout.hooks.path
 		return [
 			File(url: layout.zdotdir.appendingPathComponent(".zshenv"), text: zshenv(), executable: false),
 			File(url: layout.zdotdir.appendingPathComponent(".zprofile"), text: zprofile(), executable: false),
-			File(url: layout.zdotdir.appendingPathComponent(".zshrc"), text: zshrc(settings: s), executable: false),
-			File(url: layout.bashrc, text: bashrc(settings: s), executable: false),
-			File(url: layout.wrapper, text: wrapper(settings: s), executable: true),
+			File(url: layout.zdotdir.appendingPathComponent(".zshrc"), text: zshrc(settings: s, plugin: plugin), executable: false),
+			File(url: layout.bashrc, text: bashrc(settings: s, plugin: plugin), executable: false),
+			File(url: layout.wrapper, text: wrapper(settings: s, plugin: plugin), executable: true),
 		]
 	}
 
 	/// Записать скрипты (только изменившиеся). Файлы пользователя не трогаются.
-	public static func install(layout: Layout) throws {
+	public static func install(layout: Layout, plugin: String? = nil) throws {
 		let fm = FileManager.default
-		for f in files(layout: layout) {
+		for f in files(layout: layout, plugin: plugin) {
 			if (try? String(contentsOf: f.url, encoding: .utf8)) == f.text { continue }
 			try fm.createDirectory(at: f.url.deletingLastPathComponent(), withIntermediateDirectories: true)
 			try f.text.write(to: f.url, atomically: true, encoding: .utf8)

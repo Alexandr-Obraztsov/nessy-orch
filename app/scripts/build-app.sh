@@ -23,6 +23,9 @@ cp -R "$ROOT/dist/src" "$ORCH/dist/src"
 cp -R "$ROOT/dist/shared" "$ORCH/dist/shared"
 cp -R "$ROOT/roles" "$ORCH/roles"
 cp "$ROOT/package.json" "$ORCH/package.json"
+# плагин nessy (скилл nessy-orch): терминал приложения запускает claude с --plugin-dir на эту копию
+mkdir -p "$ORCH/plugin"
+cp -R "$ROOT/plugins/nessy/." "$ORCH/plugin/"
 cp "$ROOT/bin/nessy-orch" "$ORCH/bin/nessy-orch"
 chmod +x "$ORCH/bin/nessy-orch" "$ORCH/dist/src/main.js" "$ORCH/dist/src/interfaces/cli/main.js"
 

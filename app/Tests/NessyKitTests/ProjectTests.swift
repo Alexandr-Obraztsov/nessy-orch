@@ -115,6 +115,13 @@ struct TerminalLaunchTests {
 struct ShellIntegrationTests {
 	let layout = ShellIntegration.Layout(home: URL(fileURLWithPath: "/Users/me"))
 
+	@Test func pluginDirIsPassedToClaudeWhenPresent() {
+		let f = ShellIntegration.claudeFunction(settings: "/s.json", plugin: "/App/orch/plugin")
+		#expect(f.contains("--settings '/s.json' --plugin-dir '/App/orch/plugin'"))
+		#expect(!ShellIntegration.claudeFunction(settings: "/s.json").contains("--plugin-dir"))
+		#expect(ShellIntegration.wrapper(settings: "/s.json", plugin: "/p").contains("--plugin-dir '/p'"))
+	}
+
 	@Test func shellKinds() {
 		#expect(ShellIntegration.kind(ofShell: "/bin/zsh") == .zsh)
 		#expect(ShellIntegration.kind(ofShell: "/opt/homebrew/bin/bash") == .bash)

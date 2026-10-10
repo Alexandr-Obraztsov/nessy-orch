@@ -40,6 +40,7 @@ export function startContext(session: SessionView, roles: readonly RoleView[]): 
 	const list = roles.length ? roles.map(r => `${r.id}${r.description ? ` — ${r.description}` : ''}`).join('; ') : 'ролей нет (nessy-orch role import)'
 	return [
 		`[TClaude-Orch] Ты запущен из приложения TClaude-Orch. Сессия оркестратора уже создана: ${session.id} «${session.title}» (переменная NESSY_ORCH_SESSION) — новую не заводи.`,
+		`Скилл nessy-orch подключён приложением (плагин nessy): загрузи его (Skill → nessy:nessy-orch) перед первым поручением агентам и работай по его циклу.`,
 		`Работай оркестратором: делегируй агентам nessy командами \`nessy-orch spawn --session ${session.id} --role <роль> "<поручение>"\` или \`nessy-orch spawn-many\` (несколько за раз); сам исполнение не делай.`,
 		`Ответы агентов и сводка по ним приходят в контекст автоматически (перед твоим ходом и при остановке), опрашивать inbox не нужно.`,
 		`Роли: ${list}.`,

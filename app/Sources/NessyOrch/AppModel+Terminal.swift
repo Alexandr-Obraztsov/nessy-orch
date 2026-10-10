@@ -57,7 +57,10 @@ extension AppModel {
 		else { path = cli.linkPath }
 		do {
 			try ClaudeHooks.write(cli: path)
-			try ShellIntegration.install(layout: ShellIntegration.Layout(home: FileManager.default.homeDirectoryForCurrentUser))
+			// плагин nessy (скилл `nessy-orch`) лежит в приложении: `claude --plugin-dir` подключает его в любой папке проекта
+			let plugin = Bundle.main.resourceURL?.appendingPathComponent("orch/plugin").path
+			let pluginDir = plugin.flatMap { FileManager.default.fileExists(atPath: $0 + "/.claude-plugin/plugin.json") ? $0 : nil }
+			try ShellIntegration.install(layout: ShellIntegration.Layout(home: FileManager.default.homeDirectoryForCurrentUser), plugin: pluginDir)
 		} catch {
 			flash("Хуки Claude не подключены: \(error.localizedDescription)", error: true)
 		}

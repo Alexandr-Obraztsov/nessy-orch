@@ -67,9 +67,14 @@ struct SettingsButton: View {
 	}
 }
 
-/// Нет открытых проектов: вместо терминала просьба открыть папку.
+/// Нет открытых проектов: просьба открыть папку и список последних открытых.
 struct NoProjectView: View {
 	@Environment(AppModel.self) private var model
+
+	private var recent: [String] {
+		model.recentProjects.filter { FileManager.default.fileExists(atPath: $0) }.prefix(6).map { $0 }
+	}
+
 	var body: some View {
 		VStack(spacing: DS.Metrics.s3) {
 			Image(systemName: "folder.badge.plus").font(.system(size: 34, weight: .light)).foregroundStyle(DS.Palette.textTertiary)
@@ -80,8 +85,45 @@ struct NoProjectView: View {
 				.buttonStyle(.plain).foregroundStyle(DS.Palette.accentText).font(DS.Typography.secondary.weight(.medium))
 				.padding(.top, DS.Metrics.s1)
 			Text(Hotkeys.shared.display(.openFolder)).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+			if !recent.isEmpty {
+				VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+					Text("Последние").font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.textTertiary)
+						.padding(.horizontal, DS.Metrics.s3)
+					VStack(spacing: 0) {
+						ForEach(Array(recent.enumerated()), id: \.element) { i, dir in
+							if i > 0 { DSSeparator(leading: DS.Metrics.s3) }
+							RecentRow(dir: dir) { model.openTerminal(dir: dir) }
+						}
+					}
+					.dsGroup()
+				}
+				.frame(maxWidth: 420)
+				.padding(.top, DS.Metrics.s5)
+			}
 		}
 		.padding(DS.Metrics.s6)
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
+	}
+}
+
+private struct RecentRow: View {
+	var dir: String
+	var action: () -> Void
+	@State private var hover = false
+	var body: some View {
+		Button(action: action) {
+			HStack(spacing: DS.Metrics.s3) {
+				Image(systemName: "folder").foregroundStyle(DS.Palette.textSecondary)
+				Text(Projects.name(ofPath: dir)).font(DS.Typography.secondary.weight(.medium)).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
+				Spacer(minLength: DS.Metrics.s2)
+				Text(dir.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+					.lineLimit(1).truncationMode(.head)
+			}
+			.padding(.horizontal, DS.Metrics.s3).frame(height: 38)
+			.background(hover ? DS.Palette.hover : .clear)
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain).focusEffectDisabled()
+		.onHover { hover = $0 }
 	}
 }

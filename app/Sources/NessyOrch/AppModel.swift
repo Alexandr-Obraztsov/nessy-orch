@@ -17,6 +17,8 @@ final class AppModel {
 	let store: OrchStore
 	/// проекты приложения в порядке открытия: окно одно, в нём переключаются терминалы и их сессии оркестратора
 	private(set) var tabs: [SessionWindowModel] = []
+	/// последние открытые папки (новые первыми), для начального экрана
+	private(set) var recentProjects: [String] = UserDefaults.standard.stringArray(forKey: "recentProjects") ?? []
 	/// ключ проекта, который сейчас показан
 	private(set) var activeKey: String?
 	/// проект, который сейчас показан (команды меню действуют на него)
@@ -150,7 +152,14 @@ final class AppModel {
 		showMainWindow()
 	}
 
+	private func rememberRecent(_ dir: String) {
+		guard !dir.isEmpty, dir != NSHomeDirectory() else { return }
+		recentProjects = Array(([dir] + recentProjects.filter { $0 != dir }).prefix(10))
+		UserDefaults.standard.set(recentProjects, forKey: "recentProjects")
+	}
+
 	private func add(_ value: TerminalWindowValue) {
+		rememberRecent(value.dir)
 		let w = SessionWindowModel(app: self, value: value)
 		tabs.append(w)
 		withAnimation(dsAnimation(DS.Motion.panel)) { activeKey = w.key }
