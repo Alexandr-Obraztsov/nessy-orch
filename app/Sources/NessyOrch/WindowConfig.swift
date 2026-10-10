@@ -67,7 +67,11 @@ struct WindowConfigurator: NSViewRepresentable {
 			}
 			tokens.append(nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.measure(w) } })
 			model?.isFullScreen = w.styleMask.contains(.fullScreen)
-			DispatchQueue.main.async { [weak self] in self?.measure(w) }
+			// система переставляет светофор после показа окна, смены ключевого окна и масштаба: выравниваем несколько раз
+			for d in [0.0, 0.1, 0.4, 1.0, 2.0] { DispatchQueue.main.asyncAfter(deadline: .now() + d) { [weak self] in self?.measure(w) } }
+			for n in [NSWindow.didBecomeKeyNotification, NSWindow.didChangeScreenNotification, NSWindow.didEndLiveResizeNotification, NSWindow.didUpdateNotification] {
+				tokens.append(nc.addObserver(forName: n, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.measure(w) } })
+			}
 			if let m = model, guardian == nil, !(w.delegate is CloseGuard) {
 				let g = CloseGuard(original: w.delegate, model: m)
 				guardian = g
