@@ -266,24 +266,37 @@ private struct WindowBar: View {
 
 	var body: some View {
 		let m = SessionWindowModel.panelMargin
-		HStack(spacing: 0) {
-			if !model.isFullScreen { Color.clear.frame(width: model.lightsTrailing + 12, height: 1) }
-			if !model.tabs.isEmpty { ProjectSwitcher().padding(.leading, model.isFullScreen ? 12 : 0) }
-			Spacer(minLength: 0)
-			HStack(spacing: 2) {
-				BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
-				MoreMenu()
+		let hasPanel = model.showAgents && !model.tabs.isEmpty
+		// колонка терминала: всё окно минус плитка панели (если открыта)
+		let slot = hasPanel ? model.panelWidth + m * 1.5 : 0
+		// переключатель по центру колонки терминала; поля слева и справа равны, чтобы не наезжать на светофор и кнопки
+		let side = max(model.isFullScreen ? 12 : model.lightsTrailing + 12, hasPanel ? 0 : 112)
+		ZStack(alignment: .top) {
+			HStack(spacing: 0) {
+				HStack {
+					if !model.tabs.isEmpty { ProjectSwitcher() }
+				}
+				.frame(maxWidth: .infinity)
+				.padding(.horizontal, side)
+				Color.clear.frame(width: slot, height: 1)
 			}
-			.padding(.horizontal, 5)
-			.frame(height: 30)
-			.background {
-				Capsule().fill(.clear).glassEffect(.regular, in: Capsule())
-					.opacity(model.showAgents && !model.tabs.isEmpty ? 0 : 1)
-					.animation(dsAnimation(DS.Motion.panel), value: model.showAgents)
+			HStack(spacing: 0) {
+				Spacer(minLength: 0)
+				HStack(spacing: 2) {
+					BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
+					MoreMenu()
+				}
+				.padding(.horizontal, 5)
+				.frame(height: 30)
+				.background {
+					Capsule().fill(.clear).glassEffect(.regular, in: Capsule())
+						.opacity(hasPanel ? 0 : 1)
+				}
+				// правый край кнопок = правый край панели минус внутренний отступ
+				.padding(.trailing, m + 8)
 			}
-			// правый край кнопок = правый край панели минус внутренний отступ
-			.padding(.trailing, m + 8)
 		}
+		.animation(dsAnimation(DS.Motion.panel), value: hasPanel)
 		.frame(height: 30)
 		.padding(.top, SessionWindowModel.barCenter - 15)
 		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
