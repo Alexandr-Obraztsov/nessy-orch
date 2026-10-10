@@ -39,8 +39,6 @@ extension AppModel {
 	/// ⇧⌘O: ещё одно окно в выбранной папке.
 	func openFolderPanel() { chooseProject(title: "Открыть папку", message: "Папка, в которой откроется терминал") }
 
-	/// ⌘N: новое окно в той же папке, что у окна в фокусе (нет окна — домашняя).
-	func newWindowHere() { openTerminal(dir: activeWindow?.dir ?? NSHomeDirectory()) }
 
 	// MARK: запуск
 

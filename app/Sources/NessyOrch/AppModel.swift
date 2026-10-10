@@ -17,6 +17,8 @@ final class AppModel {
 	let store: OrchStore
 	/// состояние окон сессий (карточка агента, курсор списка): по одному на сессию
 	@ObservationIgnored private(set) var windows: [String: SessionWindowModel] = [:]
+	/// растёт при открытии и закрытии окон: по нему обновляются меню «Окно» и меню Dock
+	private(set) var windowsRevision = 0
 	/// открыть окна ждали, пока из окружения появится `openWindow` (ссылка при холодном старте)
 	@ObservationIgnored private var pendingOpens: [TerminalWindowValue] = []
 	/// на запуске пришла ссылка или папка — окно в домашнем каталоге не нужно
@@ -90,21 +92,52 @@ final class AppModel {
 		if let w = windows[value.key] { return w }
 		let w = SessionWindowModel(app: self, value: value)
 		windows[value.key] = w
+		Task { @MainActor in self.windowsRevision += 1 }
 		return w
 	}
 
 	func forget(window w: SessionWindowModel) {
 		windows[w.key] = nil
+		windowsRevision += 1
 		if activeWindow === w { activeWindow = nil }
 	}
 
 	private func open(_ value: TerminalWindowValue) {
 		if let f = openTerminalWindow { f(value); NSApp.activate() } else { pendingOpens.append(value) }
+		// новое окно — поверх остальных
+		Task { @MainActor in
+			for _ in 0..<20 {
+				try? await Task.sleep(for: .milliseconds(100))
+				if let w = NSApp.windows.first(where: { ($0.delegate as? CloseGuard)?.key == value.key }) {
+					try? await Task.sleep(for: .milliseconds(400))
+					NSApp.activate()
+					w.makeKeyAndOrderFront(nil)
+					w.orderFrontRegardless()
+					return
+				}
+			}
+		}
 	}
 
 	/// Новое окно-терминал в папке (ссылка, `open -a … <папка>`, ⌘N).
+	/// Окна проектов по алфавиту (для меню и переключения).
+	var projectWindows: [SessionWindowModel] {
+		_ = windowsRevision
+		return windows.values.filter { !$0.dir.isEmpty }.sorted { Projects.name(ofPath: $0.dir).localizedCaseInsensitiveCompare(Projects.name(ofPath: $1.dir)) == .orderedAscending }
+	}
+
+	/// Поднять окно на передний план.
+	func raise(_ w: SessionWindowModel) {
+		NSApp.activate()
+		guard let nw = NSApp.windows.first(where: { ($0.delegate as? CloseGuard)?.key == w.key }) else { return }
+		if nw.isMiniaturized { nw.deminiaturize(nil) }
+		nw.makeKeyAndOrderFront(nil)
+	}
+
+	/// Одна папка — одно окно: повторное открытие той же папки поднимает уже открытое окно, а не плодит копии.
 	func openTerminal(dir: String) {
 		let d = Projects.normalize(dir).flatMap { TerminalLaunch.isUsableDirectory($0) ? $0 : nil } ?? NSHomeDirectory()
+		if let w = windows.values.first(where: { $0.dir == d }) { raise(w); return }
 		closeEmptyWindows()
 		open(.fresh(dir: d))
 	}

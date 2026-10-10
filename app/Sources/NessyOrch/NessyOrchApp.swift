@@ -69,7 +69,6 @@ struct AppCommands: Commands {
 	var body: some Commands {
 		// ⌘N/⌘W — окна; когда фокус в терминале, остальные клавиши достаются ему (команд без ⌘ здесь нет)
 		CommandGroup(replacing: .newItem) {
-			Button("Новое окно") { model.newWindowHere() }.keyboardShortcut("n")
 			Button("Открыть папку…") { model.openFolderPanel() }.keyboardShortcut("o", modifiers: [.command, .shift])
 		}
 		CommandGroup(replacing: .saveItem) {
@@ -82,20 +81,16 @@ struct AppCommands: Commands {
 		CommandGroup(replacing: .help) {
 			Button("Горячие клавиши") { model.showShortcuts = true }.keyboardShortcut("/")
 		}
+		// окна проектов: один проект — одно окно; ⌘1…⌘9 переключают, ⌘` — по кругу (системное)
+		CommandGroup(after: .windowArrangement) {
+			Divider()
+			ForEach(Array(model.projectWindows.prefix(9).enumerated()), id: \.element.key) { i, w in
+				Button(Projects.name(ofPath: w.dir)) { model.raise(w) }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+			}
+		}
 		CommandMenu("Сессия") {
 			Button("Перейти к…") { model.showPalette = true }.keyboardShortcut("k")
 			Button("Роли…") { openWindow(id: "roles") }.keyboardShortcut("r", modifiers: [.command, .shift])
-			Divider()
-			if let s = active?.session {
-				if s.status == .active { Button("Завершить сессию") { model.closeSession(s.id) } }
-				else { Button("Вернуть в работу") { model.reopenSession(s.id) } }
-				Button("Удалить сессию") { model.deleteSession(s.id) }
-				Divider()
-			}
-			// открыть окно любой активной сессии (⌘1…⌘9)
-			ForEach(Array(model.store.activeSessions.prefix(9).enumerated()), id: \.element.id) { i, s in
-				Button(s.title) { model.show(session: s.id) }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
-			}
 		}
 		CommandMenu("Агент") {
 			Button("Открыть в окне") {
@@ -165,24 +160,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		}
 	}
 
-	/// Меню Dock: новое окно в домашней папке и активные сессии — открывают свои окна.
+	/// Меню Dock: открытые проекты (поднимают своё окно) и «Открыть папку…».
 	func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
 		let m = NSMenu()
 		let model = AppModel.shared
-		let start = NSMenuItem(title: "Новое окно", action: #selector(openStart), keyEquivalent: "")
-		start.target = self
-		m.addItem(start)
-		let sessions = model.store.activeSessions.prefix(12)
-		if !sessions.isEmpty { m.addItem(.separator()) }
-		for s in sessions {
-			let it = NSMenuItem(title: s.title, action: #selector(openSession(_:)), keyEquivalent: "")
+		let open = NSMenuItem(title: "Открыть папку…", action: #selector(openStart), keyEquivalent: "")
+		open.target = self
+		m.addItem(open)
+		let wins = model.projectWindows
+		if !wins.isEmpty { m.addItem(.separator()) }
+		for w in wins {
+			let it = NSMenuItem(title: Projects.name(ofPath: w.dir), action: #selector(raiseWindow(_:)), keyEquivalent: "")
 			it.target = self
-			it.representedObject = s.id
+			it.representedObject = w.key
 			m.addItem(it)
 		}
 		return m
 	}
-	@objc private func openStart() { AppModel.shared.openMainWindow() }
+	@objc private func raiseWindow(_ item: NSMenuItem) {
+		if let k = item.representedObject as? String, let w = AppModel.shared.projectWindows.first(where: { $0.key == k }) { AppModel.shared.raise(w) }
+	}
+	@objc private func openStart() { AppModel.shared.openFolderPanel() }
 	@objc private func openSession(_ item: NSMenuItem) { if let id = item.representedObject as? String { AppModel.shared.show(session: id) } }
 
 	/// Служба Finder (Info.plist → NSServices): папка или файл → окно в этой папке (для файла — в его папке).

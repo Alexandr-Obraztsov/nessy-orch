@@ -21,6 +21,7 @@ struct WindowConfigurator: NSViewRepresentable {
 		var onKey: () -> Void = {}
 		private var tokens: [NSObjectProtocol] = []
 		private var guardian: CloseGuard?
+		private var shown = false
 
 		/// Окно в стиле терминала: без заголовка, содержимое идёт под шапку, фон как у терминала (углы и края не выделяются).
 		private func style(_ w: NSWindow) {
@@ -54,6 +55,8 @@ struct WindowConfigurator: NSViewRepresentable {
 			tokens = []
 			guard let w = window else { return }
 			style(w)
+			// только что созданное окно показывается поверх остальных
+			if !shown { shown = true; DispatchQueue.main.async { NSApp.activate(); w.makeKeyAndOrderFront(nil); w.orderFrontRegardless() } }
 			let nc = NotificationCenter.default
 			tokens.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.onKey() } })
 			// полноэкранный режим: шапка прячется и выезжает у кромки; на выходе заново меряем светофор
