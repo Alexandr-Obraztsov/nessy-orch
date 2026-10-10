@@ -5,9 +5,8 @@ import NessyKit
 enum PanelMode { case embedded, window }
 
 /// Окно агента без вкладок. Под всем — одна область чата (или итога) на всю высоту панели.
-/// Поверх неё парят карточки: сверху шапка, «Цель», «План»; снизу поле ввода. Чат прокручивается под ними
-/// (contentMargins не прячут первые и последние сообщения). Раскрытые «Цель» и «План» ложатся поверх чата,
-/// не сдвигая его: отступ чата берётся по свёрнутым карточкам.
+/// Сверху шапка агента и «План», снизу поле ввода — это safeAreaBar: система отодвигает чат на их фактическую высоту, поэтому
+/// карточки ничего не закрывают. Раскрытая карточка (цель, статистика) растёт, а чат уходит вниз вместе с ней.
 struct AgentPanel: View {
 	@Environment(AppModel.self) private var model
 	var agentId: String
@@ -15,9 +14,6 @@ struct AgentPanel: View {
 	@State private var chat: ChatModel?
 	@State private var goalOpen = false
 	@State private var planOpen = false
-	/// высота верхних карточек в свёрнутом виде и высота поля ввода — отступы области чата
-	@State private var topH: CGFloat = 0
-
 	private var agent: AgentView? { model.store.agents[agentId] }
 
 	var body: some View {
@@ -42,12 +38,8 @@ struct AgentPanel: View {
 							AgentHeaderCard(agent: a, mode: mode, goal: goal, expanded: $goalOpen, cap: geo.size.height * 0.3)
 							PlanBlock(agent: a, expanded: $planOpen, cap: geo.size.height * 0.3)
 						}
-						.padding(.horizontal, DS.Metrics.s3).padding(.top, DS.Metrics.s3).padding(.bottom, DS.Metrics.s2)
-						.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
-							if !goalOpen, !planOpen { topH = h }
-						}
+						.padding(.horizontal, DS.Metrics.s3).padding(.top, DS.Metrics.s2).padding(.bottom, DS.Metrics.s2)
 						.fixedSize(horizontal: false, vertical: true)
-						.frame(height: (goalOpen || planOpen) && topH > 0 ? topH : nil, alignment: .top)
 						.zIndex(1)
 					}
 					.safeAreaBar(edge: .bottom, spacing: 0) {
@@ -157,7 +149,7 @@ struct AgentHeaderCard: View {
 	}
 	private var role: (name: String, icon: String?, hue: Double, description: String)? { model.roleInfo(of: agent) }
 	private var roleDescription: String { role?.description ?? "" }
-	private var expandable: Bool { !roleDescription.isEmpty || !text.isEmpty }
+	private var expandable: Bool { true }
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
@@ -195,6 +187,7 @@ struct AgentHeaderCard: View {
 							.frame(maxHeight: cap)
 							.fixedSize(horizontal: false, vertical: true)
 					}
+					AgentStatsGrid(agent: agent)
 				}
 				.padding(.top, DS.Metrics.s1)
 				.transition(.opacity)
@@ -472,5 +465,46 @@ struct AgentWindowView: View {
 		AgentPanel(agentId: agentId, mode: .window)
 			.frame(minWidth: 400, minHeight: 480)
 			.navigationTitle(model.store.agents[agentId]?.name ?? "Агент")
+	}
+}
+
+
+/// Вся нужная статистика агента (в раскрытой карточке): ходы, вызовы, время, токены, пространство, возраст, план, очередь, статус ответа.
+struct AgentStatsGrid: View {
+	var agent: AgentView
+
+	private var rows: [(String, String)] {
+		var r: [(String, String)] = []
+		let s = agent.stats
+		r.append(("Ходов", "\(s.turns)"))
+		r.append(("Вызовов инструментов", "\(s.toolCalls)"))
+		if s.workMs >= 1000 { r.append(("Время работы", Durations.clock(s.workMs))) }
+		if let t = s.tokens {
+			var parts = ["вход \(Numbers.compact(t.input))", "выход \(Numbers.compact(t.output))"]
+			if t.cached > 0 { parts.append("кэш \(Numbers.compact(t.cached))") }
+			r.append(("Токены", "\(Numbers.compact(t.total)) (\(parts.joined(separator: " · ")))"))
+		}
+		if let p = agent.plan, !p.entries.isEmpty {
+			r.append(("План", "\(p.entries.filter { $0.status == .completed }.count) из \(p.entries.count)"))
+		}
+		if agent.queued > 0 { r.append(("В очереди", "\(agent.queued)")) }
+		if let st = agent.lastReply?.status { r.append(("Статус ответа", st)) }
+		r.append(("Пространство", agent.space))
+		if let d = ISO.parse(agent.createdAt) { r.append(("Создан", Durations.ago(d))) }
+		if let d = ISO.parse(agent.lastActivityAt) { r.append(("Активность", Durations.ago(d))) }
+		return r
+	}
+
+	var body: some View {
+		Grid(alignment: .topLeading, horizontalSpacing: DS.Metrics.s3, verticalSpacing: 3) {
+			ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+				GridRow {
+					Text(row.0).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).gridColumnAlignment(.leading)
+					Text(row.1).font(DS.Typography.caption).foregroundStyle(DS.Palette.textPrimary).monospacedDigit()
+						.frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+				}
+			}
+		}
+		.padding(.top, DS.Metrics.s1)
 	}
 }
