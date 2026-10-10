@@ -12,6 +12,7 @@ struct AgentsPanel: View {
 		ZStack {
 			if let id = win?.openAgentId {
 				AgentPanel(agentId: id, mode: .embedded)
+					.padding(.top, SessionWindowModel.rowHeight)
 					.transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
 			} else {
 				AgentsListView()
@@ -63,7 +64,8 @@ struct AgentsListView: View {
 			ClaudeStateIndicator(state: win?.session?.claude?.state)
 		}
 		.foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
-		.padding(.horizontal, DS.Metrics.s4).padding(.top, DS.Metrics.s2).padding(.bottom, DS.Metrics.s2)
+		.padding(.leading, DS.Metrics.s4).padding(.trailing, 96)
+		.frame(height: SessionWindowModel.rowHeight)
 	}
 
 	private func list(_ sections: [AgentSection], _ ids: [String]) -> some View {

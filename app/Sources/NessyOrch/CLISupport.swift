@@ -16,12 +16,20 @@ final class CLISupport {
 
 	init() {
 		state = installer.state()
-		nodePath = Self.findNode()
+		// путь к node ищет login-оболочка: синхронно её запускать нельзя (внутри ждёт run loop — другие окна заходят в `shared` повторно)
+		findNodeAsync()
 	}
 
 	func refresh() {
 		state = installer.state()
-		nodePath = Self.findNode()
+		findNodeAsync()
+	}
+
+	private func findNodeAsync() {
+		Task { @MainActor in
+			let p = await Task.detached { Self.findNode() }.value
+			self.nodePath = p
+		}
 	}
 
 	var linkPath: String { installer.link.path }
@@ -74,7 +82,7 @@ final class CLISupport {
 	}
 
 	/// Node.js из login-оболочки (как у службы launchd): `command -v node`.
-	private static func findNode() -> String? {
+	nonisolated private static func findNode() -> String? {
 		let p = Process()
 		p.executableURL = URL(fileURLWithPath: "/bin/zsh")
 		p.arguments = ["-lc", "command -v node"]

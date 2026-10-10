@@ -519,3 +519,52 @@ struct GlassIconMenu<Content: View>: View {
 			.help(help).accessibilityLabel(help)
 	}
 }
+
+// MARK: - Простые кнопки внутри панели (без стекла)
+
+/// Иконка без плашки: при наведении лёгкая подложка. Внутри панели агентов стеклянных кнопок нет — стекло только у шапки и самой панели.
+struct PlainIconButton: View {
+	var systemImage: String
+	var help: String
+	var size: CGFloat = 28
+	var filled = false
+	var action: () -> Void
+	@Environment(\.isEnabled) private var enabled
+	@State private var hover = false
+	var body: some View {
+		Button(action: action) {
+			Image(systemName: systemImage)
+				.font(.system(size: 13, weight: .semibold))
+				.foregroundStyle(filled ? Color.white : (hover ? DS.Palette.textPrimary : DS.Palette.textSecondary))
+				.frame(width: size, height: size)
+				.background(filled ? DS.Palette.accent : (hover ? DS.Palette.hover : .clear), in: Circle())
+				.contentShape(Circle())
+		}
+		.buttonStyle(.plain)
+		.opacity(enabled ? 1 : 0.4)
+		.onHover { hover = $0 }
+		.animation(.easeOut(duration: 0.12), value: hover)
+		.help(help).accessibilityLabel(help)
+	}
+}
+
+struct PlainIconMenu<Content: View>: View {
+	var systemImage: String
+	var help: String
+	var size: CGFloat = 28
+	@ViewBuilder var content: Content
+	@State private var hover = false
+	var body: some View {
+		Menu { content } label: {
+			Image(systemName: systemImage)
+				.font(.system(size: 13, weight: .semibold))
+				.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+				.frame(width: size, height: size)
+				.background(hover ? DS.Palette.hover : .clear, in: Circle())
+				.contentShape(Circle())
+		}
+		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+		.onHover { hover = $0 }
+		.help(help).accessibilityLabel(help)
+	}
+}

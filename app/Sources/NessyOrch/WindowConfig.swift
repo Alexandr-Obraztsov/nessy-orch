@@ -32,12 +32,20 @@ struct WindowConfigurator: NSViewRepresentable {
 			measure(w)
 		}
 
-		/// Центр светофора от верха окна: по нему подбирается высота шапки.
+		/// Светофор опускается на общую линию шапки: его центр = центр кнопок справа (`SessionWindowModel.barCenter`).
 		private func measure(_ w: NSWindow) {
-			guard !w.styleMask.contains(.fullScreen), let b = w.standardWindowButton(.closeButton), let sup = b.superview else { return }
-			let r = sup.convert(b.frame, to: nil)
-			let center = w.frame.height - r.midY
-			if center > 8, center < 40, abs((model?.lightsCenter ?? 0) - center) > 0.5 { model?.lightsCenter = center }
+			guard !w.styleMask.contains(.fullScreen) else { return }
+			let target = SessionWindowModel.barCenter
+			for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+				guard let b = w.standardWindowButton(kind), let sup = b.superview else { continue }
+				let r = sup.convert(b.frame, to: nil)
+				let center = w.frame.height - r.midY
+				let dy = center - target // < 0 — кнопка выше цели, её надо опустить
+				guard abs(dy) > 0.5 else { continue }
+				var o = b.frame.origin
+				o.y += sup.isFlipped ? -dy : dy
+				b.setFrameOrigin(o)
+			}
 		}
 
 		override func viewDidMoveToWindow() {

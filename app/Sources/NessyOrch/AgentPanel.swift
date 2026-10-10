@@ -169,18 +169,16 @@ struct AgentHeaderCard: View {
 					Text(agent.name).font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary).lineLimit(1).layoutPriority(1)
 					if let r = role { RoleIconTile(icon: r.icon, hue: r.hue, size: 20).help(r.name) }
 					Spacer(minLength: DS.Metrics.s2)
-					// справа вверху: круглые стеклянные «⋯» и «×» (36 pt)
-					GlassEffectContainer(spacing: DS.Metrics.s2) {
-						HStack(spacing: DS.Metrics.s2) {
-							if agent.canStop || mode != .window {
-								GlassIconMenu(systemImage: "ellipsis", help: "Действия с агентом") {
-									if agent.canStop { Button("Остановить ход") { model.stop(agent) }.disabled(model.isOffline) }
-									if mode != .window { Button("Открыть в отдельном окне") { model.openAgentWindow?(agent.id); win?.open(agent: nil) } }
-								}
+					// справа вверху: простые «⋯» и «×»
+					HStack(spacing: DS.Metrics.s1) {
+						if agent.canStop || mode != .window {
+							PlainIconMenu(systemImage: "ellipsis", help: "Действия с агентом") {
+								if agent.canStop { Button("Остановить ход") { model.stop(agent) }.disabled(model.isOffline) }
+								if mode != .window { Button("Открыть в отдельном окне") { model.openAgentWindow?(agent.id); win?.open(agent: nil) } }
 							}
-							if mode != .window {
-								GlassIconButton(systemImage: "xmark", help: "К списку агентов (Esc)") { win?.open(agent: nil) }
-							}
+						}
+						if mode != .window {
+							PlainIconButton(systemImage: "xmark", help: "К списку агентов (Esc)") { win?.open(agent: nil) }
 						}
 					}
 				}

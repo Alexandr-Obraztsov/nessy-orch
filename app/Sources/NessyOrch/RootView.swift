@@ -41,10 +41,14 @@ final class SessionWindowModel {
 		let v = UserDefaults.standard.double(forKey: "sidePanelWidth")
 		return v > 0 ? min(max(CGFloat(v), DS.Metrics.sidePanelWidth.min), DS.Metrics.sidePanelWidth.max) : DS.Metrics.sidePanelWidth.ideal
 	}()
-	/// центр светофора от верха окна: по нему подбирается высота шапки
-	var lightsCenter: CGFloat = 0
-	/// высота шапки: светофор, кнопка панели и «⋯» стоят на одной линии
-	var barHeight: CGFloat { max(40, lightsCenter * 2) }
+	/// общая линия шапки: центр светофора, кнопок справа и заголовка панели — на этой высоте от верха окна
+	static let barCenter: CGFloat = 26
+	/// отступ плитки панели от краёв окна
+	static let panelMargin: CGFloat = 8
+	/// высота верхней строки панели (заголовок и кнопки), центр строки = barCenter
+	static var rowHeight: CGFloat { 2 * (barCenter - panelMargin) }
+	/// терминал начинается под шапкой
+	var barHeight: CGFloat { 2 * Self.barCenter - 4 }
 	private var started = false
 	/// сессию создало это окно (а не открыло уже существующую)
 	private var createdSession = false
@@ -137,15 +141,15 @@ struct SessionWindowView: View {
 
 private struct SessionWindowBody: View {
 	@Environment(AppModel.self) private var model
-	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 	@Bindable var win: SessionWindowModel
 
 	var body: some View {
 		ZStack(alignment: .topLeading) {
 			DS.Palette.terminalBackground
+			// терминал стоит слева и не двигается; панель справа забирает только ширину
 			HStack(spacing: 0) {
-				SidePanel(win: win)
 				CenterView()
+				SidePanel(win: win)
 			}
 			WindowBar(win: win)
 		}
@@ -168,31 +172,35 @@ private struct SessionWindowBody: View {
 	}
 }
 
-/// Своя боковая панель: колонка на всю высоту окна того же тёмного тона, что терминал, справа тонкая линия. Ширину можно менять,
-/// потянув за правый край (двойной щелчок — вернуть обычную); светофор и кнопка панели лежат на её верхней строке.
+/// Панель агентов справа: плитка Liquid Glass от верха окна до низа; в её верхней строке заголовок и кнопки (кнопки едут вместе с панелью).
+/// Ширину можно менять, потянув за левый край (двойной щелчок — вернуть обычную). Слот занимает только ширину панели:
+/// терминал слева не двигается и не меняет высоту.
 private struct SidePanel: View {
 	@Bindable var win: SessionWindowModel
 	@State private var dragStart: CGFloat?
 	@State private var hovering = false
+	private let m = SessionWindowModel.panelMargin
 
 	var body: some View {
 		let w = win.panelWidth
+		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
 		AgentsPanel()
-			.padding(.top, win.barHeight)
 			.frame(width: w)
-			.background(DS.Palette.sidebarSurface)
-			.overlay(alignment: .trailing) { Rectangle().fill(hovering || dragStart != nil ? DS.Palette.accent.opacity(0.7) : DS.Palette.separator).frame(width: dragStart != nil ? 2 : DS.Metrics.hairline) }
-			.overlay(alignment: .trailing) { handle }
-			.frame(width: win.panelHidden ? 0 : w, alignment: .leading)
+			.clipShape(shape)
+			.glassEffect(.regular, in: shape)
+			.overlay(alignment: .leading) { handle }
+			.overlay(shape.strokeBorder(dragStart != nil || hovering ? DS.Palette.accent.opacity(0.55) : .clear, lineWidth: 1.5))
+			.padding(.top, m).padding(.bottom, m).padding(.trailing, m).padding(.leading, m / 2)
+			.frame(width: win.panelHidden ? 0 : w + m * 1.5, alignment: .trailing)
 			.clipped()
 			.opacity(win.panelHidden ? 0 : 1)
 			.allowsHitTesting(!win.panelHidden)
 			.accessibilityHidden(win.panelHidden)
 	}
 
-	/// Полоса захвата у правого края: курсор «↔», перетаскивание меняет ширину в пределах min…max.
+	/// Полоса захвата у левого края: курсор «↔», перетаскивание влево расширяет панель в пределах min…max.
 	private var handle: some View {
-		Color.clear.frame(width: 9).contentShape(Rectangle())
+		Color.clear.frame(width: 10).contentShape(Rectangle())
 			.onHover { h in
 				hovering = h
 				if h { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
@@ -200,8 +208,8 @@ private struct SidePanel: View {
 			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
 				.onChanged { g in
 					if dragStart == nil { dragStart = win.panelWidth }
-					let m = DS.Metrics.sidePanelWidth
-					win.panelWidth = min(max((dragStart ?? m.ideal) + g.translation.width, m.min), m.max)
+					let r = DS.Metrics.sidePanelWidth
+					win.panelWidth = min(max((dragStart ?? r.ideal) - g.translation.width, r.min), r.max)
 				}
 				.onEnded { _ in
 					dragStart = nil
@@ -215,21 +223,39 @@ private struct SidePanel: View {
 	}
 }
 
-/// Шапка поверх окна: справа от светофора кнопка панели (просто иконка), справа стеклянная «⋯». Без заголовка и без плашки.
+/// Шапка поверх окна: слева светофор на стеклянной капсуле, справа кнопка панели и «⋯» на одной линии с ним. Пока панель открыта,
+/// кнопки лежат прямо на её стекле (своей капсулы нет); панель закрыта — они собираются в свою стеклянную капсулу.
 private struct WindowBar: View {
 	@Bindable var win: SessionWindowModel
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 	var body: some View {
-		HStack(spacing: DS.Metrics.s1) {
-			// светофор рисует система; в полноэкранном режиме его нет
-			Color.clear.frame(width: win.isFullScreen ? 0 : 74, height: 1)
-			BarIcon(systemImage: "sidebar.left", help: "Панель агентов (⌥⌘B)") { win.toggleAgents() }
+		let m = SessionWindowModel.panelMargin
+		HStack(spacing: 0) {
+			// светофор рисует система; стекло под ним — как группа кнопок в тулбаре macOS 26
+			if !win.isFullScreen {
+				Color.clear.frame(width: 70, height: 28)
+					.glassEffect(.regular, in: Capsule())
+					.padding(.leading, 9)
+			}
 			Spacer(minLength: 0)
-			MoreMenu(glass: true)
+			HStack(spacing: 2) {
+				BarIcon(systemImage: "sidebar.right", help: "Панель агентов (⌥⌘B)") { win.toggleAgents() }
+				MoreMenu()
+			}
+			.padding(.horizontal, 5)
+			.frame(height: 30)
+			.background {
+				Capsule().fill(.clear).glassEffect(.regular, in: Capsule())
+					.opacity(win.panelHidden ? 1 : 0)
+					.animation(dsAnimation(DS.Motion.panel), value: win.panelHidden)
+			}
+			// правый край кнопок = правый край панели минус внутренний отступ
+			.padding(.trailing, m + 8)
 		}
-		.padding(.horizontal, 14)
-		.frame(height: win.barHeight)
-		.frame(maxWidth: .infinity, alignment: .top)
+		.frame(height: 30)
+		.padding(.top, SessionWindowModel.barCenter - 15)
+		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 	}
 }
 
@@ -240,7 +266,9 @@ private struct BarIcon: View {
 	@State private var hover = false
 	var body: some View {
 		Button(action: action) {
-			Image(systemName: systemImage).font(.system(size: 15, weight: .medium)).frame(width: 32, height: 28).contentShape(Rectangle())
+			Image(systemName: systemImage).font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
+				.background(hover ? DS.Palette.hover : .clear, in: Capsule())
+				.contentShape(Capsule())
 		}
 		.buttonStyle(.plain)
 		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)

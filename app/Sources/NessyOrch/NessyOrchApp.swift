@@ -191,6 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 	func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { AppModel.shared.confirmQuit() }
 
+	/// окна и полноэкранный режим между запусками не восстанавливаем: каждый запуск — чистое окно в выбранной папке
+	func application(_ app: NSApplication, shouldRestoreApplicationState coder: NSCoder) -> Bool { false }
+	func application(_ app: NSApplication, shouldSaveApplicationState coder: NSCoder) -> Bool { false }
+
 	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
 	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

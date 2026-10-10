@@ -10,7 +10,7 @@ struct CenterView: View {
 	var body: some View {
 		Group {
 			if let tab = win?.terminal {
-				TerminalHost(tab: tab, topInset: (win?.panelHidden ?? false) ? (win?.barHeight ?? 40) : 8)
+				TerminalHost(tab: tab, topInset: win?.barHeight ?? 44)
 					.id(tab.id)
 					.accessibilityLabel("Терминал")
 			} else {
@@ -48,29 +48,23 @@ struct ClaudeStateIndicator: View {
 	}
 }
 
-/// «⋯» в шапке справа: только горячие клавиши и настройки.
+/// «⋯» в стеклянной капсуле шапки: только горячие клавиши и настройки.
 struct MoreMenu: View {
-	/// вне тулбара (полный экран): кнопка рисует стеклянный круг сама
-	var glass = false
 	@Environment(AppModel.self) private var model
 	@Environment(\.openSettings) private var openSettings
+	@State private var hover = false
 	var body: some View {
 		Menu {
 			Button("Горячие клавиши") { model.showShortcuts = true }
 			Button("Настройки…") { openSettings(); NSApp.activate() }
 		} label: {
-			Image(systemName: "ellipsis")
+			Image(systemName: "ellipsis").font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
+				.background(hover ? DS.Palette.hover : .clear, in: Capsule())
+				.contentShape(Capsule())
 		}
-		.menuIndicator(.hidden)
-		.modifier(FloatingGlass(on: glass))
-		.tint(DS.Palette.textSecondary)
+		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+		.onHover { hover = $0 }
 		.help("Ещё").accessibilityLabel("Ещё")
-	}
-}
-
-private struct FloatingGlass: ViewModifier {
-	var on: Bool
-	func body(content: Content) -> some View {
-		if on { content.menuStyle(.button).buttonStyle(GlassCircleStyle(size: 34, prominent: false)).fixedSize() } else { content }
 	}
 }

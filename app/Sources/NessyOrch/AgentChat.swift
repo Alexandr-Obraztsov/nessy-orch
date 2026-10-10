@@ -109,7 +109,7 @@ struct ChatContent: View {
 			}
 			.overlay(alignment: .bottom) {
 				if !atBottom, unread > 0 {
-					GlassIconButton(systemImage: "arrow.down", help: "Новое: \(unread) — к концу") {
+					PlainIconButton(systemImage: "arrow.down", help: "Новое: \(unread) — к концу", size: 30, filled: true) {
 						withAnimation(dsAnimation(DS.Motion.panel)) { position.scrollTo(id: "chat-end", anchor: .bottom) }
 					}
 					.padding(.bottom, DS.Metrics.s3).transition(.opacity)
@@ -242,7 +242,7 @@ struct AgentComposer: View {
 					}
 				}
 				.padding(.vertical, DS.Metrics.s1)
-				GlassIconButton(systemImage: "arrow.up", help: model.isOffline ? "Нет связи" : "Отправить (↩)", action: submit)
+				PlainIconButton(systemImage: "arrow.up", help: model.isOffline ? "Нет связи" : "Отправить (↩)", size: 28, filled: true, action: submit)
 					.disabled(!canSend)
 			}
 		}
