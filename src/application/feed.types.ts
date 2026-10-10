@@ -8,8 +8,8 @@ export interface FeedDeps {
 	ids: IdGenerator
 	/** состояние изменилось — сохранить позже */
 	onChange: () => void
-	/** задача узла-отправителя (агента) или null — для inbox по задаче */
-	taskOf: (nodeId: string) => string | null
+	/** сессия узла-отправителя (агента) или null — для inbox по сессии */
+	sessionOf: (nodeId: string) => string | null
 }
 
 export interface FeedQuery {
@@ -20,8 +20,8 @@ export interface FeedQuery {
 }
 
 export interface InboxQuery {
-	/** только ответы агентов этой задачи; курсор — свой для каждой задачи */
-	task?: string
+	/** только ответы агентов этой сессии; курсор — свой для каждой сессии */
+	session?: string
 	wait?: number
 	peek?: boolean
 	after?: number

@@ -9,10 +9,10 @@
  *   POST /agents/:ref/permission/:requestId {approve}
  *   GET  /agents/:ref/history         GET  /agents/:ref/stream (SSE)
  *   GET  /roles   POST /roles   GET|PUT|DELETE /roles/:id
- *   GET  /tasks?status=   POST /tasks {title,owner?,id?}   GET|PATCH|DELETE /tasks/:id
- *   GET  /agents?task=                (агенты задачи)
+ *   GET  /sessions?status=   POST /sessions {title,owner?,id?}   GET|PATCH|DELETE /sessions/:id
+ *   GET  /agents?session=                (агенты сессии)
  *   GET  /messages?agent=&since=&limit=
- *   GET  /inbox?wait=&peek=1&after=&task=   (task — свой курсор на задачу)
+ *   GET  /inbox?wait=&peek=1&after=&session=   (session — свой курсор на сессию)
  *   GET  /stream (SSE: snapshot + все события)
  * Всё остальное по GET — статика UI.
  */
@@ -28,7 +28,7 @@ import { registerMessageRoutes } from './routes/messages.routes'
 import { registerRoleRoutes } from './routes/roles.routes'
 import { registerSpaceRoutes } from './routes/spaces.routes'
 import { registerSystemRoutes } from './routes/system.routes'
-import { registerTaskRoutes } from './routes/tasks.routes'
+import { registerSessionRoutes } from './routes/sessions.routes'
 import type { ServerOptions } from './server.types'
 import { serveStatic } from './static-files'
 
@@ -39,7 +39,7 @@ export function buildRouter(): Router {
 	registerAgentRoutes(r)
 	registerMessageRoutes(r)
 	registerRoleRoutes(r)
-	registerTaskRoutes(r)
+	registerSessionRoutes(r)
 	return r
 }
 

@@ -1,10 +1,10 @@
 ---
 description: Кто из агентов nessy чем занят — nessy-orch ls --all и короткая сводка
-allowed-tools: Bash(nessy-orch ls), Bash(nessy-orch ls *), Bash(nessy-orch task ls), Bash(nessy-orch task ls *)
+allowed-tools: Bash(nessy-orch ls), Bash(nessy-orch ls *), Bash(nessy-orch session ls), Bash(nessy-orch session ls *)
 ---
 
-Выполни `nessy-orch task ls` и `nessy-orch ls --all` (если команды нет в PATH — `~/Projects/nessy-orch/bin/nessy-orch …`).
-Если ты ведёшь задачу в этом разговоре — сначала покажи `nessy-orch task show <id>`.
+Выполни `nessy-orch session ls` и `nessy-orch ls --all` (если команды нет в PATH — `~/Projects/nessy-orch/bin/nessy-orch …`).
+Если ты ведёшь задачу в этом разговоре — сначала покажи `nessy-orch session show <id>`.
 
 Сведи результат коротко:
 
@@ -13,7 +13,7 @@ allowed-tools: Bash(nessy-orch ls), Bash(nessy-orch ls *), Bash(nessy-orch task 
    Архивных перечисли одной строкой по именам (им можно писать через `send`, они проснутся).
 3. Если есть агенты с ошибкой — подскажи `nessy-orch show <агент>`.
 
-В конце дай ссылку на панель: <http://127.0.0.1:4337> (своей задачи — `http://127.0.0.1:4337/?task=<id>`).
+В конце дай ссылку на панель: <http://127.0.0.1:4337> (своей задачи — `nessy-orch://session/<id>`).
 
 Если команда падает с «оркестратор недоступен», сам его не запускай: попроси пользователя выполнить в обычном
 терминале `bin/nessy-orch install` или `node ~/Projects/nessy-orch/dist/src/main.js`.

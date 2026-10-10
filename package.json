@@ -11,12 +11,12 @@
     "nessy-orch": "bin/nessy-orch"
   },
   "scripts": {
-    "build": "npm run build:server && npm run build:ui",
+    "build": "npm run build:server",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:server": "npm run clean && tsc -p tsconfig.json && node scripts/postbuild.mjs",
     "build:ui": "vite build",
     "dev:ui": "vite",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p ui/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "npm run build:server && node --test --test-force-exit \"dist/test/**/*.test.js\"",
     "test:e2e": "playwright test",

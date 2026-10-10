@@ -41,7 +41,7 @@ async function turnStarted(ctx: Ctx, n: number): Promise<void> {
 	await new Promise(r => setTimeout(r, 5)) // дать установиться promptId
 }
 
-async function spawn(ctx: Ctx, name = 'alpha', prompt = 'задача'): Promise<string> {
+async function spawn(ctx: Ctx, name = 'alpha', prompt = 'сессия'): Promise<string> {
 	const r = await ctx.orch.spawn({ space: 'main', name, prompt })
 	await turnStarted(ctx, ctx.gw.prompts.length + 1)
 	return r.agent.id
@@ -122,11 +122,11 @@ describe('план агента', () => {
 		assert.notEqual(ctx.orch.getAgent(id).plan, null)
 	})
 
-	it('сброс: новая задача от you после выполненного плана — план null', async () => {
+	it('сброс: новая сессия от you после выполненного плана — план null', async () => {
 		const id = await spawn(ctx)
 		ctx.orch.setPlan(id, { from: id, entries: entries('completed', 'completed') })
 		done(ctx, 1)
-		await ctx.orch.send(id, { text: 'новая задача' })
+		await ctx.orch.send(id, { text: 'новая сессия' })
 		await turnStarted(ctx, 2)
 		assert.equal(ctx.orch.getAgent(id).plan, null)
 	})

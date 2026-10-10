@@ -12,14 +12,14 @@ import { feedCommands } from './commands/feed.commands'
 import { roleCommands } from './commands/roles.commands'
 import { serviceCommands } from './commands/service.commands'
 import { spaceCommands } from './commands/spaces.commands'
-import { taskCommands } from './commands/tasks.commands'
+import { sessionCommands } from './commands/sessions.commands'
 import { CliError } from './errors'
 import { red } from './format'
 import { HELP } from './help'
 import { info, out } from './io'
 
-const COMMANDS: CommandTable = { ...agentCommands, ...feedCommands, ...spaceCommands, ...roleCommands, ...taskCommands, ...serviceCommands }
-const ALIASES: Record<string, string> = { list: 'ls', agents: 'ls', rm: 'kill', log: 'feed', messages: 'feed', spaces: 'space', roles: 'role', tasks: 'task' }
+const COMMANDS: CommandTable = { ...agentCommands, ...feedCommands, ...spaceCommands, ...roleCommands, ...sessionCommands, ...serviceCommands }
+const ALIASES: Record<string, string> = { list: 'ls', agents: 'ls', rm: 'kill', log: 'feed', messages: 'feed', spaces: 'space', roles: 'role', sessions: 'session' }
 
 async function main(argv: string[]): Promise<void> {
 	const [name, ...rest] = argv

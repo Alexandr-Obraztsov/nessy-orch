@@ -91,7 +91,7 @@ describe('план агента: HTTP, CLI, ACP, рестарт', () => {
 		assert.equal(after2.lastTurnMs, v.lastTurnMs)
 		assert.deepEqual(after2.lastReply, v.lastReply)
 
-		// новая задача от you после выполненного плана — план сброшен
+		// новая сессия от you после выполненного плана — план сброшен
 		await h2.api('POST', '/agents/planner/send', { text: 'другое', wait: true, waitTimeoutSec: 15 })
 		assert.equal(h2.orch.getAgent('planner').plan, null)
 		assert.equal(h2.orch.getAgent('planner').turnSteps, 0)

@@ -35,7 +35,7 @@ function history(ctx: Ctx, id: string): AgentEvent[] {
 }
 const replies = (ctx: Ctx): Message[] => ctx.orch.listMessages({ limit: 100 }).filter(m => m.kind === 'reply')
 
-async function startTurn(ctx: Ctx, text = 'задача'): Promise<string> {
+async function startTurn(ctx: Ctx, text = 'сессия'): Promise<string> {
 	const r = await ctx.orch.spawn({ space: 'main', name: 'alpha', prompt: text })
 	await until(() => ctx.gw.prompts.length > 0, 2000, 'промпт отправлен')
 	await until(() => ctx.orch.resolveAgent('alpha').currentMessage !== null && ctx.orch.resolveAgent('alpha').status === 'working', 2000, 'ход начат')
@@ -85,8 +85,8 @@ describe('агент: события сессии', () => {
 		const tools = history(ctx, id).filter((e): e is ToolEvent => e.kind === 'tool')
 		assert.equal(tools.length, 1)
 		assert.deepEqual(
-			{ ...tools[0], seq: 0, ts: 0 },
-			{ seq: 0, ts: 0, kind: 'tool', toolId: 't1', name: 'read_file', title: 'Read: a.md', input: { path: 'a.md' }, status: 'completed', output: '# A' },
+			{ ...tools[0], seq: 0, ts: 0, endedTs: 0 },
+			{ seq: 0, ts: 0, endedTs: 0, kind: 'tool', toolId: 't1', name: 'read_file', title: 'Read: a.md', input: { path: 'a.md' }, status: 'completed', output: '# A' },
 		)
 		const published = ctx.hub.filter(e => e.t === 'event' && e.event.kind === 'tool').map(e => (e.t === 'event' && e.event.kind === 'tool' ? e.event.status : ''))
 		assert.deepEqual(published, ['pending', 'in_progress', 'completed'])
@@ -255,7 +255,7 @@ describe('агент: архив и прерывание', () => {
 	it('успешный ход → архив; сообщение возвращает из архива в той же сессии', async () => {
 		const ctx = setup()
 		const id = await startTurn(ctx)
-		const session = ctx.orch.resolveAgent(id).sessionId
+		const session = ctx.orch.resolveAgent(id).nessyId
 		ctx.gw.emit({ kind: 'text', text: 'готово', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
 		assert.equal(ctx.orch.getAgent(id).archived, true)
 		assert.equal(ctx.orch.getAgent(id).status, 'idle')
@@ -263,7 +263,7 @@ describe('агент: архив и прерывание', () => {
 		assert.equal(ctx.orch.getAgent(id).archived, false)
 		await until(() => ctx.gw.prompts.length === 2, 1000, 'второй промпт')
 		assert.equal(ctx.gw.prompts[1], `ещё\n\n${planReminder(id, 'nessy-orch')}`, 'контекст прежний — без повторной вводной')
-		assert.equal(ctx.orch.resolveAgent(id).sessionId, session)
+		assert.equal(ctx.orch.resolveAgent(id).nessyId, session)
 	})
 
 	it('interrupt: следующий промпт уходит только после подтверждения отмены, срочное — первым', async () => {
@@ -284,7 +284,7 @@ describe('агент: архив и прерывание', () => {
 		await until(() => ctx.gw.prompts.length === 3, 1000, 'третий промпт')
 		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-3' })
 		await until(() => ctx.gw.prompts.length === 4, 1000, 'четвёртый промпт')
-		assert.deepEqual(users(ctx, id), ['задача', 'срочно-1', 'срочно-2', 'в очередь'])
+		assert.deepEqual(users(ctx, id), ['сессия', 'срочно-1', 'срочно-2', 'в очередь'])
 	})
 
 	it('nessy не подтвердил отмену: по таймауту ход закрывается, события старого промпта игнорируются', async () => {
@@ -310,7 +310,7 @@ describe('агент: архив и прерывание', () => {
 		const ctx = setup()
 		let release = (): void => undefined
 		ctx.gw.promptGate = new Promise<void>(r => (release = r))
-		const r = await ctx.orch.spawn({ space: 'main', name: 'alpha', prompt: 'задача' })
+		const r = await ctx.orch.spawn({ space: 'main', name: 'alpha', prompt: 'сессия' })
 		await until(() => ctx.gw.prompts.length === 1, 1000, 'промпт отправлен')
 		await ctx.orch.send(r.agent.id, { text: 'срочно' })
 		assert.equal(ctx.gw.cancels, 0)
@@ -333,7 +333,7 @@ describe('агент: временный отказ nessy', () => {
 	it('prompt_queue_full → промпт повторяется, ход не падает', async () => {
 		const ctx = setup()
 		ctx.gw.busyPrompts = 2
-		const r = await ctx.orch.spawn({ space: 'main', name: 'alpha', prompt: 'задача' })
+		const r = await ctx.orch.spawn({ space: 'main', name: 'alpha', prompt: 'сессия' })
 		await until(() => ctx.gw.prompts.length === 3, 3000, 'два отказа и успешная отправка')
 		const a = ctx.orch.resolveAgent(r.agent.id)
 		assert.equal(a.status, 'working')

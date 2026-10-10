@@ -7,7 +7,7 @@ import { dim, formatMessage } from '../format'
 import { enc, ep, get, info, json, out } from '../io'
 import type { CommandTable } from './command.types'
 import { INBOX_FLAGS } from './flags'
-import { taskOption } from './tasks.commands'
+import { sessionOption } from './sessions.commands'
 
 async function cmdFeed(p: Parsed): Promise<void> {
 	const g = await get<GraphView>('/graph')
@@ -34,8 +34,8 @@ async function cmdFeed(p: Parsed): Promise<void> {
 
 async function cmdInbox(p: Parsed): Promise<void> {
 	const wait = flagNum(p, 'wait')
-	const task = taskOption(p)
-	const r = await get<InboxResponse>(`/inbox?wait=${wait ?? 0}${flagBool(p, 'peek') ? '&peek=1' : ''}${task ? `&task=${enc(task)}` : ''}`)
+	const session = sessionOption(p)
+	const r = await get<InboxResponse>(`/inbox?wait=${wait ?? 0}${flagBool(p, 'peek') ? '&peek=1' : ''}${session ? `&session=${enc(session)}` : ''}`)
 	if (flagBool(p, 'json')) return json(r)
 	if (!r.messages.length) {
 		info(dim('новых сообщений нет'))

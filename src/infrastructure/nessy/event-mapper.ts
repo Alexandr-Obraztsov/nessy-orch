@@ -5,6 +5,7 @@
  * Состояние маппера — только буфер инструментов по toolCallId: `title`/`rawInput` приходят
  * лишь в tool_call, а в tool_call_update их нет — без буфера обновление теряет заголовок.
  */
+import { extractUsage } from './usage'
 import type { PlanEntry, PlanStatus, ToolStatus } from '../../../shared/types'
 import type { SessionEvent } from '../../application/ports'
 import type { PermissionOption } from '../../domain/types'
@@ -132,7 +133,10 @@ export function mapNessyEvent(eventName: string, frame: unknown, tools: Map<stri
 			return mapSessionUpdate(obj(d['update']), tools)
 		case 'turn_complete':
 			tools.clear()
-			return { kind: 'turn_complete', stopReason: str(d['stopReason'], 'end_turn'), promptId: strOrNull(d['promptId']) }
+		{
+			const usage = extractUsage(d['usage'] ?? obj(d['_meta'])['usage'])
+			return { kind: 'turn_complete', stopReason: str(d['stopReason'], 'end_turn'), promptId: strOrNull(d['promptId']), ...(usage ? { usage } : {}) }
+		}
 		case 'turn_error':
 			return {
 				kind: 'turn_error',

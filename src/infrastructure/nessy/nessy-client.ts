@@ -16,7 +16,9 @@ import type { JsonObject } from '../../lib/json.types'
 import { clip } from '../../lib/text'
 import { SseParser } from '../sse/sse-parser'
 import { NessyEventMapper } from './event-mapper'
+import { extractUsage } from './usage'
 import type { NessyResponse } from './protocol.types'
+import type { TokenUsage } from '../../../shared/types'
 
 const RECONNECT_MS = 1000
 
@@ -128,6 +130,15 @@ export class NessyClient implements NessyGateway {
 	async prompt(sessionId: string, text: string): Promise<{ promptId: string | null }> {
 		const j = await this.ok('POST', `/session/${sessionId}/prompt`, { prompt: [{ type: 'text', text }] })
 		return { promptId: strOrNull(j['promptId']) }
+	}
+
+	async usage(sessionId: string): Promise<TokenUsage | null> {
+		try {
+			const r = await this.request('GET', `/session/${sessionId}/stats`, undefined, 5000)
+			return r.status === 200 ? extractUsage(r.json) : null
+		} catch {
+			return null
+		}
 	}
 
 	async cancel(sessionId: string): Promise<void> {

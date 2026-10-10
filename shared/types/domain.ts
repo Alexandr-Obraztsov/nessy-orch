@@ -4,7 +4,7 @@
 export type NodeId = string
 
 /**
- * Статус агента. Состояния сна нет: агент без работы — idle; закончив задачу, он уходит в архив
+ * Статус агента. Состояния сна нет: агент без работы — idle; закончив сессию, он уходит в архив
  * (archived=true), а его сессия nessy сохраняется и восстанавливается при следующем сообщении.
  * error — последний ход завершился ошибкой (или упала сессия); следующее сообщение начинает заново.
  */
@@ -36,37 +36,74 @@ export interface PermissionBrief {
 }
 
 /**
- * Задача («ящик») — единица работы одного оркестратора (сессии Claude). Каждый Claude заводит свою
- * задачу и запускает агентов в ней; несколько Claude работают параллельно, не мешая друг другу:
- * у каждой задачи свой inbox. UI показывает задачи по отдельности или рядом.
+ * Сессия («ящик») — единица работы одного оркестратора (сессии Claude). Каждый Claude заводит свою
+ * сессию и запускает агентов в ней; несколько Claude работают параллельно, не мешая друг другу:
+ * у каждой сессии свой inbox. UI показывает сессии по отдельности или рядом.
  */
-export type TaskStatus = 'active' | 'done'
+export type SessionStatus = 'active' | 'done'
 
-export interface TaskView {
+/** Токены сессии nessy; поля, которых nessy не сообщил, равны 0. */
+export interface TokenUsage {
+	input: number
+	output: number
+	/** прочитано из кэша промпта */
+	cached: number
+	total: number
+}
+
+/** Счётчики работы агента: считает оркестратор, токены — по данным nessy (null — nessy их не сообщает). */
+export interface AgentStats {
+	/** завершённых ходов */
+	turns: number
+	/** вызовов инструментов за все ходы */
+	toolCalls: number
+	/** суммарная длительность ходов, мс */
+	workMs: number
+	tokens: TokenUsage | null
+}
+
+/** Источник, которым пользовались агенты сессии: ссылка из ответа/инструмента или ссылка на код/команда. */
+export interface SourceView {
+	id: string
+	kind: 'url' | 'text'
+	label: string
+	/** только у kind=url */
+	href?: string
+	host?: string
+	agentId: string
+	agentName: string
+	/** где встретился: в итоговом ответе агента или в вызове инструмента */
+	origin: 'reply' | 'tool'
+	ts: number
+}
+
+export interface SessionView {
 	/** slug: латиница, цифры, дефис (например `fix-ci-3f2a`) */
 	id: string
 	title: string
-	/** кто ведёт задачу: свободная метка оркестратора (например `claude`, имя окна) или null */
+	/** кто ведёт сессию: свободная метка оркестратора (например `claude`, имя окна) или null */
 	owner: string | null
-	status: TaskStatus
-	/** итог задачи от оркестратора (task done --summary), markdown */
+	status: SessionStatus
+	/** итог сессии от оркестратора (session done --summary), markdown */
 	summary: string | null
 	createdAt: string
 	updatedAt: string
+	/** сколько источников собрано за сессию (список — GET /sessions/:id/sources) */
+	sources: number
 }
 
 export interface AgentView {
 	id: string
 	name: string
 	space: string
-	/** id задачи (TaskView.id) или null — агент вне задач */
-	task: string | null
+	/** id сессии (SessionView.id) или null — агент вне сессий */
+	session: string | null
 	parent: NodeId
 	/** id роли (RoleView.id) или null */
 	role: string | null
 	status: AgentStatus
 	/**
-	 * Скрыт из рабочего списка: задача выполнена. Сессия сохранена — сообщение агенту
+	 * Скрыт из рабочего списка: сессия выполнена. Сессия сохранена — сообщение агенту
 	 * (или POST /agents/:ref/restore) возвращает его в работу с прежним контекстом.
 	 */
 	archived: boolean
@@ -87,6 +124,7 @@ export interface AgentView {
 	lastTurnMs: number | null
 	/** последний ответ агента оператору (you) */
 	lastReply: ReplyBrief | null
+	stats: AgentStats
 }
 
 /** Единица общей ленты («группчат»). */
@@ -139,6 +177,9 @@ export interface AgentPlan {
 	source: 'cli' | 'acp'
 }
 
+/** Итог ответа агента по общему формату: строка «Статус: …» в конце. */
+export type ReplyStatus = 'DONE' | 'DONE_WITH_CONCERNS' | 'BLOCKED' | 'NEEDS_CONTEXT'
+
 export interface ReplyBrief {
 	msgId: string
 	ts: number
@@ -146,4 +187,8 @@ export interface ReplyBrief {
 	failed?: string
 	/** первые ~200 символов ответа */
 	preview: string
+	/** статус из последней строки ответа («Статус: DONE …»); нет — агент не указал */
+	status?: ReplyStatus
+	/** причина после статуса */
+	reason?: string
 }

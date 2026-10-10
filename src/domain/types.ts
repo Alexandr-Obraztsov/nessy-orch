@@ -88,8 +88,8 @@ export interface RoleSeedResult {
 	invalid: string[]
 }
 
-/** Поля новой задачи после проверки (id = null — сгенерировать из заголовка). */
-export interface TaskFields {
+/** Поля новой сессии после проверки (id = null — сгенерировать из заголовка). */
+export interface SessionFields {
 	id: string | null
 	title: string
 	owner: string | null

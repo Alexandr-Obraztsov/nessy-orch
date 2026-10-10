@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Демо-данные: две задачи от двух «Claude» с несколькими агентами в каждой. Поручения — обычный текст, а сценарии
+// Демо-данные: две сессии от двух «Claude» с несколькими агентами в каждой. Поручения — обычный текст, а сценарии
 // заглушки fake-nessy лежат отдельно: $NESSY_ORCH_HOME/fake-scenarios.json (ключ — первая строка поручения).
 // Ждёт, пока оркестратор поднимется (ORCH_PORT, по умолчанию 4337), и создаёт всё через API.
-// Повторный запуск не дублирует: задачи с теми же id пропускаются. Запуск: `npm run demo` (вместе с сервером)
+// Повторный запуск не дублирует: сессии с теми же id пропускаются. Запуск: `npm run demo` (вместе с сервером)
 // или `npm run demo:seed` (к уже запущенному демо).
 import * as fs from 'node:fs'
 import * as http from 'node:http'
@@ -69,7 +69,7 @@ const reply = (itog, details, sources, status = 'DONE') =>
 const brief = (goal, context, limits, result) => `Цель: ${goal}\nКонтекст: ${context}\nГраницы: ${limits}\nРезультат: ${result}`
 
 /**
- * Задачи и их агенты. Видимое в UI — `prompt` (человеческий текст). Что делает заглушка nessy, лежит отдельно
+ * Сессии и их агенты. Видимое в UI — `prompt` (человеческий текст). Что делает заглушка nessy, лежит отдельно
  * в `scenario` и уходит в $NESSY_ORCH_HOME/fake-scenarios.json (ключ — первая строка prompt).
  * Сценарий: строка `#work[~] K шаг => Tool: арг; … || ответ` (см. test/support/fake-nessy.ts) или массив операций.
  */
@@ -84,9 +84,9 @@ const RETRY_AFTER = `export const retryPolicy = {
 	maxDelay: 30_000,
 }`
 
-const TASKS = [
+const SESSIONS = [
 	{
-		task: { id: 'demo-fix-ci', title: 'Починить падающий CI в shippy', owner: 'claude-1' },
+		session: { id: 'demo-fix-ci', title: 'Починить падающий CI в shippy', owner: 'claude-1' },
 		space: 'shippy',
 		agents: [
 			{
@@ -193,7 +193,7 @@ const TASKS = [
 		],
 	},
 	{
-		task: { id: 'demo-review-mr', title: 'Ревью MR !482 и отчёт в Jira', owner: 'claude-2' },
+		session: { id: 'demo-review-mr', title: 'Ревью MR !482 и отчёт в Jira', owner: 'claude-2' },
 		space: 'nessy-orch',
 		agents: [
 			{
@@ -212,7 +212,7 @@ const TASKS = [
 						['Нет проверки `amount <= 0` в `refund()` [2]', 'Тест на двойной возврат отсутствует [3]'],
 						['https://gitlab.example.com/shop/-/merge_requests/482', '`shop@9f8e7d6:src/payments/refund.ts:57`', '`shop@9f8e7d6:test/payments/refund.test.ts`'],
 					),
-				// агент, запущенный этим агентом, наследует задачу
+				// агент, запущенный этим агентом, наследует сессию
 				children: [
 					{
 						name: 'sec-check',
@@ -235,31 +235,31 @@ const TASKS = [
 				prompt: brief(
 					'оставить в SHOP-1203 комментарий с итогами ревью MR !482.',
 					'ревью делает mr-reviewer, его вывод нужен до публикации.',
-					'писать только в SHOP-1203, статус задачи не менять.',
+					'писать только в SHOP-1203, статус сессии не менять.',
 					'ссылка на добавленный комментарий.',
 				),
 				scenario:
-					'#work~ 1 Найти задачу в Jira => Jira: SHOP-1203; Собрать итоги ревью => Read: ответ mr-reviewer; Написать комментарий => Jira: comment SHOP-1203 || ' +
+					'#work~ 1 Найти сессию в Jira => Jira: SHOP-1203; Собрать итоги ревью => Read: ответ mr-reviewer; Написать комментарий => Jira: comment SHOP-1203 || ' +
 					reply('комментарий с итогами ревью добавлен в SHOP-1203 [1].', ['Указаны две обязательные правки [1]'], ['https://jira.example.com/browse/SHOP-1203']),
 			},
 		],
 	},
 ]
 
-async function spawn(spec, task, space, from) {
+async function spawn(spec, session, space, from) {
 	const r = await api('POST', '/agents', {
 		space,
-		task: from ? undefined : task,
+		session: from ? undefined : session,
 		from,
 		name: spec.name,
 		role: spec.role,
 		prompt: spec.prompt,
 	})
 	if (r.status !== 201) throw new Error(`spawn ${spec.name}: ${r.body.error ?? r.status}`)
-	console.log(`[demo-seed]   агент ${spec.name} (${r.body.agent.id}) → задача ${r.body.agent.task}`)
+	console.log(`[demo-seed]   агент ${spec.name} (${r.body.agent.id}) → сессия ${r.body.agent.session}`)
 	for (const child of spec.children ?? []) {
 		await sleep(400)
-		await spawn(child, task, space, r.body.agent.id)
+		await spawn(child, session, space, r.body.agent.id)
 	}
 }
 
@@ -270,7 +270,7 @@ async function main() {
 		scenarios[a.prompt.split('\n')[0]] = a.scenario
 		a.children?.forEach(collect)
 	}
-	TASKS.forEach(t => t.agents.forEach(collect))
+	SESSIONS.forEach(t => t.agents.forEach(collect))
 	const home = process.env.NESSY_ORCH_HOME ?? path.join(os.homedir(), '.nessy-orch')
 	fs.mkdirSync(home, { recursive: true })
 	fs.writeFileSync(path.join(home, 'fake-scenarios.json'), JSON.stringify(scenarios, null, 2))
@@ -279,14 +279,14 @@ async function main() {
 	await api('POST', '/spaces', { path: shippy, name: 'shippy' })
 	await api('POST', '/spaces', { path: process.cwd(), name: 'nessy-orch' })
 	const roles = new Set((await api('GET', '/roles')).body.map(r => r.id))
-	for (const t of TASKS) {
-		const r = await api('POST', '/tasks', t.task)
+	for (const t of SESSIONS) {
+		const r = await api('POST', '/sessions', t.session)
 		if (r.status === 409) {
-			console.log(`[demo-seed] задача ${t.task.id} уже есть — пропускаю`)
+			console.log(`[demo-seed] сессия ${t.session.id} уже есть — пропускаю`)
 			continue
 		}
-		if (r.status !== 201) throw new Error(`задача ${t.task.id}: ${r.body.error ?? r.status}`)
-		console.log(`[demo-seed] задача ${r.body.id} (${t.task.owner}): ${BASE}/?task=${r.body.id}`)
+		if (r.status !== 201) throw new Error(`сессия ${t.session.id}: ${r.body.error ?? r.status}`)
+		console.log(`[demo-seed] сессия ${r.body.id} (${t.session.owner}): nessy-orch://session/${r.body.id}`)
 		const strip = a => ({ ...a, role: roles.has(a.role) ? a.role : undefined, children: a.children?.map(strip) })
 		for (const a of t.agents) await spawn(strip(a), r.body.id, t.space)
 	}

@@ -33,7 +33,7 @@ describe('архив и прерывание', () => {
 	})
 	after(() => h.close())
 
-	it('агент без задачи виден (idle, не в архиве); успешный ход уводит в архив, граф его по-прежнему отдаёт', T, async () => {
+	it('агент без сессии виден (idle, не в архиве); успешный ход уводит в архив, граф его по-прежнему отдаёт', T, async () => {
 		const idle = await h.api<SpawnResponse>('POST', '/agents', { space: 'main', name: 'spare' })
 		await until(() => h.orch.getAgent('spare').status === 'idle', 8000, 'spare подключён')
 		assert.equal(idle.body.agent.archived, false)
@@ -49,7 +49,7 @@ describe('архив и прерывание', () => {
 	})
 
 	it('сообщение агенту в архиве будит его в той же сессии nessy', T, async () => {
-		const session = h.orch.resolveAgent('done').sessionId
+		const session = h.orch.resolveAgent('done').nessyId
 		const seen: boolean[] = []
 		const unsub = h.orch.hub.subscribe(e => {
 			if (e.t === 'agent' && e.agent.name === 'done') seen.push(e.agent.archived)
@@ -57,7 +57,7 @@ describe('архив и прерывание', () => {
 		const r = await h.api<SendResponse>('POST', '/agents/done/send', { text: 'продолжи', wait: true, waitTimeoutSec: 10 })
 		unsub()
 		assert.equal(r.body.reply?.text, 'ответ: продолжи')
-		assert.equal(h.orch.resolveAgent('done').sessionId, session, 'сессия прежняя')
+		assert.equal(h.orch.resolveAgent('done').nessyId, session, 'сессия прежняя')
 		assert.ok(seen.includes(false), 'на время работы агент выходил из архива')
 		assert.equal(h.orch.getAgent('done').archived, true, 'и вернулся в архив')
 		assert.ok(!h.orch.agentHistory('done').some(e => e.kind === 'system' && /контекст сброшен/.test(e.text)))

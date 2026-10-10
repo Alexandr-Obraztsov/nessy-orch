@@ -1,6 +1,6 @@
 /**
  * Feed — общая лента сообщений («группчат»): нумерация, хранение, ожидание ответов (--wait)
- * и входящие для `you` (inbox с курсором и long-poll): общий курсор и отдельный курсор на каждую задачу.
+ * и входящие для `you` (inbox с курсором и long-poll): общий курсор и отдельный курсор на каждую сессию.
  */
 import type { InboxResponse, Message } from '../../shared/types'
 import { YOU } from '../domain/constants'
@@ -13,20 +13,20 @@ export class Feed {
 	private messages: Message[] = []
 	private seq = 0
 	private cursor = 0
-	/** курсоры inbox по задачам: каждый оркестратор читает ответы своей задачи, не сдвигая чужие */
-	private readonly taskCursors = new Map<string, number>()
+	/** курсоры inbox по сессиям: каждый оркестратор читает ответы своей сессии, не сдвигая чужие */
+	private readonly sessionCursors = new Map<string, number>()
 	private closed = false
 	private readonly waiters = new Map<string, (reply: Message) => void>()
 	private readonly inboxWaiters = new Set<() => void>()
 
 	constructor(private readonly deps: FeedDeps) {}
 
-	load(msgSeq: number, inboxCursor: number, taskCursors: Readonly<Record<string, number>> = {}): void {
+	load(msgSeq: number, inboxCursor: number, sessionCursors: Readonly<Record<string, number>> = {}): void {
 		this.messages = this.deps.store.loadMessages(MAX_MEMORY_MESSAGES)
 		this.seq = Math.max(msgSeq, ...this.messages.map(m => m.seq), 0)
 		this.cursor = inboxCursor
-		this.taskCursors.clear()
-		for (const [task, c] of Object.entries(taskCursors)) this.taskCursors.set(task, c)
+		this.sessionCursors.clear()
+		for (const [session, c] of Object.entries(sessionCursors)) this.sessionCursors.set(session, c)
 	}
 
 	get msgSeq(): number {
@@ -37,14 +37,14 @@ export class Feed {
 		return this.cursor
 	}
 
-	/** Курсоры inbox по задачам (для сохранения). */
-	taskCursorsSnapshot(): Record<string, number> {
-		return Object.fromEntries(this.taskCursors)
+	/** Курсоры inbox по сессиям (для сохранения). */
+	sessionCursorsSnapshot(): Record<string, number> {
+		return Object.fromEntries(this.sessionCursors)
 	}
 
-	/** Задачу удалили — её курсор больше не нужен. */
-	forgetTask(task: string): void {
-		if (this.taskCursors.delete(task)) this.deps.onChange()
+	/** Сессию удалили — её курсор больше не нужен. */
+	forgetSession(session: string): void {
+		if (this.sessionCursors.delete(session)) this.deps.onChange()
 	}
 
 	append(draft: MessageDraft): Message {
@@ -104,24 +104,24 @@ export class Feed {
 
 	/**
 	 * Входящие для `you`. peek=true не двигает курсор. wait — long-poll (сек).
-	 * task — только ответы агентов этой задачи, со своим курсором (по умолчанию — с начала ленты).
+	 * session — только ответы агентов этой сессии, со своим курсором (по умолчанию — с начала ленты).
 	 */
 	async inbox(q: InboxQuery = {}): Promise<InboxResponse> {
-		const task = q.task
-		const after = q.after ?? (task === undefined ? this.cursor : (this.taskCursors.get(task) ?? 0))
-		const mine = (m: Message): boolean => task === undefined || this.deps.taskOf(m.from) === task
+		const session = q.session
+		const after = q.after ?? (session === undefined ? this.cursor : (this.sessionCursors.get(session) ?? 0))
+		const mine = (m: Message): boolean => session === undefined || this.deps.sessionOf(m.from) === session
 		const read = (): Message[] => this.messages.filter(m => m.to === YOU && m.kind === 'reply' && m.seq > after && mine(m))
 		let list = read()
 		const deadline = Date.now() + (q.wait ?? 0) * 1000
-		// будят любые сообщения к you (в том числе чужих задач) — ждём своего до дедлайна
+		// будят любые сообщения к you (в том числе чужих сессий) — ждём своего до дедлайна
 		while (!list.length && !this.closed && Date.now() < deadline) {
 			await this.sleepUntilMessage(deadline - Date.now())
 			list = read()
 		}
 		const cursor = list.length ? (list[list.length - 1] as Message).seq : after
 		if (!q.peek && q.after === undefined && list.length) {
-			if (task === undefined) this.cursor = cursor
-			else this.taskCursors.set(task, cursor)
+			if (session === undefined) this.cursor = cursor
+			else this.sessionCursors.set(session, cursor)
 			this.deps.onChange()
 		}
 		return { messages: list, cursor }

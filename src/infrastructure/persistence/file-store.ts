@@ -3,14 +3,14 @@
  *
  *   <home>/state.json            пространства, агенты, курсоры
  *   <home>/roles.json            роли субагентов
- *   <home>/tasks.json            задачи оркестраторов
+ *   <home>/sessions.json            сессии оркестраторов
  *   <home>/messages.jsonl        лента сообщений (группчат)
  *   <home>/agents/<id>.jsonl     поток событий агента (мысли, инструменты, текст)
  *   <home>/logs/space-<n>.log    вывод процессов nessy serve
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { AgentEvent, Message, RoleView, TaskView } from '../../../shared/types'
+import type { AgentEvent, Message, RoleView, SessionView, SourceView } from '../../../shared/types'
 import type { PersistedAgent, PersistedSpace, PersistedState } from '../../application/persisted.types'
 import type { StorePort } from '../../application/ports'
 import { arr, isObject, parseJson } from '../../lib/json'
@@ -21,10 +21,11 @@ const SAVE_DELAY_MS = 200
 export class FileStore implements StorePort {
 	readonly agentsDir: string
 	readonly logsDir: string
+	readonly sourcesDir: string
 	private readonly statePath: string
 	private readonly msgPath: string
 	private readonly rolesPath: string
-	private readonly tasksPath: string
+	private readonly sessionsPath: string
 	private saveTimer: NodeJS.Timeout | null = null
 	private getState: (() => PersistedState) | null = null
 	private closed = false
@@ -32,12 +33,14 @@ export class FileStore implements StorePort {
 	constructor(readonly home: string) {
 		this.agentsDir = path.join(home, 'agents')
 		this.logsDir = path.join(home, 'logs')
+		this.sourcesDir = path.join(home, 'sources')
+		fs.mkdirSync(this.sourcesDir, { recursive: true })
 		fs.mkdirSync(this.agentsDir, { recursive: true })
 		fs.mkdirSync(this.logsDir, { recursive: true })
 		this.statePath = path.join(home, 'state.json')
 		this.msgPath = path.join(home, 'messages.jsonl')
 		this.rolesPath = path.join(home, 'roles.json')
-		this.tasksPath = path.join(home, 'tasks.json')
+		this.sessionsPath = path.join(home, 'sessions.json')
 	}
 
 	loadState(): PersistedState {
@@ -45,10 +48,11 @@ export class FileStore implements StorePort {
 		if (!isObject(raw)) return { spaces: [], agents: [], msgSeq: 0, inboxCursor: 0 }
 		return {
 			spaces: arr(raw['spaces']) as PersistedSpace[],
-			agents: arr(raw['agents']) as PersistedAgent[],
+			// состояния до переименования «задачи → сессии» хранили поле task
+			agents: (arr(raw['agents']) as Array<PersistedAgent & { task?: string | null }>).map(a => (a.session === undefined && a.task !== undefined ? { ...a, session: a.task } : a)),
 			msgSeq: typeof raw['msgSeq'] === 'number' ? raw['msgSeq'] : 0,
 			inboxCursor: typeof raw['inboxCursor'] === 'number' ? raw['inboxCursor'] : 0,
-			taskCursors: parseCursors(raw['taskCursors']),
+			sessionCursors: parseCursors(raw['sessionCursors'] ?? raw['taskCursors']),
 		}
 	}
 
@@ -91,14 +95,25 @@ export class FileStore implements StorePort {
 		if (!this.closed) writeAtomic(this.rolesPath, JSON.stringify({ roles }, null, 2))
 	}
 
-	loadTasks(): TaskView[] {
-		const raw = parseJson(readText(this.tasksPath))
-		const list = isObject(raw) ? arr(raw['tasks']) : arr(raw)
-		return list.filter(isTaskView)
+	loadSessions(): SessionView[] {
+		// до переименования файл назывался tasks.json (ключ tasks)
+		const legacy = path.join(this.home, 'tasks.json')
+		const path_ = !fs.existsSync(this.sessionsPath) && fs.existsSync(legacy) ? legacy : this.sessionsPath
+		const raw = parseJson(readText(path_))
+		const list = isObject(raw) ? arr(raw['sessions'] ?? raw['tasks']) : arr(raw)
+		return list.filter(isSessionView).map(x => ({ ...x, sources: typeof x.sources === 'number' ? x.sources : 0 }))
 	}
 
-	saveTasks(tasks: readonly TaskView[]): void {
-		if (!this.closed) writeAtomic(this.tasksPath, JSON.stringify({ tasks }, null, 2))
+	saveSessions(sessions: readonly SessionView[]): void {
+		if (!this.closed) writeAtomic(this.sessionsPath, JSON.stringify({ sessions }, null, 2))
+	}
+
+	appendSource(sessionId: string, source: SourceView): void {
+		if (!this.closed) appendJsonl(path.join(this.sourcesDir, `${sessionId}.jsonl`), source)
+	}
+
+	loadSources(sessionId: string): SourceView[] {
+		return readJsonl<SourceView>(path.join(this.sourcesDir, `${sessionId}.jsonl`), 5000)
 	}
 
 	appendMessage(m: Message): void {
@@ -145,8 +160,8 @@ function isRoleView(v: unknown): v is RoleView {
 	)
 }
 
-/** Минимальная проверка записи tasks.json (файл могли править руками). */
-function isTaskView(v: unknown): v is TaskView {
+/** Минимальная проверка записи sessions.json (файл могли править руками). */
+function isSessionView(v: unknown): v is SessionView {
 	return (
 		isObject(v) &&
 		typeof v['id'] === 'string' &&
@@ -159,7 +174,7 @@ function isTaskView(v: unknown): v is TaskView {
 	)
 }
 
-/** Курсоры inbox по задачам: только числовые значения. */
+/** Курсоры inbox по сессиям: только числовые значения. */
 function parseCursors(v: unknown): Record<string, number> {
 	const out: Record<string, number> = {}
 	if (!isObject(v)) return out

@@ -11,6 +11,8 @@ export interface AgentHost {
 	preambleFor(agent: AgentIdentity): string
 	/** Ход завершён: опубликовать ответ отправителю. Возвращает опубликованный ответ (или null). */
 	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): Message | null
+	/** Ссылки из вызова инструмента агента → источники его сессии. */
+	onToolUrls(agent: AgentIdentity, urls: readonly string[]): void
 	saveSoon(): void
 }
 
@@ -33,8 +35,8 @@ export interface AgentInit {
 	name: string
 	space: string
 	parent: string
-	/** id задачи (null — вне задач) */
-	task?: string | null
+	/** id сессии (null — вне сессий) */
+	session?: string | null
 	role?: string | null
 	status?: AgentStatus
 }

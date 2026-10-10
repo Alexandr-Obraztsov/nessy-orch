@@ -4,7 +4,7 @@ import { queryNum, readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
 export function registerAgentRoutes(r: Router): void {
-	r.add('GET', '/agents', ({ res, orch, query }) => sendJson(res, 200, orch.listAgents(query.get('task') ?? undefined)))
+	r.add('GET', '/agents', ({ res, orch, query }) => sendJson(res, 200, orch.listAgents(query.get('session') ?? undefined)))
 	r.add('POST', '/agents', async ({ req, res, orch }) => {
 		const body = await readBody(req)
 		sendJson(res, 201, await orch.spawn(parseSpawnRequest(body)))

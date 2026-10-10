@@ -4,14 +4,14 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
 	{
-		ignores: ['dist/**', 'docs/**', 'ui/dist/**', 'node_modules/**', 'scripts/**', 'eslint.config.mjs', 'vite.config.ts', 'playwright.config.ts', 'e2e/**'],
+		ignores: ['dist/**', 'docs/**', 'ui/**', 'app/**', 'node_modules/**', 'scripts/**', 'eslint.config.mjs', 'vite.config.ts', 'playwright.config.ts', 'e2e/**'],
 	},
 	js.configs.recommended,
 	...tseslint.configs.strictTypeChecked,
 	{
 		languageOptions: {
 			parserOptions: {
-				project: ['./tsconfig.json', './ui/tsconfig.json'],
+				project: ['./tsconfig.json'],
 				tsconfigRootDir: import.meta.dirname,
 			},
 		},

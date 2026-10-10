@@ -58,6 +58,8 @@ interface Session {
 	subs: Set<http.ServerResponse>
 	turn: Turn | null
 	named: boolean
+	/** токены нарастающим итогом (GET /session/:id/stats) */
+	tokens: { input: number; output: number; cached: number }
 }
 type Json = Record<string, unknown>
 
@@ -158,7 +160,12 @@ function endTurn(s: Session, turn: Turn, stopReason: string): void {
 	for (const t of turn.timers) clearTimeout(t)
 	turn.timers.clear()
 	if (s.turn === turn) s.turn = null
-	emit(s, 'turn_complete', { stopReason, promptId: turn.promptId })
+	// токены хода растут вместе с числом событий — для демо; нарастающий итог отдаёт GET /session/:id/stats
+	const input = 900 + s.seq * 35
+	const output = 150 + s.seq * 8
+	const cached = Math.floor(input * 0.4)
+	s.tokens = { input: s.tokens.input + input, output: s.tokens.output + output, cached: s.tokens.cached + cached }
+	emit(s, 'turn_complete', { stopReason, promptId: turn.promptId, usage: { inputTokens: input, outputTokens: output, cachedReadTokens: cached, totalTokens: input + output } })
 }
 
 const LONG_ANSWER = `## План проверки
@@ -259,7 +266,7 @@ function runPrompt(s: Session, promptId: string, text: string): void {
 	}
 	if (body.startsWith('#plan')) {
 		const steps = ['Прочитать README', 'Найти TODO', 'Запустить тесты']
-		sc.thought('Задача из трёх шагов — сначала план.', msgId)
+		sc.thought('Сессия из трёх шагов — сначала план.', msgId)
 			.plan(steps, ['in_progress', 'pending', 'pending'])
 			.tool('read_file', 'read', 'Read: README.md', { path: 'README.md' }, '# nessy-orch')
 			.plan(steps, ['completed', 'in_progress', 'pending'])
@@ -509,7 +516,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 	if (req.method === 'POST' && url.pathname === '/session') {
 		const b = await readJson(req)
 		if (typeof b['cwd'] === 'string' && b['cwd'] !== workspace) return json(res, 400, { code: 'workspace_mismatch', error: 'workspace mismatch' })
-		const s: Session = { id: randomUUID(), seq: 0, ring: [], subs: new Set(), turn: null, named: false }
+		const s: Session = { id: randomUUID(), seq: 0, ring: [], subs: new Set(), turn: null, named: false, tokens: { input: 0, output: 0, cached: 0 } }
 		sessions.set(s.id, s)
 		return json(res, 200, { sessionId: s.id, workspaceCwd: workspace, attached: false, clientId: randomUUID(), createdAt: new Date().toISOString() })
 	}
@@ -535,6 +542,10 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 		json(res, 200, { promptId, lastEventId: s.seq })
 		runPrompt(s, promptId, text)
 		return
+	}
+	if (req.method === 'GET' && action === 'stats') {
+		const t = s.tokens
+		return json(res, 200, { session: { tokens: { inputTokens: t.input, outputTokens: t.output, cachedReadTokens: t.cached, totalTokens: t.input + t.output } } })
 	}
 	if (req.method === 'POST' && action === 'cancel') {
 		cancelTurn(s)

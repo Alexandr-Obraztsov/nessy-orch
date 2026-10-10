@@ -1,12 +1,12 @@
 /** Тела запросов и ответов REST API. */
-import type { AgentView, Message, NodeId, RoleView, SpaceView, TaskStatus, TaskView } from './domain'
+import type { AgentView, Message, NodeId, RoleView, SpaceView, SessionStatus, SessionView } from './domain'
 
 export interface GraphView {
 	rev: number
 	spaces: SpaceView[]
 	agents: AgentView[]
 	roles: RoleView[]
-	tasks: TaskView[]
+	sessions: SessionView[]
 }
 
 export interface SpawnRequest {
@@ -15,8 +15,8 @@ export interface SpawnRequest {
 	name?: string
 	/** id или имя роли */
 	role?: string
-	/** id задачи; по умолчанию — задача родителя (агент, запущенный агентом, наследует её) */
-	task?: string
+	/** id сессии; по умолчанию — сессия родителя (агент, запущенный агентом, наследует её) */
+	session?: string
 	prompt?: string
 	parent?: NodeId
 	from?: NodeId
@@ -72,21 +72,21 @@ export interface RoleRequest {
 	id?: string
 }
 
-/** POST /tasks — завести задачу; PATCH /tasks/:id — переименовать, закрыть, записать итог. */
-export interface TaskRequest {
+/** POST /sessions — завести сессию; PATCH /sessions/:id — переименовать, закрыть, записать итог. */
+export interface SessionRequest {
 	title: string
 	owner?: string
 	/** slug; по умолчанию — из заголовка + короткий суффикс */
 	id?: string
 }
 
-export interface TaskPatch {
+export interface SessionPatch {
 	title?: string
-	status?: TaskStatus
+	status?: SessionStatus
 	summary?: string | null
 }
 
-/** GET /inbox?task=<id> — только ответы агентов этой задачи, со своим курсором на каждую задачу. */
+/** GET /inbox?session=<id> — только ответы агентов этой сессии, со своим курсором на каждую сессию. */
 export interface InboxResponse {
 	messages: Message[]
 	cursor: number

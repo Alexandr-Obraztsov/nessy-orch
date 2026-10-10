@@ -5,8 +5,8 @@ description: Рецепт nessy-orch для вопроса по коду чуж�
 
 # Рецепт: вопрос по коду чужого репозитория
 
-Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (`task new "<цель>" --owner claude` → id, ссылка на панель задачи `http://127.0.0.1:4337/?task=<id>`),
-`ls --all --task <id>`, `role ls`. Все `spawn` — с `--task <id>`, сборщик — `inbox --task <id>`, в конце — `task done <id> --summary "…"`. Здесь — только то, что специфично для вопроса по коду. Сам репозиторий не клонируешь
+Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (`session new "<цель>" --owner claude` → id, ссылка на панель задачи `nessy-orch://session/<id>`),
+`ls --all --session <id>`, `role ls`. Все `spawn` — с `--session <id>`, сборщик — `inbox --session <id>`, в конце — `session done <id> --summary "…"`. Здесь — только то, что специфично для вопроса по коду. Сам репозиторий не клонируешь
 и не читаешь: это делает агент.
 
 ## Когда
@@ -27,7 +27,7 @@ description: Рецепт nessy-orch для вопроса по коду чуж�
 ## Поручения
 
 ```bash
-nessy-orch spawn --task <id> --space ~/tmp --role code-explorer --name <тема>-explorer "
+nessy-orch spawn --session <id> --space ~/tmp --role code-explorer --name <тема>-explorer "
 Цель: <вопрос одним предложением> — чтобы <зачем: оценить правку / ответить команде / найти место бага>.
 Контекст: репозиторий <группа/проект> в GitLab, ветка <main>. Известно: <что уже знаем, если есть>.
 Границы: только чтение, ничего не коммитить и не пушить; клон удалить в конце.
@@ -36,14 +36,14 @@ nessy-orch spawn --task <id> --space ~/tmp --role code-explorer --name <тема
 В конце: строка «Статус: …»."
 ```
 
-После `spawn` — фоновый `nessy-orch inbox --task <id> --wait 1500` (`run_in_background`), ответ придёт уведомлением.
+После `spawn` — фоновый `nessy-orch inbox --session <id> --wait 1500` (`run_in_background`), ответ придёт уведомлением.
 `--space` для `code-explorer` — любой каталог: репозиторий агент скачает сам. Несколько репозиториев —
-несколько таких `spawn` без `--wait`, затем фоновый `inbox --task <id> --wait 1500`, пока не придут все.
+несколько таких `spawn` без `--wait`, затем фоновый `inbox --session <id> --wait 1500`, пока не придут все.
 
 Проверка (отдельным агентом, не тем же):
 
 ```bash
-nessy-orch spawn --task <id> --space ~/tmp --role verifier --name <тема>-verify "
+nessy-orch spawn --session <id> --space ~/tmp --role verifier --name <тема>-verify "
 Цель: независимо проверить ответ про код <группа/проект> (ветка <main>).
 Заявлено: <краткий ответ explorer со ссылками файл:строка>.
 Границы: только чтение; клон удалить в конце. Не доверяй ответу — открой каждую ссылку и проверь цепочку.

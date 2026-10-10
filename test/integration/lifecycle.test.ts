@@ -95,8 +95,8 @@ describe('ход агента (автоподтверждение)', () => {
 
 	it('падение сессии nessy → error; следующее сообщение создаёт новую сессию', T, async () => {
 		await h.api<SpawnResponse>('POST', '/agents', { space: 'main', name: 'doomed' })
-		await until(() => h.orch.resolveAgent('doomed').sessionId !== null, 8000, 'сессия создана')
-		const sessionBefore = h.orch.resolveAgent('doomed').sessionId
+		await until(() => h.orch.resolveAgent('doomed').nessyId !== null, 8000, 'сессия создана')
+		const sessionBefore = h.orch.resolveAgent('doomed').nessyId
 		const r = await h.api<SendResponse>('POST', '/agents/doomed/send', { text: '#fail', wait: true, waitTimeoutSec: 8 })
 		assert.ok(r.body.reply?.failed, 'ответ помечен ошибкой')
 		const dead = h.orch.getAgent('doomed')
@@ -108,7 +108,7 @@ describe('ход агента (автоподтверждение)', () => {
 		assert.equal(again.status, 200)
 		assert.equal(again.body.reply?.text, 'ответ: ещё')
 		assert.equal(again.body.reply.failed, undefined)
-		assert.notEqual(h.orch.resolveAgent('doomed').sessionId, sessionBefore, 'новая сессия')
+		assert.notEqual(h.orch.resolveAgent('doomed').nessyId, sessionBefore, 'новая сессия')
 		assert.ok(h.orch.agentHistory('doomed').some(e => e.kind === 'system' && e.text === 'сессия nessy пересоздана, контекст сброшен'))
 		assert.equal(h.orch.getAgent('doomed').status, 'idle')
 		assert.equal(h.orch.getAgent('doomed').error, null)

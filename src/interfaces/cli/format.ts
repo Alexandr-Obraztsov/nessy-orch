@@ -1,5 +1,5 @@
 /** Форматирование вывода CLI (для человека; для машин есть --json). */
-import type { AgentPlan, AgentView, Message, RoleView, SpaceView, TaskView } from '../../../shared/types'
+import type { AgentPlan, AgentView, Message, RoleView, SpaceView, SessionView } from '../../../shared/types'
 import { formatPlanLine } from '../../domain/plan'
 
 const tty = process.stdout.isTTY && !process.env['NO_COLOR']
@@ -113,13 +113,13 @@ export function planProgress(plan: AgentPlan | null): string {
 	return `${plan.entries.filter(e => e.status === 'completed').length}/${plan.entries.length}`
 }
 
-/** Таблица задач; agents — все агенты (для счётчика «работают/всего»). */
-export function tasksTable(tasks: readonly TaskView[], agents: readonly AgentView[], hiddenDone = 0): string {
-	const hint = hiddenDone ? dim(`завершённых: ${hiddenDone} (показать: nessy-orch task ls --all)`) : ''
-	if (!tasks.length) return [dim('активных задач нет. Заведите: nessy-orch task new "<цель>" --owner claude'), hint].filter(Boolean).join('\n')
+/** Таблица сессий; agents — все агенты (для счётчика «работают/всего»). */
+export function sessionsTable(sessions: readonly SessionView[], agents: readonly AgentView[], hiddenDone = 0): string {
+	const hint = hiddenDone ? dim(`завершённых: ${hiddenDone} (показать: nessy-orch session ls --all)`) : ''
+	if (!sessions.length) return [dim('активных сессий нет. Заведите: nessy-orch session new "<цель>" --owner claude'), hint].filter(Boolean).join('\n')
 	const rows = table(
-		tasks.map(t => {
-			const mine = agents.filter(a => a.task === t.id)
+		sessions.map(t => {
+			const mine = agents.filter(a => a.session === t.id)
 			const working = mine.filter(a => a.status === 'working').length
 			return [
 				bold(t.id),
@@ -135,9 +135,9 @@ export function tasksTable(tasks: readonly TaskView[], agents: readonly AgentVie
 	return hint ? `${rows}\n${hint}` : rows
 }
 
-/** Агенты задачи: статус и прогресс плана x/y. */
-export function taskAgentsTable(agents: readonly AgentView[]): string {
-	if (!agents.length) return dim('агентов в задаче нет')
+/** Агенты сессии: статус и прогресс плана x/y. */
+export function sessionAgentsTable(agents: readonly AgentView[]): string {
+	if (!agents.length) return dim('агентов в сессии нет')
 	return table(
 		agents.map(a => [
 			bold(a.id),

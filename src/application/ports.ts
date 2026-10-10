@@ -2,7 +2,7 @@
  * Порты прикладного слоя: что ядру нужно от внешнего мира (nessy, процессы, хранилище, часы, id).
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
-import type { AgentEvent, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, TaskView, ToolStatus } from '../../shared/types'
+import type { AgentEvent, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, TokenUsage, ToolStatus } from '../../shared/types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
 import type { PersistedState } from './persisted.types'
 
@@ -20,7 +20,8 @@ export type SessionEvent =
 			status: ToolStatus
 			output: string
 	  }
-	| { kind: 'turn_complete'; stopReason: string; promptId: string | null }
+	/** usage — токены хода, если nessy их сообщил */
+	| { kind: 'turn_complete'; stopReason: string; promptId: string | null; usage?: TokenUsage }
 	/** Ошибка хода (обычно следом придёт turn_complete). */
 	| { kind: 'turn_error'; message: string; retryable: boolean; code: number | null }
 	| { kind: 'cancelled'; promptId: string | null }
@@ -49,6 +50,8 @@ export interface NessyGateway {
 	/** Поднять сессию после рестарта. true — если получилось. */
 	resumeSession(sessionId: string, cwd: string): Promise<boolean>
 	prompt(sessionId: string, text: string): Promise<{ promptId: string | null }>
+	/** Токены сессии нарастающим итогом (GET /session/:id/stats); null — nessy не сообщает. */
+	usage(sessionId: string): Promise<TokenUsage | null>
 	cancel(sessionId: string): Promise<void>
 	closeSession(sessionId: string): Promise<void>
 	/** Проголосовать по запросу разрешения (optionId=null → отмена). */
@@ -109,9 +112,12 @@ export interface StorePort {
 	loadRoles(): RoleView[]
 	/** Немедленная атомарная запись ролей (меняются редко). */
 	saveRoles(roles: readonly RoleView[]): void
-	loadTasks(): TaskView[]
-	/** Немедленная атомарная запись задач (tasks.json). */
-	saveTasks(tasks: readonly TaskView[]): void
+	loadSessions(): SessionView[]
+	/** Немедленная атомарная запись сессий (sessions.json). */
+	saveSessions(sessions: readonly SessionView[]): void
+	/** Источники сессии (append-only JSONL: sources/<id>.jsonl). */
+	appendSource(sessionId: string, s: SourceView): void
+	loadSources(sessionId: string): SourceView[]
 	/** Историю не удаляем: архивируем. */
 	archiveAgent(agentId: string): void
 	/** Записать отложенное и больше ничего не писать (остановка). */

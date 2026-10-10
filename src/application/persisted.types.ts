@@ -1,5 +1,5 @@
 /** Форма состояния оркестратора в хранилище (state.json). */
-import type { AgentPlan, Message, ReplyBrief } from '../../shared/types'
+import type { AgentPlan, AgentStats, Message, ReplyBrief } from '../../shared/types'
 
 export interface PersistedSpace {
 	name: string
@@ -13,14 +13,18 @@ export interface PersistedAgent {
 	name: string
 	space: string
 	parent: string
-	/** id задачи; нет в состояниях старых версий (→ null) */
-	task?: string | null
+	/** id сессии; нет в состояниях старых версий (→ null) */
+	session?: string | null
 	/** id роли; нет в состояниях старых версий */
 	role?: string | null
 	/** в архиве; нет в состояниях старых версий */
 	archived?: boolean
 	createdAt: string
 	sessionId: string | null
+	/** сообщение, ход по которому шёл в момент записи (при рестарте — потерянный ход); нет в старых состояниях */
+	inflight?: Message | null
+	/** счётчики работы; нет в состояниях старых версий */
+	stats?: AgentStats
 	displayName: string | null
 	lastEventId: number | null
 	introduced: boolean
@@ -45,6 +49,6 @@ export interface PersistedState {
 	agents: PersistedAgent[]
 	msgSeq: number
 	inboxCursor: number
-	/** курсоры inbox по задачам (id задачи → seq); нет в состояниях старых версий */
-	taskCursors?: Record<string, number>
+	/** курсоры inbox по сессиям (id сессии → seq); нет в состояниях старых версий */
+	sessionCursors?: Record<string, number>
 }

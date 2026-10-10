@@ -23,7 +23,7 @@ describe('рестарт и восстановление', () => {
 		await first.api('POST', '/spaces', { path: first.ws, name: 'main' })
 		const sp = await first.api<SpawnResponse>('POST', '/agents', { space: 'main', name: 'keeper', prompt: 'запомни', wait: true })
 		const id = sp.body.agent.id
-		const sessionBefore = first.orch.resolveAgent(id).sessionId
+		const sessionBefore = first.orch.resolveAgent(id).nessyId
 		await first.api('POST', '/agents', { space: 'main', name: 'doomed', prompt: '#fail', wait: true, waitTimeoutSec: 8 })
 		await first.api('GET', '/inbox') // сдвинуть курсор
 		const seqBefore = first.orch.listMessages({ limit: 1000 }).at(-1)?.seq ?? 0
@@ -52,7 +52,7 @@ describe('рестарт и восстановление', () => {
 		const r = await second.api<SendResponse>('POST', '/agents/keeper/send', { text: 'снова', wait: true, waitTimeoutSec: 10 })
 		assert.equal(r.body.reply?.text, 'ответ: снова')
 		assert.ok(r.body.message.seq > seqBefore, 'нумерация ленты продолжается')
-		assert.notEqual(second.orch.resolveAgent(id).sessionId, sessionBefore)
+		assert.notEqual(second.orch.resolveAgent(id).nessyId, sessionBefore)
 		assert.ok(second.orch.agentHistory('keeper').some(e => e.kind === 'system' && /не удалось восстановить.*контекст сброшен/.test(e.text)))
 		assert.equal(second.orch.getAgent('keeper').archived, true, 'снова в архиве после успешного хода')
 		const seqs = second.orch.agentHistory('keeper', 1000).map(e => e.seq)

@@ -11,7 +11,7 @@ import { del, enc, ep, get, info, json, out, post } from '../io'
 import { renderEvent } from '../render-event'
 import type { CommandTable } from './command.types'
 import { ASK_FLAGS, COMMON, LS_FLAGS, PLAN_FLAGS, SEND_FLAGS, SPAWN_FLAGS } from './flags'
-import { taskOption } from './tasks.commands'
+import { sessionOption } from './sessions.commands'
 
 /** Пространство задают именем или путём; относительный путь считаем от текущего каталога CLI, а не сервера. */
 function spaceArg(v: string | undefined): string | undefined {
@@ -29,16 +29,16 @@ function printSendResult(p: Parsed, agent: AgentView | null, r: SendResponse): v
 	} else if (r.timedOut) {
 		throw new CliError(`ответ не получен за отведённое время; агент продолжает работу: nessy-orch watch ${agent?.id ?? r.message.to}`, 3)
 	} else {
-		const task = agent?.task ? ` --task ${agent.task}` : ''
-		info(dim(`отправлено ${r.message.id} → ${r.message.to}. Ответ придёт в inbox: nessy-orch inbox${task} --wait 60`))
+		const session = agent?.session ? ` --session ${agent.session}` : ''
+		info(dim(`отправлено ${r.message.id} → ${r.message.to}. Ответ придёт в inbox: nessy-orch inbox${session} --wait 60`))
 	}
 }
 
 async function cmdLs(p: Parsed): Promise<void> {
 	const g = await get<GraphView>('/graph')
-	const task = taskOption(p)
-	if (task !== undefined && !g.tasks.some(t => t.id === task)) throw new CliError(`задача «${task}» не найдена [no_task]`)
-	const scope = task === undefined ? g.agents : g.agents.filter(a => a.task === task)
+	const session = sessionOption(p)
+	if (session !== undefined && !g.sessions.some(t => t.id === session)) throw new CliError(`сессия «${session}» не найдена [no_session]`)
+	const scope = session === undefined ? g.agents : g.agents.filter(a => a.session === session)
 	const list = flagBool(p, 'all') ? scope : scope.filter(a => !a.archived)
 	if (flagBool(p, 'json')) return json(list)
 	out(agentsTable(list, g.spaces, g.roles, scope.length - list.length))
@@ -47,12 +47,12 @@ async function cmdLs(p: Parsed): Promise<void> {
 async function cmdSpawn(p: Parsed): Promise<void> {
 	const prompt = p.positionals.join(' ').trim()
 	const wait = flagBool(p, 'wait')
-	if (wait && !prompt) throw new CliError('--wait требует текст задачи', 2)
+	if (wait && !prompt) throw new CliError('--wait требует текст сессии', 2)
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(flagStr(p, 'space')),
 		name: flagStr(p, 'name'),
 		role: flagStr(p, 'role'),
-		task: taskOption(p),
+		session: sessionOption(p),
 		from: flagStr(p, 'from'),
 		prompt: prompt || undefined,
 		wait,
@@ -79,10 +79,10 @@ async function cmdSend(p: Parsed): Promise<void> {
 async function cmdAsk(p: Parsed): Promise<void> {
 	const [space, ...rest] = p.positionals
 	const prompt = rest.join(' ').trim()
-	if (!space || !prompt) throw new CliError('использование: nessy-orch ask <путь|пространство> "задача"', 2)
+	if (!space || !prompt) throw new CliError('использование: nessy-orch ask <путь|пространство> "сессия"', 2)
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(space),
-		task: taskOption(p),
+		session: sessionOption(p),
 		prompt,
 		wait: true,
 		waitTimeoutSec: flagNum(p, 'timeout'),
@@ -98,7 +98,7 @@ async function cmdShow(p: Parsed): Promise<void> {
 		get<AgentEvent[]>(`/agents/${enc(ref)}/history?limit=${flagNum(p, 'n') ?? 40}`),
 	])
 	if (flagBool(p, 'json')) return json({ agent: a, events: ev })
-	const tags = [a.task ? `задача ${a.task}` : '', a.role ? `роль ${a.role}` : '', a.archived ? 'в архиве' : ''].filter(Boolean).join(', ')
+	const tags = [a.session ? `сессия ${a.session}` : '', a.role ? `роль ${a.role}` : '', a.archived ? 'в архиве' : ''].filter(Boolean).join(', ')
 	out(`${bold(a.id)} ${a.name !== a.id ? `(${a.name}) ` : ''}${status(a.status)}${tags ? dim(` [${tags}]`) : ''}  ${a.space}${a.displayName ? `  «${a.displayName}»` : ''}`)
 	for (const e of ev) out(renderEvent(e))
 }

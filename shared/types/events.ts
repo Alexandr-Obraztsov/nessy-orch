@@ -1,5 +1,5 @@
 /** События чата агента и потоков (/stream, /agents/:id/stream, внутренняя шина). */
-import type { AgentView, Message, NodeId, RoleView, SpaceView, TaskView, ToolStatus } from './domain'
+import type { AgentView, Message, NodeId, RoleView, SpaceView, SessionView, ToolStatus } from './domain'
 
 interface EventBase {
 	seq: number
@@ -23,6 +23,8 @@ export interface ToolEvent extends EventBase {
 	input: Record<string, unknown>
 	status: ToolStatus
 	output?: string
+	/** когда вызов завершился (completed/failed); длительность = endedTs − ts */
+	endedTs?: number
 }
 export interface PermissionEvent extends EventBase {
 	kind: 'permission'
@@ -55,7 +57,7 @@ export type StreamEvent =
 			spaces: SpaceView[]
 			agents: AgentView[]
 			roles: RoleView[]
-			tasks: TaskView[]
+			sessions: SessionView[]
 			messages: Message[]
 	  }
 	| { t: 'message'; rev: number; message: Message }
@@ -65,8 +67,8 @@ export type StreamEvent =
 	| { t: 'space_removed'; rev: number; name: string }
 	| { t: 'role'; rev: number; role: RoleView }
 	| { t: 'role_removed'; rev: number; id: string }
-	| { t: 'task'; rev: number; task: TaskView }
-	| { t: 'task_removed'; rev: number; id: string }
+	| { t: 'session'; rev: number; session: SessionView }
+	| { t: 'session_removed'; rev: number; id: string }
 
 /** Всё, что ходит по внутренней шине (включая события агентов). */
 export type HubEvent =
@@ -83,8 +85,8 @@ export type HubInput =
 	| { t: 'space_removed'; name: string }
 	| { t: 'role'; role: RoleView }
 	| { t: 'role_removed'; id: string }
-	| { t: 'task'; task: TaskView }
-	| { t: 'task_removed'; id: string }
+	| { t: 'session'; session: SessionView }
+	| { t: 'session_removed'; id: string }
 	| { t: 'event'; agentId: string; event: AgentEvent }
 	| { t: 'chunk'; agentId: string; chunk: ChunkEvent }
 

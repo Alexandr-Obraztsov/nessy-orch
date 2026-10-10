@@ -1,5 +1,5 @@
 /** Хранилище в памяти и поддельный шлюз nessy для unit-тестов прикладного слоя. */
-import type { AgentEvent, Message, RoleView, SpaceView, TaskView } from '../../shared/types'
+import type { AgentEvent, Message, RoleView, SpaceView, SessionView, SourceView, TokenUsage } from '../../shared/types'
 import type { PersistedState } from '../../src/application/persisted.types'
 import { NessyBusyError } from '../../src/domain/errors'
 import type { NessyGateway, SessionSubscription, SpaceRuntime, StorePort, SubscribeOptions } from '../../src/application/ports'
@@ -9,7 +9,8 @@ export class MemoryStore implements StorePort {
 	messages: Message[] = []
 	events = new Map<string, AgentEvent[]>()
 	roles: RoleView[] = []
-	tasks: TaskView[] = []
+	sessions: SessionView[] = []
+	sources = new Map<string, SourceView[]>()
 	private pending: (() => PersistedState) | null = null
 
 	loadState(): PersistedState {
@@ -33,11 +34,19 @@ export class MemoryStore implements StorePort {
 	saveRoles(roles: readonly RoleView[]): void {
 		this.roles = structuredClone([...roles])
 	}
-	loadTasks(): TaskView[] {
-		return structuredClone(this.tasks)
+	loadSessions(): SessionView[] {
+		return structuredClone(this.sessions)
 	}
-	saveTasks(tasks: readonly TaskView[]): void {
-		this.tasks = structuredClone([...tasks])
+	saveSessions(sessions: readonly SessionView[]): void {
+		this.sessions = structuredClone([...sessions])
+	}
+	appendSource(sessionId: string, source: SourceView): void {
+		const list = this.sources.get(sessionId) ?? []
+		list.push(structuredClone(source))
+		this.sources.set(sessionId, list)
+	}
+	loadSources(sessionId: string): SourceView[] {
+		return structuredClone(this.sources.get(sessionId) ?? [])
 	}
 	appendMessage(m: Message): void {
 		this.messages.push(m)
@@ -89,6 +98,11 @@ export class FakeGateway implements NessyGateway {
 		const id = `p-${this.prompts.length}`
 		if (this.promptGate) await this.promptGate
 		return { promptId: id }
+	}
+	/** токены, которые вернёт GET /stats (null — nessy не сообщает) */
+	usageValue: TokenUsage | null = null
+	usage(): Promise<TokenUsage | null> {
+		return Promise.resolve(this.usageValue)
 	}
 	cancel(): Promise<void> {
 		this.cancels++

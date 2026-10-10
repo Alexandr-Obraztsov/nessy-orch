@@ -18,10 +18,11 @@ import type {
 	SpawnResponse,
 	StatusResponse,
 	StreamEvent,
-	TaskPatch,
-	TaskRequest,
-	TaskStatus,
-	TaskView,
+	SessionPatch,
+	SessionRequest,
+	SessionStatus,
+	SessionView,
+	SourceView,
 } from '../../shared/types'
 import type { AgentIdentity, MessageDraft, RolePresetFile, RoleSeedResult, TurnOutcome } from '../domain/types'
 import { rid } from '../lib/ids'
@@ -39,7 +40,8 @@ import type { ServiceContext } from './services/context.types'
 import { MessagingService } from './services/messaging.service'
 import { RolesService } from './services/roles.service'
 import { SpacesService } from './services/spaces.service'
-import { TasksService } from './services/tasks.service'
+import { SessionsService } from './services/sessions.service'
+import { SourcesService } from './services/sources.service'
 
 const SNAPSHOT_MESSAGES = 300
 const DEFAULT_CANCEL_GRACE_MS = 3000
@@ -55,7 +57,8 @@ export class Orchestrator implements AgentHost {
 	private readonly messaging: MessagingService
 	private readonly agentsSvc: AgentsService
 	private readonly rolesSvc: RolesService
-	private readonly tasksSvc: TasksService
+	private readonly sessionsSvc: SessionsService
+	private readonly sourcesSvc: SourcesService
 	private readonly ctx: ServiceContext
 	private shuttingDown = false
 
@@ -70,7 +73,7 @@ export class Orchestrator implements AgentHost {
 			clock,
 			ids,
 			onChange: () => this.saveSoon(),
-			taskOf: id => this.registry.agents.get(id)?.task ?? null,
+			sessionOf: id => this.registry.agents.get(id)?.session ?? null,
 		})
 		this.ctx = {
 			registry: this.registry,
@@ -95,8 +98,9 @@ export class Orchestrator implements AgentHost {
 		this.spacesSvc = new SpacesService(this.ctx, deps.spaceFactory)
 		this.messaging = new MessagingService(this.ctx)
 		this.rolesSvc = new RolesService(this.ctx)
-		this.tasksSvc = new TasksService(this.ctx, deps.taskSuffix)
-		this.agentsSvc = new AgentsService(this.ctx, this.spacesSvc, this.messaging, this.rolesSvc, this.tasksSvc)
+		this.sessionsSvc = new SessionsService(this.ctx, deps.sessionSuffix)
+		this.sourcesSvc = new SourcesService(this.ctx, this.sessionsSvc)
+		this.agentsSvc = new AgentsService(this.ctx, this.spacesSvc, this.messaging, this.rolesSvc, this.sessionsSvc)
 	}
 
 	get settings(): OrchestratorDeps['settings'] {
@@ -107,16 +111,16 @@ export class Orchestrator implements AgentHost {
 	load(): void {
 		const st = this.store.loadState()
 		this.rolesSvc.load()
-		this.tasksSvc.load()
-		// курсоры удалённых (пропавших из tasks.json) задач не восстанавливаем
-		const cursors = Object.fromEntries(Object.entries(st.taskCursors ?? {}).filter(([t]) => this.tasksSvc.has(t)))
+		this.sessionsSvc.load()
+		// курсоры удалённых (пропавших из sessions.json) сессий не восстанавливаем
+		const cursors = Object.fromEntries(Object.entries(st.sessionCursors ?? {}).filter(([t]) => this.sessionsSvc.has(t)))
 		this.feed.load(st.msgSeq, st.inboxCursor, cursors)
 		for (const s of st.spaces) this.registry.spaces.set(s.name, this.spacesSvc.make(s))
 		for (const p of st.agents) {
 			if (!this.registry.spaces.has(p.space)) continue
-			// старые состояния без задачи и ссылки на пропавшую задачу → вне задач
-			const task = p.task && this.tasksSvc.has(p.task) ? p.task : null
-			this.registry.agents.set(p.id, Agent.restore({ ...p, task }, this.ctx.agentDeps))
+			// старые состояния без сессии и ссылки на пропавшую сессию → вне сессий
+			const session = p.session && this.sessionsSvc.has(p.session) ? p.session : null
+			this.registry.agents.set(p.id, Agent.restore({ ...p, session }, this.ctx.agentDeps))
 		}
 	}
 
@@ -140,7 +144,7 @@ export class Orchestrator implements AgentHost {
 			agents: [...this.registry.agents.values()].map(a => a.persist()),
 			msgSeq: this.feed.msgSeq,
 			inboxCursor: this.feed.inboxCursor,
-			taskCursors: this.feed.taskCursorsSnapshot(),
+			sessionCursors: this.feed.sessionCursorsSnapshot(),
 		}
 	}
 
@@ -172,7 +176,12 @@ export class Orchestrator implements AgentHost {
 	}
 
 	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): Message | null {
+		if (!outcome.error) this.sourcesSvc.addFromReply(agent.id, text)
 		return this.messaging.onTurnDone(agent, msg, text, outcome)
+	}
+
+	onToolUrls(agent: AgentIdentity, urls: readonly string[]): void {
+		this.sourcesSvc.addFromTool(agent.id, urls)
 	}
 
 	// ---------- пространства ----------
@@ -256,34 +265,41 @@ export class Orchestrator implements AgentHost {
 		this.rolesSvc.remove(ref)
 	}
 
-	// ---------- задачи ----------
-	listTasks(status?: TaskStatus): TaskView[] {
-		return this.tasksSvc.list(status)
+	// ---------- сессии ----------
+	listSessions(status?: SessionStatus): SessionView[] {
+		return this.sessionsSvc.list(status)
 	}
 
-	getTask(id: string): TaskView {
-		return this.tasksSvc.resolve(id)
+	getSession(id: string): SessionView {
+		return this.sessionsSvc.resolve(id)
 	}
 
-	createTask(req: TaskRequest): TaskView {
-		return this.tasksSvc.create(req)
+	/** Источники, собранные за сессию (ссылки из ответов и вызовов инструментов агентов). */
+	sessionSources(id: string): SourceView[] {
+		return this.sourcesSvc.list(this.sessionsSvc.resolve(id).id)
 	}
 
-	updateTask(id: string, patch: TaskPatch): TaskView {
-		return this.tasksSvc.update(id, patch)
+	createSession(req: SessionRequest): SessionView {
+		return this.sessionsSvc.create(req)
 	}
 
-	/** Удалить задачу (агенты остаются вне задач); 409 task_busy, если в ней работают агенты. */
-	removeTask(id: string): void {
-		this.tasksSvc.remove(id)
+	updateSession(id: string, patch: SessionPatch): SessionView {
+		return this.sessionsSvc.update(id, patch)
 	}
 
-	/** Агенты: все или только задачи `task` (неизвестная задача → 404 no_task). */
-	listAgents(task?: string): AgentView[] {
+	/** Удалить сессию (агенты остаются вне сессий); 409 session_busy, если в ней работают агенты. */
+	removeSession(id: string): void {
+		const resolved = this.sessionsSvc.resolve(id).id
+		this.sessionsSvc.remove(id)
+		this.sourcesSvc.forget(resolved)
+	}
+
+	/** Агенты: все или только сессии `session` (неизвестная сессия → 404 no_session). */
+	listAgents(session?: string): AgentView[] {
 		const all = [...this.registry.agents.values()].map(a => a.toJSON())
-		if (task === undefined) return all
-		const id = this.tasksSvc.resolve(task).id
-		return all.filter(a => a.task === id)
+		if (session === undefined) return all
+		const id = this.sessionsSvc.resolve(session).id
+		return all.filter(a => a.session === id)
 	}
 
 	// ---------- сообщения ----------
@@ -300,9 +316,9 @@ export class Orchestrator implements AgentHost {
 		return this.feed.list({ involving, since: opts.since, limit: opts.limit })
 	}
 
-	/** Входящие для you; с task — только ответы агентов задачи, со своим курсором (неизвестная → 404 no_task). */
+	/** Входящие для you; с session — только ответы агентов сессии, со своим курсором (неизвестная → 404 no_session). */
 	async inbox(opts: InboxQuery = {}): Promise<InboxResponse> {
-		if (opts.task !== undefined) return this.feed.inbox({ ...opts, task: this.tasksSvc.resolve(opts.task).id })
+		if (opts.session !== undefined) return this.feed.inbox({ ...opts, session: this.sessionsSvc.resolve(opts.session).id })
 		return this.feed.inbox(opts)
 	}
 
@@ -313,7 +329,7 @@ export class Orchestrator implements AgentHost {
 			spaces: [...this.registry.spaces.values()].map(s => s.toJSON()),
 			agents: [...this.registry.agents.values()].map(a => a.toJSON()),
 			roles: this.rolesSvc.list(),
-			tasks: this.tasksSvc.list(),
+			sessions: this.sessionsSvc.list(),
 		}
 	}
 

@@ -38,7 +38,7 @@ describe('сообщения и маршрутизация', () => {
 	it('агенты изолированы: у каждого своя сессия; имена уникальны', T, async () => {
 		const r = await h.api<SpawnResponse>('POST', '/agents', { space: 'main', name: 'beta', prompt: 'второй', wait: true })
 		beta = r.body.agent.id
-		assert.notEqual(h.orch.resolveAgent(alpha).sessionId, h.orch.resolveAgent(beta).sessionId)
+		assert.notEqual(h.orch.resolveAgent(alpha).nessyId, h.orch.resolveAgent(beta).nessyId)
 		assert.equal(r.body.reply?.text, 'ответ: второй')
 		const dup = await h.api<ApiError>('POST', '/agents', { space: 'main', name: 'BETA' })
 		assert.equal(dup.status, 409)

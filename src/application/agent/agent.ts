@@ -11,13 +11,16 @@
  * Успешно закончив ход с пустой очередью, агент уходит в архив (archived): сессия и подписка сохраняются,
  * любое новое сообщение возвращает его в работу с прежним контекстом.
  */
-import type { AgentPlan, AgentStatus, AgentView, Message, PlanEntry, ReplyBrief, ToolBrief } from '../../../shared/types'
+import type { AgentPlan, AgentStats, AgentStatus, AgentView, Message, PlanEntry, ReplyBrief, TokenUsage, ToolBrief } from '../../../shared/types'
 import { archiveAfterTurn, restoredStatus, statusAfterAttach, statusAfterTurn } from '../../domain/agent-status'
 import { YOU } from '../../domain/constants'
 import { NessyBusyError } from '../../domain/errors'
 import { pickPermissionOption } from '../../domain/permission'
 import { coercePlanEntries, planOnTurnStart } from '../../domain/plan'
 import { planReminder } from '../../domain/preamble'
+import { parseReply } from '../../domain/reply'
+import { urlsInInput } from '../../domain/sources'
+import { addUsage } from '../../domain/usage'
 import { framePrompt } from '../../domain/routing'
 import type { AgentIdentity, TurnOutcome } from '../../domain/types'
 import { errMsg } from '../../lib/json'
@@ -37,12 +40,13 @@ export class Agent implements AgentIdentity {
 	readonly name: string
 	readonly space: string
 	readonly parent: string
-	/** id задачи (null — вне задач); сбрасывается при удалении задачи */
-	task: string | null
+	/** id сессии (null — вне сессий); сбрасывается при удалении сессии */
+	session: string | null
 	/** id роли (роль могли удалить — id остаётся) */
 	readonly role: string | null
 	createdAt: string
-	sessionId: string | null = null
+	/** id сессии nessy (не путать с сессией оркестратора — `session`) */
+	nessyId: string | null = null
 	displayName: string | null = null
 	lastEventId: number | null = null
 	introduced = false
@@ -60,8 +64,10 @@ export class Agent implements AgentIdentity {
 	lastTurnMs: number | null = null
 	/** последний ответ оператору (you) */
 	replyBrief: ReplyBrief | null = null
-	/** скрыт из рабочего списка: задача выполнена, сессия сохранена */
+	/** скрыт из рабочего списка: сессия выполнена, сессия сохранена */
 	archived = false
+	/** счётчики работы агента (ходы, инструменты, время, токены) */
+	stats: AgentStats = { turns: 0, toolCalls: 0, workMs: 0, tokens: null }
 
 	private readonly journal: AgentJournal
 	private current: CurrentTurn | null = null
@@ -77,6 +83,10 @@ export class Agent implements AgentIdentity {
 	private cancelTimer: NodeJS.Timeout | null = null
 	/** отмена не подтверждена — события старого промпта игнорируем до ответа на следующий */
 	private staleEvents = false
+	/** ход, который шёл в момент остановки оркестратора: ответа не будет (разбирается в resumeQueue) */
+	private lostTurn: Message | null = null
+	/** токены хода из turn_complete (если nessy их прислал) */
+	private turnUsage: TokenUsage | null = null
 	/** promptId завершённых ходов (поздние turn_complete/cancelled по ним игнорируются) */
 	private readonly donePrompts: string[] = []
 
@@ -89,7 +99,7 @@ export class Agent implements AgentIdentity {
 		this.name = init.name
 		this.space = init.space
 		this.parent = init.parent
-		this.task = init.task ?? null
+		this.session = init.session ?? null
 		this.role = init.role ?? null
 		this.status = init.status ?? 'starting'
 		this.createdAt = this.isoNow()
@@ -100,9 +110,9 @@ export class Agent implements AgentIdentity {
 	static restore(p: PersistedAgent, deps: AgentDeps): Agent {
 		let evSeq = p.evSeq
 		for (const e of deps.store.readEvents(p.id, 50)) if (e.seq > evSeq) evSeq = e.seq
-		const a = new Agent({ id: p.id, name: p.name, space: p.space, parent: p.parent, task: p.task ?? null, role: p.role ?? null, status: restoredStatus() }, deps, evSeq)
+		const a = new Agent({ id: p.id, name: p.name, space: p.space, parent: p.parent, session: p.session ?? null, role: p.role ?? null, status: restoredStatus() }, deps, evSeq)
 		a.createdAt = p.createdAt
-		a.sessionId = p.sessionId
+		a.nessyId = p.sessionId
 		a.displayName = p.displayName
 		a.lastEventId = p.lastEventId
 		a.introduced = p.introduced
@@ -114,6 +124,8 @@ export class Agent implements AgentIdentity {
 		a.lastTurnMs = p.lastTurnMs ?? null
 		a.replyBrief = p.replyBrief ?? null
 		a.archived = p.archived === true
+		if (p.stats) a.stats = { ...p.stats }
+		a.lostTurn = p.inflight ?? null
 		a.resume = p.sessionId !== null // сессия поднимется лениво, при первом сообщении
 		return a
 	}
@@ -125,7 +137,7 @@ export class Agent implements AgentIdentity {
 			name: this.name,
 			space: this.space,
 			parent: this.parent,
-			task: this.task,
+			session: this.session,
 			role: this.role,
 			status: this.status,
 			archived: this.archived,
@@ -142,6 +154,7 @@ export class Agent implements AgentIdentity {
 			turnSteps: this.turnSteps,
 			lastTurnMs: this.lastTurnMs,
 			lastReply: this.replyBrief,
+			stats: { ...this.stats, tokens: this.stats.tokens && { ...this.stats.tokens } },
 		}
 	}
 
@@ -151,11 +164,11 @@ export class Agent implements AgentIdentity {
 			name: this.name,
 			space: this.space,
 			parent: this.parent,
-			task: this.task,
+			session: this.session,
 			role: this.role,
 			archived: this.archived,
 			createdAt: this.createdAt,
-			sessionId: this.sessionId,
+			sessionId: this.nessyId,
 			displayName: this.displayName,
 			lastEventId: this.lastEventId,
 			introduced: this.introduced,
@@ -169,6 +182,8 @@ export class Agent implements AgentIdentity {
 			turnSteps: this.turnSteps,
 			lastTurnMs: this.lastTurnMs,
 			replyBrief: this.replyBrief,
+			stats: this.stats,
+			inflight: this.current?.msg ?? null,
 		}
 	}
 
@@ -208,10 +223,10 @@ export class Agent implements AgentIdentity {
 		this.publishNode()
 	}
 
-	/** Перепривязать к задаче (null — вне задач) и опубликовать узел. */
-	setTask(task: string | null): void {
-		if (this.task === task) return
-		this.task = task
+	/** Перепривязать к сессии (null — вне сессий) и опубликовать узел. */
+	setSession(session: string | null): void {
+		if (this.session === session) return
+		this.session = session
 		this.publishNode()
 	}
 
@@ -254,13 +269,13 @@ export class Agent implements AgentIdentity {
 		const space = this.deps.host.getSpace(this.space)
 		if (!space) throw new Error(`пространство «${this.space}» не найдено`)
 		const client = await space.ensureReady()
-		const prev = this.resume ? this.sessionId : null
+		const prev = this.resume ? this.nessyId : null
 		const tryResume = prev !== null
 		const resumed = prev !== null && (await client.resumeSession(prev, space.path))
 		if (!resumed) {
-			const hadSession = this.sessionId !== null
+			const hadSession = this.nessyId !== null
 			const { sessionId } = await client.createSession(space.path)
-			this.sessionId = sessionId
+			this.nessyId = sessionId
 			this.lastEventId = null
 			this.introduced = false // новый контекст — снова представиться
 			if (hadSession)
@@ -269,7 +284,7 @@ export class Agent implements AgentIdentity {
 				)
 		}
 		this.resume = false
-		this.sub = client.subscribe(this.sessionId ?? '', {
+		this.sub = client.subscribe(this.nessyId ?? '', {
 			lastEventId: this.lastEventId,
 			onEvent: (ev, id) => this.onSessionEvent(ev, id),
 		})
@@ -315,6 +330,16 @@ export class Agent implements AgentIdentity {
 
 	/** Продолжить доставку очереди (после восстановления из состояния). */
 	resumeQueue(): void {
+		const lost = this.lostTurn
+		if (lost) {
+			// ход «в полёте» при остановке теряется: сообщаем об этом отправителю (в том числе ждущему --wait) и в чат
+			this.lostTurn = null
+			const reason = 'оркестратор был перезапущен во время хода'
+			this.addSystem(`${reason}: ответа не будет`, 'error')
+			this.setStatus('error', reason)
+			this.noteReply(this.deps.host.onTurnDone(this, lost, '', { error: reason }))
+			this.publishNode()
+		}
 		if (this.queue.length) void this.pump()
 	}
 
@@ -354,14 +379,14 @@ export class Agent implements AgentIdentity {
 		}
 		this.journal.resetTools()
 		this.turnSteps = 0
-		// новая задача от оператора после выполненного плана — план сбрасывается (уточнения его сохраняют)
+		// новая сессия от оператора после выполненного плана — план сбрасывается (уточнения его сохраняют)
 		this.plan = planOnTurnStart(this.plan, msg.from === YOU, this.queue.length)
 		this.setStatus('working')
 		this.journal.add({ kind: 'user', from: msg.from, msgId: msg.id, text: msg.text })
 		try {
 			const client = this.deps.host.getSpace(this.space)?.client
-			if (!client || !this.sessionId) throw new Error('нет соединения с nessy')
-			const { promptId } = await this.promptWithRetry(client, this.sessionId, msg)
+			if (!client || !this.nessyId) throw new Error('нет соединения с nessy')
+			const { promptId } = await this.promptWithRetry(client, this.nessyId, msg)
 			this.introduced = true
 			const turn = this.turnFor(msg)
 			if (turn) {
@@ -435,7 +460,7 @@ export class Agent implements AgentIdentity {
 
 	private async sendCancel(): Promise<void> {
 		const client = this.deps.host.getSpace(this.space)?.client
-		if (client && this.sessionId) await client.cancel(this.sessionId).catch(() => undefined)
+		if (client && this.nessyId) await client.cancel(this.nessyId).catch(() => undefined)
 	}
 
 	private clearCancelTimer(): void {
@@ -451,7 +476,7 @@ export class Agent implements AgentIdentity {
 	async close(): Promise<void> {
 		this.detach()
 		const client = this.deps.host.getSpace(this.space)?.client
-		if (client && this.sessionId) await client.closeSession(this.sessionId)
+		if (client && this.nessyId) await client.closeSession(this.nessyId)
 	}
 
 	// ---------- события nessy ----------
@@ -491,6 +516,7 @@ export class Agent implements AgentIdentity {
 			case 'turn_complete':
 				if (!this.current || this.isDonePrompt(ev.promptId)) return
 				if (this.current.promptId && ev.promptId && this.current.promptId !== ev.promptId) return // устаревший реплей
+				this.turnUsage = ev.usage ?? null
 				this.finishTurn({ stopReason: ev.stopReason })
 				return
 			case 'cancelled':
@@ -525,6 +551,8 @@ export class Agent implements AgentIdentity {
 		if (!this.current && !this.journal.hasTool(ev.toolId)) return
 		const [rec, created] = this.journal.upsertTool(ev)
 		this.touch()
+		const urls = urlsInInput(rec.input)
+		if (urls.length) this.deps.host.onToolUrls(this, urls)
 		if (created) {
 			this.turnSteps++
 			this.lastTool = { name: rec.name, title: clip(rec.title || JSON.stringify(rec.input), 120) }
@@ -559,7 +587,7 @@ export class Agent implements AgentIdentity {
 		if (this.deps.autoApprove) {
 			const client = this.deps.host.getSpace(this.space)?.client
 			const optionId = pickPermissionOption(ev.options, true)
-			if (client && this.sessionId) void client.vote(this.sessionId, ev.requestId, optionId).catch(() => undefined)
+			if (client && this.nessyId) void client.vote(this.nessyId, ev.requestId, optionId).catch(() => undefined)
 			this.journal.add({ kind: 'permission', requestId: ev.requestId, title, resolved: true, approved: true, auto: true })
 			this.touch()
 			return
@@ -573,8 +601,8 @@ export class Agent implements AgentIdentity {
 	async resolvePermission(requestId: string, approve: boolean): Promise<boolean> {
 		const p = this.pending.get(requestId)
 		const client = this.deps.host.getSpace(this.space)?.client
-		if (!p || !client || !this.sessionId) return false
-		await client.vote(this.sessionId, requestId, pickPermissionOption(p.options, approve))
+		if (!p || !client || !this.nessyId) return false
+		await client.vote(this.nessyId, requestId, pickPermissionOption(p.options, approve))
 		this.pending.delete(requestId)
 		this.journal.add({ kind: 'permission', requestId, title: p.title, resolved: true, approved: approve, auto: false })
 		this.touch()
@@ -587,6 +615,13 @@ export class Agent implements AgentIdentity {
 		if (!cur) return
 		this.current = null
 		this.lastTurnMs = Math.max(0, this.deps.clock.now() - cur.startedMs)
+		this.stats = {
+			turns: this.stats.turns + 1,
+			toolCalls: this.stats.toolCalls + this.turnSteps,
+			workMs: this.stats.workMs + this.lastTurnMs,
+			tokens: addUsage(this.stats.tokens, this.turnUsage),
+		}
+		this.turnUsage = null
 		this.clearCancelTimer()
 		if (cur.promptId) {
 			this.donePrompts.push(cur.promptId)
@@ -609,12 +644,28 @@ export class Agent implements AgentIdentity {
 		this.setStatus(statusAfterTurn(info, queued), info.error ?? null)
 		if (this.noteReply(this.deps.host.onTurnDone(this, cur.msg, text, info))) this.publishNode()
 		void this.pump()
+		void this.refreshUsage()
+	}
+
+	/** Токены сессии нарастающим итогом (если nessy отдаёт /stats) — точнее суммы по ходам. */
+	private async refreshUsage(): Promise<void> {
+		const client = this.deps.host.getSpace(this.space)?.client
+		if (!client || !this.nessyId) return
+		const usage = await client.usage(this.nessyId).catch(() => null)
+		if (!usage) return
+		this.stats = { ...this.stats, tokens: usage }
+		this.publishNode()
 	}
 
 	/** Запомнить ответ оператору (you) для карточки агента. true — запомнили. */
 	private noteReply(reply: Message | null): boolean {
 		if (!reply || reply.to !== YOU) return false
 		this.replyBrief = { msgId: reply.id, ts: reply.ts, preview: clip(plainText(reply.text), 200) }
+		const status = reply.failed ? null : parseReply(reply.text).status
+		if (status) {
+			this.replyBrief.status = status.code
+			if (status.reason) this.replyBrief.reason = status.reason
+		}
 		if (reply.failed) this.replyBrief.failed = reply.failed
 		return true
 	}

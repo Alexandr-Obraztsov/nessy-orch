@@ -10,6 +10,8 @@ import { clip } from '../../lib/text'
 
 const MAX_TOOL_OUT = 4000
 
+const isFinished = (s: ToolEvent['status']): boolean => s === 'completed' || s === 'failed'
+
 export class AgentJournal {
 	private run: LiveRun | null = null
 	private readonly tools = new Map<string, ToolEvent>()
@@ -84,6 +86,7 @@ export class AgentJournal {
 				status: ev.status,
 			}
 			if (output !== undefined) fields.output = output
+			if (isFinished(ev.status)) fields.endedTs = this.deps.clock.now()
 			const rec = this.add(fields) as ToolEvent
 			this.tools.set(ev.toolId, rec)
 			return [rec, true]
@@ -96,6 +99,7 @@ export class AgentJournal {
 			status: ev.status,
 		}
 		if (output !== undefined) next.output = output
+		if (isFinished(ev.status) && next.endedTs === undefined) next.endedTs = this.deps.clock.now()
 		this.tools.set(ev.toolId, next)
 		this.write(next)
 		return [next, false]
@@ -105,7 +109,7 @@ export class AgentJournal {
 	failOpenTools(): void {
 		for (const t of this.tools.values())
 			if (t.status === 'pending' || t.status === 'in_progress') {
-				const next: ToolEvent = { ...t, status: 'failed' }
+				const next: ToolEvent = { ...t, status: 'failed', endedTs: this.deps.clock.now() }
 				this.tools.set(t.toolId, next)
 				this.write(next)
 			}

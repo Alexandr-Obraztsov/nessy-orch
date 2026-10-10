@@ -17,8 +17,10 @@ async function cmdStatus(p: Parsed): Promise<void> {
 	out(`  пространств: ${s.spaces}   агентов: ${s.agents} (работают: ${s.working})   ролей: ${s.roles}   автоподтверждение: ${s.autoApprove ? 'вкл' : 'выкл'}`)
 }
 
-function cmdOpen(): Promise<void> {
-	const url = `http://127.0.0.1:${ep.port}/`
+/** Открыть приложение Nessy Orch (или конкретную сессию: `open <id сессии>`). */
+function cmdOpen(p: Parsed): Promise<void> {
+	const id = p.positionals[0]
+	const url = id ? `nessy-orch://session/${encodeURIComponent(id)}` : 'nessy-orch://open'
 	out(url)
 	spawn('open', [url], { stdio: 'ignore', detached: true })
 		.on('error', () => undefined)
