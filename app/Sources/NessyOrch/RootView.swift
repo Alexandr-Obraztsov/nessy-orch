@@ -58,7 +58,7 @@ final class SessionWindowModel {
 		self.value = value
 		sessionId = value.session
 		// для снимков: `-debug.panel hidden` — боковая панель свёрнута с самого начала
-		if UserDefaults.standard.string(forKey: "debug.panel") == "hidden" { columnVisibility = .detailOnly }
+		if UserDefaults.standard.string(forKey: "debug.panel") == "hidden" || value.dir.isEmpty { columnVisibility = .detailOnly }
 	}
 
 	/// сессия текущего чата Claude этого окна: самая недавно активная среди сессий окна (один чат = одна сессия)
@@ -92,6 +92,7 @@ final class SessionWindowModel {
 	func bootstrap() async {
 		guard !started else { return }
 		started = true
+		guard !dir.isEmpty else { return } // окно без проекта: ни сессии, ни терминала
 		if sessionId == nil {
 			do {
 				let s = try await app.store.client.createSession(title: TerminalLaunch.sessionTitle(directory: dir))
@@ -154,7 +155,7 @@ private struct SessionWindowBody: View {
 			WindowBar(win: win)
 		}
 		.ignoresSafeArea()
-		.navigationTitle(Projects.name(ofPath: win.dir))
+		.navigationTitle(win.dir.isEmpty ? "TClaude-Orch" : Projects.name(ofPath: win.dir))
 		.background { WindowConfigurator(window: win) { model.activeWindow = win } }
 		// листы показывает только окно в фокусе
 		.sheet(isPresented: Binding(get: { model.showPalette && model.activeWindow === win }, set: { model.showPalette = $0 })) { PaletteView() }
@@ -172,7 +173,7 @@ private struct SessionWindowBody: View {
 	}
 }
 
-/// Панель агентов справа: плитка Liquid Glass от верха окна до низа; в её верхней строке заголовок и кнопки (кнопки едут вместе с панелью).
+/// Панель агентов справа: плитка одного ровного цвета (без градиента стекла) от верха окна до низа; в её верхней строке заголовок и кнопки (кнопки едут вместе с панелью).
 /// Ширину можно менять, потянув за левый край (двойной щелчок — вернуть обычную). Слот занимает только ширину панели:
 /// терминал слева не двигается и не меняет высоту.
 private struct SidePanel: View {
@@ -187,7 +188,8 @@ private struct SidePanel: View {
 		AgentsPanel()
 			.frame(width: w)
 			.clipShape(shape)
-			.glassEffect(.regular, in: shape)
+			.background(DS.Palette.panelSurface, in: shape)
+			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
 			.overlay(alignment: .leading) { handle }
 			.overlay(shape.strokeBorder(dragStart != nil || hovering ? DS.Palette.accent.opacity(0.55) : .clear, lineWidth: 1.5))
 			.padding(.top, m).padding(.bottom, m).padding(.trailing, m).padding(.leading, m / 2)
@@ -223,7 +225,7 @@ private struct SidePanel: View {
 	}
 }
 
-/// Шапка поверх окна: слева светофор на стеклянной капсуле, справа кнопка панели и «⋯» на одной линии с ним. Пока панель открыта,
+/// Шапка поверх окна: слева светофор (система, без обёртки), справа кнопка панели и «⋯» на одной линии с ним. Пока панель открыта,
 /// кнопки лежат прямо на её стекле (своей капсулы нет); панель закрыта — они собираются в свою стеклянную капсулу.
 private struct WindowBar: View {
 	@Bindable var win: SessionWindowModel
@@ -232,12 +234,7 @@ private struct WindowBar: View {
 	var body: some View {
 		let m = SessionWindowModel.panelMargin
 		HStack(spacing: 0) {
-			// светофор рисует система; стекло под ним — как группа кнопок в тулбаре macOS 26
-			if !win.isFullScreen {
-				Color.clear.frame(width: 70, height: 28)
-					.glassEffect(.regular, in: Capsule())
-					.padding(.leading, 9)
-			}
+			// светофор рисует система и ничем не оборачивается
 			Spacer(minLength: 0)
 			HStack(spacing: 2) {
 				BarIcon(systemImage: "sidebar.right", help: "Панель агентов (⌥⌘B)") { win.toggleAgents() }
@@ -270,7 +267,7 @@ private struct BarIcon: View {
 				.background(hover ? DS.Palette.hover : .clear, in: Capsule())
 				.contentShape(Capsule())
 		}
-		.buttonStyle(.plain)
+		.buttonStyle(.plain).focusEffectDisabled()
 		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 		.onHover { hover = $0 }
 		.help(help).accessibilityLabel(help)

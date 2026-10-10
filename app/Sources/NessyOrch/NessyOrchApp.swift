@@ -6,6 +6,11 @@ struct NessyOrchApp: App {
 	@NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 	@State private var model = AppModel.shared
 
+	init() {
+		// окна между запусками не восстанавливаем (в том числе полноэкранный режим): каждый запуск — окно «Проект не открыт» или папка из ссылки
+		UserDefaults.standard.set(true, forKey: "ApplePersistenceIgnoreState")
+	}
+
 	var body: some Scene {
 		// Невидимое окно запуска: открывает окно-терминал в домашней папке, если приложение запущено без папки и ссылки, и закрывается.
 		Window("TClaude-Orch", id: "launcher") {

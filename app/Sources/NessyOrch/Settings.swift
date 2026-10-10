@@ -15,7 +15,6 @@ struct SettingsView: View {
 
 struct GeneralSettings: View {
 	@AppStorage("menuBarOnly") private var menuBarOnly = false
-	@AppStorage("askFolderOnLaunch") private var askFolder = true
 	@State private var login = LoginItem.isEnabled
 	@State private var finder = FinderSupport.isEnabled
 	@Environment(\.openWindow) private var openWindow
@@ -23,11 +22,10 @@ struct GeneralSettings: View {
 	var body: some View {
 		Form {
 			Section {
-				Toggle("Спрашивать проект при запуске без папки", isOn: $askFolder)
 				Toggle("Быстрое действие «Открыть в TClaude-Orch» в Finder", isOn: $finder)
 					.onChange(of: finder) { _, v in if !FinderSupport.setEnabled(v) { finder = FinderSupport.isEnabled } }
 			} footer: {
-				Text("Без папки — Dock или Spotlight. Действие появится в меню правой кнопки Finder → «Быстрые действия»; кроме того, приложение можно перетащить на панель Finder с зажатым ⌘.")
+				Text("Действие появится в меню правой кнопки Finder → «Быстрые действия»; кроме того, приложение можно перетащить на панель Finder с зажатым ⌘.")
 					.foregroundStyle(DS.Palette.textSecondary)
 			}
 			Section {

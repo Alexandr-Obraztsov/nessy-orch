@@ -16,6 +16,8 @@ extension DS {
 		/// фон терминала и окна-терминала: один цвет (шапка, углы за панелью и терминал не выделяются)
 		/// колонка боковой панели: чуть светлее терминала
 		static let sidebarSurface = Color.ds(0xF3F3F5, 0x1C1C1E)
+		/// плитка боковой панели: один ровный цвет
+		static let panelSurface = Color.ds(0xF7F7F9, 0x242427)
 		static let terminalBackground = Color.ds(0xFBFBFC, 0x1C1C1E)
 		static let surface = Color.ds(0xFFFFFF, 0x262628)
 		static let panel = Color.ds(0xFFFFFF, 0x2C2C2F)

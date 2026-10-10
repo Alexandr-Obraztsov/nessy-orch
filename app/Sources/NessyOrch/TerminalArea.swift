@@ -9,8 +9,10 @@ struct CenterView: View {
 
 	var body: some View {
 		Group {
-			if let tab = win?.terminal {
-				TerminalHost(tab: tab, topInset: win?.barHeight ?? 44)
+			if win?.dir.isEmpty ?? false {
+				NoProjectView()
+			} else if let tab = win?.terminal {
+				TerminalHost(tab: tab, topInset: (win?.isFullScreen ?? false) ? 8 : (win?.barHeight ?? 44))
 					.id(tab.id)
 					.accessibilityLabel("Терминал")
 			} else {
@@ -62,9 +64,28 @@ struct MoreMenu: View {
 				.background(hover ? DS.Palette.hover : .clear, in: Capsule())
 				.contentShape(Capsule())
 		}
-		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().focusEffectDisabled()
 		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 		.onHover { hover = $0 }
 		.help("Ещё").accessibilityLabel("Ещё")
+	}
+}
+
+/// Окно без проекта: вместо терминала просьба открыть папку.
+struct NoProjectView: View {
+	@Environment(AppModel.self) private var model
+	var body: some View {
+		VStack(spacing: DS.Metrics.s3) {
+			Image(systemName: "folder.badge.plus").font(.system(size: 34, weight: .light)).foregroundStyle(DS.Palette.textTertiary)
+			Text("Проект не открыт").font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary)
+			Text("Откройте папку проекта — в ней запустится терминал и сессия Claude.")
+				.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).multilineTextAlignment(.center)
+			Button("Открыть папку…") { model.openFolderPanel() }
+				.buttonStyle(.plain).foregroundStyle(DS.Palette.accentText).font(DS.Typography.secondary.weight(.medium))
+				.padding(.top, DS.Metrics.s1)
+			Text("⇧⌘O").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+		}
+		.padding(DS.Metrics.s6)
+		.frame(maxWidth: .infinity, maxHeight: .infinity)
 	}
 }

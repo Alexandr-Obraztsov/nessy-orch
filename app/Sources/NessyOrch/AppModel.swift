@@ -72,13 +72,18 @@ final class AppModel {
 	/// Окно в домашнем каталоге (Dock, повторный запуск без окон).
 	func openMainWindow() { openFromLauncher() }
 
-	/// Запуск без папки (Dock, Spotlight, повторный запуск без окон): выбор проекта по центру экрана; без выбора — домашняя папка.
-	func openFromLauncher() {
-		guard AppSettings.askFolderOnLaunch else { openTerminal(dir: NSHomeDirectory()); return }
-		chooseProject(title: "Выберите проект", message: "Папка, в которой откроется терминал и сессия Claude")
+	/// Запуск без папки (Dock, Spotlight, повторный запуск без окон): окно с просьбой открыть проект вместо терминала.
+	func openFromLauncher() { open(.fresh(dir: "")) }
+
+	/// Окно без проекта (терминала в нём нет).
+	private func closeEmptyWindows() {
+		for w in windows.values where w.dir.isEmpty {
+			NSApp.windows.first { ($0.delegate as? CloseGuard)?.key == w.key }?.close()
+		}
 	}
 
 	var hasTerminalWindows: Bool { !windows.isEmpty }
+	var hasProjectWindows: Bool { windows.values.contains { !$0.dir.isEmpty } }
 
 	/// Состояние окна (создаётся при первом обращении).
 	func window(for value: TerminalWindowValue) -> SessionWindowModel {
@@ -100,6 +105,7 @@ final class AppModel {
 	/// Новое окно-терминал в папке (ссылка, `open -a … <папка>`, ⌘N).
 	func openTerminal(dir: String) {
 		let d = Projects.normalize(dir).flatMap { TerminalLaunch.isUsableDirectory($0) ? $0 : nil } ?? NSHomeDirectory()
+		closeEmptyWindows()
 		open(.fresh(dir: d))
 	}
 
@@ -233,8 +239,6 @@ enum AppSettings {
 		let v = UserDefaults.standard.double(forKey: "terminal.fontSize")
 		return v >= 10 && v <= 24 ? CGFloat(v) : 13
 	}
-	/// без папки (Dock, Spotlight) спрашивать проект; иначе — терминал в домашней папке
-	static var askFolderOnLaunch: Bool { UserDefaults.standard.object(forKey: "askFolderOnLaunch") as? Bool ?? true }
 
 	static var serverURL: URL {
 		let s = UserDefaults.standard.string(forKey: "serverURL") ?? "http://127.0.0.1:4337"
