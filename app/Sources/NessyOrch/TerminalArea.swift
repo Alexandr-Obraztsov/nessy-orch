@@ -10,7 +10,7 @@ struct CenterView: View {
 	var body: some View {
 		Group {
 			if let tab = win?.terminal {
-				TerminalHost(tab: tab, topInset: (win?.isFullScreen ?? false) ? 10 : (win?.headerHeight ?? 52))
+				TerminalHost(tab: tab, topInset: (win?.isFullScreen ?? false) || !(win?.panelHidden ?? false) ? 8 : (win?.headerHeight ?? 52))
 					.id(tab.id)
 					.accessibilityLabel("Терминал")
 			} else {

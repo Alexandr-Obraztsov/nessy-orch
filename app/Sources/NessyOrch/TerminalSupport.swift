@@ -81,16 +81,28 @@ final class TerminalContainer: NSView {
 		layer?.backgroundColor = TerminalTheme.ns(TerminalTheme.scheme(dark: isDark).background).cgColor
 	}
 
-	func setTopInset(_ v: CGFloat) {
+	/// Отступ сверху: панель открыта — почти нулевой (терминал под прозрачной шапкой), закрыта — высота шапки. Меняется плавно.
+	func setTopInset(_ v: CGFloat, animated: Bool = true) {
 		guard abs(v - topInset) > 0.5 else { return }
 		topInset = v
-		layoutTerminal()
+		let target = terminalFrame
+		if animated, window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+			NSAnimationContext.runAnimationGroup { ctx in
+				ctx.duration = 0.35
+				ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
+				terminal.animator().frame = target
+			}
+		} else {
+			terminal.frame = target
+		}
 	}
 
-	private func layoutTerminal() {
+	private var terminalFrame: CGRect {
 		let i = Self.inset
-		terminal.frame = CGRect(x: i, y: i, width: max(0, bounds.width - 2 * i), height: max(0, bounds.height - i - topInset))
+		return CGRect(x: i, y: i, width: max(0, bounds.width - 2 * i), height: max(0, bounds.height - i - topInset))
 	}
+
+	private func layoutTerminal() { terminal.frame = terminalFrame }
 
 	override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyTheme() }
 	override func layout() { super.layout(); layoutTerminal() }
@@ -188,7 +200,7 @@ struct TerminalHost: NSViewRepresentable {
 	func makeNSView(context: Context) -> TerminalContainer {
 		let c = tab.container
 		c.removeFromSuperview()
-		c.setTopInset(topInset)
+		c.setTopInset(topInset, animated: false)
 		// окно появляется не сразу: пробуем несколько раз
 		for delay in [0.0, 0.15, 0.5] {
 			DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
