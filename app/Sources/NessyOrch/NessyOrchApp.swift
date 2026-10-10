@@ -121,12 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		NSApp.servicesProvider = self
 		NSUpdateDynamicServices()
 		FinderSupport.autoInstallOnce()
-		// для снимков и проверки: `-debug.appearance light|dark` (переключателя темы в интерфейсе нет — тема системная)
-		switch UserDefaults.standard.string(forKey: "debug.appearance") {
-		case "light": NSApp.appearance = NSAppearance(named: .aqua)
-		case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
-		default: break
-		}
+		// светлой темы нет: приложение всегда тёмное
+		NSApp.appearance = NSAppearance(named: .darkAqua)
 		// для снимков: `-debug.menuPreview YES` — панель menu bar в обычном окне (открыть её без клика нельзя)
 		if UserDefaults.standard.bool(forKey: "debug.menuPreview") {
 			let w = NSWindow(contentRect: NSRect(x: 80, y: 120, width: 320, height: 480), styleMask: [.titled, .closable], backing: .buffered, defer: false)

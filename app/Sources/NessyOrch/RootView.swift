@@ -145,17 +145,24 @@ private struct SessionWindowBody: View {
 	var body: some View {
 		// в полноэкранном режиме шапка лежит поверх терминала и верхний отступ минимальный
 		let top: CGFloat = win.isFullScreen ? 8 : win.barHeight
+		let anim: Animation = reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.38, dampingFraction: 1)
 		ZStack(alignment: .top) {
 			DS.Palette.terminalBackground
+			// панель выезжает на всю высоту окна и накрывает светофор и кнопку панели; терминал — справа, под своей шапкой
 			HStack(spacing: 0) {
 				SidePanel(win: win)
-				CenterView()
+				ZStack(alignment: .top) {
+					CenterView().padding(.top, top)
+					BarBackground(win: win)
+						.offset(y: win.barVisible ? 0 : -(win.barHeight + 6))
+						.opacity(win.barVisible ? 1 : 0)
+						.animation(anim, value: win.barVisible)
+				}
 			}
-			.padding(.top, top)
 			WindowBar(win: win)
 				.offset(y: win.barVisible ? 0 : -(win.barHeight + 6))
 				.opacity(win.barVisible ? 1 : 0)
-				.animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.38, dampingFraction: 1), value: win.barVisible)
+				.animation(anim, value: win.barVisible)
 			// верхняя кромка в полноэкранном режиме: курсор здесь показывает шапку
 			if win.isFullScreen { TopEdgeHover(height: win.barHeight + 4) { win.barHover = $0 } }
 		}
@@ -184,9 +191,10 @@ private struct SidePanel: View {
 	var body: some View {
 		let w = DS.Metrics.sidePanelWidth.ideal
 		AgentsPanel()
+			.padding(.top, max(0, win.barHeight - DS.Metrics.panelInset))
 			.frame(width: w)
 			.glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous))
-			.padding(.leading, DS.Metrics.panelInset).padding(.bottom, DS.Metrics.panelInset).padding(.top, win.isFullScreen ? 0 : 2)
+			.padding(.leading, DS.Metrics.panelInset).padding(.bottom, DS.Metrics.panelInset).padding(.top, DS.Metrics.panelInset)
 			.frame(width: win.panelHidden ? 0 : w + DS.Metrics.panelInset, alignment: .leading)
 			.clipped()
 			.opacity(win.panelHidden ? 0 : 1)
@@ -220,9 +228,15 @@ private struct WindowBar: View {
 		}
 		.padding(.horizontal, DS.Metrics.s3)
 		.frame(height: win.barHeight)
-		.background {
+	}
+}
+
+/// Фон шапки над терминалом: цвет терминала с мягким краем; в полноэкранном режиме под ним размытие (материал).
+private struct BarBackground: View {
+	var win: SessionWindowModel
+	var body: some View {
+		Group {
 			if win.isFullScreen {
-				// выезжающая шапка: затемнение и размытие того, что под ней, мягкий нижний край
 				Rectangle().fill(.ultraThinMaterial)
 					.overlay(DS.Palette.terminalBackground.opacity(0.55))
 					.mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.7), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
@@ -231,6 +245,8 @@ private struct WindowBar: View {
 				DS.Palette.terminalBackground
 			}
 		}
+		.frame(height: win.barHeight)
+		.allowsHitTesting(false)
 	}
 }
 
