@@ -10,7 +10,7 @@ struct SettingsView: View {
 			NotificationSettings().tabItem { Label("Уведомления", systemImage: "bell") }
 			ServerSettings().tabItem { Label("Сервер", systemImage: "server.rack") }
 		}
-		.frame(width: 520, height: 400)
+		.frame(width: 540, height: 520)
 	}
 }
 
@@ -45,14 +45,16 @@ struct GeneralSettings: View {
 struct TerminalSettings: View {
 	@AppStorage("terminal.fontSize") private var fontSize = 13.0
 	@AppStorage("autoStartClaude") private var autoClaude = true
+	@AppStorage("claudeCommand") private var claudeCommand = "claude"
 
 	var body: some View {
 		Form {
 			Section {
 				Toggle("Запускать Claude при открытии проекта", isOn: $autoClaude)
+				TextField("Команда запуска", text: $claudeCommand, prompt: Text("claude")).disabled(!autoClaude)
 				Stepper(value: $fontSize, in: 10...24, step: 1) { LabeledContent("Размер шрифта", value: "\(Int(fontSize)) pt") }
 			} footer: {
-				Text("Применяется ко всем открытым терминалам сразу. Оболочка — ваша login-оболочка ($SHELL); команда `claude` уже идёт с хуками оркестратора.")
+				Text("Команда вводится в терминал сразу после старта оболочки, например `claude --model opus`. Команда `claude` уже идёт с хуками оркестратора. Размер шрифта применяется ко всем терминалам сразу.")
 					.foregroundStyle(DS.Palette.textSecondary)
 			}
 		}
@@ -67,10 +69,14 @@ struct HotkeySettings: View {
 				ForEach(HotkeyAction.allCases) { a in
 					LabeledContent(a.title) { HotkeyRecorder(action: a) }
 				}
-				LabeledContent("Перейти к проекту по порядку") { Text("⌘1…⌘9").font(DS.Typography.mono).foregroundStyle(DS.Palette.textSecondary) }
 			} footer: {
 				Text("Нажмите на сочетание и введите новое (нужен ⌘, ⌃ или ⌥); Esc — отмена. Остальные клавиши достаются терминалу и Claude.")
 					.foregroundStyle(DS.Palette.textSecondary)
+			}
+			Section("Остальные (не меняются)") {
+				ForEach(Shortcuts.fixed, id: \.0) { k in
+					LabeledContent(k.1) { Text(k.0).font(DS.Typography.mono).foregroundStyle(DS.Palette.textSecondary) }
+				}
 			}
 			Section { Button("Сбросить все") { Hotkeys.shared.resetAll() } }
 		}

@@ -55,6 +55,7 @@ struct NessyOrchApp: App {
 struct AppCommands: Commands {
 	var model: AppModel
 	@Environment(\.openWindow) private var openWindow
+	@Environment(\.openSettings) private var openSettings
 
 	private var active: SessionWindowModel? { model.activeWindow }
 
@@ -72,7 +73,7 @@ struct AppCommands: Commands {
 				.keyboardShortcut(Hotkeys.shared.shortcut(.togglePanel))
 		}
 		CommandGroup(replacing: .help) {
-			Button("Горячие клавиши") { model.showShortcuts = true }.keyboardShortcut("/")
+			Button("Горячие клавиши и настройки…") { openSettings(); NSApp.activate() }.keyboardShortcut("/")
 		}
 		// проекты окна: ⌘1…⌘9 переключают, ⇧⌘] / ⇧⌘[ — по кругу
 		CommandGroup(after: .windowArrangement) {

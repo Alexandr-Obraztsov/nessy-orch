@@ -146,7 +146,6 @@ private struct MainWindowBody: View {
 		.navigationTitle(model.activeWindow.map { model.label(of: $0) } ?? "TClaude-Orch")
 		.background { WindowConfigurator(app: model) }
 		.sheet(isPresented: Bindable(model).showPalette) { PaletteView() }
-		.sheet(isPresented: Bindable(model).showShortcuts) { ShortcutsView() }
 		.frame(minWidth: 760, minHeight: 440)
 		.onAppear {
 			// для снимков: `-debug.togglePanel YES` — через 9 с панель сворачивается или разворачивается
@@ -284,7 +283,7 @@ private struct WindowBar: View {
 				Spacer(minLength: 0)
 				HStack(spacing: 2) {
 					BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
-					MoreMenu()
+					SettingsButton()
 				}
 				.padding(.horizontal, 5)
 				.frame(height: 30)

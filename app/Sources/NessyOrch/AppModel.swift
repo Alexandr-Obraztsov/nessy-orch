@@ -80,10 +80,13 @@ final class AppModel {
 
 	/// Показать и поднять главное окно (если закрыто — открыть).
 	func showMainWindow() {
+		// ссылка или папка из другого приложения: иначе окно остаётся позади или на чужом рабочем столе
+		NSRunningApplication.current.activate(options: [.activateAllWindows])
 		NSApp.activate()
 		if let w = mainNSWindow {
 			if w.isMiniaturized { w.deminiaturize(nil) }
 			w.makeKeyAndOrderFront(nil)
+			w.orderFrontRegardless()
 		} else if let f = openMainWindowAction { f() } else { pendingShow = true }
 	}
 
@@ -289,6 +292,11 @@ final class AppModel {
 /// Настройки, не требующие модели.
 enum AppSettings {
 	/// запускать `claude` сразу при открытии проекта
+	/// команда запуска Claude в новом терминале (по умолчанию `claude`; функция `claude` в оболочке сама добавляет хуки оркестратора)
+	static var claudeCommand: String {
+		let c = (UserDefaults.standard.string(forKey: "claudeCommand") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+		return c.isEmpty ? "claude" : c
+	}
 	static var autoStartClaude: Bool { UserDefaults.standard.object(forKey: "autoStartClaude") as? Bool ?? true }
 	/// размер шрифта терминала (pt)
 	static var terminalFontSize: CGFloat {

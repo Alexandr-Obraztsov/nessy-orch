@@ -50,28 +50,24 @@ struct ClaudeStateIndicator: View {
 	}
 }
 
-/// «⋯» в стеклянной капсуле шапки: только горячие клавиши и настройки.
-struct MoreMenu: View {
-	@Environment(AppModel.self) private var model
+/// Кнопка настроек в шапке: сразу открывает окно настроек (в нём же горячие клавиши).
+struct SettingsButton: View {
 	@Environment(\.openSettings) private var openSettings
 	@State private var hover = false
 	var body: some View {
-		Menu {
-			Button("Горячие клавиши") { model.showShortcuts = true }
-			Button("Настройки…") { openSettings(); NSApp.activate() }
-		} label: {
-			Image(systemName: "ellipsis").font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
+		Button { openSettings(); NSApp.activate() } label: {
+			Image(systemName: "gearshape").font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
 				.background(hover ? DS.Palette.hover : .clear, in: Capsule())
 				.contentShape(Capsule())
 		}
-		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().focusEffectDisabled()
+		.buttonStyle(.plain).focusEffectDisabled()
 		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 		.onHover { hover = $0 }
-		.help("Ещё").accessibilityLabel("Ещё")
+		.help("Настройки (⌘,)").accessibilityLabel("Настройки")
 	}
 }
 
-/// Окно без проекта: вместо терминала просьба открыть папку.
+/// Нет открытых проектов: вместо терминала просьба открыть папку.
 struct NoProjectView: View {
 	@Environment(AppModel.self) private var model
 	var body: some View {
@@ -83,7 +79,7 @@ struct NoProjectView: View {
 			Button("Открыть папку…") { model.openFolderPanel() }
 				.buttonStyle(.plain).foregroundStyle(DS.Palette.accentText).font(DS.Typography.secondary.weight(.medium))
 				.padding(.top, DS.Metrics.s1)
-			Text("⇧⌘O").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+			Text(Hotkeys.shared.display(.openFolder)).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
 		}
 		.padding(DS.Metrics.s6)
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
