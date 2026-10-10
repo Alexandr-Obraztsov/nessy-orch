@@ -373,7 +373,7 @@ export class Orchestrator implements AgentHost {
 				}
 			})
 		const { messages } = await this.feed.inbox({ session, peek: !consume })
-		return { agents, replies: messages }
+		return { agents, replies: messages, watching: this.feed.isWatching(session) }
 	}
 
 	async inbox(opts: InboxQuery = {}): Promise<InboxResponse> {

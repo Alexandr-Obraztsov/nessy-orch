@@ -129,6 +129,8 @@ export interface AgentBrief {
 export interface SessionUpdates {
 	agents: AgentBrief[]
 	replies: Message[]
+	/** у сессии сейчас висит фоновое ожидание ответов (`inbox --session … --wait`) */
+	watching: boolean
 }
 
 export interface StatusResponse {

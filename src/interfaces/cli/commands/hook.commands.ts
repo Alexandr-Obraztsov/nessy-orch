@@ -68,11 +68,11 @@ async function run(event: string, windowSession: string, input: Record<string, u
 	} else if (event === 'prompt') {
 		const [u, rs] = await Promise.all([updates(), roles(), ping(session, 'working')])
 		const n = names(u, rs)
-		const text = updatesContext(u, n.roleName, n.nameOf)
+		const text = updatesContext(u, n.roleName, n.nameOf, session)
 		if (text) out(contextOutput('UserPromptSubmit', text))
 	} else if (event === 'stop') {
 		const [u, rs] = await Promise.all([updates(), roles()])
-		const decision = stopDecision(u, names(u, rs).nameOf)
+		const decision = stopDecision(u, names(u, rs).nameOf, { session, stopHookActive: input['stop_hook_active'] === true })
 		if (decision) {
 			await ping(session, 'working') // Claude продолжает работу с ответами агентов
 			out(JSON.stringify(decision))

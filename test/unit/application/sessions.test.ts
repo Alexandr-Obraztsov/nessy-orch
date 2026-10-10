@@ -128,6 +128,43 @@ describe('сессии: сервис', () => {
 		assert.deepEqual((await waiting).messages.map(m => m.text), ['своё'])
 	})
 
+	it('два ожидающих сборщика одной сессии не получают один ответ дважды', async () => {
+		const t = ctx.orch.createSession({ title: 'Дубли' })
+		const a = (await ctx.orch.spawn({ space: 'main', name: 'a', session: t.id })).agent.id
+		const w1 = ctx.orch.inbox({ session: t.id, wait: 5 })
+		const w2 = ctx.orch.inbox({ session: t.id, wait: 5 })
+		setTimeout(() => ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'один' }), 20)
+		const got = [...(await w1).messages, ...(await Promise.race([w2, new Promise<{ messages: [] }>(r => setTimeout(() => r({ messages: [] }), 300))])).messages]
+		assert.deepEqual(got.map(m => m.text), ['один'], 'ответ достался ровно одному сборщику')
+	})
+
+	it('ответ не теряется, если агента удалили или отвязали от сессии после ответа', async () => {
+		const t = ctx.orch.createSession({ title: 'Память' })
+		const a = (await ctx.orch.spawn({ space: 'main', name: 'gone', session: t.id })).agent.id
+		ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'последнее слово' })
+		ctx.orch.getAgent(a) // агент ещё есть
+		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).replies.length, 1)
+		const r = await ctx.orch.inbox({ session: t.id, peek: true })
+		assert.equal(r.messages[0]?.session, t.id, 'сессия записана в сообщение при отправке')
+	})
+
+	it('watching: пока висит inbox --wait по сессии, sessionUpdates видит ожидание; после — нет', async () => {
+		const t = ctx.orch.createSession({ title: 'Ожидание' })
+		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, false)
+		const waiting = ctx.orch.inbox({ session: t.id, wait: 5 })
+		await new Promise(r => setTimeout(r, 20))
+		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, true)
+		const a = (await ctx.orch.spawn({ space: 'main', name: 'w', session: t.id })).agent.id
+		ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'вот' })
+		await waiting
+		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, false)
+		// peek и запрос без wait ожиданием не считаются
+		const peeking = ctx.orch.inbox({ session: t.id, wait: 1, peek: true })
+		await new Promise(r => setTimeout(r, 20))
+		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, false)
+		await peeking
+	})
+
 	it('рестарт: сессии, привязка агентов и курсоры сессий восстанавливаются; старые агенты → session=null', async () => {
 		const t = ctx.orch.createSession({ title: 'Живучая' })
 		const a = (await ctx.orch.spawn({ space: 'main', name: 'keeper', session: t.id })).agent.id

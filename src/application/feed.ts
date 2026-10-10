@@ -18,6 +18,8 @@ export class Feed {
 	private closed = false
 	private readonly waiters = new Map<string, (reply: Message) => void>()
 	private readonly inboxWaiters = new Set<() => void>()
+	/** сколько фоновых ожиданий (`inbox --wait`) сейчас открыто по каждой сессии */
+	private readonly watchers = new Map<string, number>()
 
 	constructor(private readonly deps: FeedDeps) {}
 
@@ -47,6 +49,11 @@ export class Feed {
 		if (this.sessionCursors.delete(session)) this.deps.onChange()
 	}
 
+	/** У сессии открыто фоновое ожидание ответов. */
+	isWatching(session: string): boolean {
+		return (this.watchers.get(session) ?? 0) > 0
+	}
+
 	append(draft: MessageDraft): Message {
 		const msg: Message = {
 			seq: ++this.seq,
@@ -61,6 +68,10 @@ export class Feed {
 		if (draft.replyTo) msg.replyTo = draft.replyTo
 		if (draft.wait) msg.wait = true
 		if (draft.failed) msg.failed = draft.failed
+		if (draft.to === YOU) {
+			const session = this.deps.sessionOf(draft.from)
+			if (session) msg.session = session
+		}
 		this.messages.push(msg)
 		if (this.messages.length > MAX_MEMORY_MESSAGES) this.messages.splice(0, this.messages.length - MAX_MEMORY_MESSAGES)
 		this.deps.store.appendMessage(msg)
@@ -108,17 +119,31 @@ export class Feed {
 	 */
 	async inbox(q: InboxQuery = {}): Promise<InboxResponse> {
 		const session = q.session
-		const after = q.after ?? (session === undefined ? this.cursor : (this.sessionCursors.get(session) ?? 0))
-		const mine = (m: Message): boolean => session === undefined || this.deps.sessionOf(m.from) === session
-		const read = (): Message[] => this.messages.filter(m => m.to === YOU && m.kind === 'reply' && m.seq > after && mine(m))
+		// курсор читается заново после каждого пробуждения: два ожидающих сборщика одной сессии не получают одни и те же ответы дважды
+		const after = (): number => q.after ?? (session === undefined ? this.cursor : (this.sessionCursors.get(session) ?? 0))
+		const mine = (m: Message): boolean => session === undefined || (m.session ?? this.deps.sessionOf(m.from)) === session
+		const read = (): Message[] => {
+			const from = after()
+			return this.messages.filter(m => m.to === YOU && m.kind === 'reply' && m.seq > from && mine(m))
+		}
 		let list = read()
 		const deadline = Date.now() + (q.wait ?? 0) * 1000
-		// будят любые сообщения к you (в том числе чужих сессий) — ждём своего до дедлайна
-		while (!list.length && !this.closed && Date.now() < deadline) {
-			await this.sleepUntilMessage(deadline - Date.now())
-			list = read()
+		const watch = session !== undefined && !q.peek && q.wait !== undefined && q.wait > 0
+		if (watch) this.watchers.set(session, (this.watchers.get(session) ?? 0) + 1)
+		try {
+			// будят любые сообщения к you (в том числе чужих сессий) — ждём своего до дедлайна
+			while (!list.length && !this.closed && Date.now() < deadline) {
+				await this.sleepUntilMessage(deadline - Date.now())
+				list = read()
+			}
+		} finally {
+			if (watch) {
+				const n = (this.watchers.get(session) ?? 1) - 1
+				if (n > 0) this.watchers.set(session, n)
+				else this.watchers.delete(session)
+			}
 		}
-		const cursor = list.length ? (list[list.length - 1] as Message).seq : after
+		const cursor = list.length ? (list[list.length - 1] as Message).seq : after()
 		if (!q.peek && q.after === undefined && list.length) {
 			if (session === undefined) this.cursor = cursor
 			else this.sessionCursors.set(session, cursor)
