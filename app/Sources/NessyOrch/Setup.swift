@@ -39,8 +39,19 @@ final class SetupModel {
 	var statusOK = true
 
 	private static var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
-	/// первый запуск этой версии приложения
-	static var needed: Bool { UserDefaults.standard.string(forKey: "setup.done") != version }
+	/// Мастер на запуске показывается только если без него не заработает: нет `claude`, нет Node.js или не установлена/устарела служба оркестратора.
+	/// `nessy-orch` и скилл лежат в приложении и подключаются сами (CLI — через PATH терминала, скилл — через `--plugin-dir`), их ставить не нужно.
+	static func problemsExist() async -> Bool {
+		let cli = CLISupport.shared
+		let claudePath = UserDefaults.standard.string(forKey: "claudePath").flatMap { $0.isEmpty ? nil : ClaudeHooks.shellQuote($0) } ?? "claude"
+		let claude = await Shell.run("command -v \(claudePath)")
+		if claude.status != 0 { return true }
+		if cli.isBundled {
+			if await cli.ensureNode() == nil { return true }
+			if cli.installer.serviceMatchesBundle() != true, case .offline = AppModel.shared.store.daemon { return true }
+		}
+		return false
+	}
 
 	func start() {
 		step = .claude

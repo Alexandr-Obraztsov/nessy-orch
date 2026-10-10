@@ -73,7 +73,10 @@ extension AppModel {
 		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, orchestrator: AppSettings.serverURL,
 										   base: ProcessInfo.processInfo.environment, command: UserDefaults.standard.string(forKey: "debug.terminalCommand"))
 		// папки, выбранные при установке (CLI и Claude Code), — в начало PATH терминала
-		let extra = [UserDefaults.standard.string(forKey: "cliDirectory"), UserDefaults.standard.string(forKey: "claudePath").map { ($0 as NSString).deletingLastPathComponent }]
+		// встроенный `nessy-orch` доступен в терминале приложения без установки: его папка bin — в PATH
+		let bundledBin = Bundle.main.resourceURL.map { $0.appendingPathComponent("orch/bin").path }.flatMap { FileManager.default.fileExists(atPath: $0 + "/nessy-orch") ? $0 : nil }
+		let extra = [bundledBin, UserDefaults.standard.string(forKey: "cliDirectory"),
+					 UserDefaults.standard.string(forKey: "claudePath").map { ($0 as NSString).deletingLastPathComponent }]
 			.compactMap { $0 }.filter { !$0.isEmpty }
 		if !extra.isEmpty, let i = spec.environment.firstIndex(where: { $0.hasPrefix("PATH=") }) {
 			spec.environment[i] = "PATH=" + (extra + [String(spec.environment[i].dropFirst(5))]).joined(separator: ":")
@@ -115,6 +118,12 @@ extension AppModel {
 
 	/// `-debug.terminalDir <путь>` — открыть окно-терминал в папке; `-debug.openSession <id>` — окно сессии;
 	/// `-debug.terminalCommand "<команда>"` — терминалы выполняют команду и остаются в оболочке.
+	func runDebugLaunchOnce() {
+		guard !debugLaunched else { return }
+		debugLaunched = true
+		runDebugLaunch()
+	}
+
 	func runDebugLaunch() {
 		let d = UserDefaults.standard
 		Task { @MainActor in

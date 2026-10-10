@@ -113,8 +113,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 			if case .online = model.store.daemon { return true }
 			return false
 		}
-		// первый запуск (и первый после обновления): мастер настройки по шагам (CLI, служба, Claude Code, скилл, папка проектов)
-		if SetupModel.needed, UserDefaults.standard.string(forKey: "debug.terminalCommand") == nil { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { model.setup.start() } }
+		// мастер настройки открывается сам, только если без него не заработает (нет claude, Node.js или службы)
+		if UserDefaults.standard.string(forKey: "debug.terminalCommand") == nil {
+			Task { @MainActor in
+				try? await Task.sleep(for: .seconds(3.5))
+				if await SetupModel.problemsExist() { model.setup.start() }
+			}
+		}
 		NSApp.setActivationPolicy(UserDefaults.standard.bool(forKey: "menuBarOnly") ? .accessory : .regular)
 		// Finder: пункт «Открыть в TClaude-Orch» (служба приложения и быстрое действие) — один раз при первом запуске
 		NSApp.servicesProvider = self

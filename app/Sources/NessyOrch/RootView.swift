@@ -125,7 +125,7 @@ struct MainWindowView: View {
 		let win = model.activeWindow
 		MainWindowBody()
 			.environment(\.sessionWindow, win)
-			.onAppear { model.registerWindowOpeners(openWindow) }
+			.onAppear { model.registerWindowOpeners(openWindow); model.runDebugLaunchOnce() }
 	}
 }
 

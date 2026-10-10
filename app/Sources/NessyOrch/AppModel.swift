@@ -31,6 +31,7 @@ final class AppModel {
 	var lightsTrailing: CGFloat = 66
 	/// показать главное окно ждали, пока из окружения появится `openWindow` (ссылка при холодном старте)
 	@ObservationIgnored private var pendingShow = false
+	@ObservationIgnored var debugLaunched = false
 	/// черновики поля ввода по агентам
 	var drafts: [String: String] = [:]
 	var showPalette = false
