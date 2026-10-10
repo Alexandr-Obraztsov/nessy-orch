@@ -33,7 +33,7 @@ export function sessionOption(p: Parsed, env: NodeJS.ProcessEnv = process.env): 
 	return t ? t : undefined
 }
 
-/** Ссылка на сессию для приложения Nessy Orch (открывается командой `open <ссылка>` или кликом). */
+/** Ссылка на сессию для приложения TClaude-Orch (открывается командой `open <ссылка>` или кликом). */
 export function sessionUrl(_e: Endpoint, id: string): string {
 	return `nessy-orch://session/${encodeURIComponent(id)}`
 }

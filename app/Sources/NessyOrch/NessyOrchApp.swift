@@ -8,7 +8,7 @@ struct NessyOrchApp: App {
 
 	var body: some Scene {
 		// Невидимое окно запуска: открывает окно-терминал в домашней папке, если приложение запущено без папки и ссылки, и закрывается.
-		Window("Nessy Orch", id: "launcher") {
+		Window("TClaude-Orch", id: "launcher") {
 			LauncherView().environment(model)
 		}
 		.windowStyle(.plain)
@@ -24,6 +24,7 @@ struct NessyOrchApp: App {
 					.tint(DS.Palette.accent)
 			}
 		}
+		.windowStyle(.hiddenTitleBar)
 		.defaultLaunchBehavior(.suppressed)
 		.defaultSize(width: 1280, height: 780)
 
@@ -116,6 +117,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 			return false
 		}
 		NSApp.setActivationPolicy(UserDefaults.standard.bool(forKey: "menuBarOnly") ? .accessory : .regular)
+		// Finder: пункт «Открыть в TClaude-Orch» (служба приложения и быстрое действие) — один раз при первом запуске
+		NSApp.servicesProvider = self
+		NSUpdateDynamicServices()
+		FinderSupport.autoInstallOnce()
 		// для снимков и проверки: `-debug.appearance light|dark` (переключателя темы в интерфейсе нет — тема системная)
 		switch UserDefaults.standard.string(forKey: "debug.appearance") {
 		case "light": NSApp.appearance = NSAppearance(named: .aqua)
@@ -125,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		// для снимков: `-debug.menuPreview YES` — панель menu bar в обычном окне (открыть её без клика нельзя)
 		if UserDefaults.standard.bool(forKey: "debug.menuPreview") {
 			let w = NSWindow(contentRect: NSRect(x: 80, y: 120, width: 320, height: 480), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-			w.title = "Nessy Orch menu"
+			w.title = "TClaude-Orch menu"
 			w.contentView = NSHostingView(rootView: MenuBarPanel().environment(model).tint(DS.Palette.accent))
 			w.isReleasedWhenClosed = false
 			w.makeKeyAndOrderFront(nil)
@@ -179,7 +184,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	@objc private func openStart() { AppModel.shared.openMainWindow() }
 	@objc private func openSession(_ item: NSMenuItem) { if let id = item.representedObject as? String { AppModel.shared.show(session: id) } }
 
-	/// Папки и ссылки `nessy-orch://…`: `open -a "Nessy Orch" <папка>`, перетаскивание папки на значок, `nessy-orch .`.
+	/// Служба Finder (Info.plist → NSServices): папка или файл → окно в этой папке (для файла — в его папке).
+	@objc func openInTClaude(_ pboard: NSPasteboard, userData: String, error: AutoreleasingUnsafeMutablePointer<NSString>) {
+		let urls = pboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+		for u in urls { AppModel.shared.openTerminal(dir: FinderSupport.directory(of: u)) }
+	}
+
+	/// Папки и ссылки `nessy-orch://…`: `open -a "TClaude-Orch" <папка>`, перетаскивание папки на значок, `nessy-orch .`.
 	func application(_ application: NSApplication, open urls: [URL]) { urls.forEach { AppModel.shared.handle(url: $0) } }
 
 	func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { AppModel.shared.confirmQuit() }
@@ -187,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
 	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-		if !flag { AppModel.shared.openMainWindow() }
+		if !flag { AppModel.shared.openFromLauncher() }
 		return true
 	}
 }

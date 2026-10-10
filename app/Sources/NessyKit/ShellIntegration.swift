@@ -53,8 +53,8 @@ public enum ShellIntegration {
 		"""
 	}
 
-	public static func zshenv() -> String { zshSource(".zshenv", header: "# Nessy Orch: подгружает настоящий ~/.zshenv, файлы пользователя не меняются") }
-	public static func zprofile() -> String { zshSource(".zprofile", header: "# Nessy Orch: подгружает настоящий ~/.zprofile") }
+	public static func zshenv() -> String { zshSource(".zshenv", header: "# TClaude-Orch: подгружает настоящий ~/.zshenv, файлы пользователя не меняются") }
+	public static func zprofile() -> String { zshSource(".zprofile", header: "# TClaude-Orch: подгружает настоящий ~/.zprofile") }
 
 	private static func zshSource(_ file: String, header: String) -> String {
 		"""
@@ -74,7 +74,7 @@ public enum ShellIntegration {
 	/// `.zshrc`: возвращает ZDOTDIR пользователю (дальше zsh читает его `.zlogin` сам), подгружает его `.zshrc`, затем определяет `claude`.
 	public static func zshrc(settings: String) -> String {
 		"""
-		# Nessy Orch: подгружает настоящий ~/.zshrc и добавляет функцию claude с хуками
+		# TClaude-Orch: подгружает настоящий ~/.zshrc и добавляет функцию claude с хуками
 		_nessy_orig="${NESSY_USER_ZDOTDIR:-$HOME}"
 		_nessy_mine="$ZDOTDIR"
 		ZDOTDIR="$_nessy_orig"
@@ -89,7 +89,7 @@ public enum ShellIntegration {
 	/// Файл для `bash --rcfile`: как login-оболочка (`/etc/profile`, затем первый из `~/.bash_profile`, `~/.bash_login`, `~/.profile`), затем функция.
 	public static func bashrc(settings: String) -> String {
 		"""
-		# Nessy Orch: запуск как login-оболочка и функция claude с хуками
+		# TClaude-Orch: запуск как login-оболочка и функция claude с хуками
 		[ -f /etc/profile ] && . /etc/profile
 		if [ -f "$HOME/.bash_profile" ]; then . "$HOME/.bash_profile"
 		elif [ -f "$HOME/.bash_login" ]; then . "$HOME/.bash_login"
@@ -105,7 +105,7 @@ public enum ShellIntegration {
 		let q = ClaudeHooks.shellQuote(settings)
 		return """
 		#!/bin/sh
-		# Nessy Orch: claude с хуками оркестратора
+		# TClaude-Orch: claude с хуками оркестратора
 		self_dir=$(cd "$(dirname "$0")" && pwd)
 		PATH=$(printf %s "$PATH" | tr ':' '\\n' | grep -vxF "$self_dir" | paste -sd: -)
 		if [ -f \(q) ]; then

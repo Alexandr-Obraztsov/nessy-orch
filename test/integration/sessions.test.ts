@@ -1,6 +1,7 @@
 /** Сессии по HTTP: CRUD, spawn в сессии и наследование, inbox по сессиям (два оркестратора), поток, рестарт. */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import type { AgentView, ApiError, GraphView, InboxResponse, SpawnBatchResponse, SpawnResponse, StreamEvent, SessionView } from '../../shared/types'
@@ -157,9 +158,9 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		await h?.close()
 	})
 
-	const runHook = (port: number, session: string | undefined, event: string, stdin = '{}'): Promise<{ code: number | null; stdout: string }> =>
+	const runHook = (port: number, session: string | undefined, event: string, stdin = '{}', extraEnv: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; stdout: string }> =>
 		new Promise(resolve => {
-			const env: NodeJS.ProcessEnv = { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1' }
+			const env: NodeJS.ProcessEnv = { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', ...extraEnv }
 			delete env['NESSY_ORCH_SESSION']
 			if (session) env['NESSY_ORCH_SESSION'] = session
 			const p = spawn(process.execPath, [CLI_MAIN, 'hook', event], { env })
@@ -217,6 +218,31 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 
 		await runHook(hh.port, s.body.id, 'end')
 		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'ended')
+	})
+
+	it('привязка чата Claude: первый чат окна берёт сессию окна, resume возвращает её, новый чат — новая сессия в том же окне', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		const w = await hh.api<SessionView>('POST', '/sessions', { title: 'Окно' })
+		const envFile = path.join(hh.ws, 'claude-env')
+		const ev = (id: string): string => JSON.stringify({ session_id: id })
+		await runHook(hh.port, w.body.id, 'start', ev('chat-a'), { CLAUDE_ENV_FILE: envFile })
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.claudeId, 'chat-a')
+
+		// новый чат в том же окне (/clear) — новая сессия, а Bash-инструменты получают её id
+		await runHook(hh.port, w.body.id, 'start', ev('chat-b'), { CLAUDE_ENV_FILE: envFile })
+		const all = (await hh.api<SessionView[]>('GET', '/sessions')).body
+		const b = all.find(x => x.claudeId === 'chat-b')
+		assert.ok(b && b.id !== w.body.id)
+		assert.equal(b.origin, w.body.id)
+		assert.equal(b.claude?.state, 'idle')
+		assert.match(fs.readFileSync(envFile, 'utf8'), new RegExp(`NESSY_ORCH_SESSION='${b.id}'`))
+
+		// resume первого чата: возвращается его же сессия, второй раз ничего не создаётся
+		const before = (await hh.api<SessionView[]>('GET', '/sessions')).body.length
+		await runHook(hh.port, w.body.id, 'prompt', ev('chat-a'))
+		assert.equal((await hh.api<SessionView[]>('GET', '/sessions')).body.length, before)
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.claude?.state, 'working')
 	})
 
 	it('хук не ломает Claude при недоступном оркестраторе', T, async () => {

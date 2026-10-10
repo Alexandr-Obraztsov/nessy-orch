@@ -20,7 +20,7 @@ async function cmdStatus(p: Parsed): Promise<void> {
 	out(`  пространств: ${s.spaces}   агентов: ${s.agents} (работают: ${s.working})   ролей: ${s.roles}   автоподтверждение: ${s.autoApprove ? 'вкл' : 'выкл'}`)
 }
 
-/** Открыть приложение Nessy Orch (или конкретную сессию: `open <id сессии>`). */
+/** Открыть приложение TClaude-Orch (или конкретную сессию: `open <id сессии>`). */
 function cmdOpen(p: Parsed): Promise<void> {
 	const id = p.positionals[0]
 	const url = id ? `nessy-orch://session/${encodeURIComponent(id)}` : 'nessy-orch://open'
@@ -39,7 +39,7 @@ function cmdApp(p: Parsed): Promise<void> {
 	try {
 		execFileSync('open', [url], { stdio: 'ignore' })
 	} catch {
-		throw new CliError('не удалось открыть приложение Nessy Orch: оно не установлено (app/release/Nessy-Orch-macOS.zip) или нет macOS-команды open')
+		throw new CliError('не удалось открыть приложение TClaude-Orch: оно не установлено (app/release/TClaude-Orch-macOS.zip) или нет macOS-команды open')
 	}
 	out(dir)
 	return Promise.resolve()

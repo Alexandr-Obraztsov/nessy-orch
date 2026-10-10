@@ -1,6 +1,6 @@
 # nessy-orch
 
-Оркестратор агентов nessy: HTTP/SSE API на `127.0.0.1:4337`, нативное macOS-приложение «Nessy Orch» (`app/`, SwiftUI), CLI `nessy-orch`. Через него ты (Claude) делегируешь
+Оркестратор агентов nessy: HTTP/SSE API на `127.0.0.1:4337`, нативное macOS-приложение «TClaude-Orch» (`app/`, SwiftUI), CLI `nessy-orch`. Через него ты (Claude) делегируешь
 задачи агентам nessy, у которых есть dp-инструменты (GitLab, Jira, Sage, Wiki) и долгая автономная работа.
 
 ## Использование сервиса: ты — оркестратор
@@ -9,7 +9,7 @@
 загрузи скилл `nessy-orch`** (плагин `nessy`: `plugins/nessy/skills/nessy-orch/SKILL.md`, в этом репозитории
 доступен и как `.claude/skills/nessy-orch` — симлинк) и работай по его циклу: заведи сессию **один раз на весь разговор**
 (`nessy-orch session new "<краткая цель>" --owner claude` → id) и сразу дай пользователю ссылку
-`nessy-orch://session/<id>` (открывает её в приложении Nessy Orch) → осмотрись (`ls --all --session <id>`, `role ls`) →
+`nessy-orch://session/<id>` (открывает её в приложении TClaude-Orch) → осмотрись (`ls --all --session <id>`, `role ls`) →
 разбей задачу → выбери роль → напиши поручение по шаблону → запусти (независимое — параллельно, все `spawn` с
 `--session <id>`) → проверь результат (отдельным `verifier`) → сведи ответ → в конце разговора `session done <id> --summary "<итог>"`.
 Сессия одна на разговор: смена темы её не меняет. Сессии нужны, чтобы несколько Claude работали параллельно: у каждой свой inbox,

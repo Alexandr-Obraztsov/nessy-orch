@@ -118,6 +118,9 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	public var sources: Int
 	/// состояние Claude по хукам; nil — сервер не сообщает (старый сервер или хуки не подключены)
 	public var claude: ClaudeState?
+	/// чат Claude, к которому привязана сессия, и окно (id первой сессии окна), в котором он ведётся
+	public var claudeId: String?
+	public var origin: String?
 
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -130,6 +133,8 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 		updatedAt = try c.decode(String.self, forKey: .updatedAt)
 		sources = try c.decodeIfPresent(Int.self, forKey: .sources) ?? 0
 		claude = (try? c.decodeIfPresent(ClaudeState.self, forKey: .claude)) ?? nil
+		claudeId = try c.decodeIfPresent(String.self, forKey: .claudeId)
+		origin = try c.decodeIfPresent(String.self, forKey: .origin)
 	}
 }
 

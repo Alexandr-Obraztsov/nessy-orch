@@ -70,7 +70,13 @@ final class AppModel {
 	}
 
 	/// Окно в домашнем каталоге (Dock, повторный запуск без окон).
-	func openMainWindow() { openTerminal(dir: NSHomeDirectory()) }
+	func openMainWindow() { openFromLauncher() }
+
+	/// Запуск без папки (Dock, Spotlight, повторный запуск без окон): выбор проекта по центру экрана; без выбора — домашняя папка.
+	func openFromLauncher() {
+		guard AppSettings.askFolderOnLaunch else { openTerminal(dir: NSHomeDirectory()); return }
+		chooseProject(title: "Выберите проект", message: "Папка, в которой откроется терминал и сессия Claude")
+	}
 
 	var hasTerminalWindows: Bool { !windows.isEmpty }
 
@@ -99,7 +105,7 @@ final class AppModel {
 
 	/// Открыть (или поднять) окно сессии оркестратора.
 	func show(session id: String) {
-		if let w = windows.values.first(where: { $0.sessionId == id }) { open(w.value); return }
+		if let w = windows.values.first(where: { $0.owns(id) }) { open(w.value); return }
 		open(.reopen(session: id, dir: projectPath(of: id) ?? NSHomeDirectory()))
 	}
 
@@ -110,7 +116,7 @@ final class AppModel {
 		// карточка открывается, когда окно уже есть
 		Task { @MainActor in
 			for _ in 0..<20 {
-				if let w = windows.values.first(where: { $0.sessionId == s }) { w.open(agent: id); return }
+				if let w = windows.values.first(where: { $0.owns(s) }) { w.open(agent: id); return }
 				try? await Task.sleep(for: .milliseconds(100))
 			}
 		}
@@ -130,7 +136,7 @@ final class AppModel {
 
 	func handle(url: URL) {
 		if url.isFileURL {
-			// папка, брошенная на значок или открытая через `open -a "Nessy Orch" <папка>`
+			// папка, брошенная на значок или открытая через `open -a "TClaude-Orch" <папка>`
 			if let d = TerminalLaunch.directory(from: url) { suppressHomeWindow = true; openTerminal(dir: d) }
 			return
 		}
@@ -222,6 +228,14 @@ final class AppModel {
 
 /// Настройки, не требующие модели.
 enum AppSettings {
+	/// размер шрифта терминала (pt)
+	static var terminalFontSize: CGFloat {
+		let v = UserDefaults.standard.double(forKey: "terminal.fontSize")
+		return v >= 10 && v <= 24 ? CGFloat(v) : 13
+	}
+	/// без папки (Dock, Spotlight) спрашивать проект; иначе — терминал в домашней папке
+	static var askFolderOnLaunch: Bool { UserDefaults.standard.object(forKey: "askFolderOnLaunch") as? Bool ?? true }
+
 	static var serverURL: URL {
 		let s = UserDefaults.standard.string(forKey: "serverURL") ?? "http://127.0.0.1:4337"
 		return URL(string: s) ?? URL(string: "http://127.0.0.1:4337")!

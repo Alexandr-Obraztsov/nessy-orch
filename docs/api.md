@@ -56,6 +56,7 @@ API-сегменты (первые сегменты маршрутов): `health
 | GET | `/sessions/:id` | — | `SessionView` или `404 no_session` |
 | PATCH | `/sessions/:id` | `SessionPatch {title?, status?, summary?}` | `SessionView` (`updatedAt` обновляется); `status: done` ставит оркестратор или человек из приложения |
 | GET | `/sessions/:id/updates?consume=1` | — | `SessionUpdates {agents: AgentBrief[], replies: Message[]}`: краткая сводка агентов сессии и новые ответы; `consume=1` сдвигает ТОТ ЖЕ курсор, что `inbox --session` (ответ доставляется один раз). Для хуков Claude Code |
+| POST | `/sessions/bind` | `{claudeSession, session?, title?}` | `SessionView` — привязка чата Claude (`session_id` хука) к сессии: уже привязанная (resume) → она; иначе свободная `session`; иначе новая. Поля `claudeId`, `origin` сохраняются |
 | POST | `/sessions/:id/ping` | `{state: working\|idle\|ended}` | `SessionView` с `claude: {state, at}` — состояние Claude Code по хуку (в памяти, не сохраняется) |
 | DELETE | `/sessions/:id` | — | `{ok:true}`; в сессии работают агенты (ход или очередь) → `409 session_busy`; агенты сессии остаются с `session:null`, курсор inbox и источники сессии забываются |
 | GET | `/sessions/:id/sources` | — | `SourceView[]` по порядку появления: ссылки из итоговых ответов агентов («Источники») и из входа их вызовов инструментов, без дублей; `404 no_session` |

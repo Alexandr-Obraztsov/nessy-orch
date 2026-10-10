@@ -97,6 +97,36 @@ export class SessionsService {
 		this.ctx.hub.publish({ t: 'session_removed', id: session.id })
 	}
 
+	/**
+	 * Привязка чата Claude к сессии: уже привязанная к этому чату (resume) → она; иначе заданная `ref`, если она свободна
+	 * (первый запуск в окне приложения); иначе новая сессия (новый чат в том же окне, /clear). Привязка сохраняется на диск.
+	 */
+	bind(claudeId: string, ref: string | null, title: string): SessionView {
+		const id = claudeId.trim()
+		if (!id) throw new AppError(400, 'bad_request', 'claudeSession не задан')
+		const free = ref ? this.sessions.get(ref.trim().toLowerCase()) : undefined
+		const origin = free ? (free.origin ?? free.id) : null
+		const hit = [...this.sessions.values()].find(s => s.claudeId === id)
+		if (hit) {
+			// чат продолжили в другом окне (/resume): сессия переезжает в него
+			if (origin && hit.origin !== origin && hit.id !== origin) {
+				const moved: SessionView = { ...hit, origin }
+				this.put(moved)
+				return moved
+			}
+			return hit
+		}
+		if (free && !free.claudeId) {
+			const next: SessionView = { ...free, claudeId: id, origin }
+			this.put(next)
+			return next
+		}
+		const made = this.create({ title: title || free?.title || 'Claude', owner: 'claude' })
+		const next: SessionView = { ...made, claudeId: id, origin }
+		this.put(next)
+		return next
+	}
+
 	/** Состояние Claude Code по хукам (в памяти: после рестарта сервиса неизвестно). */
 	ping(ref: string, state: ClaudeState): SessionView {
 		const s = this.resolve(ref)

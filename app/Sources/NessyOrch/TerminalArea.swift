@@ -2,8 +2,7 @@ import SwiftUI
 import AppKit
 import NessyKit
 
-/// Центр окна: терминал на всю высоту окна. Пока боковая панель открыта, шапка (светофор и кнопка панели) лежит над панелью,
-/// и верхнего отступа у терминала нет; панель свёрнута — отступ равен высоте шапки (анимируется вместе с панелью).
+/// Центр окна: терминал под шапкой, на всю оставшуюся высоту. Панель агентов слева меняет только его ширину.
 struct CenterView: View {
 	@Environment(AppModel.self) private var model
 	@Environment(\.sessionWindow) private var win
@@ -11,7 +10,7 @@ struct CenterView: View {
 	var body: some View {
 		Group {
 			if let tab = win?.terminal {
-				TerminalHost(tab: tab, reserveHeader: win?.panelHidden ?? false)
+				TerminalHost(tab: tab)
 					.id(tab.id)
 					.accessibilityLabel("Терминал")
 			} else {
@@ -20,30 +19,11 @@ struct CenterView: View {
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.opacity(model.isOffline ? 0.6 : 1)
-		.background(DS.Palette.windowBackground)
-		.ignoresSafeArea(.container, edges: .top)
+		.background(DS.Palette.terminalBackground)
 		.overlay(alignment: .bottom) {
 			if model.isOffline { OfflineBanner().clipShape(RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous)).padding(DS.Metrics.s3) }
 		}
-		.overlay(alignment: .top) { ToastView().padding(.top, 56) }
-	}
-}
-
-/// Пункты меню «⋯» сессии (внизу боковой панели).
-struct SessionActionsItems: View {
-	@Environment(AppModel.self) private var model
-	@Environment(\.openSettings) private var openSettings
-	var session: SessionView?
-
-	var body: some View {
-		if let session {
-			if session.status == .active { Button("Завершить сессию") { model.closeSession(session.id) } }
-			else { Button("Вернуть в работу") { model.reopenSession(session.id) } }
-			Button("Удалить сессию", role: .destructive) { model.deleteSession(session.id) }
-			Divider()
-		}
-		Button("Настройки…") { openSettings(); NSApp.activate() }
-		Button("Горячие клавиши") { model.showShortcuts = true }
+		.overlay(alignment: .top) { ToastView().padding(.top, 12) }
 	}
 }
 

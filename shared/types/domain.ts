@@ -101,6 +101,10 @@ export interface SessionView {
 	sources: number
 	/** состояние Claude Code (по хукам `nessy-orch hook …`); null — хуки не подключены или сервис перезапускался */
 	claude?: ClaudeStatus | null
+	/** id чата Claude Code (session_id из хуков), к которому привязана сессия: один чат (в том числе /resume) — одна сессия */
+	claudeId?: string | null
+	/** окно приложения, в котором ведётся чат: id первой сессии окна; в одном окне подряд могут идти несколько чатов Claude */
+	origin?: string | null
 }
 
 export interface AgentView {

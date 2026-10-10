@@ -13,6 +13,8 @@ enum DS {
 extension DS {
 	enum Palette {
 		static let windowBackground = Color.ds(0xF2F2F4, 0x1B1B1D)
+		/// фон терминала и окна-терминала: один цвет (шапка, углы за панелью и терминал не выделяются)
+		static let terminalBackground = Color.ds(0xFBFBFC, 0x141416)
 		static let surface = Color.ds(0xFFFFFF, 0x232325)
 		static let panel = Color.ds(0xFFFFFF, 0x2A2A2D)
 		static let separator = Color.ds(0x000000, 0xFFFFFF, alpha: 0.10, hcAlpha: 0.28)
@@ -90,6 +92,7 @@ extension DS {
 		/// левая панель агентов (layout-v2.md, итог): 300…440, по умолчанию 340
 		static let sidePanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (300, 340, 440)
 		static let panelInset: CGFloat = 8
+		static let panelRadius: CGFloat = 22
 		/// круглые кнопки: 36 — везде, 40 — в тулбаре; иконка 16–17 pt (layout-v2.md, «Кнопки»)
 		static let button: CGFloat = 36, toolbarButton: CGFloat = 40, buttonIcon: CGFloat = 16.5
 		static let groupRadius: CGFloat = 12

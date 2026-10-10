@@ -1,8 +1,8 @@
 #!/bin/bash
-# Собирает «Nessy Orch.app» (release, ad-hoc подпись) в app/build/. Запуск: scripts/build-app.sh [--run]
+# Собирает «TClaude-Orch.app» (release, ad-hoc подпись) в app/build/. Запуск: scripts/build-app.sh [--run]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-NAME="Nessy Orch"
+NAME="TClaude-Orch"
 BUNDLE_ID="com.nessy.orch.app"
 OUT="build/$NAME.app"
 
@@ -58,6 +58,13 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
 		<key>CFBundleTypeRole</key><string>Viewer</string>
 		<key>LSItemContentTypes</key><array><string>public.folder</string></array>
 		<key>LSHandlerRank</key><string>Alternate</string>
+	</dict></array>
+	<key>NSServices</key>
+	<array><dict>
+		<key>NSMenuItem</key><dict><key>default</key><string>Открыть в $NAME</string></dict>
+		<key>NSMessage</key><string>openInTClaude</string>
+		<key>NSPortName</key><string>NessyOrch</string>
+		<key>NSSendFileTypes</key><array><string>public.item</string></array>
 	</dict></array>
 	<key>CFBundleURLTypes</key>
 	<array><dict>

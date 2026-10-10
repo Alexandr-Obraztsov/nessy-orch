@@ -44,77 +44,44 @@ enum TerminalTheme {
 
 // MARK: - Вид терминала с отступом
 
-/// Контейнер: фон по теме и внутренний отступ вокруг самого терминала. Верхний отступ меняется вместе с панелью
-/// (кнопки шапки не должны перекрывать текст): пересчёт колонок и строк — один раз, сразу в конечный размер,
-/// а сдвиг рисуется Core Animation, поэтому содержимое не «прыгает» по кадрам.
+/// Контейнер: фон по теме и постоянный внутренний отступ вокруг самого терминала. Шапка окна лежит над контейнером
+/// (терминал начинается под ней), поэтому высота терминала от панели не зависит: меняется только ширина.
 final class TerminalContainer: NSView {
 	static let inset: CGFloat = 12
 	let terminal: LocalProcessTerminalView
-	/// отступ сверху внутри терминала; меняется через `setTopInset`
-	private(set) var topInset: CGFloat = TerminalContainer.inset
+	private var defaultsToken: NSObjectProtocol?
 
 	override init(frame: NSRect) {
 		terminal = LocalProcessTerminalView(frame: .zero)
 		super.init(frame: frame)
 		wantsLayer = true
-		terminal.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+		applyFont()
 		addSubview(terminal)
 		applyTheme()
+		// размер шрифта из настроек применяется к живому терминалу
+		defaultsToken = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+			MainActor.assumeIsolated { self?.applyFont() }
+		}
 	}
 	required init?(coder: NSCoder) { fatalError() }
+	deinit { if let defaultsToken { NotificationCenter.default.removeObserver(defaultsToken) } }
 
 	var isDark: Bool { effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
+
+	private func applyFont() {
+		let size = AppSettings.terminalFontSize
+		guard terminal.font.pointSize != size else { return }
+		terminal.font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+	}
 
 	func applyTheme() {
 		TerminalTheme.apply(to: terminal, dark: isDark)
 		layer?.backgroundColor = TerminalTheme.ns(TerminalTheme.scheme(dark: isDark).background).cgColor
 	}
 
-	/// Высота зоны светофора и кнопки панели: из фактического окна (`contentLayoutRect`), запасное значение — 52.
-	var headerHeight: CGFloat {
-		guard let w = window else { return 52 }
-		let h = w.frame.height - w.contentLayoutRect.height
-		return h >= 28 ? h : 52
-	}
-
-	private var wantsReserve = false
-	private var fullScreenTokens: [NSObjectProtocol] = []
-	private var isFullScreen: Bool { window?.styleMask.contains(.fullScreen) == true }
-
-	override func viewDidMoveToWindow() {
-		super.viewDidMoveToWindow()
-		fullScreenTokens.forEach(NotificationCenter.default.removeObserver)
-		fullScreenTokens = []
-		guard let w = window else { return }
-		// В полноэкранном режиме система рисует над контентом плоскую полосу тулбара: под неё терминал не заходит.
-		for n in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-			fullScreenTokens.append(NotificationCenter.default.addObserver(forName: n, object: w, queue: .main) { [weak self] _ in
-				guard let self else { return }
-				self.setTopInset(reserve: self.wantsReserve, animated: false)
-			})
-		}
-	}
-
-	/// `reserve` — оставить место под шапку (панель свёрнута, а в полноэкранном режиме всегда): отступ равен высоте шапки.
-	func setTopInset(reserve: Bool, animated: Bool) {
-		wantsReserve = reserve
-		let target = reserve || isFullScreen ? headerHeight : Self.inset
-		guard abs(target - topInset) > 0.5 else { return }
-		topInset = target
-		if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-			NSAnimationContext.runAnimationGroup { ctx in
-				ctx.duration = 0.35
-				ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
-				ctx.allowsImplicitAnimation = true
-				layoutTerminal()
-			}
-		} else {
-			layoutTerminal()
-		}
-	}
-
 	private func layoutTerminal() {
-		terminal.frame = CGRect(x: Self.inset, y: Self.inset, width: max(0, bounds.width - 2 * Self.inset), height: max(0, bounds.height - Self.inset - topInset))
+		let i = Self.inset
+		terminal.frame = CGRect(x: i, y: i, width: max(0, bounds.width - 2 * i), height: max(0, bounds.height - i - 4))
 	}
 
 	override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyTheme() }
@@ -205,10 +172,9 @@ final class TerminalStore {
 
 // MARK: - Встраивание в SwiftUI
 
-/// Показывает вид готового терминала; `reserveHeader` — оставить сверху место под шапку (боковая панель свёрнута).
+/// Показывает вид готового терминала и отдаёт ему фокус.
 struct TerminalHost: NSViewRepresentable {
 	var tab: TerminalTab
-	var reserveHeader: Bool
 
 	func makeNSView(context: Context) -> TerminalContainer {
 		let c = tab.container
@@ -217,11 +183,10 @@ struct TerminalHost: NSViewRepresentable {
 		for delay in [0.0, 0.15, 0.5] {
 			DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
 				guard let w = c.window else { return }
-				c.setTopInset(reserve: reserveHeader, animated: false)
 				if w.firstResponder !== c.terminal, !(w.firstResponder is NSTextView) { w.makeFirstResponder(c.terminal) }
 			}
 		}
 		return c
 	}
-	func updateNSView(_ v: TerminalContainer, context: Context) { v.setTopInset(reserve: reserveHeader, animated: true) }
+	func updateNSView(_ v: TerminalContainer, context: Context) {}
 }

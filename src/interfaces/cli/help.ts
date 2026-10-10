@@ -47,7 +47,7 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
   hook start|prompt|stop|end   подмешивает в контекст Claude сводку агентов и новые ответы (stdin — JSON события хука)
 
 ПРИЛОЖЕНИЕ
-  .  |  app [папка]    открыть приложение Nessy Orch с терминалом в этой папке (nessy-orch . — из текущей, nessy-orch ~/proj)
+  .  |  app [папка]    открыть приложение TClaude-Orch с терминалом в этой папке (nessy-orch . — из текущей, nessy-orch ~/proj)
 
 СЛУЖЕБНОЕ
   status               состояние оркестратора

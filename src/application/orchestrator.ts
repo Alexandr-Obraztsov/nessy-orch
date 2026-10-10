@@ -343,6 +343,10 @@ export class Orchestrator implements AgentHost {
 
 	/** Входящие для you; с session — только ответы агентов сессии, со своим курсором (неизвестная → 404 no_session). */
 	/** Состояние Claude Code сессии по хуку (`POST /sessions/:id/ping`). */
+	bindSession(claudeId: string, ref: string | null, title: string): SessionView {
+		return this.sessionsSvc.bind(claudeId, ref, title)
+	}
+
 	pingSession(id: string, state: ClaudeState): SessionView {
 		return this.sessionsSvc.ping(id, state)
 	}

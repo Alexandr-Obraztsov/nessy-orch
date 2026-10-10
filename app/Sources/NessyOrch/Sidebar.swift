@@ -2,43 +2,40 @@ import SwiftUI
 import AppKit
 import NessyKit
 
-/// Низ боковой панели: связь слева, справа тихая точка Claude и две круглые стеклянные кнопки — «Роли» и «⋯» сессии.
+/// Низ боковой панели: тонкая линия и во всю ширину кнопка «Роли» (как строка профиля внизу панели Claude Desktop).
 struct SidebarFooter: View {
-	@Environment(AppModel.self) private var model
-	@Environment(\.sessionWindow) private var win
 	@Environment(\.openWindow) private var openWindow
 
 	var body: some View {
-		HStack(spacing: DS.Metrics.s2) {
-			ConnectionIndicator()
-			Spacer(minLength: DS.Metrics.s2)
-			ClaudeStateIndicator(state: win?.session?.claude?.state)
-			GlassEffectContainer(spacing: DS.Metrics.s2) {
-				HStack(spacing: DS.Metrics.s2) {
-					GlassIconButton(systemImage: "person.text.rectangle", help: "Роли агентов (⇧⌘R)") { openWindow(id: "roles") }
-					GlassIconMenu(systemImage: "ellipsis", help: "Действия с сессией") { SessionActionsItems(session: win?.session) }
-				}
-			}
+		VStack(spacing: 0) {
+			DSSeparator()
+			RolesRowButton { openWindow(id: "roles") }
+				.padding(DS.Metrics.s2)
 		}
-		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
 	}
 }
 
-/// Связь с оркестратором: тихая точка и слово; при обрыве — красная.
-struct ConnectionIndicator: View {
-	@Environment(AppModel.self) private var model
+private struct RolesRowButton: View {
+	var action: () -> Void
+	@State private var hover = false
 	var body: some View {
-		let (text, color): (String, Color) = switch model.store.daemon {
-		case .online: ("На связи", DS.Palette.quiet)
-		case .connecting: ("Подключаюсь", DS.Palette.quiet)
-		case .offline: ("Нет связи", DS.Palette.danger)
+		Button(action: action) {
+			HStack(spacing: DS.Metrics.s3) {
+				Image(systemName: "person.text.rectangle").font(.system(size: 15)).frame(width: 22)
+				Text("Роли").font(.system(size: 13, weight: .medium))
+				Spacer(minLength: 0)
+				Text("⇧⌘R").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+			}
+			.foregroundStyle(DS.Palette.textPrimary)
+			.padding(.horizontal, DS.Metrics.s3)
+			.frame(height: 40)
+			.background(hover ? DS.Palette.textPrimary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+			.contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 		}
-		HStack(spacing: DS.Metrics.s2) {
-			Circle().fill(color).frame(width: 8, height: 8)
-			Text(text).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
-		}
-		.help("Оркестратор: \(AppSettings.serverURL.absoluteString)")
-		.accessibilityElement(children: .combine)
+		.buttonStyle(.plain)
+		.onHover { hover = $0 }
+		.animation(.easeOut(duration: 0.12), value: hover)
+		.help("Роли агентов (⇧⌘R)").accessibilityLabel("Роли агентов")
 	}
 }
 

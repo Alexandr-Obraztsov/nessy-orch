@@ -101,7 +101,7 @@ export class FileStore implements StorePort {
 		const path_ = !fs.existsSync(this.sessionsPath) && fs.existsSync(legacy) ? legacy : this.sessionsPath
 		const raw = parseJson(readText(path_))
 		const list = isObject(raw) ? arr(raw['sessions'] ?? raw['tasks']) : arr(raw)
-		return list.filter(isSessionView).map(x => ({ ...x, sources: typeof x.sources === 'number' ? x.sources : 0, claude: null }))
+		return list.filter(isSessionView).map(x => ({ ...x, sources: typeof x.sources === 'number' ? x.sources : 0, claude: null, claudeId: typeof x.claudeId === 'string' ? x.claudeId : null, origin: typeof x.origin === 'string' ? x.origin : null }))
 	}
 
 	saveSessions(sessions: readonly SessionView[]): void {

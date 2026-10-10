@@ -41,11 +41,13 @@ struct AgentsListView: View {
 		VStack(spacing: 0) {
 			header
 			if agents.isEmpty {
-				ContentUnavailableView {
-					Label("Агентов пока нет", systemImage: "person.2")
-				} description: {
-					Text("Их запускает Claude.")
+				VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+					Text("Агентов пока нет").font(DS.Typography.body).foregroundStyle(DS.Palette.textPrimary)
+					Text("Их запускает Claude.").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
 				}
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.padding(.horizontal, DS.Metrics.s4).padding(.top, DS.Metrics.s2)
+				Spacer(minLength: 0)
 			} else {
 				list(sections, ids)
 			}
@@ -58,9 +60,10 @@ struct AgentsListView: View {
 			Text("Агенты").font(DS.Typography.panelTitle)
 			if !agents.isEmpty { Text("·").foregroundStyle(DS.Palette.textTertiary); DSCount(value: agents.count).foregroundStyle(DS.Palette.textSecondary) }
 			Spacer(minLength: 0)
+			ClaudeStateIndicator(state: win?.session?.claude?.state)
 		}
 		.foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
-		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
+		.padding(.horizontal, DS.Metrics.s4).padding(.top, DS.Metrics.s3).padding(.bottom, DS.Metrics.s2)
 	}
 
 	private func list(_ sections: [AgentSection], _ ids: [String]) -> some View {

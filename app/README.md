@@ -1,14 +1,14 @@
-# Nessy Orch для macOS
+# TClaude-Orch для macOS
 
 Нативное приложение (SwiftUI, macOS 26) для оркестратора nessy-orch: сессии Claude, агенты (окно агента с чатом, планом, источниками и счётчиками), роли.
 
 ## Готовый билд
 
-`release/Nessy-Orch-macOS.zip` — приложение `Nessy Orch.app` (arm64, подпись ad-hoc). Распаковать, затем один раз снять карантин
+`release/TClaude-Orch-macOS.zip` — приложение `TClaude-Orch.app` (arm64, подпись ad-hoc). Распаковать, затем один раз снять карантин
 и открыть:
 
 ```sh
-xattr -cr "Nessy Orch.app" && open "Nessy Orch.app"
+xattr -cr "TClaude-Orch.app" && open "TClaude-Orch.app"
 ```
 
 Нужен запущенный оркестратор (`bin/nessy-orch install` или `node dist/src/main.js`); адрес по умолчанию `http://127.0.0.1:4337`
@@ -18,7 +18,7 @@ xattr -cr "Nessy Orch.app" && open "Nessy Orch.app"
 
 ```sh
 swift test                   # тесты NessyKit
-scripts/build-app.sh --run   # release-сборка build/Nessy Orch.app и запуск
+scripts/build-app.sh --run   # release-сборка build/TClaude-Orch.app и запуск
 ```
 
 Дизайн: [../docs/design/](../docs/design/). Ссылки: `nessy-orch://session/<id>`, `nessy-orch://agent/<id>`.
@@ -27,7 +27,7 @@ scripts/build-app.sh --run   # release-сборка build/Nessy Orch.app и за
 
 ```sh
 nessy-orch .                     # новое окно в текущей папке (CLI делает open "nessy-orch://terminal?dir=…")
-open -a "Nessy Orch" .           # то же через Finder-обработчик папок; можно перетащить папку на значок в Dock
+open -a "TClaude-Orch" .           # то же через Finder-обработчик папок; можно перетащить папку на значок в Dock
 open "nessy-orch://terminal?dir=%2FUsers%2Fme%2Fproj"
 ```
 

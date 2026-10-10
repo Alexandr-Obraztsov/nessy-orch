@@ -17,17 +17,27 @@ extension AppModel {
 		UserDefaults.standard.set(sessionDirs, forKey: "sessionDirs")
 	}
 
-	/// Системный выбор папки; новое окно-терминал в ней.
-	func openFolderPanel() {
+	/// Системный выбор папки; новое окно-терминал в ней. Панель по центру экрана, стартует с последней выбранной папки.
+	func chooseProject(title: String, message: String) {
+		NSApp.activate()
 		let p = NSOpenPanel()
 		p.canChooseDirectories = true
 		p.canChooseFiles = false
 		p.allowsMultipleSelection = false
-		p.directoryURL = URL(fileURLWithPath: activeWindow?.dir ?? NSHomeDirectory())
+		p.canCreateDirectories = true
+		p.title = title
+		p.message = message
 		p.prompt = "Открыть"
-		p.message = "Папка, в которой откроется терминал"
-		p.begin { [self] r in if r == .OK, let u = p.url { openTerminal(dir: u.path) } }
+		let last = UserDefaults.standard.string(forKey: "lastProjectDir")
+		p.directoryURL = URL(fileURLWithPath: activeWindow?.dir ?? last ?? NSHomeDirectory())
+		p.center()
+		guard p.runModal() == .OK, let u = p.url else { return }
+		UserDefaults.standard.set(u.path, forKey: "lastProjectDir")
+		openTerminal(dir: u.path)
 	}
+
+	/// ⇧⌘O: ещё одно окно в выбранной папке.
+	func openFolderPanel() { chooseProject(title: "Открыть папку", message: "Папка, в которой откроется терминал") }
 
 	/// ⌘N: новое окно в той же папке, что у окна в фокусе (нет окна — домашняя).
 	func newWindowHere() { openTerminal(dir: activeWindow?.dir ?? NSHomeDirectory()) }
