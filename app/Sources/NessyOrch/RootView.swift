@@ -150,6 +150,8 @@ private struct SessionWindowBody: View {
 		.frame(minWidth: 860, minHeight: 480)
 		.onAppear {
 			model.activeWindow = win
+			// для снимков: `-debug.togglePanel YES` — через 9 с панель сворачивается или разворачивается
+			if UserDefaults.standard.bool(forKey: "debug.togglePanel") { DispatchQueue.main.asyncAfter(deadline: .now() + 9) { win.toggleAgents() } }
 			// для снимков: `-debug.openAgent <id>` открывает карточку агента через 9 с после запуска
 			if let id = UserDefaults.standard.string(forKey: "debug.openAgent") {
 				DispatchQueue.main.asyncAfter(deadline: .now() + 9) { if model.store.agents[id]?.session == win.sessionId { win.open(agent: id) } }

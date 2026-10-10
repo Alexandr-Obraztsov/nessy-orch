@@ -81,20 +81,12 @@ final class TerminalContainer: NSView {
 		layer?.backgroundColor = TerminalTheme.ns(TerminalTheme.scheme(dark: isDark).background).cgColor
 	}
 
-	/// Отступ сверху: панель открыта — почти нулевой (терминал под прозрачной шапкой), закрыта — высота шапки. Меняется плавно.
+	/// Отступ сверху: панель открыта — почти нулевой (терминал под прозрачной шапкой), закрыта — высота шапки.
+	/// Рамка всегда считается от текущих границ контейнера (`layout`), поэтому ширина и высота не расходятся при анимации панели.
 	func setTopInset(_ v: CGFloat, animated: Bool = true) {
 		guard abs(v - topInset) > 0.5 else { return }
 		topInset = v
-		let target = terminalFrame
-		if animated, window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-			NSAnimationContext.runAnimationGroup { ctx in
-				ctx.duration = 0.35
-				ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1)
-				terminal.animator().frame = target
-			}
-		} else {
-			terminal.frame = target
-		}
+		needsLayout = true
 	}
 
 	private var terminalFrame: CGRect {
