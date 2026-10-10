@@ -30,20 +30,26 @@ struct WindowConfigurator: NSViewRepresentable {
 			measure(w)
 		}
 
-		/// Светофор опускается на общую линию шапки: его центр = центр кнопок справа (`SessionWindowModel.barCenter`).
+		/// Светофор встаёт на общую линию шапки (центр = `SessionWindowModel.barCenter`), а отступ слева равен отступу сверху.
 		private func measure(_ w: NSWindow) {
 			guard !w.styleMask.contains(.fullScreen) else { return }
+			let kinds: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+			guard let close = w.standardWindowButton(.closeButton), let csup = close.superview else { return }
 			let target = SessionWindowModel.barCenter
-			for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+			let margin = target - close.frame.height / 2 // сверху: от верха окна до верха кнопки
+			let dx = margin - csup.convert(close.frame, to: nil).minX
+			var trailing: CGFloat = 0
+			for kind in kinds {
 				guard let b = w.standardWindowButton(kind), let sup = b.superview else { continue }
 				let r = sup.convert(b.frame, to: nil)
-				let center = w.frame.height - r.midY
-				let dy = center - target // < 0 — кнопка выше цели, её надо опустить
-				guard abs(dy) > 0.5 else { continue }
+				let dy = (w.frame.height - r.midY) - target // < 0 — кнопка выше цели, её надо опустить
 				var o = b.frame.origin
-				o.y += sup.isFlipped ? -dy : dy
-				b.setFrameOrigin(o)
+				if abs(dy) > 0.5 { o.y += sup.isFlipped ? -dy : dy }
+				if abs(dx) > 0.5 { o.x += dx }
+				if o != b.frame.origin { b.setFrameOrigin(o) }
+				trailing = max(trailing, sup.convert(b.frame, to: nil).maxX)
 			}
+			if abs((model?.lightsTrailing ?? 0) - trailing) > 0.5 { model?.lightsTrailing = trailing }
 		}
 
 		override func viewDidMoveToWindow() {

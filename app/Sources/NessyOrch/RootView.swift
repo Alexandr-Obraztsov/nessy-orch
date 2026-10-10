@@ -267,7 +267,7 @@ private struct WindowBar: View {
 	var body: some View {
 		let m = SessionWindowModel.panelMargin
 		HStack(spacing: 0) {
-			if !model.isFullScreen { Color.clear.frame(width: 78, height: 1) }
+			if !model.isFullScreen { Color.clear.frame(width: model.lightsTrailing + 12, height: 1) }
 			if !model.tabs.isEmpty { ProjectSwitcher().padding(.leading, model.isFullScreen ? 12 : 0) }
 			Spacer(minLength: 0)
 			HStack(spacing: 2) {

@@ -12,7 +12,7 @@ struct CenterView: View {
 			if win == nil {
 				NoProjectView()
 			} else if let tab = win?.terminal {
-				TerminalHost(tab: tab, topInset: (win?.isFullScreen ?? false) ? 8 : (win?.barHeight ?? 44))
+				TerminalHost(tab: tab, topInset: win?.barHeight ?? 44)
 					.id(tab.id)
 					.accessibilityLabel("Терминал")
 			} else {

@@ -25,6 +25,8 @@ final class AppModel {
 	var isFullScreen = false
 	/// центр светофора от верха окна (приложение сдвигает его на общую линию шапки)
 	var lightsCenter: CGFloat = 0
+	/// правый край светофора от левого края окна: переключатель проектов начинается правее
+	var lightsTrailing: CGFloat = 66
 	/// показать главное окно ждали, пока из окружения появится `openWindow` (ссылка при холодном старте)
 	@ObservationIgnored private var pendingShow = false
 	/// черновики поля ввода по агентам
