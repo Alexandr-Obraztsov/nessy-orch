@@ -46,6 +46,8 @@ final class AppModel {
 	/// папка терминала каждой сессии (чтобы повторно открыть сессию в её папке)
 	var sessionDirs: [String: String] = UserDefaults.standard.dictionary(forKey: "sessionDirs") as? [String: String] ?? [:]
 	let terminals = TerminalStore.shared
+	/// первичная установка и проверка окружения (CLI, служба, Claude Code, скилл)
+	let setup = SetupModel()
 
 	/// Открыть главное окно / отдельное окно агента (задаются из View при появлении окон).
 	@ObservationIgnored var openMainWindowAction: (() -> Void)?

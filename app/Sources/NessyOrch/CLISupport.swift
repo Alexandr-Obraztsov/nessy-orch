@@ -8,19 +8,34 @@ import NessyKit
 final class CLISupport {
 	static let shared = CLISupport()
 
-	let installer = CLIInstaller(bundleRoot: Bundle.main.resourceURL?.appendingPathComponent("orch"))
+	private(set) var installer = CLISupport.makeInstaller()
+
+	/// Папка со ссылкой `nessy-orch`: выбранная пользователем (`cliDirectory`) или `~/.local/bin`.
+	static func makeInstaller() -> CLIInstaller {
+		let dir = UserDefaults.standard.string(forKey: "cliDirectory").flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+		return CLIInstaller(bundleRoot: Bundle.main.resourceURL?.appendingPathComponent("orch"), linkDirectory: dir)
+	}
+
+	/// Поставить ссылку в другую папку (старая ссылка удаляется).
+	func moveLink(to dir: URL) {
+		try? installer.uninstall()
+		UserDefaults.standard.set(dir.path, forKey: "cliDirectory")
+		installer = Self.makeInstaller()
+		installLink()
+	}
 	private(set) var state: CLIInstaller.State
 	private(set) var nodePath: String?
 	private(set) var busy = false
 	private(set) var lastError: String?
 
 	init() {
-		state = installer.state()
+		state = Self.makeInstaller().state()
 		// путь к node ищет login-оболочка: синхронно её запускать нельзя (внутри ждёт run loop — другие окна заходят в `shared` повторно)
 		findNodeAsync()
 	}
 
 	func refresh() {
+		installer = Self.makeInstaller()
 		state = installer.state()
 		findNodeAsync()
 	}
@@ -49,11 +64,17 @@ final class CLISupport {
 		return false
 	}
 
+	/// Node.js: если ещё не найден, дождаться поиска (login-оболочка).
+	func ensureNode() async -> String? {
+		if nodePath == nil { nodePath = await Task.detached { Self.findNode() }.value }
+		return nodePath
+	}
+
 	/// Служба launchd из встроенной копии сервера: `node <orch>/bin/nessy-orch install` (пишет plist и запускает).
 	@discardableResult
 	func installService() async -> Bool {
 		guard let script = installer.script?.path else { return false }
-		guard let node = nodePath else {
+		guard let node = await ensureNode() else {
 			lastError = "Не найден Node.js (нужен ≥ 20): установите его, например `brew install node`."
 			return false
 		}

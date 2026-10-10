@@ -15,6 +15,7 @@ struct SettingsView: View {
 }
 
 struct GeneralSettings: View {
+	@Environment(AppModel.self) private var model
 	@AppStorage("menuBarOnly") private var menuBarOnly = false
 	@State private var login = LoginItem.isEnabled
 	@State private var finder = FinderSupport.isEnabled
@@ -35,6 +36,11 @@ struct GeneralSettings: View {
 				Toggle("Открывать при входе в систему", isOn: $login)
 					.onChange(of: login) { _, v in LoginItem.set(v); login = LoginItem.isEnabled }
 				Button("Роли агентов…") { openWindow(id: "roles") }
+			}
+			Section {
+				Button("Мастер настройки…") { model.setup.start() }
+			} footer: {
+				Text("Пошагово: путь к Claude Code, командная строка, служба, скилл nessy-orch, папка проектов. Решаете вы; Claude Code приложение не устанавливает.").foregroundStyle(DS.Palette.textSecondary)
 			}
 			CLISettingsSection()
 		}

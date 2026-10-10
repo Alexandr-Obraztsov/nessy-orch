@@ -29,7 +29,7 @@ extension AppModel {
 		p.message = message
 		p.prompt = "Открыть"
 		let last = UserDefaults.standard.string(forKey: "lastProjectDir")
-		p.directoryURL = URL(fileURLWithPath: activeWindow?.dir ?? last ?? NSHomeDirectory())
+		p.directoryURL = URL(fileURLWithPath: activeWindow?.dir ?? UserDefaults.standard.string(forKey: "projectsDirectory") ?? last ?? NSHomeDirectory())
 		p.center()
 		guard p.runModal() == .OK, let u = p.url else { return }
 		UserDefaults.standard.set(u.path, forKey: "lastProjectDir")
@@ -70,8 +70,14 @@ extension AppModel {
 	/// `-debug.terminalCommand "<команда>"` — выполнить команду и остаться в оболочке (для проверок).
 	func startTerminal(for win: SessionWindowModel) {
 		prepareShellIntegration()
-		let spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, orchestrator: AppSettings.serverURL,
+		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, orchestrator: AppSettings.serverURL,
 										   base: ProcessInfo.processInfo.environment, command: UserDefaults.standard.string(forKey: "debug.terminalCommand"))
+		// папки, выбранные при установке (CLI и Claude Code), — в начало PATH терминала
+		let extra = [UserDefaults.standard.string(forKey: "cliDirectory"), UserDefaults.standard.string(forKey: "claudePath").map { ($0 as NSString).deletingLastPathComponent }]
+			.compactMap { $0 }.filter { !$0.isEmpty }
+		if !extra.isEmpty, let i = spec.environment.firstIndex(where: { $0.hasPrefix("PATH=") }) {
+			spec.environment[i] = "PATH=" + (extra + [String(spec.environment[i].dropFirst(5))]).joined(separator: ":")
+		}
 		let tab = terminals.add(spec, key: win.key)
 		// при открытии проекта сразу запускается Claude (команда из настроек; `claude` уже идёт с хуками оркестратора)
 		if AppSettings.autoStartClaude, UserDefaults.standard.string(forKey: "debug.terminalCommand") == nil {

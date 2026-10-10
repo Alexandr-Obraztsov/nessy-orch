@@ -20,17 +20,19 @@ public struct CLIInstaller: Sendable {
 	/// `Contents/Resources/orch` внутри приложения (nil — не упаковано)
 	public let bundleRoot: URL?
 	public let home: URL
+	/// папка со ссылкой `nessy-orch` (по умолчанию `~/.local/bin`; пользователь может выбрать другую)
+	public let linkDirectory: URL
 
-	public init(bundleRoot: URL?, home: URL = FileManager.default.homeDirectoryForCurrentUser) {
+	public init(bundleRoot: URL?, home: URL = FileManager.default.homeDirectoryForCurrentUser, linkDirectory: URL? = nil) {
 		self.bundleRoot = bundleRoot
 		self.home = home
+		self.linkDirectory = linkDirectory ?? home.appendingPathComponent(".local/bin")
 	}
 
 	public static let launchLabel = "com.nessy.orch"
 
 	public var script: URL? { bundleRoot?.appendingPathComponent("bin/nessy-orch") }
 	public var daemonMain: URL? { bundleRoot?.appendingPathComponent("dist/src/main.js") }
-	public var linkDirectory: URL { home.appendingPathComponent(".local/bin") }
 	public var link: URL { linkDirectory.appendingPathComponent("nessy-orch") }
 	public var plist: URL { home.appendingPathComponent("Library/LaunchAgents/\(Self.launchLabel).plist") }
 

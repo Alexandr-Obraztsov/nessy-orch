@@ -502,6 +502,17 @@ struct CLIInstallerTests {
 		return (CLIInstaller(bundleRoot: bundle, home: home), root)
 	}
 
+	@Test func customLinkDirectory() throws {
+		let (_, root) = try sandbox()
+		defer { try? FileManager.default.removeItem(at: root) }
+		let bundle = root.appendingPathComponent("App/Resources/orch")
+		let dir = root.appendingPathComponent("mybin")
+		let inst = CLIInstaller(bundleRoot: bundle, home: root, linkDirectory: dir)
+		try inst.install()
+		#expect(inst.link.path == dir.appendingPathComponent("nessy-orch").path)
+		#expect(inst.state() == .installed)
+	}
+
 	@Test func installsSymlinkAndIsIdempotent() throws {
 		let (cli, root) = try sandbox()
 		defer { try? FileManager.default.removeItem(at: root) }

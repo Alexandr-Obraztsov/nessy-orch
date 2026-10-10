@@ -146,6 +146,7 @@ private struct MainWindowBody: View {
 		.navigationTitle(model.activeWindow.map { model.label(of: $0) } ?? "TClaude-Orch")
 		.background { WindowConfigurator(app: model) }
 		.sheet(isPresented: Bindable(model).showPalette) { PaletteView() }
+		.sheet(isPresented: Bindable(model.setup).visible) { SetupView() }
 		.frame(minWidth: 760, minHeight: 440)
 		.onAppear {
 			// для снимков: `-debug.togglePanel YES` — через 9 с панель сворачивается или разворачивается
