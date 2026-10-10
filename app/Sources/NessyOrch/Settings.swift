@@ -6,10 +6,11 @@ struct SettingsView: View {
 		TabView {
 			GeneralSettings().tabItem { Label("Основные", systemImage: "gearshape") }
 			TerminalSettings().tabItem { Label("Терминал", systemImage: "terminal") }
+			HotkeySettings().tabItem { Label("Клавиши", systemImage: "keyboard") }
 			NotificationSettings().tabItem { Label("Уведомления", systemImage: "bell") }
 			ServerSettings().tabItem { Label("Сервер", systemImage: "server.rack") }
 		}
-		.frame(width: 500, height: 360)
+		.frame(width: 520, height: 400)
 	}
 }
 
@@ -54,6 +55,24 @@ struct TerminalSettings: View {
 				Text("Применяется ко всем открытым терминалам сразу. Оболочка — ваша login-оболочка ($SHELL); команда `claude` уже идёт с хуками оркестратора.")
 					.foregroundStyle(DS.Palette.textSecondary)
 			}
+		}
+		.formStyle(.grouped)
+	}
+}
+
+struct HotkeySettings: View {
+	var body: some View {
+		Form {
+			Section {
+				ForEach(HotkeyAction.allCases) { a in
+					LabeledContent(a.title) { HotkeyRecorder(action: a) }
+				}
+				LabeledContent("Перейти к проекту по порядку") { Text("⌘1…⌘9").font(DS.Typography.mono).foregroundStyle(DS.Palette.textSecondary) }
+			} footer: {
+				Text("Нажмите на сочетание и введите новое (нужен ⌘, ⌃ или ⌥); Esc — отмена. Остальные клавиши достаются терминалу и Claude.")
+					.foregroundStyle(DS.Palette.textSecondary)
+			}
+			Section { Button("Сбросить все") { Hotkeys.shared.resetAll() } }
 		}
 		.formStyle(.grouped)
 	}

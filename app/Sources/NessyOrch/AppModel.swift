@@ -15,18 +15,18 @@ struct Toast: Identifiable, Equatable {
 @Observable
 final class AppModel {
 	let store: OrchStore
-	/// состояние окон сессий (карточка агента, курсор списка): по одному на сессию
-	@ObservationIgnored private(set) var windows: [String: SessionWindowModel] = [:]
-	/// порядок открытия окон (переключатель в шапке и ⌘1…⌘9 идут в нём)
-	@ObservationIgnored private var windowOrder: [String] = []
-	/// растёт при открытии и закрытии окон: по нему обновляются меню «Окно» и меню Dock
-	private(set) var windowsRevision = 0
-	/// открыть окна ждали, пока из окружения появится `openWindow` (ссылка при холодном старте)
-	@ObservationIgnored private var pendingOpens: [TerminalWindowValue] = []
-	/// на запуске пришла ссылка или папка — окно в домашнем каталоге не нужно
-	var suppressHomeWindow = false
-	/// окно сессии, которое сейчас в фокусе (команды меню действуют на него)
-	var activeWindow: SessionWindowModel?
+	/// проекты приложения в порядке открытия: окно одно, в нём переключаются терминалы и их сессии оркестратора
+	private(set) var tabs: [SessionWindowModel] = []
+	/// ключ проекта, который сейчас показан
+	private(set) var activeKey: String?
+	/// проект, который сейчас показан (команды меню действуют на него)
+	var activeWindow: SessionWindowModel? { tabs.first { $0.key == activeKey } ?? tabs.first }
+	/// полноэкранный режим окна: терминалу не нужен отступ под светофор
+	var isFullScreen = false
+	/// центр светофора от верха окна (приложение сдвигает его на общую линию шапки)
+	var lightsCenter: CGFloat = 0
+	/// показать главное окно ждали, пока из окружения появится `openWindow` (ссылка при холодном старте)
+	@ObservationIgnored private var pendingShow = false
 	/// черновики поля ввода по агентам
 	var drafts: [String: String] = [:]
 	var showPalette = false
@@ -43,8 +43,8 @@ final class AppModel {
 	var sessionDirs: [String: String] = UserDefaults.standard.dictionary(forKey: "sessionDirs") as? [String: String] ?? [:]
 	let terminals = TerminalStore.shared
 
-	/// Открыть окно-терминал / отдельное окно агента (задаются из View при появлении окон).
-	var openTerminalWindow: ((TerminalWindowValue) -> Void)?
+	/// Открыть главное окно / отдельное окно агента (задаются из View при появлении окон).
+	@ObservationIgnored var openMainWindowAction: (() -> Void)?
 	var openAgentWindow: ((String) -> Void)?
 
 
@@ -59,118 +59,112 @@ final class AppModel {
 		store.onAttention = { [weak self] e in self?.attention(e) }
 		notifier.handler = { [weak self] action in self?.handle(action) }
 		store.start()
+		// для снимков: `-debug.panel hidden` — боковая панель свёрнута с самого начала
+		if UserDefaults.standard.string(forKey: "debug.panel") == "hidden" { showAgents = false }
 		notifier.requestAuthorization()
 	}
 
-	// MARK: окна-терминалы
+	// MARK: проекты (вкладки одного окна)
 
-	/// Запомнить действия «открыть окно» (берутся из окружения любого окна) и выполнить отложенные.
+	/// Запомнить действия «открыть окно» (берутся из окружения окна) и выполнить отложенные.
 	func registerWindowOpeners(_ open: OpenWindowAction) {
-		openTerminalWindow = { open(id: "terminal", value: $0) }
+		openMainWindowAction = { open(id: "main") }
 		openAgentWindow = { open(id: "agent", value: $0) }
-		let queued = pendingOpens
-		pendingOpens = []
-		queued.forEach { open(id: "terminal", value: $0) }
+		if pendingShow { pendingShow = false; showMainWindow() }
 	}
 
-	/// Окно в домашнем каталоге (Dock, повторный запуск без окон).
-	func openMainWindow() { openFromLauncher() }
+	/// Главное окно (его делегат — `CloseGuard`).
+	private var mainNSWindow: NSWindow? { NSApp.windows.first { $0.delegate is CloseGuard } }
 
-	/// Запуск без папки (Dock, Spotlight, повторный запуск без окон): окно с просьбой открыть проект вместо терминала.
-	func openFromLauncher() { open(.fresh(dir: "")) }
-
-	/// Окно без проекта (терминала в нём нет).
-	private func closeEmptyWindows() {
-		for w in windows.values where w.dir.isEmpty {
-			NSApp.windows.first { ($0.delegate as? CloseGuard)?.key == w.key }?.close()
-		}
+	/// Показать и поднять главное окно (если закрыто — открыть).
+	func showMainWindow() {
+		NSApp.activate()
+		if let w = mainNSWindow {
+			if w.isMiniaturized { w.deminiaturize(nil) }
+			w.makeKeyAndOrderFront(nil)
+		} else if let f = openMainWindowAction { f() } else { pendingShow = true }
 	}
 
-	var hasTerminalWindows: Bool { !windows.isEmpty }
-	var hasProjectWindows: Bool { windows.values.contains { !$0.dir.isEmpty } }
+	/// Dock или повторный запуск без окон.
+	func openMainWindow() { showMainWindow() }
 
-	/// Состояние окна (создаётся при первом обращении).
-	func window(for value: TerminalWindowValue) -> SessionWindowModel {
-		if let w = windows[value.key] { return w }
-		let w = SessionWindowModel(app: self, value: value)
-		windows[value.key] = w
-		windowOrder.append(value.key)
-		Task { @MainActor in self.windowsRevision += 1 }
-		return w
-	}
+	var hasTerminalWindows: Bool { !tabs.isEmpty }
 
-	func forget(window w: SessionWindowModel) {
-		windows[w.key] = nil
-		windowOrder.removeAll { $0 == w.key }
-		windowsRevision += 1
-		if activeWindow === w { activeWindow = nil }
-	}
+	/// Проекты в порядке открытия (переключатель в шапке, меню и ⌘1…⌘9).
+	var projectWindows: [SessionWindowModel] { tabs }
 
-	private func open(_ value: TerminalWindowValue) {
-		if let f = openTerminalWindow { f(value); NSApp.activate() } else { pendingOpens.append(value) }
-		// новое окно — поверх остальных
-		Task { @MainActor in
-			for _ in 0..<20 {
-				try? await Task.sleep(for: .milliseconds(100))
-				if let w = NSApp.windows.first(where: { ($0.delegate as? CloseGuard)?.key == value.key }) {
-					try? await Task.sleep(for: .milliseconds(400))
-					NSApp.activate()
-					w.makeKeyAndOrderFront(nil)
-					w.orderFrontRegardless()
-					return
-				}
-			}
-		}
-	}
-
-	/// Новое окно-терминал в папке (ссылка, `open -a … <папка>`, ⌘N).
-	/// Окна проектов в порядке открытия (для переключателя в шапке, меню и ⌘1…⌘9).
-	var projectWindows: [SessionWindowModel] {
-		_ = windowsRevision
-		return windowOrder.compactMap { windows[$0] }.filter { !$0.dir.isEmpty }
-	}
-
-	/// Подпись окна: имя папки; одинаковые отличаются номером («proj», «proj 2»).
+	/// Подпись проекта: имя папки; одинаковые отличаются номером («proj», «proj 2»).
 	func label(of w: SessionWindowModel) -> String {
 		let name = Projects.name(ofPath: w.dir)
-		let same = projectWindows.filter { Projects.name(ofPath: $0.dir) == name }
+		let same = tabs.filter { Projects.name(ofPath: $0.dir) == name }
 		guard same.count > 1, let i = same.firstIndex(where: { $0 === w }), i > 0 else { return name }
 		return "\(name) \(i + 1)"
 	}
 
-	/// Следующее (+1) или предыдущее (−1) окно по кругу.
+	func toggleAgents() { withAnimation(dsAnimation(DS.Motion.panel)) { showAgents.toggle() } }
+
+	/// Показать проект.
+	func select(_ w: SessionWindowModel) {
+		guard tabs.contains(where: { $0 === w }) else { return }
+		withAnimation(dsAnimation(DS.Motion.panel)) { activeKey = w.key }
+	}
+
+	/// Следующий (+1) или предыдущий (−1) проект по кругу.
 	func cycleWindow(_ delta: Int) {
-		let all = projectWindows
-		guard all.count > 1 else { return }
-		let cur = all.firstIndex { $0 === activeWindow } ?? 0
-		raise(all[(cur + delta + all.count) % all.count])
+		guard tabs.count > 1 else { return }
+		let cur = tabs.firstIndex { $0 === activeWindow } ?? 0
+		select(tabs[(cur + delta + tabs.count) % tabs.count])
 	}
 
-	/// Закрыть окно проекта (с подтверждением, если в нём живой терминал).
+	/// Закрыть проект (с подтверждением, если в его терминале живой процесс).
 	func close(_ w: SessionWindowModel) {
-		NSApp.windows.first { ($0.delegate as? CloseGuard)?.key == w.key }?.performClose(nil)
+		if w.terminal?.isAlive == true {
+			let a = NSAlert()
+			a.messageText = "Закрыть терминал «\(label(of: w))»?"
+			a.informativeText = "Его процесс будет завершён."
+			a.addButton(withTitle: "Закрыть")
+			a.addButton(withTitle: "Отмена")
+			a.alertStyle = .warning
+			guard a.runModal() == .alertFirstButtonReturn else { return }
+		}
+		w.closed()
 	}
 
-	/// Поднять окно на передний план.
+	/// Закрыть все проекты (окно закрыто или приложение завершается).
+	func closeAllTabs() { for w in tabs { w.closed() } }
+
+	func forget(window w: SessionWindowModel) {
+		guard let i = tabs.firstIndex(where: { $0 === w }) else { return }
+		tabs.remove(at: i)
+		if activeKey == w.key { activeKey = tabs.isEmpty ? nil : tabs[min(i, tabs.count - 1)].key }
+	}
+
+	/// Поднять проект на передний план.
 	func raise(_ w: SessionWindowModel) {
-		NSApp.activate()
-		guard let nw = NSApp.windows.first(where: { ($0.delegate as? CloseGuard)?.key == w.key }) else { return }
-		if nw.isMiniaturized { nw.deminiaturize(nil) }
-		nw.makeKeyAndOrderFront(nil)
+		select(w)
+		showMainWindow()
 	}
 
-	/// Окно в папке. Внешние вызовы (Finder, ссылка, `nessy-orch .`) поднимают уже открытое окно этой папки; `forceNew` (⌘N) открывает ещё одно.
+	private func add(_ value: TerminalWindowValue) {
+		let w = SessionWindowModel(app: self, value: value)
+		tabs.append(w)
+		withAnimation(dsAnimation(DS.Motion.panel)) { activeKey = w.key }
+		Task { await w.bootstrap() }
+		showMainWindow()
+	}
+
+	/// Проект в папке (ссылка, Finder, `nessy-orch .`, ⌘N). Внешние вызовы переключаются на уже открытый проект этой папки;
+	/// `forceNew` (⌘N) открывает ещё один терминал в ней.
 	func openTerminal(dir: String, forceNew: Bool = false) {
 		let d = Projects.normalize(dir).flatMap { TerminalLaunch.isUsableDirectory($0) ? $0 : nil } ?? NSHomeDirectory()
-		if !forceNew, let w = projectWindows.first(where: { $0.dir == d }) { raise(w); return }
-		closeEmptyWindows()
-		open(.fresh(dir: d))
+		if !forceNew, let w = tabs.first(where: { $0.dir == d }) { raise(w); return }
+		add(.fresh(dir: d))
 	}
 
-	/// Открыть (или поднять) окно сессии оркестратора.
+	/// Открыть (или показать) проект сессии оркестратора.
 	func show(session id: String) {
-		if let w = windows.values.first(where: { $0.owns(id) }) { open(w.value); return }
-		open(.reopen(session: id, dir: projectPath(of: id) ?? NSHomeDirectory()))
+		if let w = tabs.first(where: { $0.owns(id) }) { raise(w); return }
+		add(.reopen(session: id, dir: projectPath(of: id) ?? NSHomeDirectory()))
 	}
 
 	/// Перейти к агенту: окно его сессии и карточка агента в боковой панели.
@@ -180,7 +174,7 @@ final class AppModel {
 		// карточка открывается, когда окно уже есть
 		Task { @MainActor in
 			for _ in 0..<20 {
-				if let w = windows.values.first(where: { $0.owns(s) }) { w.open(agent: id); return }
+				if let w = tabs.first(where: { $0.owns(s) }) { w.open(agent: id); return }
 				try? await Task.sleep(for: .milliseconds(100))
 			}
 		}
@@ -201,14 +195,14 @@ final class AppModel {
 	func handle(url: URL) {
 		if url.isFileURL {
 			// папка, брошенная на значок или открытая через `open -a "TClaude-Orch" <папка>`
-			if let d = TerminalLaunch.directory(from: url) { suppressHomeWindow = true; openTerminal(dir: d) }
+			if let d = TerminalLaunch.directory(from: url) { openTerminal(dir: d) }
 			return
 		}
 		guard url.scheme == "nessy-orch" else { return }
 		let id = url.pathComponents.dropFirst().first ?? ""
 		switch url.host {
-		case "terminal": if let d = TerminalLaunch.directory(from: url) { suppressHomeWindow = true; openTerminal(dir: d) }
-		case "session": if !id.isEmpty { suppressHomeWindow = true; show(session: id) }
+		case "terminal": if let d = TerminalLaunch.directory(from: url) { openTerminal(dir: d) }
+		case "session": if !id.isEmpty { show(session: id) }
 		case "agent": if !id.isEmpty { reveal(agent: id) }
 		default: break
 		}

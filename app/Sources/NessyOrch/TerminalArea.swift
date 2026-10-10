@@ -9,7 +9,7 @@ struct CenterView: View {
 
 	var body: some View {
 		Group {
-			if win?.dir.isEmpty ?? false {
+			if win == nil {
 				NoProjectView()
 			} else if let tab = win?.terminal {
 				TerminalHost(tab: tab, topInset: (win?.isFullScreen ?? false) ? 8 : (win?.barHeight ?? 44))

@@ -12,26 +12,18 @@ struct NessyOrchApp: App {
 	}
 
 	var body: some Scene {
-		// Невидимое окно запуска: открывает окно-терминал в домашней папке, если приложение запущено без папки и ссылки, и закрывается.
-		Window("TClaude-Orch", id: "launcher") {
-			LauncherView().environment(model)
-		}
-		.windowStyle(.plain)
-		.windowResizability(.contentSize)
-		.defaultLaunchBehavior(.presented)
-		.commands { AppCommands(model: model) }
-
-		// одно окно — один терминал в папке и одна сессия оркестратора
-		WindowGroup("Терминал", id: "terminal", for: TerminalWindowValue.self) { $value in
-			if let value {
-				SessionWindowView(value: value)
-					.environment(model)
-					.tint(DS.Palette.accent)
-			}
+		// Одно главное окно: в нём переключаются терминалы проектов и сессии оркестратора; без проектов — «Проект не открыт»
+		Window("TClaude-Orch", id: "main") {
+			MainWindowView()
+				.environment(model)
+				.tint(DS.Palette.accent)
+				// ссылки и папки обрабатывает AppDelegate: SwiftUI не должен открывать для них новые окна
+				.handlesExternalEvents(preferring: [], allowing: [])
 		}
 		.windowStyle(.hiddenTitleBar)
-		.defaultLaunchBehavior(.suppressed)
+		.defaultLaunchBehavior(.presented)
 		.defaultSize(width: 1280, height: 780)
+		.commands { AppCommands(model: model) }
 
 		WindowGroup("Агент", id: "agent", for: String.self) { $id in
 			if let id {
@@ -69,24 +61,24 @@ struct AppCommands: Commands {
 	var body: some Commands {
 		// ⌘N/⌘W — окна; когда фокус в терминале, остальные клавиши достаются ему (команд без ⌘ здесь нет)
 		CommandGroup(replacing: .newItem) {
-			Button("Новое окно") { model.newWindowHere() }.keyboardShortcut("n")
-			Button("Открыть папку…") { model.openFolderPanel() }.keyboardShortcut("o", modifiers: [.command, .shift])
+			Button("Новый терминал") { model.newWindowHere() }.keyboardShortcut(Hotkeys.shared.shortcut(.newTerminal))
+			Button("Открыть папку…") { model.openFolderPanel() }.keyboardShortcut(Hotkeys.shared.shortcut(.openFolder))
 		}
 		CommandGroup(replacing: .saveItem) {
-			Button("Закрыть окно") { model.closeCurrentWindow() }.keyboardShortcut("w")
+			Button("Закрыть терминал") { model.closeCurrentWindow() }.keyboardShortcut("w")
 		}
 		CommandGroup(after: .toolbar) {
-			Button("Показать / скрыть панель агентов") { active?.toggleAgents() }
-				.keyboardShortcut("b", modifiers: [.command, .option]).disabled(active == nil)
+			Button("Показать / скрыть панель агентов") { model.toggleAgents() }
+				.keyboardShortcut(Hotkeys.shared.shortcut(.togglePanel))
 		}
 		CommandGroup(replacing: .help) {
 			Button("Горячие клавиши") { model.showShortcuts = true }.keyboardShortcut("/")
 		}
-		// окна проектов: один проект — одно окно; ⌘1…⌘9 переключают, ⌘` — по кругу (системное)
+		// проекты окна: ⌘1…⌘9 переключают, ⇧⌘] / ⇧⌘[ — по кругу
 		CommandGroup(after: .windowArrangement) {
 			Divider()
-			Button("Следующее окно") { model.cycleWindow(1) }.keyboardShortcut("]", modifiers: [.command, .shift])
-			Button("Предыдущее окно") { model.cycleWindow(-1) }.keyboardShortcut("[", modifiers: [.command, .shift])
+			Button("Следующий проект") { model.cycleWindow(1) }.keyboardShortcut(Hotkeys.shared.shortcut(.nextProject))
+			Button("Предыдущий проект") { model.cycleWindow(-1) }.keyboardShortcut(Hotkeys.shared.shortcut(.prevProject))
 			Divider()
 			ForEach(Array(model.projectWindows.prefix(9).enumerated()), id: \.element.key) { i, w in
 				Button(model.label(of: w)) { model.raise(w) }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
@@ -143,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 				// окно появляется не сразу: пробуем раз в секунду, пока не войдёт в fullscreen
 				for _ in 0..<12 {
 					try? await Task.sleep(for: .seconds(1))
-					guard let w = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("terminal") == true && $0.isVisible }) else { continue }
+					guard let w = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true && $0.isVisible }) else { continue }
 					if w.styleMask.contains(.fullScreen) == want { break }
 					NSApp.activate()
 					w.makeKeyAndOrderFront(nil)
@@ -205,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
 	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-		if !flag { AppModel.shared.openFromLauncher() }
+		if !flag { AppModel.shared.showMainWindow() }
 		return true
 	}
 }

@@ -36,7 +36,7 @@ extension AppModel {
 		openTerminal(dir: u.path)
 	}
 
-	/// ⌘N: ещё одно окно в той же папке, что у окна в фокусе (нет окна — выбор папки).
+	/// ⌘N: ещё один терминал в той же папке, что у проекта на экране (нет проекта — выбор папки).
 	func newWindowHere() {
 		if let d = activeWindow?.dir, !d.isEmpty { openTerminal(dir: d, forceNew: true) } else { openFolderPanel() }
 	}
@@ -77,12 +77,12 @@ extension AppModel {
 		// `exit` в оболочке закрывает окно, как в Terminal.app
 		tab.onExit = { [weak win] code in
 			guard code == 0, let win else { return }
-			NSApp.windows.first { ($0.delegate as? CloseGuard)?.key == win.key }?.close()
+			win.closed()
 		}
 	}
 
 	/// ⌘W: закрыть окно (терминал завершается; при живом процессе спросит подтверждение).
-	func closeCurrentWindow() { NSApp.keyWindow?.performClose(nil) }
+	func closeCurrentWindow() { if let w = activeWindow { close(w) } else { NSApp.keyWindow?.performClose(nil) } }
 
 	// MARK: подтверждение выхода
 
@@ -111,7 +111,7 @@ extension AppModel {
 		Task { @MainActor in
 			// ждём первый снимок оркестратора
 			for _ in 0..<40 where store.sessions.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
-			if let dir = d.string(forKey: "debug.terminalDir") { suppressHomeWindow = true; openTerminal(dir: dir) }
+			if let dir = d.string(forKey: "debug.terminalDir") { openTerminal(dir: dir) }
 			if let s = d.string(forKey: "debug.openSession") { show(session: s) }
 		}
 	}

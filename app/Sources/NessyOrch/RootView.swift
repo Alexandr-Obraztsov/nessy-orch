@@ -31,16 +31,10 @@ final class SessionWindowModel {
 	var selectedAgentId: String?
 	/// Esc в поле ввода просит список агентов забрать фокус (↑/↓ и J/K снова работают)
 	var listFocusTick = 0
-	/// боковая панель с агентами
-	var columnVisibility: NavigationSplitViewVisibility = .all
-	var panelHidden: Bool { columnVisibility == .detailOnly }
-	/// полноэкранный режим: шапка системная и прячется вместе с меню; терминалу нужен минимальный отступ
-	var isFullScreen = false
-	/// ширина боковой панели: тянется за правый край, запоминается для всех окон
-	var panelWidth: CGFloat = {
-		let v = UserDefaults.standard.double(forKey: "sidePanelWidth")
-		return v > 0 ? min(max(CGFloat(v), DS.Metrics.sidePanelWidth.min), DS.Metrics.sidePanelWidth.max) : DS.Metrics.sidePanelWidth.ideal
-	}()
+	/// панель агентов, её ширина и полный экран — общие для всех проектов окна (хранятся в `AppModel`)
+	var panelHidden: Bool { !app.showAgents }
+	var panelWidth: CGFloat { get { app.panelWidth } set { app.panelWidth = newValue } }
+	var isFullScreen: Bool { app.isFullScreen }
 	/// общая линия шапки: центр светофора, кнопок справа и заголовка панели — на этой высоте от верха окна
 	static let barCenter: CGFloat = 26
 	/// отступ плитки панели от краёв окна
@@ -57,8 +51,6 @@ final class SessionWindowModel {
 		self.app = app
 		self.value = value
 		sessionId = value.session
-		// для снимков: `-debug.panel hidden` — боковая панель свёрнута с самого начала
-		if UserDefaults.standard.string(forKey: "debug.panel") == "hidden" || value.dir.isEmpty { columnVisibility = .detailOnly }
 	}
 
 	/// сессия текущего чата Claude этого окна: самая недавно активная среди сессий окна (один чат = одна сессия)
@@ -81,18 +73,17 @@ final class SessionWindowModel {
 	func open(agent id: String?) {
 		withAnimation(dsAnimation(DS.Motion.panel)) {
 			openAgentId = id
-			if let id { selectedAgentId = id; columnVisibility = .all }
+			if let id { selectedAgentId = id; app.showAgents = true }
 		}
 		if let id, let a = app.store.agents[id] { app.store.markSeen(agent: a) }
 	}
 
-	func toggleAgents() { withAnimation(dsAnimation(DS.Motion.panel)) { columnVisibility = panelHidden ? .all : .detailOnly } }
+	func toggleAgents() { app.toggleAgents() }
 
 	/// Первый показ окна: сессия оркестратора (если нет) и терминал в папке. Без связи терминал всё равно запускается.
 	func bootstrap() async {
 		guard !started else { return }
 		started = true
-		guard !dir.isEmpty else { return } // окно без проекта: ни сессии, ни терминала
 		if sessionId == nil {
 			do {
 				let s = try await app.store.client.createSession(title: TerminalLaunch.sessionTitle(directory: dir))
@@ -124,25 +115,22 @@ extension EnvironmentValues {
 	@Entry var sessionWindow: SessionWindowModel? = nil
 }
 
-/// Окно-терминал: слева системная панель агентов (парящее стекло), в центре терминал. Шапка прозрачная, того же цвета, что терминал;
-/// терминал всегда начинается под ней, поэтому открытие и закрытие панели меняет только его ширину.
-struct SessionWindowView: View {
+/// Главное окно: сверху шапка (светофор, переключатель проектов, кнопки), слева терминал активного проекта, справа панель его агентов.
+/// Проектов в окне несколько: у каждого свой терминал и своя сессия оркестратора, переключаются тогглом в шапке (⌘1…⌘9).
+struct MainWindowView: View {
 	@Environment(AppModel.self) private var model
 	@Environment(\.openWindow) private var openWindow
-	var value: TerminalWindowValue
 
 	var body: some View {
-		let win = model.window(for: value)
-		SessionWindowBody(win: win)
+		let win = model.activeWindow
+		MainWindowBody()
 			.environment(\.sessionWindow, win)
 			.onAppear { model.registerWindowOpeners(openWindow) }
-			.task { await win.bootstrap() }
 	}
 }
 
-private struct SessionWindowBody: View {
+private struct MainWindowBody: View {
 	@Environment(AppModel.self) private var model
-	@Bindable var win: SessionWindowModel
 
 	var body: some View {
 		ZStack(alignment: .topLeading) {
@@ -150,42 +138,44 @@ private struct SessionWindowBody: View {
 			// терминал стоит слева и не двигается; панель справа забирает только ширину
 			HStack(spacing: 0) {
 				CenterView()
-				SidePanel(win: win)
+				if model.activeWindow != nil { SidePanel() }
 			}
-			WindowBar(win: win)
+			WindowBar()
 		}
 		.ignoresSafeArea()
-		.navigationTitle(win.dir.isEmpty ? "TClaude-Orch" : Projects.name(ofPath: win.dir))
-		.background { WindowConfigurator(window: win) { model.activeWindow = win } }
-		// листы показывает только окно в фокусе
-		.sheet(isPresented: Binding(get: { model.showPalette && model.activeWindow === win }, set: { model.showPalette = $0 })) { PaletteView() }
-		.sheet(isPresented: Binding(get: { model.showShortcuts && model.activeWindow === win }, set: { model.showShortcuts = $0 })) { ShortcutsView() }
+		.navigationTitle(model.activeWindow.map { model.label(of: $0) } ?? "TClaude-Orch")
+		.background { WindowConfigurator(app: model) }
+		.sheet(isPresented: Bindable(model).showPalette) { PaletteView() }
+		.sheet(isPresented: Bindable(model).showShortcuts) { ShortcutsView() }
 		.frame(minWidth: 760, minHeight: 440)
 		.onAppear {
-			model.activeWindow = win
 			// для снимков: `-debug.togglePanel YES` — через 9 с панель сворачивается или разворачивается
-			if UserDefaults.standard.bool(forKey: "debug.togglePanel") { DispatchQueue.main.asyncAfter(deadline: .now() + 9) { win.toggleAgents() } }
+			if UserDefaults.standard.bool(forKey: "debug.togglePanel") { DispatchQueue.main.asyncAfter(deadline: .now() + 9) { model.toggleAgents() } }
 			// для снимков: `-debug.openAgent <id>` открывает карточку агента через 9 с после запуска
 			if let id = UserDefaults.standard.string(forKey: "debug.openAgent") {
-				DispatchQueue.main.asyncAfter(deadline: .now() + 9) { if model.store.agents[id]?.session == win.sessionId { win.open(agent: id) } }
+				DispatchQueue.main.asyncAfter(deadline: .now() + 9) {
+					if let w = model.tabs.first(where: { $0.owns(model.store.agents[id]?.session ?? "") }) { model.select(w); w.open(agent: id) }
+				}
 			}
 		}
 	}
 }
 
-/// Панель агентов справа: плитка одного ровного цвета (без градиента стекла) от верха окна до низа; в её верхней строке заголовок и кнопки (кнопки едут вместе с панелью).
-/// Ширину можно менять, потянув за левый край (двойной щелчок — вернуть обычную). Слот занимает только ширину панели:
-/// терминал слева не двигается и не меняет высоту.
+/// Панель агентов справа: плитка одного ровного цвета от верха окна до низа; в её верхней строке заголовок и кнопки (кнопки едут вместе
+/// с панелью). Ширину можно менять, потянув за левый край (двойной щелчок — вернуть обычную). Слот занимает только ширину панели:
+/// терминал слева не двигается и не меняет высоту. Панель показывает агентов активного проекта.
 private struct SidePanel: View {
-	@Bindable var win: SessionWindowModel
+	@Environment(AppModel.self) private var model
 	@State private var dragStart: CGFloat?
 	@State private var hovering = false
 	private let m = SessionWindowModel.panelMargin
 
 	var body: some View {
-		let w = win.panelWidth
+		let w = model.panelWidth
+		let hidden = !model.showAgents
 		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
 		AgentsPanel()
+			.id(model.activeKey)
 			.frame(width: w)
 			.clipShape(shape)
 			.background(DS.Palette.panelSurface, in: shape)
@@ -193,11 +183,11 @@ private struct SidePanel: View {
 			.overlay(alignment: .leading) { handle }
 			.overlay(shape.strokeBorder(dragStart != nil || hovering ? DS.Palette.accent.opacity(0.55) : .clear, lineWidth: 1.5))
 			.padding(.top, m).padding(.bottom, m).padding(.trailing, m).padding(.leading, m / 2)
-			.frame(width: win.panelHidden ? 0 : w + m * 1.5, alignment: .trailing)
+			.frame(width: hidden ? 0 : w + m * 1.5, alignment: .trailing)
 			.clipped()
-			.opacity(win.panelHidden ? 0 : 1)
-			.allowsHitTesting(!win.panelHidden)
-			.accessibilityHidden(win.panelHidden)
+			.opacity(hidden ? 0 : 1)
+			.allowsHitTesting(!hidden)
+			.accessibilityHidden(hidden)
 	}
 
 	/// Полоса захвата у левого края: курсор «↔», перетаскивание влево расширяет панель в пределах min…max.
@@ -209,92 +199,87 @@ private struct SidePanel: View {
 			}
 			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
 				.onChanged { g in
-					if dragStart == nil { dragStart = win.panelWidth }
+					if dragStart == nil { dragStart = model.panelWidth }
 					let r = DS.Metrics.sidePanelWidth
-					win.panelWidth = min(max((dragStart ?? r.ideal) - g.translation.width, r.min), r.max)
+					model.panelWidth = min(max((dragStart ?? r.ideal) - g.translation.width, r.min), r.max)
 				}
-				.onEnded { _ in
-					dragStart = nil
-					UserDefaults.standard.set(Double(win.panelWidth), forKey: "sidePanelWidth")
-				})
-			.onTapGesture(count: 2) {
-				win.panelWidth = DS.Metrics.sidePanelWidth.ideal
-				UserDefaults.standard.set(Double(win.panelWidth), forKey: "sidePanelWidth")
-			}
+				.onEnded { _ in dragStart = nil })
+			.onTapGesture(count: 2) { model.panelWidth = DS.Metrics.sidePanelWidth.ideal }
 			.help("Потяните, чтобы изменить ширину; двойной щелчок — по умолчанию")
 	}
 }
 
-/// Переключатель окон в шапке — сегментный тоггл (как «Chat / Code» в Claude Desktop): по сегменту на окно, активное подсвечено;
-/// «+» — новое окно в той же папке. Выбор сегмента поднимает окно; контекстное меню сегмента — закрыть.
-private struct WindowSwitcher: View {
+/// Переключатель проектов в шапке на Liquid Glass. Один терминал — просто название текущей командной строки; два и больше —
+/// сегментный тоггл (по сегменту на проект, активный подсвечен) и «+». Контекстное меню сегмента — закрыть.
+private struct ProjectSwitcher: View {
 	@Environment(AppModel.self) private var model
 	@Namespace private var ns
-	var current: SessionWindowModel
 
 	var body: some View {
-		let wins = model.projectWindows
+		let many = model.tabs.count > 1
 		HStack(spacing: 2) {
-			ForEach(wins, id: \.key) { w in
-				Segment(title: model.label(of: w), selected: w === current, ns: ns) { model.raise(w) }
-					.contextMenu { Button("Закрыть окно") { model.close(w) } }
+			ForEach(model.tabs, id: \.key) { w in
+				Segment(title: model.label(of: w), selected: many && w === model.activeWindow, plain: !many, ns: ns) { model.select(w) }
+					.contextMenu { Button("Закрыть терминал") { model.close(w) } }
 			}
-			Button { model.newWindowHere() } label: {
-				Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 22).contentShape(Rectangle())
+			if many {
+				Button { model.newWindowHere() } label: {
+					Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 22).contentShape(Rectangle())
+				}
+				.buttonStyle(.plain).focusEffectDisabled().foregroundStyle(DS.Palette.textTertiary).help("Новый терминал в этой папке (\(Hotkeys.shared.display(.newTerminal)))")
 			}
-			.buttonStyle(.plain).focusEffectDisabled().foregroundStyle(DS.Palette.textTertiary).help("Новое окно (⌘N)")
 		}
-		.padding(2)
-		.background(DS.Palette.hover, in: Capsule())
-		.animation(dsAnimation(DS.Motion.panel), value: current.key)
+		.padding(3)
+		.glassEffect(.regular, in: Capsule())
+		.animation(dsAnimation(DS.Motion.panel), value: model.activeKey)
 	}
 
 	private struct Segment: View {
 		var title: String
 		var selected: Bool
+		var plain: Bool
 		var ns: Namespace.ID
 		var action: () -> Void
 		@State private var hover = false
 		var body: some View {
 			Button(action: action) {
 				Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
-					.frame(maxWidth: 120)
-					.padding(.horizontal, 11).frame(height: 22)
-					.foregroundStyle(selected ? DS.Palette.textPrimary : (hover ? DS.Palette.textPrimary : DS.Palette.textSecondary))
+					.frame(maxWidth: 140)
+					.padding(.horizontal, 12).frame(height: 22)
+					.foregroundStyle(plain || selected || hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 					.background {
-						if selected { Capsule().fill(DS.Palette.panel).matchedGeometryEffect(id: "seg", in: ns) }
+						if selected { Capsule().fill(DS.Palette.textPrimary.opacity(0.14)).matchedGeometryEffect(id: "seg", in: ns) }
 					}
 					.contentShape(Capsule())
 			}
 			.buttonStyle(.plain).focusEffectDisabled()
 			.onHover { hover = $0 }
+			.allowsHitTesting(!plain)
 		}
 	}
 }
 
-/// Шапка поверх окна: слева светофор (система, без обёртки), справа кнопка панели и «⋯» на одной линии с ним. Пока панель открыта,
-/// кнопки лежат прямо на её стекле (своей капсулы нет); панель закрыта — они собираются в свою стеклянную капсулу.
+/// Шапка поверх окна: слева светофор (система, без обёртки) и переключатель проектов, справа кнопка панели и «⋯» на одной линии.
+/// Пока панель открыта, кнопки лежат прямо на её фоне (своей капсулы нет); панель закрыта — они собираются в свою стеклянную капсулу.
 private struct WindowBar: View {
-	@Bindable var win: SessionWindowModel
-	@Environment(\.accessibilityReduceMotion) private var reduceMotion
+	@Environment(AppModel.self) private var model
 
 	var body: some View {
 		let m = SessionWindowModel.panelMargin
 		HStack(spacing: 0) {
-			// светофор рисует система и ничем не оборачивается; правее него переключатель окон
-			if !win.isFullScreen { Color.clear.frame(width: 78, height: 1) }
-			if !win.dir.isEmpty { WindowSwitcher(current: win).padding(.leading, win.isFullScreen ? 12 : 0) }
+			if !model.isFullScreen { Color.clear.frame(width: 78, height: 1) }
+			if !model.tabs.isEmpty { ProjectSwitcher().padding(.leading, model.isFullScreen ? 12 : 0) }
 			Spacer(minLength: 0)
 			HStack(spacing: 2) {
-				BarIcon(systemImage: "sidebar.right", help: "Панель агентов (⌥⌘B)") { win.toggleAgents() }
+				BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
 				MoreMenu()
 			}
 			.padding(.horizontal, 5)
 			.frame(height: 30)
 			.background {
 				Capsule().fill(.clear).glassEffect(.regular, in: Capsule())
-					.opacity(win.panelHidden ? 1 : 0)
-					.animation(dsAnimation(DS.Motion.panel), value: win.panelHidden)
+					.opacity(model.showAgents && !model.tabs.isEmpty ? 0 : 1)
+					.animation(dsAnimation(DS.Motion.panel), value: model.showAgents)
 			}
 			// правый край кнопок = правый край панели минус внутренний отступ
 			.padding(.trailing, m + 8)
@@ -320,28 +305,6 @@ private struct BarIcon: View {
 		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 		.onHover { hover = $0 }
 		.help(help).accessibilityLabel(help)
-	}
-}
-
-/// Запуск без папки: окно-терминал в домашнем каталоге (если за это время не пришла ссылка или папка).
-struct LauncherView: View {
-	@Environment(AppModel.self) private var model
-	@Environment(\.openWindow) private var openWindow
-	@Environment(\.dismissWindow) private var dismissWindow
-
-	var body: some View {
-		Color.clear
-			.frame(width: 1, height: 1)
-			.task {
-				model.registerWindowOpeners(openWindow)
-				let d = UserDefaults.standard
-				if d.string(forKey: "debug.terminalDir") != nil || d.string(forKey: "debug.openSession") != nil { model.suppressHomeWindow = true }
-				// ссылка или папка приходят сразу после старта: даём им шанс открыть своё окно
-				try? await Task.sleep(for: .milliseconds(600))
-				if !model.hasTerminalWindows, !model.suppressHomeWindow { model.openFromLauncher() }
-				model.runDebugLaunch()
-				dismissWindow(id: "launcher")
-			}
 	}
 }
 

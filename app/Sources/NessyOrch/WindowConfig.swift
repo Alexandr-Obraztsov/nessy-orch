@@ -5,20 +5,17 @@ import AppKit
 /// не выделяются), полноэкранный режим для шапки, фокус окна (команды меню действуют на него) и подтверждение закрытия
 /// окна с живым процессом.
 struct WindowConfigurator: NSViewRepresentable {
-	var window: SessionWindowModel
-	var onKey: () -> Void = {}
+	var app: AppModel
 
 	func makeNSView(context: Context) -> NSView {
 		let v = ConfigView()
-		v.model = window
-		v.onKey = onKey
+		v.model = app
 		return v
 	}
-	func updateNSView(_ v: NSView, context: Context) { (v as? ConfigView)?.onKey = onKey }
+	func updateNSView(_ v: NSView, context: Context) {}
 
 	final class ConfigView: NSView {
-		var model: SessionWindowModel?
-		var onKey: () -> Void = {}
+		var model: AppModel?
 		private var tokens: [NSObjectProtocol] = []
 		private var guardian: CloseGuard?
 		private var shown = false
@@ -58,7 +55,6 @@ struct WindowConfigurator: NSViewRepresentable {
 			// только что созданное окно показывается поверх остальных
 			if !shown { shown = true; DispatchQueue.main.async { NSApp.activate(); w.makeKeyAndOrderFront(nil); w.orderFrontRegardless() } }
 			let nc = NotificationCenter.default
-			tokens.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.onKey() } })
 			// полноэкранный режим: шапка прячется и выезжает у кромки; на выходе заново меряем светофор
 			for (n, on) in [(NSWindow.willEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
 				tokens.append(nc.addObserver(forName: n, object: w, queue: .main) { [weak self] _ in
@@ -72,7 +68,6 @@ struct WindowConfigurator: NSViewRepresentable {
 			tokens.append(nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.measure(w) } })
 			model?.isFullScreen = w.styleMask.contains(.fullScreen)
 			DispatchQueue.main.async { [weak self] in self?.measure(w) }
-			if w.isKeyWindow { onKey() }
 			if let m = model, guardian == nil, !(w.delegate is CloseGuard) {
 				let g = CloseGuard(original: w.delegate, model: m)
 				guardian = g
@@ -88,29 +83,29 @@ struct WindowConfigurator: NSViewRepresentable {
 @MainActor
 final class CloseGuard: NSObject, NSWindowDelegate {
 	private weak var original: NSWindowDelegate?
-	private let model: SessionWindowModel
-	var key: String { model.key }
+	private let model: AppModel
 
-	init(original: NSWindowDelegate?, model: SessionWindowModel) {
+	init(original: NSWindowDelegate?, model: AppModel) {
 		self.original = original
 		self.model = model
 	}
 
 	func windowShouldClose(_ sender: NSWindow) -> Bool {
-		if model.terminal?.isAlive == true, !NSApp.isTerminating {
+		if model.terminals.liveCount > 0, !NSApp.isTerminating {
 			let a = NSAlert()
 			a.messageText = "Закрыть окно?"
-			a.informativeText = "В нём работает терминал: его процесс будет завершён."
+			a.informativeText = model.terminals.liveCount == 1 ? "В нём работает терминал: его процесс будет завершён." : "Работают терминалы (\(model.terminals.liveCount)): их процессы будут завершены."
 			a.addButton(withTitle: "Закрыть")
 			a.addButton(withTitle: "Отмена")
 			a.alertStyle = .warning
 			guard a.runModal() == .alertFirstButtonReturn else { return false }
 		}
+		// закрытие окон пользователем завершает терминалы; программное закрытие (SwiftUI при ссылках) их не трогает
+		model.closeAllTabs()
 		return original?.windowShouldClose?(sender) ?? true
 	}
 
 	func windowWillClose(_ notification: Notification) {
-		model.closed()
 		original?.windowWillClose?(notification)
 	}
 
