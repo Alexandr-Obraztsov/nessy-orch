@@ -13,6 +13,7 @@ struct AgentsPanel: View {
 			if let id = win?.openAgentId {
 				AgentPanel(agentId: id, mode: .embedded)
 					.padding(.top, SessionWindowModel.rowHeight)
+					.overlay(alignment: .topLeading) { BackButton { win?.open(agent: nil) } }
 					.transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
 			} else {
 				AgentsListView()
@@ -264,5 +265,28 @@ enum AnswerText {
 		var t = s.replacingOccurrences(of: "\\s*\\[\\d+\\]", with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces)
 		if let r = t.range(of: "(?<=[.!?])\\s", options: .regularExpression) { t = String(t[..<r.lowerBound]) }
 		return t.prefix(1).uppercased() + t.dropFirst()
+	}
+}
+
+/// «‹ Агенты» — назад к списку, в верхнем левом углу шапки панели (на одной линии со светофором и кнопками справа).
+struct BackButton: View {
+	var action: () -> Void
+	@State private var hover = false
+	var body: some View {
+		Button(action: action) {
+			HStack(spacing: 3) {
+				Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
+				Text("Агенты").font(.system(size: 13, weight: .medium))
+			}
+			.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+			.padding(.horizontal, DS.Metrics.s2).frame(height: 26)
+			.background(hover ? DS.Palette.hover : .clear, in: Capsule())
+			.contentShape(Capsule())
+		}
+		.buttonStyle(.plain).focusEffectDisabled()
+		.onHover { hover = $0 }
+		.padding(.leading, DS.Metrics.s2)
+		.frame(height: SessionWindowModel.rowHeight)
+		.help("К списку агентов (Esc)").accessibilityLabel("Назад к списку агентов")
 	}
 }

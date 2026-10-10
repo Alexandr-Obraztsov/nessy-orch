@@ -139,19 +139,16 @@ struct InfoCard<Trailing: View, Content: View>: View {
 	}
 }
 
-/// Верхний блок панели: шапка и «Агент» — одна карточка. Свёрнутая — глиф состояния, имя, значок роли, ниже «состояние · таймер»;
-/// справа «⋯» и «×». Нажатие раскрывает роль и цель (3 строки, дальше «Ещё»); раскрытое ложится поверх чата.
+/// Верхний блок панели: шапка и «Агент» — одна карточка. Свёрнутая — глиф состояния, имя и справа чип роли, ниже «состояние · таймер».
+/// Нажатие раскрывает карточку: описание роли и вся цель целиком (длинная цель прокручивается внутри, не выше `cap`).
+/// Кнопка «назад» — в верхней строке панели (см. `AgentsPanel`), здесь кнопок нет.
 struct AgentHeaderCard: View {
 	@Environment(AppModel.self) private var model
-	@Environment(\.sessionWindow) private var win
 	var agent: AgentView
 	var mode: PanelMode
 	var goal: String
 	@Binding var expanded: Bool
 	var cap: CGFloat
-	@State private var full = false
-	@State private var fullH: CGFloat = 0
-	@State private var shownH: CGFloat = 0
 
 	private var text: String {
 		var t = goal
@@ -159,7 +156,8 @@ struct AgentHeaderCard: View {
 		return t
 	}
 	private var role: (name: String, icon: String?, hue: Double, description: String)? { model.roleInfo(of: agent) }
-	private var expandable: Bool { role != nil || !text.isEmpty }
+	private var roleDescription: String { role?.description ?? "" }
+	private var expandable: Bool { !roleDescription.isEmpty || !text.isEmpty }
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
@@ -167,20 +165,9 @@ struct AgentHeaderCard: View {
 				HStack(spacing: DS.Metrics.s3) {
 					DSStateGlyph(state: agent.ds, size: DS.Metrics.glyphHeader)
 					Text(agent.name).font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary).lineLimit(1).layoutPriority(1)
-					if let r = role { RoleIconTile(icon: r.icon, hue: r.hue, size: 20).help(r.name) }
 					Spacer(minLength: DS.Metrics.s2)
-					// справа вверху: простые «⋯» и «×»
-					HStack(spacing: DS.Metrics.s1) {
-						if agent.canStop || mode != .window {
-							PlainIconMenu(systemImage: "ellipsis", help: "Действия с агентом") {
-								if agent.canStop { Button("Остановить ход") { model.stop(agent) }.disabled(model.isOffline) }
-								if mode != .window { Button("Открыть в отдельном окне") { model.openAgentWindow?(agent.id); win?.open(agent: nil) } }
-							}
-						}
-						if mode != .window {
-							PlainIconButton(systemImage: "xmark", help: "К списку агентов (Esc)") { win?.open(agent: nil) }
-						}
-					}
+					// чип роли — у правого края; длинное название роли усекается, имя агента важнее
+					if let r = role { RoleChip(name: r.name, icon: r.icon, hue: r.hue).frame(maxWidth: 150, alignment: .trailing).help(r.name) }
 				}
 				HStack(spacing: DS.Metrics.s1) {
 					subtitle
@@ -192,21 +179,22 @@ struct AgentHeaderCard: View {
 				}
 				.padding(.leading, DS.Metrics.glyphHeader + DS.Metrics.s3)
 			}
-			// нажатие по шапке раскрывает роль и цель (кнопки справа нажимаются сами по себе)
+			// нажатие по шапке раскрывает описание роли и цель
 			.contentShape(Rectangle())
 			.onTapGesture { if expandable { withAnimation(dsAnimation(DS.Motion.disclosure)) { expanded.toggle() } } }
 
 			if expanded {
 				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-					if let r = role {
-						HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
-							Text(r.name).font(DS.Typography.secondary.weight(.semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
-							if !r.description.isEmpty {
-								Text(r.description).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1)
-							}
-						}
+					if !roleDescription.isEmpty {
+						Text(roleDescription).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
 					}
-					if !text.isEmpty { goalView }
+					if !text.isEmpty {
+						// вся цель сразу; очень длинная прокручивается внутри карточки
+						ScrollView { goalText }
+							.scrollBounceBehavior(.basedOnSize)
+							.frame(maxHeight: cap)
+							.fixedSize(horizontal: false, vertical: true)
+					}
 				}
 				.padding(.top, DS.Metrics.s1)
 				.transition(.opacity)
@@ -217,32 +205,9 @@ struct AgentHeaderCard: View {
 		.dsFloatingCard()
 	}
 
-	/// Цель: 3 строки, дальше «Ещё» (целиком, с прокруткой до `cap`) / «Свернуть».
-	private var goalView: some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
-			if full {
-				ScrollView { goalText(limit: nil) }
-					.scrollBounceBehavior(.basedOnSize)
-					.frame(maxHeight: cap)
-					.fixedSize(horizontal: false, vertical: true)
-			} else {
-				goalText(limit: 3).onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shownH = $0 }
-			}
-			if fullH > shownH + 1 || full {
-				Button(full ? "Свернуть" : "Ещё") { withAnimation(dsAnimation(DS.Motion.disclosure)) { full.toggle() } }
-					.buttonStyle(.plain).font(DS.Typography.caption).foregroundStyle(DS.Palette.accent)
-			}
-		}
-		// невидимый двойник без ограничения строк — чтобы понять, обрезан ли текст
-		.background(alignment: .topLeading) {
-			goalText(limit: nil).hidden().fixedSize(horizontal: false, vertical: true)
-				.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullH = $0 }
-		}
-	}
-
-	private func goalText(limit: Int?) -> some View {
+	private var goalText: some View {
 		Text(text).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
-			.lineLimit(limit).textSelection(.enabled)
+			.textSelection(.enabled)
 			.frame(maxWidth: .infinity, alignment: .leading)
 	}
 
