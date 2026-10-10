@@ -14,6 +14,8 @@ extension DS {
 	enum Palette {
 		static let windowBackground = Color.ds(0xF2F2F4, 0x1B1B1D)
 		/// фон терминала и окна-терминала: один цвет (шапка, углы за панелью и терминал не выделяются)
+		/// колонка боковой панели: чуть светлее терминала
+		static let sidebarSurface = Color.ds(0xF3F3F5, 0x1A1A1D)
 		static let terminalBackground = Color.ds(0xFBFBFC, 0x141416)
 		static let surface = Color.ds(0xFFFFFF, 0x232325)
 		static let panel = Color.ds(0xFFFFFF, 0x2A2A2D)

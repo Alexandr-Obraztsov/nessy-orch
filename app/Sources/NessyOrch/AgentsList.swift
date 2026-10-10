@@ -63,7 +63,7 @@ struct AgentsListView: View {
 			ClaudeStateIndicator(state: win?.session?.claude?.state)
 		}
 		.foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
-		.padding(.horizontal, DS.Metrics.s4).padding(.top, (win?.isFullScreen ?? false) ? 52 : DS.Metrics.s3).padding(.bottom, DS.Metrics.s2)
+		.padding(.horizontal, DS.Metrics.s4).padding(.top, DS.Metrics.s2).padding(.bottom, DS.Metrics.s2)
 	}
 
 	private func list(_ sections: [AgentSection], _ ids: [String]) -> some View {

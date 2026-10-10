@@ -36,8 +36,10 @@ final class SessionWindowModel {
 	var panelHidden: Bool { columnVisibility == .detailOnly }
 	/// полноэкранный режим: шапка системная и прячется вместе с меню; терминалу нужен минимальный отступ
 	var isFullScreen = false
-	/// высота шапки (светофор, кнопки) от верха окна — по фактическому окну; терминал начинается под ней
-	var headerHeight: CGFloat = 52
+	/// центр светофора от верха окна: по нему подбирается высота шапки
+	var lightsCenter: CGFloat = 0
+	/// высота шапки: светофор, кнопка панели и «⋯» стоят на одной линии
+	var barHeight: CGFloat { max(40, lightsCenter * 2) }
 	private var started = false
 	/// сессию создало это окно (а не открыло уже существующую)
 	private var createdSession = false
@@ -130,27 +132,25 @@ struct SessionWindowView: View {
 
 private struct SessionWindowBody: View {
 	@Environment(AppModel.self) private var model
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 	@Bindable var win: SessionWindowModel
 
 	var body: some View {
-		NavigationSplitView(columnVisibility: $win.columnVisibility) {
-			AgentsPanel()
-				.navigationSplitViewColumnWidth(min: DS.Metrics.sidePanelWidth.min, ideal: DS.Metrics.sidePanelWidth.ideal, max: DS.Metrics.sidePanelWidth.max)
-		} detail: {
-			CenterView()
+		ZStack(alignment: .topLeading) {
+			DS.Palette.terminalBackground
+			HStack(spacing: 0) {
+				SidePanel(win: win)
+				CenterView()
+			}
+			WindowBar(win: win)
 		}
+		.ignoresSafeArea()
 		.navigationTitle(Projects.name(ofPath: win.dir))
-		.toolbar(removing: .title)
-		// полный экран: тулбар не рисуется (шапка не растёт), кнопки панели и «⋯» плавают в углах
-		.toolbar(win.isFullScreen ? .hidden : .automatic, for: .windowToolbar)
-		.overlay(alignment: .topLeading) { if win.isFullScreen { FullScreenPanelButton(win: win) } }
-		// без плоской полосы: в шапке светофор и системная кнопка панели; «⋯» — в правом углу терминала
-		.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
 		.background { WindowConfigurator(window: win) { model.activeWindow = win } }
 		// листы показывает только окно в фокусе
 		.sheet(isPresented: Binding(get: { model.showPalette && model.activeWindow === win }, set: { model.showPalette = $0 })) { PaletteView() }
 		.sheet(isPresented: Binding(get: { model.showShortcuts && model.activeWindow === win }, set: { model.showShortcuts = $0 })) { ShortcutsView() }
-		.frame(minWidth: 860, minHeight: 480)
+		.frame(minWidth: 760, minHeight: 440)
 		.onAppear {
 			model.activeWindow = win
 			// для снимков: `-debug.togglePanel YES` — через 9 с панель сворачивается или разворачивается
@@ -163,12 +163,57 @@ private struct SessionWindowBody: View {
 	}
 }
 
-/// Кнопка панели в полноэкранном режиме: тулбара нет, поэтому она всегда в левом верхнем углу.
-private struct FullScreenPanelButton: View {
-	var win: SessionWindowModel
+/// Своя боковая панель: колонка на всю высоту окна, чуть светлее терминала, справа тонкая линия. Светофор и кнопка панели лежат
+/// на её верхней строке — на одной поверхности, без стеклянных краёв. Ширина анимируется; содержимое не пересобирается по кадрам.
+private struct SidePanel: View {
+	@Bindable var win: SessionWindowModel
+
 	var body: some View {
-		GlassIconButton(systemImage: "sidebar.left", help: "Панель агентов (⌥⌘B)", size: 34) { win.toggleAgents() }
-			.padding(.leading, 14).padding(.top, 10)
+		let w = DS.Metrics.sidePanelWidth.ideal
+		AgentsPanel()
+			.padding(.top, win.barHeight)
+			.frame(width: w)
+			.background(DS.Palette.sidebarSurface)
+			.overlay(alignment: .trailing) { Rectangle().fill(DS.Palette.separator).frame(width: DS.Metrics.hairline) }
+			.frame(width: win.panelHidden ? 0 : w, alignment: .leading)
+			.clipped()
+			.opacity(win.panelHidden ? 0 : 1)
+			.allowsHitTesting(!win.panelHidden)
+			.accessibilityHidden(win.panelHidden)
+	}
+}
+
+/// Шапка поверх окна: справа от светофора кнопка панели (просто иконка), справа стеклянная «⋯». Без заголовка и без плашки.
+private struct WindowBar: View {
+	@Bindable var win: SessionWindowModel
+
+	var body: some View {
+		HStack(spacing: DS.Metrics.s1) {
+			// светофор рисует система; в полноэкранном режиме его нет
+			Color.clear.frame(width: win.isFullScreen ? 0 : 74, height: 1)
+			BarIcon(systemImage: "sidebar.left", help: "Панель агентов (⌥⌘B)") { win.toggleAgents() }
+			Spacer(minLength: 0)
+			MoreMenu(glass: true)
+		}
+		.padding(.horizontal, 14)
+		.frame(height: win.barHeight)
+		.frame(maxWidth: .infinity, alignment: .top)
+	}
+}
+
+private struct BarIcon: View {
+	var systemImage: String
+	var help: String
+	var action: () -> Void
+	@State private var hover = false
+	var body: some View {
+		Button(action: action) {
+			Image(systemName: systemImage).font(.system(size: 15, weight: .medium)).frame(width: 32, height: 28).contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+		.onHover { hover = $0 }
+		.help(help).accessibilityLabel(help)
 	}
 }
 

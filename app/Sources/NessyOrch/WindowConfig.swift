@@ -22,29 +22,22 @@ struct WindowConfigurator: NSViewRepresentable {
 		private var tokens: [NSObjectProtocol] = []
 		private var guardian: CloseGuard?
 
-		/// Окно в стиле терминала: прозрачная шапка без заголовка, фон как у терминала (углы и края не выделяются).
+		/// Окно в стиле терминала: без заголовка, содержимое идёт под шапку, фон как у терминала (углы и края не выделяются).
 		private func style(_ w: NSWindow) {
 			w.titleVisibility = .hidden
 			w.titlebarAppearsTransparent = true
+			w.styleMask.insert(.fullSizeContentView)
 			let dark = w.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 			w.backgroundColor = TerminalTheme.ns(TerminalTheme.scheme(dark: dark).background)
 			measure(w)
 		}
 
-		/// Полный экран: убрать плоскую полосу шапки (отдельное окно системы с тулбаром и материалом) и пустой тулбар.
-		private func stripFullScreenBar(_ w: NSWindow) {
-			w.toolbar?.isVisible = false
-			for other in NSApp.windows where String(describing: type(of: other)) == "NSToolbarFullScreenWindow" {
-				other.alphaValue = 0
-				other.ignoresMouseEvents = true
-			}
-		}
-
-		/// Высота шапки по фактическому окну: от неё терминал отступает сверху.
+		/// Центр светофора от верха окна: по нему подбирается высота шапки.
 		private func measure(_ w: NSWindow) {
-			guard !w.styleMask.contains(.fullScreen) else { return }
-			let h = w.frame.height - w.contentLayoutRect.height
-			if h >= 28, h < 120, abs((model?.headerHeight ?? 0) - h) > 0.5 { model?.headerHeight = h }
+			guard !w.styleMask.contains(.fullScreen), let b = w.standardWindowButton(.closeButton), let sup = b.superview else { return }
+			let r = sup.convert(b.frame, to: nil)
+			let center = w.frame.height - r.midY
+			if center > 8, center < 40, abs((model?.lightsCenter ?? 0) - center) > 0.5 { model?.lightsCenter = center }
 		}
 
 		override func viewDidMoveToWindow() {
@@ -56,19 +49,18 @@ struct WindowConfigurator: NSViewRepresentable {
 			let nc = NotificationCenter.default
 			tokens.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.onKey() } })
 			// полноэкранный режим: шапка прячется и выезжает у кромки; на выходе заново меряем светофор
-			for (n, on) in [(NSWindow.willEnterFullScreenNotification, true), (NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
+			for (n, on) in [(NSWindow.willEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
 				tokens.append(nc.addObserver(forName: n, object: w, queue: .main) { [weak self] _ in
 					MainActor.assumeIsolated {
 						guard let self else { return }
 						self.model?.isFullScreen = on
-						DispatchQueue.main.async { self.style(w); if on { self.stripFullScreenBar(w) } }
+						if !on { DispatchQueue.main.async { self.style(w) } }
 					}
 				})
 			}
 			tokens.append(nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.measure(w) } })
 			model?.isFullScreen = w.styleMask.contains(.fullScreen)
-			DispatchQueue.main.async { [weak self] in self?.measure(w); if w.styleMask.contains(.fullScreen) { self?.stripFullScreenBar(w) } }
-			DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in if w.styleMask.contains(.fullScreen) { self?.stripFullScreenBar(w) } }
+			DispatchQueue.main.async { [weak self] in self?.measure(w) }
 			if w.isKeyWindow { onKey() }
 			if let m = model, guardian == nil, !(w.delegate is CloseGuard) {
 				let g = CloseGuard(original: w.delegate, model: m)
@@ -104,11 +96,6 @@ final class CloseGuard: NSObject, NSWindowDelegate {
 			guard a.runModal() == .alertFirstButtonReturn else { return false }
 		}
 		return original?.windowShouldClose?(sender) ?? true
-	}
-
-	/// Полный экран: шапка прячется вместе с меню и выезжает у верхней кромки (терминалу достаётся всё место).
-	func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposed: NSApplication.PresentationOptions = []) -> NSApplication.PresentationOptions {
-		proposed.union([.autoHideToolbar, .autoHideMenuBar, .fullScreen])
 	}
 
 	func windowWillClose(_ notification: Notification) {

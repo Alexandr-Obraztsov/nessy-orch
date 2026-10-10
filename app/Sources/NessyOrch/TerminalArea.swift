@@ -10,7 +10,7 @@ struct CenterView: View {
 	var body: some View {
 		Group {
 			if let tab = win?.terminal {
-				TerminalHost(tab: tab, topInset: (win?.isFullScreen ?? false) || !(win?.panelHidden ?? false) ? 8 : (win?.headerHeight ?? 52))
+				TerminalHost(tab: tab, topInset: (win?.panelHidden ?? false) ? (win?.barHeight ?? 40) : 8)
 					.id(tab.id)
 					.accessibilityLabel("Терминал")
 			} else {
@@ -24,13 +24,7 @@ struct CenterView: View {
 		.overlay(alignment: .bottom) {
 			if model.isOffline { OfflineBanner().clipShape(RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous)).padding(DS.Metrics.s3) }
 		}
-		.overlay(alignment: .topTrailing) { if win?.isFullScreen ?? false { MoreMenu(glass: true).padding(.trailing, 14).padding(.top, 10) } }
-		.toolbar {
-			// «⋯» — стеклянная кнопка шапки справа: только горячие клавиши и настройки
-			ToolbarSpacer(.flexible, placement: .primaryAction)
-			ToolbarItem(placement: .primaryAction) { MoreMenu() }
-		}
-		.overlay(alignment: .top) { ToastView().padding(.top, 56) }
+		.overlay(alignment: .top) { ToastView().padding(.top, 48) }
 	}
 }
 
