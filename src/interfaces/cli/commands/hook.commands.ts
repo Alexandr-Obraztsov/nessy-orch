@@ -63,8 +63,11 @@ async function run(event: string, windowSession: string, input: Record<string, u
 	})
 
 	if (event === 'start') {
-		const [s, rs] = await Promise.all([get<SessionView>(`/sessions/${enc(session)}`), roles(), ping(session, 'idle')])
-		out(contextOutput('SessionStart', startContext(s, rs)))
+		const [s, rs, u] = await Promise.all([get<SessionView>(`/sessions/${enc(session)}`), roles(), updates(), ping(session, 'idle')])
+		// /resume: у возобновлённого чата уже есть агенты и, возможно, непрочитанные ответы — сразу в контекст
+		const n = names(u, rs)
+		const state = updatesContext(u, n.roleName, n.nameOf, session)
+		out(contextOutput('SessionStart', [startContext(s, rs), state].filter(Boolean).join('\n\n')))
 	} else if (event === 'prompt') {
 		const [u, rs] = await Promise.all([updates(), roles(), ping(session, 'working')])
 		const n = names(u, rs)

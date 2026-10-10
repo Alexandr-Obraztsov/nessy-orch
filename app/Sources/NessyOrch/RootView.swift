@@ -56,17 +56,16 @@ final class SessionWindowModel {
 	/// сессия текущего чата Claude этого окна: самая недавно активная среди сессий окна (один чат = одна сессия)
 	var currentSessionId: String? {
 		guard let origin = sessionId else { return nil }
-		let mine = app.store.sessions.filter { $0.id == origin || $0.origin == origin }
-		let best = mine.max { ($0.claude?.at ?? $0.updatedAt) < ($1.claude?.at ?? $1.updatedAt) }
-		return best?.id ?? origin
+		return WindowSessions.current(app.store.sessions, origin: origin)
 	}
 	/// сессия относится к этому окну (его первая сессия или чат, начатый в нём)
 	func owns(_ id: String) -> Bool { id == sessionId || app.store.session(id)?.origin == sessionId }
 
 	var session: SessionView? { currentSessionId.flatMap { app.store.session($0) } }
 	var agents: [AgentView] { currentSessionId.map { app.store.agents(inSession: $0) } ?? [] }
-	var openAgent: AgentView? { openAgentId.flatMap { app.store.agents[$0] } }
-	var targetAgent: AgentView? { openAgent ?? selectedAgentId.flatMap { app.store.agents[$0] } }
+	/// карточка открытого агента — только если он в показываемой сессии (после /resume или /clear панель возвращается к списку)
+	var openAgent: AgentView? { openAgentId.flatMap { app.store.agents[$0] }.flatMap { $0.session == currentSessionId ? $0 : nil } }
+	var targetAgent: AgentView? { openAgent ?? selectedAgentId.flatMap { app.store.agents[$0] }.flatMap { $0.session == currentSessionId ? $0 : nil } }
 	var terminal: TerminalTab? { app.terminals.tab(for: key) }
 
 	/// Открыть карточку агента в панели (id) или вернуться к списку (nil). Пружина прерываема.

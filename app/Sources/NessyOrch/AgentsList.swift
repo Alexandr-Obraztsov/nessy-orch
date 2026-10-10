@@ -10,7 +10,7 @@ struct AgentsPanel: View {
 
 	var body: some View {
 		ZStack {
-			if let id = win?.openAgentId {
+			if let id = win?.openAgent?.id {
 				AgentPanel(agentId: id, mode: .embedded)
 					.padding(.top, SessionWindowModel.rowHeight)
 					.overlay(alignment: .topLeading) { BackButton { win?.open(agent: nil) } }

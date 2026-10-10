@@ -578,3 +578,31 @@ struct SkillInstallerTests {
 		#expect(SkillInstaller(source: nil, root: root).state() == .notBundled)
 	}
 }
+
+@Suite("Сессия окна при /resume")
+struct WindowSessionsTests {
+	func s(_ id: String, origin: String? = nil, state: String? = nil, at: String = "", updated: String = "2026-10-10T10:00:00Z") -> SessionView {
+		var v = sessionJSON(id)
+		v.origin = origin
+		v.updatedAt = updated
+		if let state { v.claude = ClaudeState(state: ClaudeState.Run(rawValue: state) ?? .idle, at: at) }
+		return v
+	}
+
+	@Test func followsMostRecentLiveChat() {
+		let list = [s("w", state: "idle", at: "2026-10-10T10:01:00Z"), s("b", origin: "w", state: "working", at: "2026-10-10T10:05:00Z"), s("other", state: "working", at: "2026-10-10T11:00:00Z")]
+		#expect(WindowSessions.current(list, origin: "w") == "b")
+	}
+
+	@Test func resumeOfOldChatWinsEvenIfOldOneEndedLater() {
+		// /resume: SessionEnd старого чата пришёл позже SessionStart возобновлённого — завершённый не перебивает живой
+		let list = [s("w", state: "idle", at: "2026-10-10T10:05:00Z"), s("b", origin: "w", state: "ended", at: "2026-10-10T10:05:02Z")]
+		#expect(WindowSessions.current(list, origin: "w") == "w")
+	}
+
+	@Test func fallsBackToEndedThenUpdatedThenOrigin() {
+		#expect(WindowSessions.current([s("w", state: "ended", at: "2026-10-10T10:00:00Z"), s("b", origin: "w", state: "ended", at: "2026-10-10T10:09:00Z")], origin: "w") == "b")
+		#expect(WindowSessions.current([s("w", updated: "2026-10-10T09:00:00Z"), s("b", origin: "w", updated: "2026-10-10T10:30:00Z")], origin: "w") == "b")
+		#expect(WindowSessions.current([], origin: "w") == "w")
+	}
+}

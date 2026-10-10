@@ -240,8 +240,11 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 
 		// resume первого чата: возвращается его же сессия, второй раз ничего не создаётся
 		const before = (await hh.api<SessionView[]>('GET', '/sessions')).body.length
+		const resumed = await runHook(hh.port, w.body.id, 'start', ev('chat-a'))
+		assert.equal((await hh.api<SessionView[]>('GET', '/sessions')).body.length, before, 'resume не создаёт новую сессию')
+		assert.match(resumed.stdout, new RegExp(w.body.id), 'контекст старта — про возобновлённую сессию')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.claude?.state, 'idle')
 		await runHook(hh.port, w.body.id, 'prompt', ev('chat-a'))
-		assert.equal((await hh.api<SessionView[]>('GET', '/sessions')).body.length, before)
 		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.claude?.state, 'working')
 	})
 
