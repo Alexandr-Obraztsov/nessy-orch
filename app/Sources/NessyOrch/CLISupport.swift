@@ -89,7 +89,8 @@ final class CLISupport {
 	func autoSetup(daemonOnline: @escaping @MainActor () async -> Bool) {
 		guard isBundled else { return }
 		switch state {
-		case .missing, .stale: installLink()
+		// ссылку молча чиним, только если пользователь её уже создавал (старый путь приложения); новую создаёт мастер по согласию
+		case .stale: installLink()
 		default: break
 		}
 		guard UserDefaults.standard.object(forKey: "autoInstallService") as? Bool ?? true else { return }
@@ -133,6 +134,17 @@ struct CLISettingsSection: View {
 	@Environment(AppModel.self) private var model
 	var cli = CLISupport.shared
 	@AppStorage("autoInstallService") private var autoService = true
+	@State private var tick = 0
+	private var skill: SkillInstaller { _ = tick; return SetupModel.skillInstaller() }
+	private var skillText: String {
+		switch skill.state() {
+		case .notBundled: "не встроен"
+		case .missing: "не установлен глобально (в терминале приложения подключается сам)"
+		case .upToDate: "установлен: \(skill.destination.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))"
+		case .outdated: "установлена старая версия"
+		}
+	}
+	private var skillColor: Color { skill.state() == .outdated ? DS.Palette.danger : .secondary }
 
 	var body: some View {
 		Section("Командная строка") {
@@ -145,6 +157,12 @@ struct CLISettingsSection: View {
 					Button(cli.state == .installed ? "Переустановить" : "Установить") { cli.installLink(); if let e = cli.lastError { model.flash(e, error: true) } }
 					Button("Установить службу оркестратора") { Task { if await cli.installService() { await model.store.refreshStatus() } else if let e = cli.lastError { model.flash(e, error: true) } } }
 						.disabled(cli.busy)
+				}
+				LabeledContent("Скилл nessy-orch") { Text(skillText).foregroundStyle(skillColor) }
+				HStack {
+					Button(skill.state() == .outdated ? "Обновить скилл" : "Установить скилл") { try? skill.install(); tick += 1 }.disabled(skill.state() == .upToDate || skill.state() == .notBundled)
+					Button("Удалить скилл") { try? skill.uninstall(); tick += 1 }.disabled(skill.state() == .missing || skill.state() == .notBundled)
+					Button("Мастер настройки…") { model.setup.start() }
 				}
 				Toggle("Ставить службу автоматически, если оркестратор не запущен", isOn: $autoService)
 				if cli.nodePath == nil { Label("Node.js не найден — нужен для CLI и службы", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.secondary) }

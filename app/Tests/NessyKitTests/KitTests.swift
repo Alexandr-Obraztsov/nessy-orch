@@ -555,3 +555,26 @@ struct CLIInstallerTests {
 		#expect(cli.serviceMatchesBundle() == false, "служба смотрит на старый путь — надо переустановить")
 	}
 }
+
+@Suite("Установка скилла")
+struct SkillInstallerTests {
+	@Test func installCompareUninstall() throws {
+		let root = FileManager.default.temporaryDirectory.appendingPathComponent("skill-\(UUID().uuidString)")
+		defer { try? FileManager.default.removeItem(at: root) }
+		let src = root.appendingPathComponent("src/nessy-orch")
+		try FileManager.default.createDirectory(at: src.appendingPathComponent("references"), withIntermediateDirectories: true)
+		try "# skill".write(to: src.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+		try "ref".write(to: src.appendingPathComponent("references/a.md"), atomically: true, encoding: .utf8)
+		let inst = SkillInstaller(source: src, root: root.appendingPathComponent("skills"))
+		#expect(inst.state() == .missing)
+		try inst.install()
+		#expect(inst.state() == .upToDate)
+		try "# changed".write(to: src.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+		#expect(inst.state() == .outdated)
+		try inst.install()
+		#expect(inst.state() == .upToDate)
+		try inst.uninstall()
+		#expect(inst.state() == .missing)
+		#expect(SkillInstaller(source: nil, root: root).state() == .notBundled)
+	}
+}

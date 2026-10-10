@@ -37,11 +37,6 @@ struct GeneralSettings: View {
 					.onChange(of: login) { _, v in LoginItem.set(v); login = LoginItem.isEnabled }
 				Button("Роли агентов…") { openWindow(id: "roles") }
 			}
-			Section {
-				Button("Мастер настройки…") { model.setup.start() }
-			} footer: {
-				Text("Пошагово: путь к Claude Code, командная строка, служба, скилл nessy-orch, папка проектов. Решаете вы; Claude Code приложение не устанавливает.").foregroundStyle(DS.Palette.textSecondary)
-			}
 			CLISettingsSection()
 		}
 		.formStyle(.grouped)

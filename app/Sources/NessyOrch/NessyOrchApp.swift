@@ -113,11 +113,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 			if case .online = model.store.daemon { return true }
 			return false
 		}
-		// мастер настройки открывается сам, только если без него не заработает (нет claude, Node.js или службы)
+		// первый запуск: мастер спрашивает про глобальную команду и скилл; дальше он открывается сам, только если без него не заработает
+		// (нет claude, Node.js или службы). Уже установленную глобальную копию скилла молча обновляем при смене версии приложения.
 		if UserDefaults.standard.string(forKey: "debug.terminalCommand") == nil {
+			let inst = SetupModel.skillInstaller()
+			if inst.state() == .outdated { try? inst.install() }
 			Task { @MainActor in
 				try? await Task.sleep(for: .seconds(3.5))
-				if await SetupModel.problemsExist() { model.setup.start() }
+				if SetupModel.firstRun { model.setup.start() }
+				else if await SetupModel.problemsExist() { model.setup.start() }
 			}
 		}
 		NSApp.setActivationPolicy(UserDefaults.standard.bool(forKey: "menuBarOnly") ? .accessory : .regular)
