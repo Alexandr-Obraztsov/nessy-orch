@@ -36,6 +36,11 @@ final class SessionWindowModel {
 	var panelHidden: Bool { columnVisibility == .detailOnly }
 	/// полноэкранный режим: шапка системная и прячется вместе с меню; терминалу нужен минимальный отступ
 	var isFullScreen = false
+	/// ширина боковой панели: тянется за правый край, запоминается для всех окон
+	var panelWidth: CGFloat = {
+		let v = UserDefaults.standard.double(forKey: "sidePanelWidth")
+		return v > 0 ? min(max(CGFloat(v), DS.Metrics.sidePanelWidth.min), DS.Metrics.sidePanelWidth.max) : DS.Metrics.sidePanelWidth.ideal
+	}()
 	/// центр светофора от верха окна: по нему подбирается высота шапки
 	var lightsCenter: CGFloat = 0
 	/// высота шапки: светофор, кнопка панели и «⋯» стоят на одной линии
@@ -163,23 +168,50 @@ private struct SessionWindowBody: View {
 	}
 }
 
-/// Своя боковая панель: колонка на всю высоту окна, чуть светлее терминала, справа тонкая линия. Светофор и кнопка панели лежат
-/// на её верхней строке — на одной поверхности, без стеклянных краёв. Ширина анимируется; содержимое не пересобирается по кадрам.
+/// Своя боковая панель: колонка на всю высоту окна того же тёмного тона, что терминал, справа тонкая линия. Ширину можно менять,
+/// потянув за правый край (двойной щелчок — вернуть обычную); светофор и кнопка панели лежат на её верхней строке.
 private struct SidePanel: View {
 	@Bindable var win: SessionWindowModel
+	@State private var dragStart: CGFloat?
+	@State private var hovering = false
 
 	var body: some View {
-		let w = DS.Metrics.sidePanelWidth.ideal
+		let w = win.panelWidth
 		AgentsPanel()
 			.padding(.top, win.barHeight)
 			.frame(width: w)
 			.background(DS.Palette.sidebarSurface)
-			.overlay(alignment: .trailing) { Rectangle().fill(DS.Palette.separator).frame(width: DS.Metrics.hairline) }
+			.overlay(alignment: .trailing) { Rectangle().fill(hovering || dragStart != nil ? DS.Palette.accent.opacity(0.7) : DS.Palette.separator).frame(width: dragStart != nil ? 2 : DS.Metrics.hairline) }
+			.overlay(alignment: .trailing) { handle }
 			.frame(width: win.panelHidden ? 0 : w, alignment: .leading)
 			.clipped()
 			.opacity(win.panelHidden ? 0 : 1)
 			.allowsHitTesting(!win.panelHidden)
 			.accessibilityHidden(win.panelHidden)
+	}
+
+	/// Полоса захвата у правого края: курсор «↔», перетаскивание меняет ширину в пределах min…max.
+	private var handle: some View {
+		Color.clear.frame(width: 9).contentShape(Rectangle())
+			.onHover { h in
+				hovering = h
+				if h { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+			}
+			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+				.onChanged { g in
+					if dragStart == nil { dragStart = win.panelWidth }
+					let m = DS.Metrics.sidePanelWidth
+					win.panelWidth = min(max((dragStart ?? m.ideal) + g.translation.width, m.min), m.max)
+				}
+				.onEnded { _ in
+					dragStart = nil
+					UserDefaults.standard.set(Double(win.panelWidth), forKey: "sidePanelWidth")
+				})
+			.onTapGesture(count: 2) {
+				win.panelWidth = DS.Metrics.sidePanelWidth.ideal
+				UserDefaults.standard.set(Double(win.panelWidth), forKey: "sidePanelWidth")
+			}
+			.help("Потяните, чтобы изменить ширину; двойной щелчок — по умолчанию")
 	}
 }
 

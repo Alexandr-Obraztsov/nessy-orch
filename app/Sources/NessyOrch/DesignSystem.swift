@@ -15,13 +15,13 @@ extension DS {
 		static let windowBackground = Color.ds(0xF2F2F4, 0x1B1B1D)
 		/// фон терминала и окна-терминала: один цвет (шапка, углы за панелью и терминал не выделяются)
 		/// колонка боковой панели: чуть светлее терминала
-		static let sidebarSurface = Color.ds(0xF3F3F5, 0x1A1A1D)
-		static let terminalBackground = Color.ds(0xFBFBFC, 0x141416)
-		static let surface = Color.ds(0xFFFFFF, 0x232325)
-		static let panel = Color.ds(0xFFFFFF, 0x2A2A2D)
+		static let sidebarSurface = Color.ds(0xF3F3F5, 0x1C1C1E)
+		static let terminalBackground = Color.ds(0xFBFBFC, 0x1C1C1E)
+		static let surface = Color.ds(0xFFFFFF, 0x262628)
+		static let panel = Color.ds(0xFFFFFF, 0x2C2C2F)
 		static let separator = Color.ds(0x000000, 0xFFFFFF, alpha: 0.10, hcAlpha: 0.28)
-		static let hover = Color.ds(0x000000, 0xFFFFFF, alpha: 0.045, hcAlpha: 0.08)
-		static let selection = Color.ds(0xE3EEFC, 0x1B3354)
+		static let hover = Color.ds(0x000000, 0xFFFFFF, alpha: 0.06, hcAlpha: 0.10)
+		static let selection = Color.ds(0xE3EEFC, 0x2A2E38)
 		static let textPrimary = Color.ds(0x1D1D1F, 0xF2F2F4, hc: (0x000000, 0xFFFFFF))
 		static let textSecondary = Color.ds(0x5F5F66, 0xA3A3AA, hc: (0x3A3A3F, 0xD0D0D5))
 		static let textTertiary = Color.ds(0x86868C, 0x76767C, hc: (0x5F5F66, 0xA3A3AA))
@@ -92,7 +92,7 @@ extension DS {
 		/// окно агента: screens.md §2 (400, 360…480) — под окно 900×600
 		static let agentPanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (360, 400, 480)
 		/// левая панель агентов (layout-v2.md, итог): 300…440, по умолчанию 340
-		static let sidePanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (300, 340, 440)
+		static let sidePanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 300, 520)
 		static let panelInset: CGFloat = 8
 		static let panelRadius: CGFloat = 22
 		/// круглые кнопки: 36 — везде, 40 — в тулбаре; иконка 16–17 pt (layout-v2.md, «Кнопки»)
