@@ -516,6 +516,8 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 	if (req.method === 'POST' && url.pathname === '/session') {
 		const b = await readJson(req)
 		if (typeof b['cwd'] === 'string' && b['cwd'] !== workspace) return json(res, 400, { code: 'workspace_mismatch', error: 'workspace mismatch' })
+		const delay = Number(process.env['FAKE_NESSY_SESSION_DELAY_MS'] ?? 0)
+		if (delay > 0) await new Promise(r => setTimeout(r, delay)) // имитация долгого создания сессии (загрузка MCP)
 		const s: Session = { id: randomUUID(), seq: 0, ring: [], subs: new Set(), turn: null, named: false, tokens: { input: 0, output: 0, cached: 0 } }
 		sessions.set(s.id, s)
 		return json(res, 200, { sessionId: s.id, workspaceCwd: workspace, attached: false, clientId: randomUUID(), createdAt: new Date().toISOString() })

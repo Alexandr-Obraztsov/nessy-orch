@@ -1,5 +1,5 @@
 /** Маршруты агентов. */
-import { parseApprove, parsePlanRequest, parseSendRequest, parseSpawnRequest } from '../parsers'
+import { parseApprove, parsePlanRequest, parseSendRequest, parseSpawnBatch, parseSpawnRequest } from '../parsers'
 import { queryNum, readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -8,6 +8,10 @@ export function registerAgentRoutes(r: Router): void {
 	r.add('POST', '/agents', async ({ req, res, orch }) => {
 		const body = await readBody(req)
 		sendJson(res, 201, await orch.spawn(parseSpawnRequest(body)))
+	})
+	r.add('POST', '/agents/batch', async ({ req, res, orch }) => {
+		const body = await readBody(req)
+		sendJson(res, 201, await orch.spawnMany(parseSpawnBatch(body)))
 	})
 	r.add('GET', '/agents/:ref', ({ res, orch, params }) => sendJson(res, 200, orch.getAgent(params['ref'] ?? '')))
 	r.add('DELETE', '/agents/:ref', async ({ res, orch, params }) => {

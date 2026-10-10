@@ -3,7 +3,9 @@
  * реализует AgentHost и отдаёт интерфейсному слою (HTTP) готовые сценарии.
  */
 import type {
+	AgentBrief,
 	AgentEvent,
+	ClaudeState,
 	AgentView,
 	GraphView,
 	InboxResponse,
@@ -14,12 +16,15 @@ import type {
 	SendResponse,
 	SpaceRequest,
 	SpaceView,
+	SpawnBatchRequest,
+	SpawnBatchResponse,
 	SpawnRequest,
 	SpawnResponse,
 	StatusResponse,
 	StreamEvent,
 	SessionPatch,
 	SessionRequest,
+	SessionUpdates,
 	SessionStatus,
 	SessionView,
 	SourceView,
@@ -35,6 +40,7 @@ import type { OrchestratorDeps } from './orchestrator.types'
 import type { PersistedState } from './persisted.types'
 import type { SpaceRuntime, StorePort } from './ports'
 import { Registry } from './registry'
+import { SessionPool } from './session-pool'
 import { AgentsService } from './services/agents.service'
 import type { ServiceContext } from './services/context.types'
 import { MessagingService } from './services/messaging.service'
@@ -49,6 +55,7 @@ const DEFAULT_CANCEL_GRACE_MS = 3000
 export class Orchestrator implements AgentHost {
 	readonly hub = new Hub()
 	readonly registry = new Registry()
+	private readonly pool: SessionPool
 	readonly store: StorePort
 	readonly feed: Feed
 	readonly startedAt: number
@@ -75,8 +82,15 @@ export class Orchestrator implements AgentHost {
 			onChange: () => this.saveSoon(),
 			sessionOf: id => this.registry.agents.get(id)?.session ?? null,
 		})
+		this.pool = new SessionPool({
+			target: () => deps.settings.warmSessions ?? 0,
+			getSpace: name => this.registry.getSpace(name),
+			now: () => clock.now(),
+			isShuttingDown: () => this.shuttingDown,
+		})
 		this.ctx = {
 			registry: this.registry,
+			pool: this.pool,
 			feed: this.feed,
 			hub: this.hub,
 			store: deps.store,
@@ -131,6 +145,8 @@ export class Orchestrator implements AgentHost {
 	 */
 	start(): void {
 		for (const a of this.registry.agents.values()) a.resumeQueue()
+		// пространства, где уже есть агенты, прогреваем сразу: serve и заготовки сессий будут готовы к первому spawn
+		for (const name of new Set([...this.registry.agents.values()].map(a => a.space))) this.pool.warm(name)
 	}
 
 	/** Синхронно погасить все свои nessy serve (обработчик process 'exit'). */
@@ -154,6 +170,7 @@ export class Orchestrator implements AgentHost {
 
 	async shutdown(): Promise<void> {
 		this.shuttingDown = true
+		await this.pool.closeAll()
 		for (const a of this.registry.agents.values()) a.detach()
 		this.feed.close()
 		this.store.saveStateSoon(() => this.persistState())
@@ -180,6 +197,10 @@ export class Orchestrator implements AgentHost {
 		return this.messaging.onTurnDone(agent, msg, text, outcome)
 	}
 
+	takeWarmSession(space: string): string | null {
+		return this.pool.take(space)
+	}
+
 	onToolUrls(agent: AgentIdentity, urls: readonly string[]): void {
 		this.sourcesSvc.addFromTool(agent.id, urls)
 	}
@@ -204,6 +225,10 @@ export class Orchestrator implements AgentHost {
 
 	spawn(req: SpawnRequest): Promise<SpawnResponse> {
 		return this.agentsSvc.spawn(req)
+	}
+
+	spawnMany(req: SpawnBatchRequest): Promise<SpawnBatchResponse> {
+		return this.agentsSvc.spawnMany(req)
 	}
 
 	removeAgent(ref: string): Promise<void> {
@@ -317,6 +342,36 @@ export class Orchestrator implements AgentHost {
 	}
 
 	/** Входящие для you; с session — только ответы агентов сессии, со своим курсором (неизвестная → 404 no_session). */
+	/** Состояние Claude Code сессии по хуку (`POST /sessions/:id/ping`). */
+	pingSession(id: string, state: ClaudeState): SessionView {
+		return this.sessionsSvc.ping(id, state)
+	}
+
+	/**
+	 * Что нового для Claude (хуки): краткая сводка агентов сессии и новые ответы. consume=true сдвигает тот же курсор, что и
+	 * `inbox --session` — ответ доставляется Claude один раз, либо хуком, либо inbox.
+	 */
+	async sessionUpdates(id: string, consume: boolean): Promise<SessionUpdates> {
+		const session = this.sessionsSvc.resolve(id).id
+		const agents: AgentBrief[] = [...this.registry.agents.values()]
+			.filter(a => a.session === session)
+			.map(a => {
+				const v = a.toJSON()
+				const entries = v.plan?.entries ?? []
+				return {
+					id: v.id,
+					name: v.name,
+					role: v.role,
+					status: v.status,
+					archived: v.archived,
+					lastTool: v.lastTool ? (v.lastTool.title || v.lastTool.name).slice(0, 80) : null,
+					plan: entries.length ? { done: entries.filter(e => e.status === 'completed').length, total: entries.length } : null,
+				}
+			})
+		const { messages } = await this.feed.inbox({ session, peek: !consume })
+		return { agents, replies: messages }
+	}
+
 	async inbox(opts: InboxQuery = {}): Promise<InboxResponse> {
 		if (opts.session !== undefined) return this.feed.inbox({ ...opts, session: this.sessionsSvc.resolve(opts.session).id })
 		return this.feed.inbox(opts)

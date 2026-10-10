@@ -274,7 +274,8 @@ export class Agent implements AgentIdentity {
 		const resumed = prev !== null && (await client.resumeSession(prev, space.path))
 		if (!resumed) {
 			const hadSession = this.nessyId !== null
-			const { sessionId } = await client.createSession(space.path)
+			// сначала заготовка из пула: создание сессии nessy — самая долгая часть запуска агента
+			const sessionId = this.deps.host.takeWarmSession(this.space) ?? (await client.createSession(space.path)).sessionId
 			this.nessyId = sessionId
 			this.lastEventId = null
 			this.introduced = false // новый контекст — снова представиться

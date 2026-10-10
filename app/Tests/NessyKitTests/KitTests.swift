@@ -353,21 +353,21 @@ struct SessionLogicTests {
 		var a = try agent("a-1", status: "working")
 		#expect(a.stageLine == nil)
 		a.plan = AgentPlan(entries: [.init(content: "прочитать", status: .completed), .init(content: "починить", status: .inProgress), .init(content: "запушить", status: .pending)], updatedAt: "", source: "cli")
-		#expect(a.stageLine == "Шаг 2 из 3 · починить")
+		#expect(a.stageLine == "починить", "сырой текст пункта без «Шаг N из M»")
+		#expect(a.lastDoneText == "прочитать")
 		a.plan = AgentPlan(entries: [.init(content: "прочитать", status: .completed), .init(content: "починить", status: .pending)], updatedAt: "", source: "cli")
-		#expect(a.stageLine == "Шаг 2 из 2 · починить", "нет in_progress — первый pending")
+		#expect(a.stageLine == "починить", "нет in_progress — первый pending")
 	}
 
 	@Test func planDoneWhileWorkingShowsCurrentTool() throws {
 		var a = try agent("a-1", status: "working")
 		a.plan = AgentPlan(entries: [.init(content: "x", status: .completed), .init(content: "y", status: .completed)], updatedAt: "", source: "cli")
 		a.lastTool = ToolBrief(name: "run_shell_command", title: "Shell: git push origin fix/x")
-		#expect(a.stageLine == "План выполнен · завершает: git push origin fix/x")
-		#expect(!(a.stageLine ?? "").contains("Все шаги"), "пока агент работает — не «все шаги выполнены»")
+		#expect(a.stageLine == "git push origin fix/x", "план кончился, агент ещё работает — сырая команда")
 		let now = a.lastActivity!.addingTimeInterval(2)
 		#expect(a.stage(now: now)?.kind == .planDone)
 		a.status = .idle
-		#expect(a.stageLine == "План выполнен · 2 из 2")
+		#expect(a.stageLine == "y", "готов — последняя выполненная задача")
 		#expect(a.stage(now: now) == nil)
 	}
 
@@ -375,12 +375,12 @@ struct SessionLogicTests {
 		var a = try agent("a-1", status: "working")
 		a.lastTool = ToolBrief(name: "read_file", title: "ReadFile: src/net/retry.ts")
 		let t0 = a.lastActivity!
-		#expect(a.stage(now: t0.addingTimeInterval(2))?.text == "Читает retry.ts")
-		#expect(a.stage(now: t0.addingTimeInterval(12))?.text == "Читает retry.ts · 12 с")
-		let quiet = a.stage(now: t0.addingTimeInterval(65))
-		#expect(quiet?.kind == .silent && quiet?.text == "Нет новостей 1:05 · последнее: прочитал retry.ts")
+		#expect(a.stage(now: t0.addingTimeInterval(2))?.text.hasSuffix("src/net/retry.ts") == true, "инструмент с аргументом как есть")
+		#expect(a.stage(now: t0.addingTimeInterval(65))?.text == a.stage(now: t0)?.text, "без «Нет новостей …»: тишина текстом не объясняется")
 		a.lastTool = ToolBrief(name: "run_shell_command", title: "Shell: npm test")
-		#expect(a.stage(now: t0)?.text == "Запускает команду · npm test")
+		#expect(a.stage(now: t0)?.text == "npm test", "команда как есть, без «Запускает команду»")
+		a.lastTool = nil
+		#expect(a.stage(now: t0)?.text == "", "команды ещё не было — пусто, не «Думает»")
 	}
 
 	@Test func stalePlanYieldsToTool() throws {
@@ -388,7 +388,7 @@ struct SessionLogicTests {
 		a.plan = AgentPlan(entries: [.init(content: "x", status: .inProgress)], updatedAt: "2026-10-10T09:50:00Z", source: "cli")
 		a.lastTool = ToolBrief(name: "grep", title: "Grep: maxDelay")
 		let s = a.stage(now: a.lastActivity!.addingTimeInterval(1))
-		#expect(s?.kind == .tool && s?.text == "Ищет в коде · maxDelay", "шаг не менялся > 3 мин — показываем инструмент")
+		#expect(s?.text == "Grep maxDelay", "строка — только последняя команда")
 	}
 
 	@Test func groupsAndSummaryAgree() throws {
@@ -457,8 +457,10 @@ struct DialogTests {
 		#expect(b?["from"] as? String == "you")
 		#expect(b?["interrupt"] as? Bool == true)
 		let r = try JSONSerialization.jsonObject(with: JSONEncoder().encode(RoleBody(name: "A", description: "", instructions: "x"))) as? [String: Any]
-		#expect(r?["color"] == nil)
+		#expect(r?["color"] == nil && r?["icon"] == nil, "не переданные поля остаются прежними")
 		#expect(r?["name"] as? String == "A")
+		let r2 = try JSONSerialization.jsonObject(with: JSONEncoder().encode(RoleBody(name: "A", description: "", instructions: "x", color: 215, icon: ""))) as? [String: Any]
+		#expect(r2?["color"] as? Double == 215 && r2?["icon"] as? String == "", "пустая иконка — убрать")
 	}
 
 	@Test func roleDraftAndUsage() throws {
@@ -470,6 +472,11 @@ struct DialogTests {
 		d.instructions = "мягко"
 		#expect(d.isChanged(from: role))
 		#expect(RoleDraft().isChanged(from: nil) == false)
+		var g = SystemRandomNumberGenerator()
+		let fresh = RoleDraft.fresh(using: &g)
+		#expect(RolePalette.hues.contains(fresh.color) && RolePalette.icons.contains(fresh.icon))
+		#expect(!fresh.isChanged(from: nil), "случайные цвет и иконка не делают новую роль изменённой")
+		#expect(role.icon == nil && RoleDraft(role).icon == RolePalette.defaultIcon, "старая роль без иконки — иконка по умолчанию")
 		#expect(!RoleDraft().isValid && RoleDraft(role).isValid)
 		let a = try decodeAgent(agentJSON().replacingOccurrences(of: #""role":null"#, with: #""role":"ревьюер""#))
 		let b = try decodeAgent(agentJSON(id: "a-2"))
@@ -479,5 +486,61 @@ struct DialogTests {
 	@Test func finishedStates() throws {
 		#expect(try decodeAgent(agentJSON(status: "idle")).isFinished)
 		#expect(try !decodeAgent(agentJSON(status: "working")).isFinished)
+	}
+}
+
+@Suite("Установка CLI из приложения")
+struct CLIInstallerTests {
+	func sandbox() throws -> (CLIInstaller, URL) {
+		let root = FileManager.default.temporaryDirectory.appendingPathComponent("cli-\(UUID().uuidString)")
+		let bundle = root.appendingPathComponent("App/Resources/orch")
+		try FileManager.default.createDirectory(at: bundle.appendingPathComponent("bin"), withIntermediateDirectories: true)
+		try FileManager.default.createDirectory(at: bundle.appendingPathComponent("dist/src"), withIntermediateDirectories: true)
+		FileManager.default.createFile(atPath: bundle.appendingPathComponent("bin/nessy-orch").path, contents: Data("#!/usr/bin/env node\n".utf8))
+		let home = root.appendingPathComponent("home")
+		try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+		return (CLIInstaller(bundleRoot: bundle, home: home), root)
+	}
+
+	@Test func installsSymlinkAndIsIdempotent() throws {
+		let (cli, root) = try sandbox()
+		defer { try? FileManager.default.removeItem(at: root) }
+		#expect(cli.state() == .missing)
+		try cli.install()
+		#expect(cli.state() == .installed)
+		try cli.install() // повторно — без ошибок
+		#expect(cli.state() == .installed)
+		#expect(try FileManager.default.destinationOfSymbolicLink(atPath: cli.link.path) == cli.script?.path)
+	}
+
+	@Test func staleLinkIsRepointedButRealFileIsKept() throws {
+		let (cli, root) = try sandbox()
+		defer { try? FileManager.default.removeItem(at: root) }
+		try FileManager.default.createDirectory(at: cli.linkDirectory, withIntermediateDirectories: true)
+		try FileManager.default.createSymbolicLink(atPath: cli.link.path, withDestinationPath: "/old/place/bin/nessy-orch")
+		#expect(cli.state() == .stale("/old/place/bin/nessy-orch"))
+		try cli.install()
+		#expect(cli.state() == .installed)
+
+		try FileManager.default.removeItem(at: cli.link)
+		FileManager.default.createFile(atPath: cli.link.path, contents: Data("свой скрипт".utf8))
+		#expect(cli.state() == .conflict)
+		#expect(throws: CLIInstaller.InstallError.self) { try cli.install() }
+		#expect(FileManager.default.contents(atPath: cli.link.path) == Data("свой скрипт".utf8), "чужой файл не тронут")
+	}
+
+	@Test func notBundledAndServiceMatch() throws {
+		let none = CLIInstaller(bundleRoot: nil, home: FileManager.default.temporaryDirectory)
+		#expect(none.state() == .notBundled)
+		#expect(throws: CLIInstaller.InstallError.self) { try none.install() }
+
+		let (cli, root) = try sandbox()
+		defer { try? FileManager.default.removeItem(at: root) }
+		#expect(cli.serviceMatchesBundle() == nil, "службы нет")
+		try FileManager.default.createDirectory(at: cli.plist.deletingLastPathComponent(), withIntermediateDirectories: true)
+		try "<string>exec node '\(cli.daemonMain?.path ?? "")'</string>".write(to: cli.plist, atomically: true, encoding: .utf8)
+		#expect(cli.serviceMatchesBundle() == true)
+		try "<string>exec node '/old/dist/src/main.js'</string>".write(to: cli.plist, atomically: true, encoding: .utf8)
+		#expect(cli.serviceMatchesBundle() == false, "служба смотрит на старый путь — надо переустановить")
 	}
 }

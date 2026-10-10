@@ -43,6 +43,7 @@ API-сегменты (первые сегменты маршрутов): `health
 |---|---|---|---|
 | GET | `/agents?session=<id>` | — | `AgentView[]` (включая архивных — фильтрует клиент по `archived`); `session` — только агенты сессии, неизвестная → `404 no_session` |
 | POST | `/agents` | `SpawnRequest` | `201 SpawnResponse`. `session` — id сессии (`404 no_session`); без него агент получает сессию родителя (`parent`/`from`-агента) или `null` |
+| POST | `/agents/batch` | `SpawnBatchRequest {agents[], space?, cwd?, session?, from?}` (до 20 агентов; общие поля применяются к каждому) | `201 {results[]}`: на каждого `{ok:true, agent, message?}` или `{ok:false, error, code, name?}` — ошибка одного не мешает остальным; `wait` не поддерживается |
 | GET | `/agents/:ref` | — | `AgentView` |
 | DELETE | `/agents/:ref` | — | `{ok:true}` (отмена хода, закрытие сессии, архив истории) |
 | POST | `/agents/:ref/send` | `SendRequest` | `SendResponse` |
@@ -54,6 +55,8 @@ API-сегменты (первые сегменты маршрутов): `health
 | POST | `/sessions` | `SessionRequest {title, owner?, id?}` | `201 SessionView`; id по умолчанию — slug заголовка (кириллица транслитерируется, пусто → `session`) + `-` + 4 hex; занятый явный id → `409 session_exists` |
 | GET | `/sessions/:id` | — | `SessionView` или `404 no_session` |
 | PATCH | `/sessions/:id` | `SessionPatch {title?, status?, summary?}` | `SessionView` (`updatedAt` обновляется); `status: done` ставит оркестратор или человек из приложения |
+| GET | `/sessions/:id/updates?consume=1` | — | `SessionUpdates {agents: AgentBrief[], replies: Message[]}`: краткая сводка агентов сессии и новые ответы; `consume=1` сдвигает ТОТ ЖЕ курсор, что `inbox --session` (ответ доставляется один раз). Для хуков Claude Code |
+| POST | `/sessions/:id/ping` | `{state: working\|idle\|ended}` | `SessionView` с `claude: {state, at}` — состояние Claude Code по хуку (в памяти, не сохраняется) |
 | DELETE | `/sessions/:id` | — | `{ok:true}`; в сессии работают агенты (ход или очередь) → `409 session_busy`; агенты сессии остаются с `session:null`, курсор inbox и источники сессии забываются |
 | GET | `/sessions/:id/sources` | — | `SourceView[]` по порядку появления: ссылки из итоговых ответов агентов («Источники») и из входа их вызовов инструментов, без дублей; `404 no_session` |
 | POST | `/agents/:ref/plan` | `PlanRequest {from?, entries:[{content, status}]}` | `AgentView` с новым планом (заменяет прежний целиком). Неверные записи → `400 bad_plan`; `from` указан и ≠ id агента → `403 forbidden` |
@@ -108,7 +111,8 @@ API-сегменты (первые сегменты маршрутов): `health
 ### SpawnRequest
 
 ```jsonc
-{ "space": "main",        // имя ИЛИ абсолютный путь (неизвестный путь создаёт space); можно опустить, если space один (иначе 400 space_required)
+{ "cwd": "/abs/dir",     // каталог вызывающего (CLI шлёт свой): пространство, если space не указан и пространств не одно
+  "space": "main",        // имя ИЛИ абсолютный путь (неизвестный путь создаёт space); можно опустить, если space один (иначе 400 space_required)
   "name": "reviewer",     // опционально, уникально; иначе = id (с ролью — id роли: reviewer, reviewer-2, …)
   "role": "reviewer",     // опционально: id или имя роли (без учёта регистра); неизвестная → 404 no_role
   "prompt": "задача",     // опционально: если задан — отправляется сразу
@@ -155,6 +159,7 @@ API-сегменты (первые сегменты маршрутов): `health
   "instructions": "…markdown…", // обязательно, ≤ 20000 символов
   "description": "одна строка",  // опционально
   "color": 210,                  // опционально, hue 0..360; по умолчанию — из хеша имени
+  "icon": "eye",                 // опционально: имя SF Symbols ([a-z0-9.-], ≤ 40); "" — убрать; при PUT без поля — прежняя
   "id": "reviewer" }             // опционально, только при создании: [a-z0-9-], ≤ 40; по умолчанию — из имени (кириллица транслитерируется: «Ревьюер» → revyuer)
 ```
 

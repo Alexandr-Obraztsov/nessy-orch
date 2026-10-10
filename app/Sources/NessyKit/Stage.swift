@@ -64,40 +64,41 @@ public extension AgentView {
 		return e.firstIndex { $0.status == .inProgress } ?? e.firstIndex { $0.status == .pending }
 	}
 
-	/// Где агент по плану, без учёта времени. Пока агент работает, «все шаги выполнены» не пишем — показываем, чем он завершает.
-	var stageLine: String? {
-		guard let p = plan, !p.entries.isEmpty else { return nil }
-		if let i = currentStepIndex { return "Шаг \(i + 1) из \(p.entries.count) · \(p.entries[i].content)" }
-		if status == .working || status == .starting {
-			if let t = toolPhrase { return "План выполнен · завершает: \(t.short.isEmpty ? t.present.lowercased() : t.short)" }
-			return "План выполнен · завершает работу"
-		}
-		return "План выполнен · \(p.entries.count) из \(p.entries.count)"
+	/// Сырой текст текущего пункта плана (без «Шаг N из M»); nil — плана нет или все пункты выполнены.
+	var currentPlanText: String? {
+		guard let p = plan, let i = currentStepIndex else { return nil }
+		return p.entries[i].content
 	}
 
-	/// Этап работающего агента с учётом тишины и устаревшего плана; nil — агент не работает.
-	func stage(now: Date, silenceAfter: TimeInterval = 60, planStaleAfter: TimeInterval = 180) -> AgentStage? {
-		if status == .starting { return AgentStage(kind: .starting, text: "Запускается", steps: []) }
+	/// Последняя выполненная задача как есть: последний завершённый пункт плана, иначе (пока агент работает) последний инструмент.
+	var lastDoneText: String? {
+		if let e = plan?.entries.last(where: { $0.status == .completed }) { return e.content }
+		return nil
+	}
+
+	/// Последняя команда или инструмент как есть: «npm test», «Read src/net/retry.ts»; nil — ещё ничего не запускал.
+	var toolText: String? {
+		guard let t = lastTool else { return nil }
+		let v = ToolNames.view(name: t.name, title: t.title, input: [:])
+		if v.name == "Bash" { return v.arg.isEmpty ? nil : v.arg }
+		return v.arg.isEmpty ? v.name : v.name + " " + v.arg
+	}
+
+	/// Что агент делает сейчас, сырым текстом: текущий пункт плана, иначе (план кончился или его нет) последняя команда.
+	var stageLine: String? {
+		if let t = currentPlanText { return t }
+		if status == .working || status == .starting { return toolText }
+		return lastDoneText
+	}
+
+	/// Этап работающего агента: текст — только последняя команда как есть (пусто, пока команд не было), без пояснений
+	/// и времени тишины. Статусы шагов — для сегментов прогресса. nil — агент не работает.
+	func stage(now: Date) -> AgentStage? {
+		if status == .starting { return AgentStage(kind: .starting, text: "", steps: []) }
 		guard status == .working else { return nil }
-		let last = lastActivity ?? now
-		let quiet = now.timeIntervalSince(last)
-		let tool = toolPhrase
-		if quiet > silenceAfter {
-			let head = "Нет новостей \(Durations.clock(quiet * 1000))"
-			return AgentStage(kind: .silent, text: tool.map { "\(head) · последнее: \($0.past)" } ?? head, steps: [])
-		}
-		let toolStage: AgentStage = {
-			let secs = Int(quiet)
-			let base = tool?.present ?? "Думает"
-			return AgentStage(kind: .tool, text: secs >= 5 ? "\(base) · \(secs) с" : base, steps: [])
-		}()
-		guard let p = plan, !p.entries.isEmpty else { return toolStage }
-		guard let i = currentStepIndex else {
-			return AgentStage(kind: .planDone, text: stageLine ?? "План выполнен", steps: p.entries.map(\.status))
-		}
-		// шаг не менялся > 3 мин, а инструменты идут — план устарел, правда у инструмента
-		if let upd = ISO.parse(p.updatedAt), now.timeIntervalSince(upd) > planStaleAfter, last > upd { return toolStage }
-		return AgentStage(kind: .step, text: "Шаг \(i + 1) из \(p.entries.count) · \(p.entries[i].content)", steps: p.entries.map(\.status))
+		let text = toolText ?? ""
+		guard let p = plan, !p.entries.isEmpty else { return AgentStage(kind: .tool, text: text, steps: []) }
+		return AgentStage(kind: currentStepIndex == nil ? .planDone : .step, text: text, steps: p.entries.map(\.status))
 	}
 }
 

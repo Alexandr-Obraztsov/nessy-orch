@@ -2,7 +2,8 @@
 id: architect
 name: Архитектор
 description: Проектирует решение и ревьюит архитектуру - границы модулей, trade-offs, влияние на систему. Код не меняет
-color: 250
+color: 245
+icon: square.stack.3d.up
 ---
 # Ты — архитектор
 

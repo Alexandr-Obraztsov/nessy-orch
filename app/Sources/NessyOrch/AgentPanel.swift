@@ -1,16 +1,22 @@
 import SwiftUI
 import NessyKit
 
-/// Где показано окно агента: плавающая стеклянная панель справа, на весь контент (узкое окно) или отдельное окно macOS.
-enum PanelMode { case floating, full, window }
+/// Где показана карточка агента: внутри правой панели (стекло даёт инспектор) или отдельным окном macOS.
+enum PanelMode { case embedded, window }
 
-/// Окно агента без вкладок: шапка → цель → план → (запрос прав) → чат или итог → поле ввода.
-/// Тянется на всю высоту; поверхность — Liquid Glass, как у сайдбара.
+/// Окно агента без вкладок. Под всем — одна область чата (или итога) на всю высоту панели.
+/// Поверх неё парят карточки: сверху шапка, «Цель», «План»; снизу поле ввода. Чат прокручивается под ними
+/// (contentMargins не прячут первые и последние сообщения). Раскрытые «Цель» и «План» ложатся поверх чата,
+/// не сдвигая его: отступ чата берётся по свёрнутым карточкам.
 struct AgentPanel: View {
 	@Environment(AppModel.self) private var model
 	var agentId: String
-	var mode: PanelMode = .floating
+	var mode: PanelMode = .embedded
 	@State private var chat: ChatModel?
+	@State private var goalOpen = false
+	@State private var planOpen = false
+	/// высота верхних карточек в свёрнутом виде и высота поля ввода — отступы области чата
+	@State private var topH: CGFloat = 0
 
 	private var agent: AgentView? { model.store.agents[agentId] }
 
@@ -18,25 +24,34 @@ struct AgentPanel: View {
 		GeometryReader { geo in
 			Group {
 				if let a = agent {
-					VStack(spacing: 0) {
-						PanelHeader(agent: a, mode: mode)
-						// закреплённый верх: цель, план, запрос прав; не выше половины окна, дальше прокручивается
-						ViewThatFits(in: .vertical) {
-							pinned(a)
-							ScrollView { pinned(a) }.scrollEdgeEffectStyle(.soft, for: .bottom)
+					let goal = goalText(a)
+					// чат — на всю панель; карточки сверху и снизу — safeAreaBar: система сама отодвигает прокрутку
+					// и гасит/размывает чат у их краёв (scrollEdgeEffectStyle .soft). Раскрытые карточки выступают за
+					// свёрнутую высоту и ложатся поверх чата, не сдвигая его.
+					Group {
+						if a.isFinished {
+							ResultContent(agent: a, chat: chat)
+						} else {
+							ChatContent(agent: a, chat: chat, goal: goal)
 						}
-						.frame(maxHeight: geo.size.height * 0.5, alignment: .top)
-						DSSeparator()
-						ZStack {
-							if a.isFinished {
-								ResultContent(agent: a, chat: chat)
-							} else {
-								ChatContent(agent: a, chat: chat, goal: goalText(a))
-							}
+					}
+					.frame(maxWidth: .infinity, maxHeight: .infinity)
+					.animation(DS.Motion.fade, value: a.isFinished)
+					.safeAreaBar(edge: .top, spacing: 0) {
+						VStack(spacing: DS.Metrics.s2) {
+							AgentHeaderCard(agent: a, mode: mode, goal: goal, expanded: $goalOpen, cap: geo.size.height * 0.3)
+							PlanBlock(agent: a, expanded: $planOpen, cap: geo.size.height * 0.3)
 						}
-						.frame(maxWidth: .infinity, maxHeight: .infinity)
-						.animation(DS.Motion.fade, value: a.isFinished)
-						AgentComposer(agent: a)
+						.padding(.horizontal, DS.Metrics.s3).padding(.top, DS.Metrics.s3).padding(.bottom, DS.Metrics.s2)
+						.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
+							if !goalOpen, !planOpen { topH = h }
+						}
+						.fixedSize(horizontal: false, vertical: true)
+						.frame(height: (goalOpen || planOpen) && topH > 0 ? topH : nil, alignment: .top)
+						.zIndex(1)
+					}
+					.safeAreaBar(edge: .bottom, spacing: 0) {
+						AgentComposer(agent: a, onEscape: collapseCards)
 					}
 					.id(a.id)
 					.transition(.opacity)
@@ -49,6 +64,8 @@ struct AgentPanel: View {
 		.animation(DS.Motion.fade, value: agentId)
 		.modifier(PanelSurface(mode: mode))
 		.task(id: agentId) {
+			// для снимков: `-debug.goalOpen YES`, `-debug.planOpen YES` открывают карточки сразу
+			goalOpen = UserDefaults.standard.bool(forKey: "debug.goalOpen"); planOpen = UserDefaults.standard.bool(forKey: "debug.planOpen")
 			chat?.stop()
 			let c = ChatModel(ref: agentId)
 			c.start(client: model.store.client)
@@ -58,16 +75,11 @@ struct AgentPanel: View {
 		.onChange(of: agent?.lastReply?.msgId) { _, _ in if let a = agent { model.store.markSeen(agent: a) } }
 	}
 
-	@ViewBuilder private func pinned(_ a: AgentView) -> some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
-			if !goalText(a).isEmpty { GoalBlock(text: goalText(a)).id(a.id) }
-			PlanBlock(agent: a)
-			ForEach(Array(a.pendingPermissions.enumerated()), id: \.element.id) { i, p in
-				DecisionBlock(agent: a, permission: p, prominent: i == 0)
-			}
-		}
-		.padding(.horizontal, DS.Metrics.s4).padding(.bottom, DS.Metrics.s3)
-		.frame(maxWidth: .infinity, alignment: .leading)
+	/// Esc из поля ввода: сначала сворачивает раскрытые карточки; true — было что сворачивать.
+	private func collapseCards() -> Bool {
+		guard goalOpen || planOpen else { return false }
+		withAnimation(dsAnimation(DS.Motion.disclosure)) { goalOpen = false; planOpen = false }
+		return true
 	}
 
 	/// Поручение: текст первого сообщения агенту.
@@ -83,52 +95,164 @@ private struct PanelSurface: ViewModifier {
 	func body(content: Content) -> some View {
 		switch mode {
 		case .window: content.background(DS.Palette.panel)
-		case .floating, .full: content.dsGlassPanel()
+		case .embedded: content
 		}
 	}
 }
 
-/// Шапка: имя, мелко состояние и таймер; справа компактные «остановить», «в окно», «закрыть».
-struct PanelHeader: View {
-	@Environment(AppModel.self) private var model
-	var agent: AgentView
-	var mode: PanelMode
+/// Карточка-блок шапки агента: заголовок (слово · справа деталь и шеврон) + содержимое. Вся карточка нажимается.
+/// Свёрнутая — заголовок и одна строка; раскрытая — то же, но содержимое целиком.
+struct InfoCard<Trailing: View, Content: View>: View {
+	var title: String
+	@Binding var expanded: Bool
+	var help: String
+	var cap: CGFloat
+	@ViewBuilder var trailing: Trailing
+	@ViewBuilder var content: Content
 
 	var body: some View {
-		HStack(alignment: .top, spacing: DS.Metrics.s3) {
-			DSStateGlyph(state: agent.ds, size: DS.Metrics.glyphHeader).padding(.top, 2)
+		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+			HStack(spacing: DS.Metrics.s2) {
+				Text(title).font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.textSecondary)
+				Spacer(minLength: DS.Metrics.s2)
+				trailing
+				Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold))
+					.foregroundStyle(DS.Palette.textTertiary)
+					.rotationEffect(.degrees(expanded ? 90 : 0))
+			}
+			if expanded {
+				// раскрытое содержимое прокручивается внутри карточки; выше 30 % панели не растёт
+				ScrollView { content.frame(maxWidth: .infinity, alignment: .leading) }
+					.scrollBounceBehavior(.basedOnSize)
+					.frame(maxHeight: cap)
+					.fixedSize(horizontal: false, vertical: true)
+			} else {
+				content
+			}
+		}
+		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
+		.frame(maxWidth: .infinity, alignment: .leading)
+		.dsFloatingCard()
+		.contentShape(RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous))
+		.onTapGesture { withAnimation(dsAnimation(DS.Motion.disclosure)) { expanded.toggle() } }
+		.help(help)
+	}
+}
+
+/// Верхний блок панели: шапка и «Агент» — одна карточка. Свёрнутая — глиф состояния, имя, значок роли, ниже «состояние · таймер»;
+/// справа «⋯» и «×». Нажатие раскрывает роль и цель (3 строки, дальше «Ещё»); раскрытое ложится поверх чата.
+struct AgentHeaderCard: View {
+	@Environment(AppModel.self) private var model
+	@Environment(\.sessionWindow) private var win
+	var agent: AgentView
+	var mode: PanelMode
+	var goal: String
+	@Binding var expanded: Bool
+	var cap: CGFloat
+	@State private var full = false
+	@State private var fullH: CGFloat = 0
+	@State private var shownH: CGFloat = 0
+
+	private var text: String {
+		var t = goal
+		if t.lowercased().hasPrefix("цель:") { t = String(t.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines) }
+		return t
+	}
+	private var role: (name: String, icon: String?, hue: Double, description: String)? { model.roleInfo(of: agent) }
+	private var expandable: Bool { role != nil || !text.isEmpty }
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 			VStack(alignment: .leading, spacing: 2) {
-				Text(agent.name).font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
-				subtitle
+				HStack(spacing: DS.Metrics.s3) {
+					DSStateGlyph(state: agent.ds, size: DS.Metrics.glyphHeader)
+					Text(agent.name).font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary).lineLimit(1).layoutPriority(1)
+					if let r = role { RoleIconTile(icon: r.icon, hue: r.hue, size: 20).help(r.name) }
+					Spacer(minLength: DS.Metrics.s2)
+					// справа вверху: круглые стеклянные «⋯» и «×» (36 pt)
+					GlassEffectContainer(spacing: DS.Metrics.s2) {
+						HStack(spacing: DS.Metrics.s2) {
+							if agent.canStop || mode != .window {
+								GlassIconMenu(systemImage: "ellipsis", help: "Действия с агентом") {
+									if agent.canStop { Button("Остановить ход") { model.stop(agent) }.disabled(model.isOffline) }
+									if mode != .window { Button("Открыть в отдельном окне") { model.openAgentWindow?(agent.id); win?.open(agent: nil) } }
+								}
+							}
+							if mode != .window {
+								GlassIconButton(systemImage: "xmark", help: "К списку агентов (Esc)") { win?.open(agent: nil) }
+							}
+						}
+					}
+				}
+				HStack(spacing: DS.Metrics.s1) {
+					subtitle
+					Spacer(minLength: 0)
+					if expandable {
+						Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold))
+							.foregroundStyle(DS.Palette.textTertiary).rotationEffect(.degrees(expanded ? 90 : 0))
+					}
+				}
+				.padding(.leading, DS.Metrics.glyphHeader + DS.Metrics.s3)
 			}
-			Spacer(minLength: DS.Metrics.s2)
-			HStack(spacing: DS.Metrics.s1) {
-				if agent.canStop {
-					icon("stop.fill", help: model.isOffline ? "Нет связи" : "Остановить ход (⌘.)") { model.stop(agent) }.disabled(model.isOffline)
+			// нажатие по шапке раскрывает роль и цель (кнопки справа нажимаются сами по себе)
+			.contentShape(Rectangle())
+			.onTapGesture { if expandable { withAnimation(dsAnimation(DS.Motion.disclosure)) { expanded.toggle() } } }
+
+			if expanded {
+				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+					if let r = role {
+						HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
+							Text(r.name).font(DS.Typography.secondary.weight(.semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
+							if !r.description.isEmpty {
+								Text(r.description).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1)
+							}
+						}
+					}
+					if !text.isEmpty { goalView }
 				}
-				if mode != .window {
-					icon("macwindow", help: "Открыть в окне (⌘O)") { model.openAgentWindow?(agent.id); model.open(agent: nil) }
-					icon(mode == .full ? "chevron.left" : "xmark", help: "Закрыть (Esc)") { model.open(agent: nil) }
-				}
+				.padding(.top, DS.Metrics.s1)
+				.transition(.opacity)
 			}
 		}
-		.padding(.horizontal, DS.Metrics.s4).padding(.top, DS.Metrics.s4).padding(.bottom, DS.Metrics.s3)
-		.contentShape(Rectangle())
-		.onTapGesture(count: 2) { if mode != .window { model.openAgentWindow?(agent.id); model.open(agent: nil) } }
+		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
+		.frame(maxWidth: .infinity, alignment: .leading)
+		.dsFloatingCard()
 	}
 
-	private func icon(_ name: String, help: String, action: @escaping () -> Void) -> some View {
-		Button(action: action) {
-			Image(systemName: name).font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 24).contentShape(Circle())
+	/// Цель: 3 строки, дальше «Ещё» (целиком, с прокруткой до `cap`) / «Свернуть».
+	private var goalView: some View {
+		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+			if full {
+				ScrollView { goalText(limit: nil) }
+					.scrollBounceBehavior(.basedOnSize)
+					.frame(maxHeight: cap)
+					.fixedSize(horizontal: false, vertical: true)
+			} else {
+				goalText(limit: 3).onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shownH = $0 }
+			}
+			if fullH > shownH + 1 || full {
+				Button(full ? "Свернуть" : "Ещё") { withAnimation(dsAnimation(DS.Motion.disclosure)) { full.toggle() } }
+					.buttonStyle(.plain).font(DS.Typography.caption).foregroundStyle(DS.Palette.accent)
+			}
 		}
-		.buttonStyle(.borderless).foregroundStyle(DS.Palette.textSecondary).help(help)
+		// невидимый двойник без ограничения строк — чтобы понять, обрезан ли текст
+		.background(alignment: .topLeading) {
+			goalText(limit: nil).hidden().fixedSize(horizontal: false, vertical: true)
+				.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullH = $0 }
+		}
 	}
 
-	/// «Работает · исполнитель · 1:14»
+	private func goalText(limit: Int?) -> some View {
+		Text(text).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
+			.lineLimit(limit).textSelection(.enabled)
+			.frame(maxWidth: .infinity, alignment: .leading)
+	}
+
+	/// «Работает · 1:14»
 	private var subtitle: some View {
 		HStack(spacing: DS.Metrics.s1) {
-			Text(parts.joined(separator: " · "))
-			if agent.state != .idle, agent.state != .wait {
+			Text(agent.stateWord)
+			if agent.canStop || (agent.lastTurnMs ?? 0) >= 1000 {
 				Text("·")
 				DSTimer(agent: agent, frozenAt: model.frozenAt)
 			}
@@ -137,110 +261,54 @@ struct PanelHeader: View {
 		.foregroundStyle(DS.Palette.textSecondary)
 		.lineLimit(1)
 	}
-
-	private var parts: [String] {
-		var p = [agent.stateWord]
-		if let r = agent.role { p.append((model.store.role(r)?.name ?? r).lowercased()) }
-		return p
-	}
 }
 
-// MARK: - Цель
-
-/// Поручение агента: 3 строки, дальше «Ещё / Свернуть».
-struct GoalBlock: View {
-	var text: String
-	@State private var expanded = false
-	@State private var overflow = false
-	@State private var fullH: CGFloat = 0
-	@State private var shownH: CGFloat = 0
-
-	var body: some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
-			Text("Цель").font(DS.Typography.caption.weight(.medium)).foregroundStyle(DS.Palette.textSecondary)
-			Text(text)
-				.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
-				.lineLimit(expanded ? nil : 3)
-				.textSelection(.enabled)
-				.frame(maxWidth: .infinity, alignment: .leading)
-				.fixedSize(horizontal: false, vertical: true)
-				.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shownH = $0; measure() }
-				.background {
-					Text(text).font(DS.Typography.secondary).fixedSize(horizontal: false, vertical: true).hidden()
-						.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullH = $0; measure() }
-				}
-			if overflow {
-				Button(expanded ? "Свернуть" : "Ещё") { withAnimation(dsAnimation(DS.Motion.disclosure)) { expanded.toggle() } }
-					.buttonStyle(.borderless).font(DS.Typography.caption)
-			}
-		}
-	}
-
-	private func measure() { if !expanded { overflow = fullH > shownH + 1 } }
-}
-
-// MARK: - План
-
-/// План чеклистом: текущий шаг крутится, выполненные с галочкой, будущие тусклые. Без плана — строка этапа.
+/// Блок «План»: свёрнут — «Шаг 2 из 4 · …» с лоадером и сегментами; раскрыт — чеклист
+/// (текущий крутится, выполненные с галочкой, будущие тусклые). Без плана — строка этапа.
 struct PlanBlock: View {
 	@Environment(AppModel.self) private var model
 	var agent: AgentView
-	@State private var all = false
+	@Binding var expanded: Bool
+	var cap: CGFloat
 
 	var body: some View {
 		if let plan = agent.plan, !plan.entries.isEmpty {
-			if agent.isFinished { finished(plan) } else { checklist(plan) }
+			let cur = PlanWindowing.current(plan.entries)
+			let n = plan.entries.count
+			let done = plan.entries.filter { $0.status == .completed }.count
+			InfoCard(title: "План", expanded: $expanded, help: expanded ? "Свернуть план" : "Показать весь план", cap: cap) {
+				HStack(spacing: DS.Metrics.s2) {
+					Text("\(done) из \(n)").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).monospacedDigit()
+					DSPlanSegments(steps: plan.entries.map(\.status))
+				}
+			} content: {
+				if expanded {
+					VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+						ForEach(Array(plan.entries.enumerated()), id: \.offset) { i, e in
+							PlanRow(entry: e, current: i == cur, spinning: agent.canStop)
+						}
+					}
+				} else {
+					// свёрнуто: лоадер (или галочка) и последняя команда как есть; прогресс — сегменты в заголовке
+					HStack(spacing: DS.Metrics.s2) {
+						Group {
+							if agent.canStop { ProgressView().controlSize(.small).scaleEffect(0.7) }
+							else if done == n { Image(systemName: "checkmark").font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.quiet) }
+							else { Image(systemName: "circle").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary) }
+						}
+						.frame(width: DS.Metrics.glyphRow, height: DS.Metrics.glyphRow)
+						Text(agent.toolText ?? "").font(DS.Typography.secondary)
+							.foregroundStyle(agent.canStop ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+							.lineLimit(1).truncationMode(.middle)
+							.frame(maxWidth: .infinity, alignment: .leading)
+					}
+				}
+			}
 		} else if agent.status == .working || agent.status == .starting {
 			StageLine(agent: agent)
-		}
-	}
-
-	private func checklist(_ plan: AgentPlan) -> some View {
-		let cur = PlanWindowing.current(plan.entries)
-		let w = all ? PlanWindow(range: 0..<plan.entries.count, before: 0, after: 0)
-			: PlanWindowing.window(count: plan.entries.count, current: cur)
-		return VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-			if w.before > 0 { more(w.before, up: true) }
-			ForEach(Array(w.range), id: \.self) { i in
-				PlanRow(entry: plan.entries[i], current: i == cur, spinning: agent.canStop)
-			}
-			if w.after > 0 { more(w.after, up: false) }
-			if all, plan.entries.count > 5 { Button("Свернуть") { toggle() }.buttonStyle(.borderless).font(DS.Typography.caption) }
-			StageSilence(agent: agent)
-		}
-	}
-
-	private func more(_ n: Int, up: Bool) -> some View {
-		Button { toggle() } label: {
-			HStack(spacing: DS.Metrics.s2) {
-				Image(systemName: up ? "chevron.up" : "chevron.down").font(DS.Typography.caption.weight(.semibold)).frame(width: DS.Metrics.glyphRow)
-				Text("ещё \(n)")
-			}
-			.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).contentShape(Rectangle())
-		}
-		.buttonStyle(.plain)
-	}
-
-	private func toggle() { withAnimation(dsAnimation(DS.Motion.disclosure)) { all.toggle() } }
-
-	/// У закончившего агента — свёрнутая строка «План выполнен · 4 из 4 ›».
-	private func finished(_ plan: AgentPlan) -> some View {
-		let done = plan.entries.filter { $0.status == .completed }.count
-		return VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-			Button { toggle() } label: {
-				HStack(spacing: DS.Metrics.s1) {
-					Text(done == plan.entries.count ? "План выполнен · \(done) из \(done)" : "План · \(done) из \(plan.entries.count)")
-					Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold)).rotationEffect(.degrees(all ? 90 : 0))
-					Spacer(minLength: 0)
-				}
-				.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).contentShape(Rectangle())
-			}
-			.buttonStyle(.plain)
-			if all {
-				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-					ForEach(Array(plan.entries.enumerated()), id: \.offset) { _, e in PlanRow(entry: e, current: false, spinning: false) }
-				}.transition(.opacity)
-			}
+				.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.dsFloatingCard()
 		}
 	}
 }
@@ -249,6 +317,7 @@ struct PlanRow: View {
 	var entry: PlanEntry
 	var current: Bool
 	var spinning: Bool
+	var oneLine = false
 
 	var body: some View {
 		HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
@@ -266,46 +335,23 @@ struct PlanRow: View {
 			Text(entry.content)
 				.font(DS.Typography.secondary)
 				.foregroundStyle(current ? DS.Palette.textPrimary : entry.status == .completed ? DS.Palette.textSecondary : DS.Palette.textTertiary)
-				.lineLimit(2)
+				.lineLimit(oneLine ? 1 : 3)
 				.frame(maxWidth: .infinity, alignment: .leading)
 		}
 	}
 }
 
-/// Нет плана: «Работает 3:20 · Запускает команду…» / «Нет новостей 1:05 · …».
+/// Нет плана: лоадер и сырой текст текущей команды.
 struct StageLine: View {
 	@Environment(AppModel.self) private var model
 	var agent: AgentView
 
 	var body: some View {
-		TimelineView(.periodic(from: .now, by: 1)) { ctx in
-			let now = model.frozenAt ?? ctx.date
-			let st = agent.stage(now: now)
-			let text: String = {
-				guard let st else { return "Работает" }
-				switch st.kind {
-				case .silent, .starting: return st.text
-				default:
-					let ms = agent.elapsedMs(now: now).map { " " + Durations.clock($0) } ?? ""
-					return "Работает" + ms + (agent.toolPhrase.map { " · " + $0.present } ?? "")
-				}
-			}()
+		TimelineView(.periodic(from: .now, by: 5)) { ctx in
 			HStack(spacing: DS.Metrics.s2) {
 				ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: DS.Metrics.glyphRow)
-				Text(text).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).lineLimit(2).monospacedDigit()
-			}
-		}
-	}
-}
-
-/// Тишина при наличии плана: одна тихая строка под чеклистом.
-struct StageSilence: View {
-	@Environment(AppModel.self) private var model
-	var agent: AgentView
-	var body: some View {
-		TimelineView(.periodic(from: .now, by: 1)) { ctx in
-			if let st = agent.stage(now: model.frozenAt ?? ctx.date), st.kind == .silent {
-				Text(st.text).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(2)
+				Text(agent.stage(now: model.frozenAt ?? ctx.date)?.text ?? "").font(DS.Typography.secondary)
+					.foregroundStyle(DS.Palette.textPrimary).lineLimit(1).truncationMode(.middle)
 			}
 		}
 	}

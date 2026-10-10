@@ -87,8 +87,8 @@ export function agentsTable(agents: readonly AgentView[], spaces: readonly Space
 export function rolesTable(roles: readonly RoleView[]): string {
 	if (!roles.length) return dim('ролей нет. Добавьте: nessy-orch role add <имя> --instructions "…"')
 	return table(
-		roles.map(r => [bold(r.id), r.name, dim(r.description.slice(0, 60)), dim(`${r.instructions.length} симв.`)]),
-		['ID', 'ИМЯ', 'ОПИСАНИЕ', 'ИНСТРУКЦИИ'],
+		roles.map(r => [bold(r.id), r.name, dim(`${r.color}°${r.icon ? ` ${r.icon}` : ''}`), dim(r.description.slice(0, 60)), dim(`${r.instructions.length} симв.`)]),
+		['ID', 'ИМЯ', 'ЦВЕТ', 'ОПИСАНИЕ', 'ИНСТРУКЦИИ'],
 	)
 }
 

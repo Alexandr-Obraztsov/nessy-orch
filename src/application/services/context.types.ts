@@ -4,10 +4,13 @@ import type { Feed } from '../feed'
 import type { Hub } from '../hub'
 import type { Clock, IdGenerator, StorePort } from '../ports'
 import type { Registry } from '../registry'
+import type { SessionPool } from '../session-pool'
 import type { OrchSettings } from '../settings.types'
 
 export interface ServiceContext {
 	registry: Registry
+	/** заранее созданные сессии nessy */
+	pool: SessionPool
 	feed: Feed
 	hub: Hub
 	store: StorePort

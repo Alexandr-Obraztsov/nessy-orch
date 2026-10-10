@@ -7,15 +7,25 @@ struct NessyOrchApp: App {
 	@State private var model = AppModel.shared
 
 	var body: some Scene {
-		Window("nessy", id: "main") {
-			RootView()
-				.environment(model)
-				.tint(DS.Palette.accent)
-				.onOpenURL { model.handle(url: $0) }
+		// Невидимое окно запуска: открывает окно-терминал в домашней папке, если приложение запущено без папки и ссылки, и закрывается.
+		Window("Nessy Orch", id: "launcher") {
+			LauncherView().environment(model)
 		}
-		.defaultSize(width: 900, height: 600)
-		.windowResizability(.contentMinSize)
+		.windowStyle(.plain)
+		.windowResizability(.contentSize)
+		.defaultLaunchBehavior(.presented)
 		.commands { AppCommands(model: model) }
+
+		// одно окно — один терминал в папке и одна сессия оркестратора
+		WindowGroup("Терминал", id: "terminal", for: TerminalWindowValue.self) { $value in
+			if let value {
+				SessionWindowView(value: value)
+					.environment(model)
+					.tint(DS.Palette.accent)
+			}
+		}
+		.defaultLaunchBehavior(.suppressed)
+		.defaultSize(width: 1280, height: 780)
 
 		WindowGroup("Агент", id: "agent", for: String.self) { $id in
 			if let id {
@@ -48,45 +58,46 @@ struct AppCommands: Commands {
 	var model: AppModel
 	@Environment(\.openWindow) private var openWindow
 
-	private func main(_ f: () -> Void) { model.openMainWindow?(); f() }
+	private var active: SessionWindowModel? { model.activeWindow }
 
 	var body: some Commands {
-		CommandGroup(replacing: .newItem) {}
+		// ⌘N/⌘W — окна; когда фокус в терминале, остальные клавиши достаются ему (команд без ⌘ здесь нет)
+		CommandGroup(replacing: .newItem) {
+			Button("Новое окно") { model.newWindowHere() }.keyboardShortcut("n")
+			Button("Открыть папку…") { model.openFolderPanel() }.keyboardShortcut("o", modifiers: [.command, .shift])
+		}
+		CommandGroup(replacing: .saveItem) {
+			Button("Закрыть окно") { model.closeCurrentWindow() }.keyboardShortcut("w")
+		}
+		CommandGroup(after: .toolbar) {
+			Button("Показать / скрыть панель агентов") { active?.toggleAgents() }
+				.keyboardShortcut("b", modifiers: [.command, .option]).disabled(active == nil)
+		}
 		CommandGroup(replacing: .help) {
-			Button("Горячие клавиши") { main { model.showShortcuts = true } }.keyboardShortcut("/")
+			Button("Горячие клавиши") { model.showShortcuts = true }.keyboardShortcut("/")
 		}
 		CommandMenu("Сессия") {
-			Button("Агенты") { model.tab = .agents }.keyboardShortcut("1", modifiers: [.command, .option])
-			Button("Источники") { model.tab = .sources }.keyboardShortcut("2", modifiers: [.command, .option])
-			Button("Статистика") { model.tab = .stats }.keyboardShortcut("3", modifiers: [.command, .option])
-			Divider()
-			Button("Предыдущая сессия") { model.step(session: -1) }.keyboardShortcut("[")
-			Button("Следующая сессия") { model.step(session: 1) }.keyboardShortcut("]")
-			Button("Перейти к…") { main { model.showPalette = true } }.keyboardShortcut("k")
-			Button("Поиск по источникам") { model.tab = .sources; model.searchTick += 1 }.keyboardShortcut("f")
+			Button("Перейти к…") { model.showPalette = true }.keyboardShortcut("k")
 			Button("Роли…") { openWindow(id: "roles") }.keyboardShortcut("r", modifiers: [.command, .shift])
 			Divider()
-			if let s = model.currentSession {
+			if let s = active?.session {
 				if s.status == .active { Button("Завершить сессию") { model.closeSession(s.id) } }
 				else { Button("Вернуть в работу") { model.reopenSession(s.id) } }
+				Button("Удалить сессию") { model.deleteSession(s.id) }
+				Divider()
 			}
-			Divider()
+			// открыть окно любой активной сессии (⌘1…⌘9)
 			ForEach(Array(model.store.activeSessions.prefix(9).enumerated()), id: \.element.id) { i, s in
 				Button(s.title) { model.show(session: s.id) }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
 			}
 		}
 		CommandMenu("Агент") {
 			Button("Открыть в окне") {
-				if let a = model.targetAgent { model.openAgentWindow?(a.id); model.open(agent: nil) }
+				if let a = model.targetAgent { model.openAgentWindow?(a.id); active?.open(agent: nil) }
 			}.keyboardShortcut("o").disabled(model.targetAgent == nil)
 			Button("Остановить ход") { if let a = model.targetAgent { model.stop(a) } }
 				.keyboardShortcut(".").disabled(model.targetAgent?.canStop != true || model.isOffline)
-			Button("Закрыть окно агента") { model.open(agent: nil) }.disabled(model.openAgent == nil)
-			Divider()
-			Button("Разрешить") { if let t = model.targetPermission { model.decide(agent: t.agent, permission: t.permission, approve: true) } }
-				.keyboardShortcut(.return, modifiers: .command).disabled(model.targetPermission == nil || model.isOffline)
-			Button("Отклонить") { if let t = model.targetPermission { model.decide(agent: t.agent, permission: t.permission, approve: false) } }
-				.keyboardShortcut(.delete, modifiers: .command).disabled(model.targetPermission == nil || model.isOffline || model.composerBusy)
+			Button("К списку агентов") { active?.open(agent: nil) }.disabled(active?.openAgent == nil)
 		}
 	}
 }
@@ -98,6 +109,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		let model = AppModel.shared
+		// «просто запустил приложение — всё доступно»: ссылка на встроенный CLI и, если нужно, служба оркестратора
+		CLISupport.shared.autoSetup {
+			await model.store.refreshStatus()
+			if case .online = model.store.daemon { return true }
+			return false
+		}
 		NSApp.setActivationPolicy(UserDefaults.standard.bool(forKey: "menuBarOnly") ? .accessory : .regular)
 		// для снимков и проверки: `-debug.appearance light|dark` (переключателя темы в интерфейсе нет — тема системная)
 		switch UserDefaults.standard.string(forKey: "debug.appearance") {
@@ -114,9 +131,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 			w.makeKeyAndOrderFront(nil)
 			menuPreview = w
 		}
-		model.openMainWindow = {
-			NSApp.activate()
-			if let w = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) { w.makeKeyAndOrderFront(nil) }
+		// для снимков: `-debug.fullscreen YES|NO` — главное окно уходит в настоящий fullscreen или выходит из него (окно восстанавливается в прежнем режиме)
+		if let flag = UserDefaults.standard.object(forKey: "debug.fullscreen") {
+			let want = (flag as? Bool) ?? ((flag as? String) == "YES")
+			Task { @MainActor in
+				// окно появляется не сразу: пробуем раз в секунду, пока не войдёт в fullscreen
+				for _ in 0..<12 {
+					try? await Task.sleep(for: .seconds(1))
+					guard let w = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("terminal") == true && $0.isVisible }) else { continue }
+					if w.styleMask.contains(.fullScreen) == want { break }
+					NSApp.activate()
+					w.makeKeyAndOrderFront(nil)
+					w.toggleFullScreen(nil)
+					try? await Task.sleep(for: .seconds(3))
+					if w.styleMask.contains(.fullScreen) == want { break }
+				}
+			}
 		}
 		// бейдж Dock = сколько агентов ждут вас (только то, что требует действия)
 		badgeTask = Task { @MainActor in
@@ -129,10 +159,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		}
 	}
 
+	/// Меню Dock: новое окно в домашней папке и активные сессии — открывают свои окна.
+	func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+		let m = NSMenu()
+		let model = AppModel.shared
+		let start = NSMenuItem(title: "Новое окно", action: #selector(openStart), keyEquivalent: "")
+		start.target = self
+		m.addItem(start)
+		let sessions = model.store.activeSessions.prefix(12)
+		if !sessions.isEmpty { m.addItem(.separator()) }
+		for s in sessions {
+			let it = NSMenuItem(title: s.title, action: #selector(openSession(_:)), keyEquivalent: "")
+			it.target = self
+			it.representedObject = s.id
+			m.addItem(it)
+		}
+		return m
+	}
+	@objc private func openStart() { AppModel.shared.openMainWindow() }
+	@objc private func openSession(_ item: NSMenuItem) { if let id = item.representedObject as? String { AppModel.shared.show(session: id) } }
+
+	/// Папки и ссылки `nessy-orch://…`: `open -a "Nessy Orch" <папка>`, перетаскивание папки на значок, `nessy-orch .`.
+	func application(_ application: NSApplication, open urls: [URL]) { urls.forEach { AppModel.shared.handle(url: $0) } }
+
+	func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply { AppModel.shared.confirmQuit() }
+
 	func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
 	func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-		if !flag { AppModel.shared.openMainWindow?() }
+		if !flag { AppModel.shared.openMainWindow() }
 		return true
 	}
 }

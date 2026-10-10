@@ -3,7 +3,7 @@
  * Каждый Claude заводит свою сессию, агенты привязываются к ней, у сессии свой inbox (курсор — в ленте).
  * Правила полей — domain/sessions.ts.
  */
-import type { SessionPatch, SessionRequest, SessionStatus, SessionView } from '../../../shared/types'
+import type { ClaudeState, SessionPatch, SessionRequest, SessionStatus, SessionView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { isSessionId, sessionIdFrom, validateSessionPatch, validateSessionRequest } from '../../domain/sessions'
 import { hexId } from '../../lib/ids'
@@ -95,6 +95,15 @@ export class SessionsService {
 		for (const a of inside) a.setSession(null)
 		this.ctx.feed.forgetSession(session.id)
 		this.ctx.hub.publish({ t: 'session_removed', id: session.id })
+	}
+
+	/** Состояние Claude Code по хукам (в памяти: после рестарта сервиса неизвестно). */
+	ping(ref: string, state: ClaudeState): SessionView {
+		const s = this.resolve(ref)
+		const next: SessionView = { ...s, claude: { state, at: this.isoNow() } }
+		this.sessions.set(s.id, next)
+		this.ctx.hub.publish({ t: 'session', session: next }) // без записи на диск: состояние временное
+		return next
 	}
 
 	/** Обновить счётчик источников (updatedAt не трогаем — это не действие оператора). */

@@ -1,43 +1,48 @@
 import SwiftUI
+import AppKit
 import NessyKit
 
-/// Сайдбар: только сессии. «Активные» и «Завершённые» (свёрнута). Связь — только при обрыве (полоса над контентом).
-struct SidebarView: View {
+/// Низ боковой панели: связь слева, справа тихая точка Claude и две круглые стеклянные кнопки — «Роли» и «⋯» сессии.
+struct SidebarFooter: View {
 	@Environment(AppModel.self) private var model
-	@State private var showDone = false
+	@Environment(\.sessionWindow) private var win
 	@Environment(\.openWindow) private var openWindow
 
 	var body: some View {
-		let store = model.store
-		List(selection: Binding<Route?>(get: { model.route }, set: { if let r = $0, r != model.route { model.open(agent: nil); model.route = r } })) {
-			if !store.activeSessions.isEmpty {
-				Section("Активные") {
-					ForEach(store.activeSessions) { SessionRow(session: $0).tag(Route.session($0.id)) }
-				}
-			}
-			if !store.doneSessions.isEmpty {
-				Section(isExpanded: $showDone) {
-					ForEach(store.doneSessions.prefix(50)) { SessionRow(session: $0).tag(Route.session($0.id)) }
-				} header: {
-					HStack { Text("Завершённые"); Spacer(); DSCount(value: store.doneSessions.count) }
+		HStack(spacing: DS.Metrics.s2) {
+			ConnectionIndicator()
+			Spacer(minLength: DS.Metrics.s2)
+			ClaudeStateIndicator(state: win?.session?.claude?.state)
+			GlassEffectContainer(spacing: DS.Metrics.s2) {
+				HStack(spacing: DS.Metrics.s2) {
+					GlassIconButton(systemImage: "person.text.rectangle", help: "Роли агентов (⇧⌘R)") { openWindow(id: "roles") }
+					GlassIconMenu(systemImage: "ellipsis", help: "Действия с сессией") { SessionActionsItems(session: win?.session) }
 				}
 			}
 		}
-		.listStyle(.sidebar)
-		// пункты крупнее и воздушнее, как в Finder macOS 26; плавающую стеклянную панель даёт сам NavigationSplitView
-		.environment(\.sidebarRowSize, .medium)
-		.safeAreaInset(edge: .bottom, spacing: 0) {
-			Button { openWindow(id: "roles") } label: {
-				Label("Роли", systemImage: "person.text.rectangle").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
-					.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-			}
-			.buttonStyle(.plain).padding(.horizontal, DS.Metrics.s4).padding(.vertical, DS.Metrics.s2)
-			.help("Роли агентов (⇧⌘R)")
-		}
+		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
 	}
 }
 
-/// Строка сессии: глиф сводного состояния · название (до 2 строк) · справа число ждущих (янтарь) или точка «новое».
+/// Связь с оркестратором: тихая точка и слово; при обрыве — красная.
+struct ConnectionIndicator: View {
+	@Environment(AppModel.self) private var model
+	var body: some View {
+		let (text, color): (String, Color) = switch model.store.daemon {
+		case .online: ("На связи", DS.Palette.quiet)
+		case .connecting: ("Подключаюсь", DS.Palette.quiet)
+		case .offline: ("Нет связи", DS.Palette.danger)
+		}
+		HStack(spacing: DS.Metrics.s2) {
+			Circle().fill(color).frame(width: 8, height: 8)
+			Text(text).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+		}
+		.help("Оркестратор: \(AppSettings.serverURL.absoluteString)")
+		.accessibilityElement(children: .combine)
+	}
+}
+
+/// Строка сессии: глиф сводного состояния · название в одну строку · справа число ждущих или точка «новое».
 struct SessionRow: View {
 	@Environment(AppModel.self) private var model
 	var session: SessionView
@@ -48,14 +53,12 @@ struct SessionRow: View {
 		let sum = agents.summary
 		let waiting = sum.needsYou
 		let stale = store.isStale(session)
-		HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
+		HStack(spacing: DS.Metrics.s2) {
 			DSStateGlyph(state: glyph(sum), size: DS.Metrics.glyphSidebar)
-				.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3 }
-			Text(session.title).font(.subheadline).lineLimit(2)
+			Text(session.title).font(.subheadline).lineLimit(1).truncationMode(.tail)
 				.foregroundStyle(stale || session.status == .done ? DS.Palette.textSecondary : DS.Palette.textPrimary)
 			Spacer(minLength: DS.Metrics.s1)
 			if waiting > 0 {
-				// «ждут вас» — залитый синий бейдж
 				DSCount(value: waiting)
 					.font(DS.Typography.caption.weight(.semibold))
 					.foregroundStyle(.white)
@@ -66,9 +69,12 @@ struct SessionRow: View {
 				DSNewDot()
 			}
 		}
+		.padding(.horizontal, DS.Metrics.s3)
+		.frame(minHeight: DS.Metrics.button)
+		.contentShape(Rectangle())
+		.onTapGesture { model.show(session: session.id) }
 		.help(help(agents.count))
 		.contextMenu {
-			Button("Скопировать ссылку") { Pasteboard.copy("nessy-orch://session/\(session.id)") }
 			if session.status == .active { Button("Завершить сессию") { model.closeSession(session.id) } }
 			else { Button("Вернуть в работу") { model.reopenSession(session.id) } }
 			Divider()

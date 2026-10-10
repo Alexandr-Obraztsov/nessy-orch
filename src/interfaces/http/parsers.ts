@@ -1,8 +1,11 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
-import type { RoleRequest, SendRequest, SpaceRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
+import type { ClaudeState, RoleRequest, SendRequest, SpaceRequest, SpawnBatchRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { isSessionStatus } from '../../domain/sessions'
 import { isObject } from '../../lib/json'
+
+/** максимум агентов в одном пакете */
+const MAX_BATCH = 20
 
 const optStr = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
 const optNum = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
@@ -16,6 +19,7 @@ export function parseSpawnRequest(b: unknown): SpawnRequest {
 	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
 	return {
 		space: optStr(b['space']),
+		cwd: optStr(b['cwd']),
 		name: optStr(b['name']),
 		role: optStr(b['role']),
 		session: optStr(b['session']),
@@ -24,6 +28,27 @@ export function parseSpawnRequest(b: unknown): SpawnRequest {
 		from: optStr(b['from']),
 		wait: b['wait'] === true,
 		waitTimeoutSec: optNum(b['waitTimeoutSec']),
+	}
+}
+
+/** Тело ping: {state: working | idle | ended}. */
+export function parseClaudeState(b: unknown): ClaudeState {
+	const s = isObject(b) ? b['state'] : undefined
+	if (s === 'working' || s === 'idle' || s === 'ended') return s
+	throw new AppError(400, 'bad_request', 'state — working | idle | ended')
+}
+
+/** Тело пакета агентов: общие поля и массив поручений (каждое проверяется как обычный spawn). */
+export function parseSpawnBatch(b: unknown): SpawnBatchRequest {
+	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
+	const list = b['agents']
+	if (!Array.isArray(list) || list.length < 1 || list.length > MAX_BATCH) throw new AppError(400, 'bad_request', `agents — массив от 1 до ${MAX_BATCH} агентов`)
+	return {
+		space: optStr(b['space']),
+		cwd: optStr(b['cwd']),
+		session: optStr(b['session']),
+		from: optStr(b['from']),
+		agents: (list as unknown[]).map(parseSpawnRequest),
 	}
 }
 
@@ -48,7 +73,9 @@ export function parseRoleRequest(b: unknown): RoleRequest {
 	if (id !== undefined && typeof id !== 'string') throw new AppError(400, 'bad_request', 'id — строка')
 	const description = b['description']
 	if (description !== undefined && typeof description !== 'string') throw new AppError(400, 'bad_request', 'description — строка')
-	return { name: b['name'], instructions: b['instructions'], description, color, id }
+	const icon = b['icon']
+	if (icon !== undefined && typeof icon !== 'string') throw new AppError(400, 'bad_request', 'icon — строка')
+	return { name: b['name'], instructions: b['instructions'], description, color, icon, id }
 }
 
 /** Тело плана: entries — массив (записи проверяет домен), from — необязательная строка. */

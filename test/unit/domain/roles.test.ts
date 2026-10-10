@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { AppError } from '../../../src/domain/errors'
-import { isRoleId, roleColor, roleSlug, transliterate, validateRole } from '../../../src/domain/roles'
+import { isRoleId, parseColor, roleColor, roleSlug, transliterate, validateRole } from '../../../src/domain/roles'
 
 const code = (fn: () => unknown): string => {
 	try {
@@ -37,6 +37,7 @@ describe('роли: домен', () => {
 			description: 'много строк',
 			instructions: 'считай',
 			color: roleColor('Аналитик'),
+			icon: null,
 		})
 		assert.equal(validateRole({ name: 'R', instructions: 'i', id: 'custom', color: 359.6 }).color, 360)
 		assert.equal(code(() => validateRole({ name: '', instructions: 'i' })), '400:bad_request')
@@ -46,5 +47,24 @@ describe('роли: домен', () => {
 		assert.equal(code(() => validateRole({ name: 'r', instructions: 'i', id: 'Плохой' })), '400:bad_request')
 		assert.equal(code(() => validateRole({ name: 'r', instructions: 'i', color: -1 })), '400:bad_request')
 		assert.equal(code(() => validateRole({ name: 'r', instructions: 'i', color: Number.NaN })), '400:bad_request')
+	})
+})
+
+describe('иконка и цвет роли', () => {
+	it('иконка — имя SF Symbols, пустая → null; неверная → 400', () => {
+		const base = { name: 'Тест', instructions: 'x' }
+		assert.equal(validateRole({ ...base, icon: 'magnifyingglass' }).icon, 'magnifyingglass')
+		assert.equal(validateRole({ ...base, icon: 'checkmark.shield' }).icon, 'checkmark.shield')
+		assert.equal(validateRole({ ...base, icon: '  ' }).icon, null)
+		assert.equal(validateRole(base).icon, null)
+		assert.throws(() => validateRole({ ...base, icon: 'Bad Icon!' }), AppError)
+		assert.throws(() => validateRole({ ...base, icon: 'a'.repeat(41) }), AppError)
+	})
+	it('цвет: число или название (в том числе по-русски)', () => {
+		assert.equal(parseColor('blue'), 215)
+		assert.equal(parseColor('Синий'), 215)
+		assert.equal(parseColor('120'), 120)
+		assert.equal(parseColor('361'), null)
+		assert.equal(parseColor('нету'), null)
 	})
 })

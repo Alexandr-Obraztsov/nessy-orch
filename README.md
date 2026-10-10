@@ -101,17 +101,21 @@ npm run demo:seed                   # только демо-данные — к 
 
 ## Приложение для macOS
 
-Нативное приложение (SwiftUI, macOS 26, Liquid Glass) в [`app/`](app/): **только наблюдает** за агентами, которых запускают
-Claude через CLI. Человек может разрешить или отклонить запрос прав, остановить ход агента и завершить сессию.
+Нативное приложение (SwiftUI, macOS 26, Liquid Glass) в [`app/`](app/): терминал с Claude Code в любой папке и наблюдение за агентами
+сессии. Человек может остановить ход агента, написать ему и завершить сессию.
 Дизайн и решения — [docs/design/](docs/design/), исследование аналогов — [docs/research-orchestrators.md](docs/research-orchestrators.md).
 
 | Зона | Что там |
 |---|---|
-| **Сайдбар** | Сессии: активные сверху, завершённые свёрнуты; признак «ждёт вас» и «новое» |
-| **Сессия → вкладки** | **Агенты** (список: состояние, на каком шаге плана, что делает сейчас, таймер, запрос прав прямо в строке) · **Источники** (все ссылки, которыми пользовались агенты, по хостам, с поиском) · **Статистика** (ходы, вызовы инструментов, время, токены по агентам) |
-| **Окно агента** | Плавающее окно справа (не шторка): «Итог» (решение, этап, ответ, источники, счётчики) и «Журнал» (Сводка / Обычный / Подробный) |
-| **Menu bar** | Значок со счётчиком, панель: что ждёт вас (кнопки «Разрешить / Отклонить»), кто работает |
+| **Окно** | Одно окно — один терминал (SwiftTerm, оболочка `$SHELL` в выбранной папке) и одна сессия оркестратора. Открывается из любой папки: `nessy-orch .`, `open -a "Nessy Orch" .`, перетаскиванием папки на значок, ⌘N / ⇧⌘O. Хуки Claude подключены прозрачно: обычная команда `claude` в терминале уже идёт с `--settings ~/.nessy-orch/claude-hooks.json` |
+| **Боковая панель** | Субагенты сессии: список (состояние, роль, последняя команда) → карточка агента (цель, план, чат или итог с источниками, поле ввода, ↩ отправить). Внизу связь, состояние Claude (по хукам), кнопки «Роли» и «⋯» |
+| **Menu bar** | Значок со счётчиком, панель: кому нужно внимание, кто работает, активные сессии (открыть окно) |
 | **Уведомления** | Запрос прав (с кнопками), агент заблокирован, ошибка, сессия завершена |
+
+**Командная строка из приложения.** В `.app` встроены сервер и CLI (≈700 КБ). При запуске приложение само кладёт ссылку
+`~/.local/bin/nessy-orch` на встроенный скрипт (чужой файл по этому пути не трогает, переехавшее приложение чинит ссылку) и, если
+оркестратор не запущен, ставит службу launchd из встроенной копии (`nessy-orch install`). Нужен только Node.js ≥ 20. Состояние и кнопки
+«Установить / Переустановить» — в Настройках → «Командная строка». Репозиторий клонировать не нужно.
 
 Ссылки: `nessy-orch://session/<id>`, `nessy-orch://agent/<id>`; `nessy-orch open [<id сессии>]` открывает приложение.
 Сборка и запуск:
@@ -132,17 +136,20 @@ defaults write com.nessy.orch.app serverURL "http://127.0.0.1:4338"   # друг
 nessy-orch session new "<заголовок>" [--owner X] [--id slug]   # один раз на разговор: id и ссылка nessy-orch://session/<id>
 nessy-orch session ls [--all] | session show <id> | session sources <id> | session reopen <id> | session rm <id>
 nessy-orch session done <id> [--summary "…" | --summary-file F]
+nessy-orch spawn-many [--session S] [--space P] <<'EOF'   # несколько агентов одним вызовом: «@@ имя role=роль» + поручение
 nessy-orch spawn [--session S] [--space S] [--name N] [--role R] [--wait] [--timeout СЕК] ["задача"]
 nessy-orch send <агент|you> "текст" [--wait] [--queue] [--timeout СЕК] [--from ID]
 nessy-orch ask <путь|space> "задача" [--session S]   # = spawn --wait
 nessy-orch ls [--all] [--session S] | show <агент> | watch <агент> | cancel <агент> | kill <агент>
 nessy-orch archive <агент> | restore <агент>
 nessy-orch plan <агент> | plan --from <свой id> "- [x] …" "- [~] …" "- [ ] …" [--clear]   # план агента: показать | опубликовать (агент сам)
-nessy-orch role ls | role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] | role show <id> | role rm <id>
+nessy-orch role ls | role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] [--color 0..360|blue|синий] [--icon SF-Symbol] | role show <id> | role rm <id>
+nessy-orch role set <id> [--name N] [--description D] [--instructions "…" | --file путь] [--color …] [--icon …]   # частичная правка
 nessy-orch role import [путь] [--force] [--dry-run]   # роли из markdown-файлов (по умолчанию roles/); role export <id> [--out файл]
 nessy-orch feed [-n 30] [--follow]
 nessy-orch inbox [--session S] [--wait СЕК] [--peek]    # --session — ответы агентов сессии, свой курсор на сессию
 nessy-orch space add <путь> [--name N] [--url URL] | space ls | space rm <имя> [--force]
+nessy-orch . | nessy-orch app [папка]   # открыть приложение с терминалом в этой папке (nessy-orch ~/proj тоже работает)
 nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 ```
 
@@ -249,6 +256,7 @@ scripts/install.sh --list                   # что есть
 | `GET /sessions/:id/sources` | Источники сессии: ссылки из ответов и вызовов инструментов агентов, без дублей |
 | `GET /spaces`, `POST /spaces {path,name?,url?}`, `DELETE /spaces/:name?force=1` | Пространства |
 | `GET /agents?session=`, `POST /agents {space?,name?,role?,session?,prompt?,parent?,from?,wait?}` | Список (включая архивных; `session` — только агенты сессии) и создание агентов (`404 no_session`; без `session` — сессия родителя) |
+| `POST /agents/batch {agents[],space?,cwd?,session?,from?}` | Несколько агентов за один вызов (результат по каждому; ошибка одного не мешает остальным) |
 | `GET /agents/:ref`, `DELETE /agents/:ref` | Агент |
 | `POST /agents/:ref/send {text,from?,interrupt?,wait?}`, `POST /agents/:ref/cancel` | Сообщение (от «Вы» по умолчанию прерывает ход), прервать ход |
 | `POST /agents/:ref/plan {from?,entries}`, `DELETE /agents/:ref/plan` | План агента (публикует сам агент; чужой `from` → `403`) |
@@ -276,6 +284,7 @@ scripts/install.sh --list                   # что есть
 | `ORCH_MAX_HOPS` | `8` | Максимальная длина цепочки агент → агент |
 | `ORCH_RATE_LIMIT` | `30` | Сообщений на пару в минуту |
 | `ORCH_HEALTH_TIMEOUT_MS` | `60000` | Ожидание готовности `nessy serve` |
+| `ORCH_WARM_SESSIONS` | `2` | Заранее созданных сессий nessy на пространство (быстрый запуск агентов; `0` — выключено) |
 | `ORCH_SEED_ROLES` | `1` | При первом запуске (нет `roles.json`) залить готовые роли из `roles/` |
 
 Логи: `~/.nessy-orch/logs/space-<имя>.log` (serve). При запуске через launchd лог оркестратора пишется в `orch.{out,err}.log`.

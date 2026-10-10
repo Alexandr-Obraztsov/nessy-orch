@@ -5,10 +5,9 @@ import NessyKit
 
 enum NotificationAction {
 	case open(agentId: String?, sessionId: String?)
-	case decide(agentId: String, requestId: String, approve: Bool)
 }
 
-/// Системные уведомления (screens.md §3g): запрос прав — с кнопками, ошибка и блокировка — «Открыть», сессия завершена — без звука.
+/// Системные уведомления (screens.md §3g): запрос прав, ошибка и блокировка — «Открыть», сессия завершена — без звука.
 /// Готовый результат не уведомляет. Работает только из .app (у голого бинарника нет bundle id).
 @MainActor
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
@@ -16,17 +15,13 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 	private var enabled: Bool { Bundle.main.bundleIdentifier != nil }
 	private var center: UNUserNotificationCenter { .current() }
 
-	private static let permissionCategory = "PERMISSION"
 	private static let generalCategory = "GENERAL"
 
 	func requestAuthorization() {
 		guard enabled else { return }
 		center.delegate = self
-		let approve = UNNotificationAction(identifier: "approve", title: "Разрешить", options: [.authenticationRequired])
-		let deny = UNNotificationAction(identifier: "deny", title: "Отклонить", options: [.destructive])
 		let open = UNNotificationAction(identifier: "open", title: "Открыть", options: [.foreground])
 		center.setNotificationCategories([
-			UNNotificationCategory(identifier: Self.permissionCategory, actions: [approve, deny], intentIdentifiers: []),
 			UNNotificationCategory(identifier: Self.generalCategory, actions: [open], intentIdentifiers: []),
 		])
 		center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
@@ -52,7 +47,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 		if let s = e.subtitle { c.subtitle = s }
 		c.body = String(e.body.prefix(300))
 		c.sound = e.kind == .sessionDone ? nil : .default
-		c.categoryIdentifier = e.kind == .permission ? Self.permissionCategory : Self.generalCategory
+		c.categoryIdentifier = Self.generalCategory
 		c.threadIdentifier = e.sessionId ?? "none"
 		c.interruptionLevel = e.kind == .permission ? .timeSensitive : .active
 		c.userInfo = ["agentId": e.agentId ?? "", "sessionId": e.sessionId ?? "", "requestId": e.requestId ?? ""]
@@ -75,12 +70,8 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 		let info = response.notification.request.content.userInfo
 		let agent = (info["agentId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
 		let session = (info["sessionId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-		let req = (info["requestId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
 		let action: NotificationAction
 		switch response.actionIdentifier {
-		case "approve", "deny":
-			guard let agent, let req else { return }
-			action = .decide(agentId: agent, requestId: req, approve: response.actionIdentifier == "approve")
 		default:
 			action = .open(agentId: agent, sessionId: session)
 		}

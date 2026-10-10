@@ -1,5 +1,5 @@
 /** Жизненный цикл агентов: создание, удаление, прерывание, архив, разрешения, история чата. */
-import type { AgentEvent, AgentView, Message, PlanRequest, SendResponse, SpawnRequest, SpawnResponse } from '../../../shared/types'
+import type { AgentEvent, AgentView, Message, PlanRequest, SendResponse, SpawnBatchItem, SpawnBatchRequest, SpawnBatchResponse, SpawnRequest, SpawnResponse } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { uniqueName } from '../../domain/naming'
 import { validatePlanEntries } from '../../domain/plan'
@@ -32,7 +32,7 @@ export class AgentsService {
 
 	async spawn(req: SpawnRequest): Promise<SpawnResponse> {
 		const { registry } = this.ctx
-		const space = this.spaces.resolve(req.space)
+		const space = this.spaces.resolve(req.space, req.cwd)
 		const from = registry.resolveSender(req.from)
 		const parent = req.parent ?? from
 		const role = req.role?.trim() ? this.roles.resolve(req.role) : null
@@ -62,6 +62,31 @@ export class AgentsService {
 		if (res?.reply) out.reply = res.reply
 		if (res?.timedOut) out.timedOut = true
 		return out
+	}
+
+	/**
+	 * Пакет агентов за один вызов: общие поля (space, cwd, session, from) применяются к каждому, ошибка одного не мешает остальным.
+	 * Агенты создаются по порядку (имена уникальны), поручения уходят сразу: `wait` в пакете не поддерживается.
+	 */
+	async spawnMany(req: SpawnBatchRequest): Promise<SpawnBatchResponse> {
+		const results: SpawnBatchItem[] = []
+		for (const a of req.agents) {
+			try {
+				const r = await this.spawn({
+					...a,
+					space: a.space ?? req.space,
+					cwd: a.cwd ?? req.cwd,
+					session: a.session ?? req.session,
+					from: a.from ?? req.from,
+					wait: false,
+				})
+				results.push({ ok: true, agent: r.agent, message: r.message })
+			} catch (e) {
+				const err = e instanceof AppError ? e : new AppError(500, 'internal', e instanceof Error ? e.message : String(e))
+				results.push({ ok: false, error: err.message, code: err.code, ...(a.name ? { name: a.name } : {}) })
+			}
+		}
+		return { results }
 	}
 
 	async remove(ref: string): Promise<void> {

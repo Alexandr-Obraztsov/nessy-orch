@@ -88,7 +88,7 @@ export class FileStore implements StorePort {
 	loadRoles(): RoleView[] {
 		const raw = parseJson(readText(this.rolesPath))
 		const list = isObject(raw) ? arr(raw['roles']) : arr(raw)
-		return list.filter(isRoleView)
+		return list.filter(isRoleView).map(r => ({ ...r, icon: typeof r.icon === 'string' ? r.icon : null }))
 	}
 
 	saveRoles(roles: readonly RoleView[]): void {
@@ -101,7 +101,7 @@ export class FileStore implements StorePort {
 		const path_ = !fs.existsSync(this.sessionsPath) && fs.existsSync(legacy) ? legacy : this.sessionsPath
 		const raw = parseJson(readText(path_))
 		const list = isObject(raw) ? arr(raw['sessions'] ?? raw['tasks']) : arr(raw)
-		return list.filter(isSessionView).map(x => ({ ...x, sources: typeof x.sources === 'number' ? x.sources : 0 }))
+		return list.filter(isSessionView).map(x => ({ ...x, sources: typeof x.sources === 'number' ? x.sources : 0, claude: null }))
 	}
 
 	saveSessions(sessions: readonly SessionView[]): void {

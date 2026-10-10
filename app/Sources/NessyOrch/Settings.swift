@@ -24,6 +24,7 @@ struct GeneralSettings: View {
 			Toggle("Открывать при входе в систему", isOn: $login)
 				.onChange(of: login) { _, v in LoginItem.set(v); login = LoginItem.isEnabled }
 			Button("Роли агентов…") { openWindow(id: "roles") }
+			CLISettingsSection()
 		}
 		.formStyle(.grouped)
 	}

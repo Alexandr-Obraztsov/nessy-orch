@@ -172,24 +172,13 @@ struct MarkdownView: View {
 struct CodeBlock: View {
 	var lang: String
 	var text: String
-	@State private var copied = false
-
 	var body: some View {
 		ScrollView(.horizontal, showsIndicators: false) {
 			Text(Highlighter.attributed(text, lang: lang)).font(DS.Typography.mono)
 				.padding(DS.Metrics.s3).fixedSize(horizontal: true, vertical: true)
 		}
 		.background(DS.Palette.hover, in: ConcentricRectangle(corners: .concentric(minimum: .fixed(DS.Metrics.s2)), isUniform: true))
-		.overlay(alignment: .topTrailing) {
-			Button {
-				Pasteboard.copy(text)
-				copied = true
-				Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
-			} label: { Image(systemName: copied ? "checkmark" : "doc.on.doc").contentTransition(.symbolEffect(.replace)) }
-				.buttonStyle(.borderless).foregroundStyle(DS.Palette.textSecondary)
-				.padding(DS.Metrics.s2)
-				.help("Копировать")
-		}
+		.textSelection(.enabled)
 	}
 }
 

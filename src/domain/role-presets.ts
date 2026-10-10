@@ -61,6 +61,7 @@ export function parseRolePreset(text: string): RoleInput {
 		if (!Number.isFinite(n) || n < 0 || n > 360) throw bad(`color «${color}» — число 0..360`)
 		input.color = n
 	}
+	if (fields['icon']) input.icon = fields['icon']
 	return input
 }
 
@@ -69,9 +70,10 @@ function formatValue(v: string): string {
 }
 
 /** Роль → текст пресета (обратное к parseRolePreset). */
-export function formatRolePreset(role: { id: string; name: string; description: string; color: number; instructions: string }): string {
+export function formatRolePreset(role: { id: string; name: string; description: string; color: number; icon?: string | null; instructions: string }): string {
 	const head = [`id: ${formatValue(role.id)}`, `name: ${formatValue(role.name)}`]
 	if (role.description) head.push(`description: ${formatValue(role.description)}`)
 	head.push(`color: ${role.color}`)
+	if (role.icon) head.push(`icon: ${role.icon}`)
 	return `---\n${head.join('\n')}\n---\n${role.instructions.replace(/\n*$/, '')}\n`
 }

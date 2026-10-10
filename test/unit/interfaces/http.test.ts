@@ -85,6 +85,7 @@ describe('HTTP: разбор тел запросов', () => {
 	it('spawn', () => {
 		assert.deepEqual(parseSpawnRequest({ space: 's', prompt: 'p', role: 'rev', session: 't-1', wait: true, waitTimeoutSec: 5, junk: 1 }), {
 			space: 's',
+			cwd: undefined,
 			name: undefined,
 			role: 'rev',
 			session: 't-1',
@@ -123,6 +124,7 @@ describe('HTTP: разбор тел запросов', () => {
 			instructions: 'i',
 			description: undefined,
 			color: 10,
+			icon: undefined,
 			id: undefined,
 		})
 		assert.equal(errCode(() => parseRoleRequest({ name: 'R' })), '400:bad_request')

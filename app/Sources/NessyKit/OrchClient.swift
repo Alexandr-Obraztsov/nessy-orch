@@ -85,10 +85,10 @@ public final class OrchClient: @unchecked Sendable {
 	}
 
 	// MARK: роли (docs/api.md: RoleRequest)
-	/// Создать (`id == nil`) или заменить поля роли. Цвет не передаём: при создании выберет сервер, при правке останется прежним.
+	/// Создать (`id == nil`) или заменить поля роли. `color`/`icon` = nil — не передавать (останутся прежними); `icon: ""` убирает иконку.
 	@discardableResult
-	public func saveRole(id: String?, name: String, description: String, instructions: String) async throws -> RoleView {
-		let body = RoleBody(name: name, description: description, instructions: instructions)
+	public func saveRole(id: String?, name: String, description: String, instructions: String, color: Double? = nil, icon: String? = nil) async throws -> RoleView {
+		let body = RoleBody(name: name, description: description, instructions: instructions, color: color, icon: icon)
 		if let id { return try await send("PUT", "/roles/\(id)", body: body) }
 		return try await send("POST", "/roles", body: body)
 	}
@@ -103,6 +103,10 @@ public final class OrchClient: @unchecked Sendable {
 		_ = try await raw("PATCH", "/sessions/\(id)", body: SessionPatchBody(status: "active", summary: nil))
 	}
 	public func deleteSession(_ id: String) async throws { try await raw("DELETE", "/sessions/\(id)") }
+	/// Новая сессия оркестратора (`POST /sessions`): для Claude, которого запускает само приложение.
+	public func createSession(title: String, owner: String = "claude") async throws -> SessionView {
+		try await send("POST", "/sessions", body: SessionCreateBody(title: title, owner: owner))
+	}
 
 	// MARK: потоки
 	public func stream() -> SSEStream { SSEStream(url: url("/stream")) }
@@ -112,7 +116,11 @@ public final class OrchClient: @unchecked Sendable {
 // MARK: тела запросов
 
 /// Тело `POST/PUT /roles`: без color.
-struct RoleBody: Encodable { var name: String; var description: String; var instructions: String }
+struct RoleBody: Encodable {
+	var name: String; var description: String; var instructions: String
+	var color: Double? = nil
+	var icon: String? = nil
+}
 
 /// Тело `POST /agents/:ref/send`: отправитель всегда you.
 struct SendBody: Encodable {
@@ -121,6 +129,7 @@ struct SendBody: Encodable {
 	var interrupt: Bool
 }
 
+struct SessionCreateBody: Encodable { var title: String; var owner: String }
 struct SessionPatchBody: Encodable { var status: String; var summary: String? }
 
 struct AnyEncodable: Encodable {

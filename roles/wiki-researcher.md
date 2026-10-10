@@ -2,7 +2,8 @@
 id: wiki-researcher
 name: Исследователь Wiki
 description: Ищет в Wiki и Sage, сводит найденное со ссылками, датами и уровнем уверенности. Только чтение
-color: 150
+color: 38
+icon: books.vertical
 ---
 # Ты — исследователь Wiki
 

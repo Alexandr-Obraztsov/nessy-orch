@@ -91,6 +91,20 @@ public struct ReplyBrief: Codable, Hashable, Sendable {
 	public var reason: String?
 }
 
+/// Что делает Claude сессии (его сообщают хуки Claude Code: `nessy-orch hook …`).
+public struct ClaudeState: Codable, Hashable, Sendable {
+	public enum Run: String, Codable, Sendable {
+		case working, idle, ended
+		/// неизвестное значение — «ждёт вас» (тихая точка), приложение не падает
+		public init(from decoder: Decoder) throws {
+			self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .idle
+		}
+	}
+	public var state: Run
+	public var at: String?
+	public init(state: Run, at: String? = nil) { self.state = state; self.at = at }
+}
+
 /// Сессия оркестратора: один разговор одного Claude. В ней агенты, источники и счётчики.
 public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	public var id: String
@@ -102,6 +116,8 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	public var updatedAt: String
 	/// сколько источников собрано (список — GET /sessions/:id/sources)
 	public var sources: Int
+	/// состояние Claude по хукам; nil — сервер не сообщает (старый сервер или хуки не подключены)
+	public var claude: ClaudeState?
 
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -113,6 +129,7 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 		createdAt = try c.decode(String.self, forKey: .createdAt)
 		updatedAt = try c.decode(String.self, forKey: .updatedAt)
 		sources = try c.decodeIfPresent(Int.self, forKey: .sources) ?? 0
+		claude = (try? c.decodeIfPresent(ClaudeState.self, forKey: .claude)) ?? nil
 	}
 }
 
@@ -219,7 +236,10 @@ public struct RoleView: Codable, Hashable, Identifiable, Sendable {
 	public var name: String
 	public var description: String
 	public var instructions: String
+	/// оттенок 0…360 (0 — серый)
 	public var color: Double
+	/// имя SF Symbol; у старых ролей поля нет
+	public var icon: String?
 	public var createdAt: String
 	public var updatedAt: String
 }

@@ -22,6 +22,7 @@ export class SpacesService {
 			onExit: (space, info) => {
 				if (ctx.isShuttingDown() || info.intended) return
 				const reason = `nessy serve пространства «${space.name}» завершился (code=${info.code}, signal=${info.signal})`
+				ctx.pool.clear(space.name) // заготовки жили в упавшем serve
 				for (const a of ctx.registry.agents.values()) if (a.space === space.name) a.onSpaceDown(reason)
 			},
 		})
@@ -41,6 +42,7 @@ export class SpacesService {
 		registry.spaces.set(name, space)
 		this.ctx.hub.publish({ t: 'space', space: space.toJSON() })
 		this.ctx.saveSoon()
+		this.ctx.pool.warm(name) // serve и заготовки сессий поднимаются в фоне, пока Claude пишет поручения
 		return space.toJSON()
 	}
 
@@ -52,15 +54,20 @@ export class SpacesService {
 		if (inside.length && !force)
 			throw new AppError(409, 'space_busy', `в пространстве ${inside.length} агент(ов); укажите force, чтобы удалить их`)
 		for (const a of inside) await removeAgent(a.id)
+		this.ctx.pool.clear(name, true)
 		await space.stop()
 		registry.spaces.delete(name)
 		this.ctx.hub.publish({ t: 'space_removed', name })
 		this.ctx.saveSoon()
 	}
 
-	/** Имя пространства, путь или пусто (если пространство единственное). Неизвестный путь добавляется. */
-	resolve(spec?: string): SpaceRuntime {
+	/**
+	 * Имя пространства, путь или пусто (если пространство единственное; иначе — cwd вызывающего, если он передан).
+	 * Неизвестный путь добавляется.
+	 */
+	resolve(spec?: string, cwd?: string): SpaceRuntime {
 		const { spaces } = this.ctx.registry
+		if (!spec && cwd && path.isAbsolute(cwd) && spaces.size !== 1) spec = cwd
 		if (!spec) {
 			if (spaces.size === 1) return [...spaces.values()][0] as SpaceRuntime
 			throw new AppError(

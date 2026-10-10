@@ -1,23 +1,6 @@
 import SwiftUI
 import NessyKit
 
-/// Что открыто в главном окне. Других экранов нет: сессия → агент (screens.md §2).
-enum Route: Hashable {
-	case session(String)
-}
-
-enum SessionTab: String, CaseIterable, Identifiable {
-	case agents = "Агенты", sources = "Источники", stats = "Статистика"
-	var id: String { rawValue }
-	var symbol: String {
-		switch self {
-		case .agents: "person.2"
-		case .sources: "link"
-		case .stats: "chart.bar"
-		}
-	}
-}
-
 /// Тост: глиф состояния + фраза + необязательное «Показать».
 struct Toast: Identifiable, Equatable {
 	var id = UUID()
@@ -32,35 +15,34 @@ struct Toast: Identifiable, Equatable {
 @Observable
 final class AppModel {
 	let store: OrchStore
-	var route: Route? = nil { didSet { saveRoute() } }
-	var tab: SessionTab = .agents { didSet { UserDefaults.standard.set(tab.rawValue, forKey: "tab") } }
-	/// агент, чьё окно открыто справа от списка
-	private(set) var openAgentId: String?
-	/// выбранная строка списка (курсор ↑/↓); открыть её — ↩
-	var selectedAgentId: String?
+	/// состояние окон сессий (карточка агента, курсор списка): по одному на сессию
+	@ObservationIgnored private(set) var windows: [String: SessionWindowModel] = [:]
+	/// открыть окна ждали, пока из окружения появится `openWindow` (ссылка при холодном старте)
+	@ObservationIgnored private var pendingOpens: [TerminalWindowValue] = []
+	/// на запуске пришла ссылка или папка — окно в домашнем каталоге не нужно
+	var suppressHomeWindow = false
+	/// окно сессии, которое сейчас в фокусе (команды меню действуют на него)
+	var activeWindow: SessionWindowModel?
 	/// черновики поля ввода по агентам
 	var drafts: [String: String] = [:]
-	/// в поле ввода есть текст и оно в фокусе: ⌘⌫ тогда нужен полю, а не «Отклонить»
-	var composerBusy = false
 	var showPalette = false
 	var showShortcuts = false
-	var showRoles = false
-	/// запрос ⌘F: вкладка «Источники» показывает поиск и фокусирует его
-	var searchTick = 0
 	var toast: Toast?
-	/// сайдбар свернули мы сами (чтобы освободить место окну агента) — вернём при закрытии
-	var sidebarCollapsedForPanel = false
-	var columnVisibility: NavigationSplitViewVisibility = .all
-	/// ширина окна агента (тянется за левый край)
-	var panelWidth: CGFloat = DS.Metrics.agentPanelWidth.ideal { didSet { UserDefaults.standard.set(Double(panelWidth), forKey: "panelWidth") } }
-	/// ширина контента сессии (без сайдбара) — чтобы решить, сворачивать ли сайдбар под окно агента
-	var detailWidth: CGFloat = 0
-	/// ширина окна — для компактного тулбара
-	var windowWidth: CGFloat = 900
+	/// желаемая ширина правой панели (тянется за левый край), 340…480
+	var panelWidth: CGFloat = {
+		let w = UserDefaults.standard.double(forKey: "panelWidth")
+		return w > 0 ? min(DS.Metrics.sidePanelWidth.max, max(DS.Metrics.sidePanelWidth.min, CGFloat(w))) : DS.Metrics.sidePanelWidth.ideal
+	}() { didSet { UserDefaults.standard.set(Double(panelWidth), forKey: "panelWidth") } }
+	/// правая панель агентов видна (запоминается, общая для всех окон)
+	var showAgents = UserDefaults.standard.object(forKey: "showAgents") as? Bool ?? true { didSet { UserDefaults.standard.set(showAgents, forKey: "showAgents") } }
+	/// папка терминала каждой сессии (чтобы повторно открыть сессию в её папке)
+	var sessionDirs: [String: String] = UserDefaults.standard.dictionary(forKey: "sessionDirs") as? [String: String] ?? [:]
+	let terminals = TerminalStore.shared
 
-	/// Вынести окно агента в отдельное окно macOS / открыть главное окно (задаются из View).
+	/// Открыть окно-терминал / отдельное окно агента (задаются из View при появлении окон).
+	var openTerminalWindow: ((TerminalWindowValue) -> Void)?
 	var openAgentWindow: ((String) -> Void)?
-	var openMainWindow: (() -> Void)?
+
 
 	let notifier = Notifier()
 	private var toastTask: Task<Void, Never>?
@@ -70,93 +52,72 @@ final class AppModel {
 
 	init() {
 		store = OrchStore(client: OrchClient(baseURL: AppSettings.serverURL))
-		let d = UserDefaults.standard
-		if let saved = d.string(forKey: "route") { route = Self.decodeRoute(saved) }
-		if let t = d.string(forKey: "tab").flatMap(SessionTab.init(rawValue:)) { tab = t }
-		if d.double(forKey: "panelWidth") > 0 {
-			panelWidth = min(DS.Metrics.agentPanelWidth.max, max(DS.Metrics.agentPanelWidth.min, CGFloat(d.double(forKey: "panelWidth"))))
-		}
 		store.onAttention = { [weak self] e in self?.attention(e) }
 		notifier.handler = { [weak self] action in self?.handle(action) }
 		store.start()
 		notifier.requestAuthorization()
 	}
 
-	// MARK: маршруты
+	// MARK: окна-терминалы
 
-	private func saveRoute() { UserDefaults.standard.set(route.map(Self.encodeRoute), forKey: "route") }
-	static func encodeRoute(_ r: Route) -> String {
-		switch r {
-		case .session(let id): "session:" + id
-		}
-	}
-	static func decodeRoute(_ s: String) -> Route? {
-		s.hasPrefix("session:") ? .session(String(s.dropFirst(8))) : nil
-	}
-
-	var currentSession: SessionView? {
-		if case .session(let id) = route { return store.session(id) }
-		return nil
+	/// Запомнить действия «открыть окно» (берутся из окружения любого окна) и выполнить отложенные.
+	func registerWindowOpeners(_ open: OpenWindowAction) {
+		openTerminalWindow = { open(id: "terminal", value: $0) }
+		openAgentWindow = { open(id: "agent", value: $0) }
+		let queued = pendingOpens
+		pendingOpens = []
+		queued.forEach { open(id: "terminal", value: $0) }
 	}
 
+	/// Окно в домашнем каталоге (Dock, повторный запуск без окон).
+	func openMainWindow() { openTerminal(dir: NSHomeDirectory()) }
+
+	var hasTerminalWindows: Bool { !windows.isEmpty }
+
+	/// Состояние окна (создаётся при первом обращении).
+	func window(for value: TerminalWindowValue) -> SessionWindowModel {
+		if let w = windows[value.key] { return w }
+		let w = SessionWindowModel(app: self, value: value)
+		windows[value.key] = w
+		return w
+	}
+
+	func forget(window w: SessionWindowModel) {
+		windows[w.key] = nil
+		if activeWindow === w { activeWindow = nil }
+	}
+
+	private func open(_ value: TerminalWindowValue) {
+		if let f = openTerminalWindow { f(value); NSApp.activate() } else { pendingOpens.append(value) }
+	}
+
+	/// Новое окно-терминал в папке (ссылка, `open -a … <папка>`, ⌘N).
+	func openTerminal(dir: String) {
+		let d = Projects.normalize(dir).flatMap { TerminalLaunch.isUsableDirectory($0) ? $0 : nil } ?? NSHomeDirectory()
+		open(.fresh(dir: d))
+	}
+
+	/// Открыть (или поднять) окно сессии оркестратора.
 	func show(session id: String) {
-		if route != .session(id) { open(agent: nil) }
-		route = .session(id)
-		tab = .agents
+		if let w = windows.values.first(where: { $0.sessionId == id }) { open(w.value); return }
+		open(.reopen(session: id, dir: projectPath(of: id) ?? NSHomeDirectory()))
 	}
 
-	/// Перейти к агенту: открыть его сессию и окно агента.
+	/// Перейти к агенту: окно его сессии и карточка агента в боковой панели.
 	func reveal(agent id: String) {
-		guard let a = store.agents[id] else { return }
-		if let s = a.session { route = .session(s) }
-		tab = .agents
-		open(agent: id)
-		openMainWindow?()
-	}
-
-	/// Открыть/закрыть окно агента. Пружина прерываема: повторный вызов посреди анимации разворачивает её.
-	func open(agent id: String?) {
-		withAnimation(dsAnimation(DS.Motion.panel)) {
-			if id == nil, sidebarCollapsedForPanel {
-				columnVisibility = .all
-				sidebarCollapsedForPanel = false
+		guard let a = store.agents[id], let s = a.session else { return }
+		show(session: s)
+		// карточка открывается, когда окно уже есть
+		Task { @MainActor in
+			for _ in 0..<20 {
+				if let w = windows.values.first(where: { $0.sessionId == s }) { w.open(agent: id); return }
+				try? await Task.sleep(for: .milliseconds(100))
 			}
-			// списку остаётся меньше 360 — сайдбар уступает место (screens.md §5)
-			if id != nil, openAgentId == nil, columnVisibility != .detailOnly,
-				detailWidth - panelWidth - 2 * DS.Metrics.panelInset < 360 {
-				columnVisibility = .detailOnly
-				sidebarCollapsedForPanel = true
-			}
-			openAgentId = id
-			if let id { selectedAgentId = id }
 		}
-		if let id, let a = store.agents[id] { store.markSeen(agent: a) }
 	}
 
-	func toggle(agent id: String) { open(agent: openAgentId == id ? nil : id) }
-
-	var openAgent: AgentView? { openAgentId.flatMap { store.agents[$0] } }
-	/// Над кем работают горячие клавиши: открытый агент, иначе выбранный в списке.
-	var targetAgent: AgentView? { openAgent ?? selectedAgentId.flatMap { store.agents[$0] } }
-
-	/// ↑/↓: курсор двигается; если окно агента открыто, оно следует за курсором.
-	func select(agent id: String) {
-		selectedAgentId = id
-		if openAgentId != nil, openAgentId != id { open(agent: id) }
-	}
-
-	/// ⌘[ и ⌘]: соседняя активная сессия.
-	func step(session d: Int) {
-		let list = store.activeSessions
-		guard !list.isEmpty else { return }
-		let i = list.firstIndex { route == .session($0.id) }
-		show(session: list[i.map { min(max(0, $0 + d), list.count - 1) } ?? 0].id)
-	}
-
-	/// Первый запрос прав у целевого агента.
-	var targetPermission: (agent: AgentView, permission: PermissionBrief)? {
-		targetAgent.flatMap { a in a.pendingPermissions.first.map { (a, $0) } }
-	}
+	/// Над кем работают горячие клавиши: открытый агент окна в фокусе, иначе выбранный в его списке.
+	var targetAgent: AgentView? { activeWindow?.targetAgent }
 
 	/// Время, на котором замерли данные (нет связи) — таймеры не врут, что агент «работает 5:00».
 	var frozenAt: Date? {
@@ -168,21 +129,25 @@ final class AppModel {
 	// MARK: диплинки и уведомления
 
 	func handle(url: URL) {
+		if url.isFileURL {
+			// папка, брошенная на значок или открытая через `open -a "Nessy Orch" <папка>`
+			if let d = TerminalLaunch.directory(from: url) { suppressHomeWindow = true; openTerminal(dir: d) }
+			return
+		}
 		guard url.scheme == "nessy-orch" else { return }
 		let id = url.pathComponents.dropFirst().first ?? ""
 		switch url.host {
-		case "session": if !id.isEmpty { show(session: id); openMainWindow?() }
+		case "terminal": if let d = TerminalLaunch.directory(from: url) { suppressHomeWindow = true; openTerminal(dir: d) }
+		case "session": if !id.isEmpty { suppressHomeWindow = true; show(session: id) }
 		case "agent": if !id.isEmpty { reveal(agent: id) }
-		default: openMainWindow?()
+		default: break
 		}
 	}
 
 	func handle(_ action: NotificationAction) {
 		switch action {
 		case .open(let agentId, let sessionId):
-			if let agentId { reveal(agent: agentId) } else if let sessionId { show(session: sessionId); openMainWindow?() }
-		case .decide(let agentId, let requestId, let approve):
-			Task { await run(approve ? "Разрешение" : "Отклонение") { try await self.store.client.decide(agent: agentId, requestId: requestId, approve: approve) } }
+			if let agentId { reveal(agent: agentId) } else if let sessionId { show(session: sessionId) }
 		}
 	}
 
@@ -222,13 +187,6 @@ final class AppModel {
 		do { try await op() } catch { flash("\(title): \(error.localizedDescription)", error: true) }
 	}
 
-	func decide(agent: AgentView, permission: PermissionBrief, approve: Bool) {
-		Task {
-			await run(approve ? "Разрешение" : "Отклонение") {
-				try await self.store.client.decide(agent: agent.id, requestId: permission.requestId, approve: approve)
-			}
-		}
-	}
 	/// Написать агенту (прерывает текущий ход). Ошибка — тостом, черновик возвращается в поле.
 	func send(to a: AgentView, text: String) {
 		let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -245,7 +203,7 @@ final class AppModel {
 	func saveRole(id: String?, _ d: RoleDraft) async -> RoleView? {
 		do {
 			let t = d.trimmed
-			return try await store.client.saveRole(id: id, name: t.name, description: t.description, instructions: t.instructions)
+			return try await store.client.saveRole(id: id, name: t.name, description: t.description, instructions: t.instructions, color: t.color, icon: t.icon)
 		} catch { flash("Роль не сохранена: \(error.localizedDescription)", error: true); return nil }
 	}
 	func deleteRole(_ id: String) async -> Bool {
@@ -258,7 +216,6 @@ final class AppModel {
 	func deleteSession(_ id: String) {
 		Task {
 			await run("Удаление") { try await self.store.client.deleteSession(id) }
-			if self.route == .session(id) { self.route = self.store.activeSessions.first.map { .session($0.id) } }
 		}
 	}
 }
@@ -276,7 +233,13 @@ enum Daemon {
 	static let label = "com.nessy.orch"
 
 	@discardableResult
+	/// Перезапустить службу; если её ещё нет — установить из встроенной копии сервера.
 	static func kickstart() async -> Bool {
+		if await launchctlKickstart() { return true }
+		return await CLISupport.shared.installService()
+	}
+
+	private static func launchctlKickstart() async -> Bool {
 		await Task.detached {
 			let p = Process()
 			p.executableURL = URL(fileURLWithPath: "/bin/launchctl")

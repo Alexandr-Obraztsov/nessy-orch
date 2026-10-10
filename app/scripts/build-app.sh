@@ -13,6 +13,19 @@ rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/NessyOrch"
 
+# сервер и CLI внутрь приложения: при запуске приложение ставит ссылку ~/.local/bin/nessy-orch и (по желанию) службу launchd
+# (tsc без очистки dist: не ломаем уже запущенные демо/тесты, которые читают dist/test)
+ROOT="$(cd .. && pwd)"
+(cd "$ROOT" && npx --no-install tsc -p tsconfig.json)
+ORCH="$OUT/Contents/Resources/orch"
+mkdir -p "$ORCH/bin" "$ORCH/dist"
+cp -R "$ROOT/dist/src" "$ORCH/dist/src"
+cp -R "$ROOT/dist/shared" "$ORCH/dist/shared"
+cp -R "$ROOT/roles" "$ORCH/roles"
+cp "$ROOT/package.json" "$ORCH/package.json"
+cp "$ROOT/bin/nessy-orch" "$ORCH/bin/nessy-orch"
+chmod +x "$ORCH/bin/nessy-orch" "$ORCH/dist/src/main.js" "$ORCH/dist/src/interfaces/cli/main.js"
+
 # иконка
 ICONSET="build/AppIcon.iconset"
 rm -rf "$ICONSET"
@@ -39,6 +52,13 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSSupportsAutomaticTermination</key><false/>
 	<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
+	<key>CFBundleDocumentTypes</key>
+	<array><dict>
+		<key>CFBundleTypeName</key><string>Folder</string>
+		<key>CFBundleTypeRole</key><string>Viewer</string>
+		<key>LSItemContentTypes</key><array><string>public.folder</string></array>
+		<key>LSHandlerRank</key><string>Alternate</string>
+	</dict></array>
 	<key>CFBundleURLTypes</key>
 	<array><dict>
 		<key>CFBundleURLName</key><string>$BUNDLE_ID</string>

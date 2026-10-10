@@ -9,8 +9,24 @@ export const ROLE_NAME_MAX = 60
 export const ROLE_INSTRUCTIONS_MAX = 20000
 export const ROLE_DESCRIPTION_MAX = 300
 export const ROLE_ID_MAX = 40
+export const ROLE_ICON_MAX = 40
 
 const ROLE_ID_RE = /^[a-z0-9][a-z0-9-]*$/
+const ROLE_ICON_RE = /^[a-z0-9][a-z0-9.-]*$/
+
+/** Названия цветов для CLI (`--color blue`) → hue 0..360. */
+export const COLOR_NAMES: Readonly<Record<string, number>> = {
+	red: 5, orange: 28, yellow: 48, lime: 90, green: 135, teal: 175, cyan: 195, blue: 215, indigo: 245, purple: 275, pink: 325, gray: 0,
+	красный: 5, оранжевый: 28, жёлтый: 48, зелёный: 135, бирюзовый: 175, голубой: 195, синий: 215, фиолетовый: 275, розовый: 325,
+}
+
+/** Цвет из числа 0..360 или названия; иначе null. */
+export function parseColor(v: string): number | null {
+	const named = COLOR_NAMES[v.trim().toLowerCase()]
+	if (named !== undefined) return named
+	const n = Number(v)
+	return Number.isFinite(n) && n >= 0 && n <= 360 ? n : null
+}
 
 const TRANSLIT: Readonly<Record<string, string>> = {
 	а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm',
@@ -68,5 +84,7 @@ export function validateRole(input: RoleInput): RoleFields {
 	if (!isRoleId(id)) throw bad(`id «${id}» должен состоять из [a-z0-9-] (до ${ROLE_ID_MAX} символов)`)
 	const color = input.color ?? roleColor(name)
 	if (!Number.isFinite(color) || color < 0 || color > 360) throw bad('color — число 0..360')
-	return { id, name, description, instructions, color: Math.round(color) }
+	const iconRaw = (input.icon ?? '').trim()
+	if (iconRaw && (iconRaw.length > ROLE_ICON_MAX || !ROLE_ICON_RE.test(iconRaw))) throw bad(`icon — имя SF Symbols ([a-z0-9.-], до ${ROLE_ICON_MAX} символов)`)
+	return { id, name, description, instructions, color: Math.round(color), icon: iconRaw || null }
 }

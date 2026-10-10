@@ -77,6 +77,15 @@ export interface SourceView {
 	ts: number
 }
 
+/** Состояние Claude Code этой сессии (сообщают хуки): работает над ходом / ждёт пользователя / сеанс завершён. */
+export type ClaudeState = 'working' | 'idle' | 'ended'
+
+export interface ClaudeStatus {
+	state: ClaudeState
+	/** когда сообщили (ISO) */
+	at: string
+}
+
 export interface SessionView {
 	/** slug: латиница, цифры, дефис (например `fix-ci-3f2a`) */
 	id: string
@@ -90,6 +99,8 @@ export interface SessionView {
 	updatedAt: string
 	/** сколько источников собрано за сессию (список — GET /sessions/:id/sources) */
 	sources: number
+	/** состояние Claude Code (по хукам `nessy-orch hook …`); null — хуки не подключены или сервис перезапускался */
+	claude?: ClaudeStatus | null
 }
 
 export interface AgentView {
@@ -158,6 +169,8 @@ export interface RoleView {
 	instructions: string
 	/** hue 0..360 для метки роли */
 	color: number
+	/** имя иконки (SF Symbols), например `magnifyingglass`; null — без иконки */
+	icon: string | null
 	createdAt: string
 	updatedAt: string
 }

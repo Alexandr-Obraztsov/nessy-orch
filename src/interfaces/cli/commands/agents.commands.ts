@@ -1,7 +1,9 @@
 /** Команды агентов: spawn, send, ask, ls, show, watch, plan, cancel, archive, restore, kill. */
 import * as path from 'node:path'
-import type { AgentEvent, AgentView, GraphView, SendResponse, SpawnResponse } from '../../../../shared/types'
+import * as fs from 'node:fs'
+import type { AgentEvent, AgentView, GraphView, SendResponse, SpawnBatchResponse, SpawnResponse } from '../../../../shared/types'
 import { parsePlanArgs } from '../../../domain/plan'
+import { parseBatchText } from '../../../domain/spawn-batch'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { Parsed } from '../args.types'
 import { asAgentStreamEvent, sse } from '../client'
@@ -10,7 +12,7 @@ import { agentsTable, bold, dim, green, planText, red, status, time } from '../f
 import { del, enc, ep, get, info, json, out, post } from '../io'
 import { renderEvent } from '../render-event'
 import type { CommandTable } from './command.types'
-import { ASK_FLAGS, COMMON, LS_FLAGS, PLAN_FLAGS, SEND_FLAGS, SPAWN_FLAGS } from './flags'
+import { ASK_FLAGS, COMMON, LS_FLAGS, PLAN_FLAGS, SEND_FLAGS, SPAWN_FLAGS, SPAWN_MANY_FLAGS } from './flags'
 import { sessionOption } from './sessions.commands'
 
 /** Пространство задают именем или путём; относительный путь считаем от текущего каталога CLI, а не сервера. */
@@ -50,6 +52,7 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 	if (wait && !prompt) throw new CliError('--wait требует текст сессии', 2)
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(flagStr(p, 'space')),
+		cwd: process.cwd(), // пространство по умолчанию, если --space не указан и пространств не одно
 		name: flagStr(p, 'name'),
 		role: flagStr(p, 'role'),
 		session: sessionOption(p),
@@ -59,6 +62,30 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 		waitTimeoutSec: flagNum(p, 'timeout'),
 	})
 	printSendResult(p, r.agent, r)
+}
+
+/** Пакет агентов одним вызовом: блоки «@@ имя role=…» + поручение из stdin или --file (либо JSON-массив). */
+async function cmdSpawnMany(p: Parsed): Promise<void> {
+	const file = flagStr(p, 'file')
+	if (file === undefined && process.stdin.isTTY) throw new CliError('использование: nessy-orch spawn-many [--session S] [--space P] <<\'EOF\'\n@@ имя role=роль\nпоручение\nEOF', 2)
+	const text = fs.readFileSync(file ?? 0, 'utf8')
+	const agents = parseBatchText(text).map(a => ({ ...a, space: spaceArg(a.space) }))
+	const r = await post<SpawnBatchResponse>('/agents/batch', {
+		agents,
+		space: spaceArg(flagStr(p, 'space')),
+		cwd: process.cwd(),
+		session: sessionOption(p),
+		from: flagStr(p, 'from'),
+	})
+	if (flagBool(p, 'json')) json(r)
+	else
+		for (const x of r.results) {
+			if (x.ok) out(`${green('✓')} ${bold(x.agent.id)}${x.agent.name !== x.agent.id ? ` (${x.agent.name})` : ''}  «${x.agent.space}»`)
+			else out(red(`✗ ${x.name ?? 'агент'}: ${x.error} [${x.code}]`))
+		}
+	const failed = r.results.filter(x => !x.ok).length
+	if (failed) throw new CliError(`не запущено агентов: ${failed} из ${r.results.length}`)
+	if (!flagBool(p, 'json')) info(dim(`запущено: ${r.results.length}. Ответы придут в inbox: nessy-orch inbox${sessionOption(p) ? ` --session ${sessionOption(p)}` : ''} --wait 1500`))
 }
 
 async function cmdSend(p: Parsed): Promise<void> {
@@ -196,6 +223,7 @@ async function cmdKill(p: Parsed): Promise<void> {
 export const agentCommands: CommandTable = {
 	ls: { run: cmdLs, spec: LS_FLAGS },
 	spawn: { run: cmdSpawn, spec: SPAWN_FLAGS },
+	'spawn-many': { run: cmdSpawnMany, spec: SPAWN_MANY_FLAGS },
 	send: { run: cmdSend, spec: SEND_FLAGS },
 	ask: { run: cmdAsk, spec: ASK_FLAGS },
 	show: { run: cmdShow, spec: { bool: ['json', 'help'], value: ['n'] } },

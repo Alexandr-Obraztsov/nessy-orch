@@ -18,7 +18,6 @@ struct MenuBarLabel: View {
 	private var symbol: String {
 		let store = model.store
 		if case .offline = store.daemon { return "bolt.slash" }
-		if store.allAgents.contains(where: { $0.state == .wait }) { return "hand.raised.fill" }
 		if store.allAgents.contains(where: { $0.needsYou }) { return "xmark.octagon" }
 		return store.workingCount > 0 ? "asterisk.circle.fill" : "asterisk"
 	}
@@ -35,7 +34,6 @@ struct MenuBarPanel: View {
 		let store = model.store
 		let needs = AgentGrouping.sections(store.allAgents).first { $0.group == .needsYou }?.agents ?? []
 		let working = AgentGrouping.sections(store.allAgents).first { $0.group == .working }?.agents ?? []
-		let firstRequest = needs.first { !$0.pendingPermissions.isEmpty }?.pendingPermissions.first?.requestId
 
 		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
 			if model.isOffline {
@@ -43,10 +41,9 @@ struct MenuBarPanel: View {
 					Image(systemName: "bolt.slash.fill").foregroundStyle(DS.Palette.danger)
 					Text("Нет связи с оркестратором").font(DS.Typography.secondary)
 					Spacer(minLength: DS.Metrics.s2)
-					Button("Запустить") {
+					GlassIconButton(systemImage: "power", help: "Запустить службу") {
 						Task { _ = await Daemon.kickstart(); try? await Task.sleep(for: .seconds(2)); await store.refreshStatus() }
 					}
-					.buttonStyle(.bordered)
 				}
 				.padding(DS.Metrics.s3)
 				.dsGroup()
@@ -65,7 +62,7 @@ struct MenuBarPanel: View {
 				section("Нужны вы", count: needs.count) {
 					ForEach(Array(needs.prefix(4).enumerated()), id: \.element.id) { i, a in
 						if i > 0 { DSSeparator(leading: DS.Metrics.rowTextX) }
-						AgentRow(agent: a, prominentRequest: firstRequest, compact: true)
+						AgentRow(agent: a, compact: true)
 					}
 				}
 			}
@@ -73,7 +70,7 @@ struct MenuBarPanel: View {
 				section("В работе", count: working.count) {
 					ForEach(Array(working.prefix(5).enumerated()), id: \.element.id) { i, a in
 						if i > 0 { DSSeparator(leading: DS.Metrics.rowTextX) }
-						AgentRow(agent: a, prominentRequest: nil, compact: true)
+						AgentRow(agent: a, compact: true)
 					}
 					if working.count > 5 {
 						DSSeparator(leading: DS.Metrics.rowTextX)
@@ -84,12 +81,22 @@ struct MenuBarPanel: View {
 				}
 			}
 
+			let sessions = Array(model.store.activeSessions.prefix(5))
+			if !sessions.isEmpty {
+				section("Сессии", count: sessions.count) {
+					ForEach(Array(sessions.enumerated()), id: \.element.id) { i, s in
+						if i > 0 { DSSeparator(leading: DS.Metrics.s4 + DS.Metrics.glyphSidebar) }
+						SessionRow(session: s)
+					}
+				}
+			}
+
 			// низ — как Dock: стеклянная капсула «Открыть nessy» и плотные круглые кнопки-иконки
 			GlassEffectContainer(spacing: DS.Metrics.s2) {
 				HStack(spacing: DS.Metrics.s2) {
-					Button { activate() } label: { Label("Открыть nessy", systemImage: "macwindow").padding(.horizontal, DS.Metrics.s1) }
-						.buttonStyle(.glass)
 					Spacer(minLength: 0)
+					Button { activate() } label: { Image(systemName: "macwindow").frame(width: DS.Metrics.s4, height: DS.Metrics.s4) }
+						.buttonStyle(.glass).buttonBorderShape(.circle).help("Стартовый экран (⇧⌘O)")
 					Menu {
 						Button("Не беспокоить 1 час") { pause(3600) }
 						Button("Не беспокоить до завтра") { pause(until: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400))) }
@@ -108,7 +115,7 @@ struct MenuBarPanel: View {
 		}
 		.padding(DS.Metrics.s3)
 		.frame(width: 320)
-		.onAppear { model.openMainWindow = { activate() } }
+		.onAppear { model.registerWindowOpeners(openWindow) }
 	}
 
 	private var isPaused: Bool { _ = pauseTick; return (UserDefaults.standard.object(forKey: "notify.pausedUntil") as? Date).map { $0 > Date() } ?? false }
@@ -116,7 +123,7 @@ struct MenuBarPanel: View {
 	private func pause(until d: Date) { UserDefaults.standard.set(d, forKey: "notify.pausedUntil"); pauseTick += 1 }
 
 	private func activate() {
-		openWindow(id: "main")
+		openWindow(id: "start")
 		NSApp.activate()
 	}
 

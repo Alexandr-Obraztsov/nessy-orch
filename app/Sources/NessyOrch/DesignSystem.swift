@@ -84,11 +84,17 @@ extension DS {
 	enum Metrics {
 		static let s1: CGFloat = 4, s2: CGFloat = 8, s3: CGFloat = 12, s4: CGFloat = 16, s5: CGFloat = 20, s6: CGFloat = 24, s8: CGFloat = 32
 		static let contentInset: CGFloat = 20
-		static let sidebarWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (200, 220, 320)
+		static let sidebarWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 264, 300)
 		/// окно агента: screens.md §2 (400, 360…480) — под окно 900×600
 		static let agentPanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (360, 400, 480)
+		/// левая панель агентов (layout-v2.md, итог): 300…440, по умолчанию 340
+		static let sidePanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (300, 340, 440)
 		static let panelInset: CGFloat = 8
+		/// круглые кнопки: 36 — везде, 40 — в тулбаре; иконка 16–17 pt (layout-v2.md, «Кнопки»)
+		static let button: CGFloat = 36, toolbarButton: CGFloat = 40, buttonIcon: CGFloat = 16.5
 		static let groupRadius: CGFloat = 12
+		/// плавающие карточки панели агента (шапка, цель, план, поле ввода)
+		static let cardRadius: CGFloat = 16
 		static let rowInset: CGFloat = 4
 		static let panelRadiusFallback: CGFloat = 18
 		static let glyphRow: CGFloat = 16, glyphSidebar: CGFloat = 14, glyphHeader: CGFloat = 20
@@ -121,6 +127,11 @@ extension DS {
 			reduceMotion ? .opacity : .opacity.combined(with: .offset(x: 24)).combined(with: .scale(scale: 0.98, anchor: .trailing))
 		}
 
+		/// Боковая панель: выезжает от своего края и уходит туда же.
+		static func sideTransition(edge: Edge, reduceMotion: Bool) -> AnyTransition {
+			reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity)
+		}
+
 		static func rowTransition(reduceMotion: Bool) -> AnyTransition {
 			reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top))
 		}
@@ -141,6 +152,16 @@ extension View {
 
 	/// Плавающее окно агента: непрозрачная поверхность, тень, форма концентрична окну.
 	func dsPanel() -> some View { modifier(DSPanelSurface()) }
+
+	/// Карточка панели агента: стеклянный слой поверх чата, одинаковый радиус у всех карточек.
+	func dsFloatingCard() -> some View {
+		let shape = RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous)
+		// непрозрачный слой: чат прокручивается под карточкой и не должен просвечивать сквозь текст
+		return self
+			.background(.regularMaterial, in: shape)
+			.background(DS.Palette.hover, in: shape)
+			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+	}
 
 	/// Плавающая панель на Liquid Glass, как системный сайдбар.
 	func dsGlassPanel() -> some View { modifier(DSGlassPanel()) }
@@ -422,16 +443,9 @@ struct DSTimer: View {
 					.help(stalled ? "Нет событий \(Durations.clock(now.timeIntervalSince(agent.lastActivity ?? now) * 1000))" : "")
 			}
 		}
-		.font(DS.Typography.timer)
+		.font(DS.Typography.timer).lineLimit(1).fixedSize()
 	}
 	private var prefix: String { agent.state == .wait ? "ждёт " : "" }
-}
-
-enum Pasteboard {
-	static func copy(_ s: String) {
-		NSPasteboard.general.clearContents()
-		NSPasteboard.general.setString(s, forType: .string)
-	}
 }
 
 /// Мягкая пульсация «ждёт вас»: прозрачность 1 → 0.55 за 1.2 с туда-обратно. С Reduce Motion — нет.
@@ -446,5 +460,57 @@ private struct SoftPulse: ViewModifier {
 		} else {
 			content
 		}
+	}
+}
+
+// MARK: - Круглые стеклянные кнопки
+
+/// Круглая кнопка на Liquid Glass: размер задан точно (36 pt, в тулбаре 40), иконка 16,5 pt semibold.
+/// Главное действие экрана — `prominent`: стекло с акцентным тоном. Область нажатия равна видимому кругу.
+struct GlassCircleStyle: ButtonStyle {
+	var size: CGFloat = DS.Metrics.button
+	var prominent = false
+	@Environment(\.isEnabled) private var enabled
+
+	func makeBody(configuration: Configuration) -> some View {
+		configuration.label
+			.font(.system(size: DS.Metrics.buttonIcon, weight: .semibold))
+			.foregroundStyle(prominent ? Color.white : DS.Palette.textPrimary)
+			.frame(width: size, height: size)
+			.contentShape(Circle())
+			.glassEffect(prominent ? .regular.tint(DS.Palette.accent).interactive() : .regular.interactive(), in: Circle())
+			.opacity(enabled ? 1 : 0.4)
+			.scaleEffect(configuration.isPressed ? 0.94 : 1)
+			.animation(DS.Motion.hoverIn, value: configuration.isPressed)
+	}
+}
+
+/// Кнопка-иконка: подпись только в подсказке и для VoiceOver.
+struct GlassIconButton: View {
+	var systemImage: String
+	var help: String
+	var size: CGFloat = DS.Metrics.button
+	var prominent = false
+	var action: () -> Void
+	var body: some View {
+		Button(action: action) { Image(systemName: systemImage) }
+			.buttonStyle(GlassCircleStyle(size: size, prominent: prominent))
+			.help(help).accessibilityLabel(help)
+	}
+}
+
+/// Меню в виде круглой стеклянной кнопки-иконки.
+struct GlassIconMenu<Content: View>: View {
+	var systemImage: String
+	var help: String
+	var size: CGFloat = DS.Metrics.button
+	var prominent = false
+	@ViewBuilder var content: Content
+	var body: some View {
+		Menu { content } label: { Image(systemName: systemImage) }
+			.menuStyle(.button).menuIndicator(.hidden)
+			.buttonStyle(GlassCircleStyle(size: size, prominent: prominent))
+			.fixedSize()
+			.help(help).accessibilityLabel(help)
 	}
 }

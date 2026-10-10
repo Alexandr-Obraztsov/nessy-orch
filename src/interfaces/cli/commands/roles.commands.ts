@@ -1,12 +1,13 @@
-/** Команды ролей: role ls|add|show|rm|import|export. */
+/** Команды ролей: role ls|add|set|show|rm|import|export. */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { RoleRequest, RoleView } from '../../../../shared/types'
 import { formatRolePreset } from '../../../domain/role-presets'
+import { parseColor } from '../../../domain/roles'
 import { projectRoot } from '../../../infrastructure/config/load-config'
 import { readRolePresetFiles } from '../../../infrastructure/persistence/role-presets'
 import { errMsg } from '../../../lib/json'
-import { flagBool, flagNum, flagStr } from '../args'
+import { flagBool, flagStr } from '../args'
 import type { Parsed } from '../args.types'
 import { CliError } from '../errors'
 import { bold, dim, green, red, rolesTable, table, yellow } from '../format'
@@ -14,7 +15,17 @@ import { del, enc, get, info, json, out, post, put } from '../io'
 import type { CommandTable } from './command.types'
 import { importRolePresets } from './roles-import'
 
-const ADD_USAGE = 'использование: nessy-orch role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] [--color 0..360]'
+const ADD_USAGE =
+	'использование: nessy-orch role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] [--color 0..360|название] [--icon SF-Symbol]'
+
+/** --color: число 0..360 или название (red, orange, yellow, green, teal, blue, indigo, purple, pink, gray; по-русски тоже). */
+function colorOption(p: Parsed): number | undefined {
+	const v = flagStr(p, 'color')
+	if (v === undefined) return undefined
+	const c = parseColor(v)
+	if (c === null) throw new CliError(`--color: число 0..360 или название цвета (red, orange, yellow, green, teal, blue, indigo, purple, pink, gray), получено «${v}»`, 2)
+	return c
+}
 
 /** Инструкции из --instructions или из файла (--file). */
 function readInstructions(p: Parsed): string {
@@ -75,10 +86,27 @@ async function cmdRole(p: Parsed): Promise<void> {
 			instructions: readInstructions(p),
 			description: flagStr(p, 'description'),
 			id: flagStr(p, 'id'),
-			color: flagNum(p, 'color'),
+			color: colorOption(p),
+			icon: flagStr(p, 'icon'),
 		}
 		const r = await post<RoleView>('/roles', body)
 		return asJson ? json(r) : out(`${green('✓')} роль ${bold(r.id)} (${r.name}). Агент с ролью: nessy-orch spawn --role ${r.id} "сессия"`)
+	}
+	if (sub === 'set') {
+		// частичная правка: что не указано — остаётся прежним
+		const id = rest[0]
+		if (!id) throw new CliError('использование: nessy-orch role set <id> [--name N] [--description D] [--instructions "…" | --file путь] [--color …] [--icon …]', 2)
+		const cur = await get<RoleView>(`/roles/${enc(id)}`)
+		const hasText = flagStr(p, 'instructions') !== undefined || flagStr(p, 'file') !== undefined
+		const body: RoleRequest = {
+			name: flagStr(p, 'name') ?? cur.name,
+			instructions: hasText ? readInstructions(p) : cur.instructions,
+			description: flagStr(p, 'description') ?? cur.description,
+			color: colorOption(p) ?? cur.color,
+			icon: flagStr(p, 'icon') ?? cur.icon ?? undefined,
+		}
+		const r = await put<RoleView>(`/roles/${enc(cur.id)}`, body)
+		return asJson ? json(r) : out(`${green('✓')} роль ${bold(r.id)} обновлена`)
 	}
 	if (sub === 'show') {
 		const id = rest[0]
@@ -109,5 +137,5 @@ async function cmdRole(p: Parsed): Promise<void> {
 }
 
 export const roleCommands: CommandTable = {
-	role: { run: cmdRole, spec: { bool: ['json', 'help', 'force', 'dry-run'], value: ['instructions', 'file', 'description', 'id', 'color', 'out'] } },
+	role: { run: cmdRole, spec: { bool: ['json', 'help', 'force', 'dry-run'], value: ['instructions', 'file', 'description', 'id', 'color', 'icon', 'name', 'out'] } },
 }

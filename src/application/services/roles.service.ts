@@ -50,7 +50,7 @@ export class RolesService {
 	/** Полная замена полей роли (id не меняется; цвет без значения сохраняется прежним). */
 	update(id: string, req: RoleRequest): RoleView {
 		const prev = this.resolve(id)
-		const f = validateRole({ ...req, id: prev.id, color: req.color ?? prev.color })
+		const f = validateRole({ ...req, id: prev.id, color: req.color ?? prev.color, icon: req.icon ?? prev.icon ?? undefined })
 		this.assertNameFree(f.name, prev.id)
 		const role: RoleView = { ...f, createdAt: prev.createdAt, updatedAt: this.isoNow() }
 		this.put(role)

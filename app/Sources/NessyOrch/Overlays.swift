@@ -5,12 +5,11 @@ import NessyKit
 
 enum Shortcuts {
 	static let groups: [(String, [(String, String)])] = [
-		("Сессии", [("⌘1…⌘9", "Сессия по порядку"), ("⌘[  ⌘]", "Предыдущая / следующая сессия"),
-					("⌥⌘1  ⌥⌘2  ⌥⌘3", "Агенты / Источники / Статистика"), ("⌘K", "Перейти к сессии или агенту"),
-					("⌘F", "Поиск по источникам"), ("⇧⌘R", "Роли")]),
-		("Список агентов", [("↑ ↓  J K", "Выбрать агента"), ("↩", "Открыть выбранного"), ("Esc", "Закрыть окно агента"),
+		("Окна и терминал", [("⌘N", "Новое окно в той же папке"), ("⇧⌘O", "Открыть папку…"), ("⌘W", "Закрыть окно"),
+					  ("⌘⌥B", "Показать / скрыть панель агентов"), ("Esc, ↑↓, ⌃-клавиши", "Достаются терминалу, пока фокус в нём")]),
+		("Сессии", [("⌘1…⌘9", "Открыть окно сессии по порядку"), ("⌘K", "Перейти к сессии или агенту"), ("⇧⌘R", "Роли")]),
+		("Список агентов (фокус в списке: клик по нему)", [("↑ ↓  J K", "Выбрать агента"), ("↩", "Открыть карточку"), ("Esc", "Назад к списку из карточки"),
 							("⌘O", "Открыть в отдельном окне"), ("⌘.", "Остановить ход")]),
-		("Запрос прав", [("⌘↩", "Разрешить"), ("⌘⌫", "Отклонить")]),
 		("Поле ввода", [("↩", "Отправить"), ("⇧↩", "Перенос строки")]),
 		("Роли", [("⌘S", "Сохранить роль")]),
 	]
@@ -20,7 +19,7 @@ struct ShortcutsView: View {
 	@Environment(\.dismiss) private var dismiss
 	var body: some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s4) {
-			HStack { Text("Горячие клавиши").font(DS.Typography.panelTitle); Spacer(); Button("Готово") { dismiss() }.keyboardShortcut(.defaultAction) }
+			HStack { Text("Горячие клавиши").font(DS.Typography.panelTitle); Spacer(); GlassIconButton(systemImage: "xmark", help: "Закрыть (Esc)") { dismiss() }.keyboardShortcut(.cancelAction) }
 			ScrollView {
 				VStack(alignment: .leading, spacing: DS.Metrics.s5) {
 					ForEach(Shortcuts.groups, id: \.0) { g in
@@ -38,7 +37,7 @@ struct ShortcutsView: View {
 				}.frame(maxWidth: .infinity, alignment: .leading)
 			}
 		}
-		.padding(DS.Metrics.s5).frame(width: 440, height: 480)
+		.padding(DS.Metrics.s5).frame(width: 480, height: 540)
 	}
 }
 
@@ -99,6 +98,8 @@ struct PaletteView: View {
 
 // MARK: - Роли
 
+/// Окно «Роли» в духе системных Настроек: слева список (имя, одна строка описания, тихий счётчик агентов),
+/// справа редактор — крупное имя, описание, просторное поле инструкций; одна заметная кнопка «Сохранить».
 struct RolesView: View {
 	@Environment(AppModel.self) private var model
 	private enum Sel: Hashable { case new, role(String) }
@@ -107,6 +108,7 @@ struct RolesView: View {
 	@State private var pending: Sel?
 	@State private var askDiscard = false
 	@State private var askDelete = false
+	@State private var showStyle = false
 
 	private var roles: [RoleView] { model.store.roles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending } }
 	private var current: RoleView? { if case .role(let id) = sel { return model.store.role(id) } else { return nil } }
@@ -114,15 +116,33 @@ struct RolesView: View {
 	private var dirty: Bool { sel != nil && draft.isChanged(from: current) }
 
 	var body: some View {
-		HStack(spacing: 0) {
-			list.frame(width: 230)
-			Divider()
-			editor.frame(maxWidth: .infinity, maxHeight: .infinity)
+		NavigationSplitView {
+			list
+				.navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 320)
+		} detail: {
+			editor
 		}
-		.frame(minWidth: 640, minHeight: 420)
-		.background(DS.Palette.windowBackground)
+		.navigationTitle("Роли")
+		.frame(minWidth: 720, minHeight: 480)
+		// кнопки — круглые иконки справа в шапке окна; подписи в подсказках
+		.toolbar {
+			ToolbarItemGroup(placement: .primaryAction) {
+				Button { askDelete = true } label: { Label("Удалить роль", systemImage: "trash") }
+					.help("Удалить роль").disabled(sel == nil || isNew)
+				Button { request(.new) } label: { Label("Новая роль", systemImage: "plus") }.help("Новая роль")
+				Button { save() } label: { Label("Сохранить", systemImage: "checkmark") }
+					.buttonStyle(.borderedProminent).keyboardShortcut("s")
+					.help("Сохранить (⌘S)").disabled(!dirty || !draft.isValid)
+			}
+		}
 		.overlay(alignment: .top) { ToastView().padding(.top, DS.Metrics.s2) }
-		.onAppear { if sel == nil, let r = roles.first { go(.role(r.id)) } }
+		.onAppear {
+			if sel == nil, let r = roles.first { go(.role(r.id)) }
+			// для снимков: `-debug.rolesPopover YES` — попап цвета и иконки открыт сразу
+			if UserDefaults.standard.bool(forKey: "debug.rolesPopover") { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showStyle = true } }
+		}
+		// роли могут приехать позже окна: первая выбирается, когда список появился
+		.onChange(of: roles.count) { _, _ in if sel == nil, let r = roles.first { go(.role(r.id)) } }
 		.onChange(of: current?.updatedAt) { _, _ in if !dirty, let r = current { draft = RoleDraft(r) } }
 		.confirmationDialog("Отменить несохранённые изменения?", isPresented: $askDiscard) {
 			Button("Отменить изменения", role: .destructive) { if let p = pending { go(p) }; pending = nil }
@@ -134,23 +154,31 @@ struct RolesView: View {
 	}
 
 	private var list: some View {
-		VStack(spacing: 0) {
-			List(selection: Binding<Sel?>(get: { sel }, set: { if let n = $0 { request(n) } })) {
-				ForEach(roles) { r in
-					let n = RoleUsage.count(r, in: model.store.allAgents)
-					VStack(alignment: .leading, spacing: 1) {
-						Text(r.name).font(DS.Typography.secondary.weight(.medium)).lineLimit(1)
-						Text(r.description.isEmpty ? "Без описания" : r.description).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1)
-						if n > 0 { Text(Numbers.count(n, "агент", "агента", "агентов")).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary) }
-					}.tag(Sel.role(r.id))
+		List(selection: Binding<Sel?>(get: { sel }, set: { if let n = $0 { request(n) } })) {
+			if isNew {
+				HStack(spacing: DS.Metrics.s3) {
+					RoleIconTile(icon: draft.icon, hue: draft.color)
+					Text(draft.name.isEmpty ? "Новая роль" : draft.name).font(.body.weight(.medium)).lineLimit(1)
 				}
-			}.listStyle(.sidebar)
-			DSSeparator()
-			Button { request(.new) } label: {
-				Label("Новая роль", systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading)
+				.padding(.vertical, 2).tag(Sel.new)
 			}
-			.buttonStyle(.plain).foregroundStyle(DS.Palette.textSecondary).padding(DS.Metrics.s3)
+			ForEach(roles) { r in
+				let n = RoleUsage.count(r, in: model.store.allAgents)
+				HStack(spacing: DS.Metrics.s3) {
+					RoleIconTile(icon: r.icon, hue: r.color)
+					VStack(alignment: .leading, spacing: 2) {
+						Text(r.name).font(.body.weight(.medium)).lineLimit(1)
+						Text(r.description.isEmpty ? "Без описания" : r.description)
+							.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1)
+					}
+					Spacer(minLength: DS.Metrics.s1)
+					if n > 0 { Text("\(n)").font(DS.Typography.caption).monospacedDigit().foregroundStyle(DS.Palette.textTertiary).help(Numbers.count(n, "агент", "агента", "агентов")) }
+				}
+				.padding(.vertical, 2)
+				.tag(Sel.role(r.id))
+			}
 		}
+		.listStyle(.sidebar)
 	}
 
 	@ViewBuilder private var editor: some View {
@@ -158,33 +186,97 @@ struct RolesView: View {
 			ContentUnavailableView {
 				Label("Ролей пока нет", systemImage: "person.text.rectangle")
 			} description: { Text("Роль задаёт агенту инструкции.") } actions: {
-				Button("Новая роль") { request(.new) }.buttonStyle(.borderedProminent)
+				Button("Новая роль") { request(.new) }.buttonStyle(.borderedProminent).controlSize(.large)
 			}
 		} else {
-			VStack(alignment: .leading, spacing: DS.Metrics.s3) {
-				field("Имя") { TextField("Например, ревьюер", text: $draft.name).textFieldStyle(.roundedBorder) }
-				field("Описание") { TextField("Одна строка", text: $draft.description).textFieldStyle(.roundedBorder) }
-				field("Инструкции (markdown)") {
-					TextEditor(text: $draft.instructions).font(DS.Typography.mono).scrollContentBackground(.hidden)
-						.padding(DS.Metrics.s2).background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-						.overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
-						.frame(minHeight: 160)
+			VStack(spacing: 0) {
+				ScrollView {
+					VStack(alignment: .leading, spacing: DS.Metrics.s5) {
+						// превью — как роль выглядит у агента; меняется вживую
+						// слева — круглая кнопка-иконка роли (её цвет), справа имя и описание: имя показано один раз.
+						// По нажатию на иконку — попап с цветом и иконкой.
+						HStack(alignment: .center, spacing: DS.Metrics.s4) {
+							Button { showStyle.toggle() } label: {
+								RoleIconTile(icon: draft.icon, hue: draft.color, size: 64)
+							}
+							.buttonStyle(.plain).help("Цвет и иконка")
+							.popover(isPresented: $showStyle, arrowEdge: .bottom) {
+								VStack(alignment: .leading, spacing: DS.Metrics.s4) {
+									colorPicker
+									iconGrid
+								}
+								.padding(DS.Metrics.s4)
+							}
+							VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+								TextField("Имя роли", text: $draft.name)
+									.textFieldStyle(.plain).font(.system(size: 26, weight: .semibold))
+								TextField("Описание в одну строку", text: $draft.description)
+									.textFieldStyle(.plain).font(.body).foregroundStyle(DS.Palette.textSecondary)
+							}
+						}
+
+						section("Инструкции") {
+							TextEditor(text: $draft.instructions)
+								.font(.system(size: 13, design: .monospaced)).lineSpacing(3)
+								.scrollContentBackground(.hidden)
+								.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
+								.frame(minHeight: 180)
+								.background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))
+								.overlay(RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous).stroke(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+							Text("Markdown. Эти инструкции агент получает в начале работы.")
+								.font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+						}
+					}
+					.padding(.horizontal, DS.Metrics.s8).padding(.top, DS.Metrics.s4).padding(.bottom, DS.Metrics.s4)
 				}
-				HStack {
-					if !isNew { Button("Удалить роль") { askDelete = true }.buttonStyle(.bordered) }
-					Spacer()
-					Button("Сохранить") { save() }.buttonStyle(.borderedProminent).keyboardShortcut("s")
-						.disabled(!dirty || !draft.isValid)
-				}
+				.scrollEdgeEffectStyle(.soft, for: .bottom)
 			}
-			.padding(DS.Metrics.s5)
 		}
 	}
 
-	private func field<C: View>(_ title: String, @ViewBuilder _ c: () -> C) -> some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
-			Text(title).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+	private func section<C: View>(_ title: String, @ViewBuilder _ c: () -> C) -> some View {
+		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+			Text(title).font(DS.Typography.caption.weight(.medium)).foregroundStyle(DS.Palette.textSecondary)
 			c()
+		}
+	}
+
+	/// Ряд круглых образцов (серый + 11 оттенков) и слайдер для тонкой настройки.
+	private var colorPicker: some View {
+		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
+			HStack(spacing: DS.Metrics.s1) {
+				ForEach(RolePalette.swatches, id: \.self) { h in
+					let on = abs(draft.color - h) < 0.5
+					Button { draft.color = h } label: {
+						Circle().fill(h <= 0 ? Color.gray.opacity(0.55) : Color(hue: h / 360, saturation: 0.55, brightness: 0.9))
+							.frame(width: 22, height: 22)
+							.overlay(Circle().strokeBorder(DS.Palette.textPrimary, lineWidth: on ? 2 : 0).padding(-3))
+							.padding(3)
+					}
+					.buttonStyle(.plain).help(h <= 0 ? "Серый" : "Оттенок \(Int(h))")
+				}
+			}
+			HStack(spacing: DS.Metrics.s3) {
+				Text("Оттенок").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+				Slider(value: Binding(get: { draft.color }, set: { draft.color = $0.rounded() }), in: 0...360).frame(width: 190)
+				Text("\(Int(draft.color))").font(DS.Typography.caption).monospacedDigit().foregroundStyle(DS.Palette.textTertiary).frame(width: 30, alignment: .trailing)
+			}
+		}
+	}
+
+	private var iconGrid: some View {
+		LazyVGrid(columns: Array(repeating: GridItem(.fixed(36), spacing: DS.Metrics.s2), count: 6), alignment: .leading, spacing: DS.Metrics.s2) {
+			ForEach(RolePalette.icons, id: \.self) { name in
+				let on = draft.icon == name
+				Button { draft.icon = name } label: {
+					Image(systemName: name).font(.system(size: 15))
+						.foregroundStyle(on ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+						.frame(width: 36, height: 32)
+						.background(on ? DS.Palette.selection : DS.Palette.hover.opacity(0.6), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+						.overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(on ? DS.Palette.accent : .clear, lineWidth: 1.5))
+				}
+				.buttonStyle(.plain).help(name)
+			}
 		}
 	}
 
@@ -194,7 +286,7 @@ struct RolesView: View {
 	}
 	private func go(_ n: Sel) {
 		sel = n
-		if case .role(let id) = n, let r = model.store.role(id) { draft = RoleDraft(r) } else { draft = RoleDraft() }
+		if case .role(let id) = n, let r = model.store.role(id) { draft = RoleDraft(r) } else { var g = SystemRandomNumberGenerator(); draft = RoleDraft.fresh(using: &g) }
 	}
 	private func save() {
 		let id = current?.id
@@ -208,5 +300,20 @@ struct RolesView: View {
 				if let r = roles.first(where: { $0.id != id }) { go(.role(r.id)) }
 			}
 		}
+	}
+}
+
+/// Квадратик с иконкой роли в списке: подложка и значок её оттенка.
+struct RoleIconTile: View {
+	@Environment(\.colorScheme) private var scheme
+	var icon: String?
+	var hue: Double
+	var size: CGFloat = 28
+	var body: some View {
+		let dark = scheme == .dark
+		Image(systemName: icon ?? RolePalette.defaultIcon).font(.system(size: size * 0.46, weight: .semibold))
+			.foregroundStyle(RoleTint.foreground(hue, dark: dark))
+			.frame(width: size, height: size)
+			.background(RoleTint.background(hue, dark: dark), in: RoundedRectangle(cornerRadius: size * 0.25, style: .continuous))
 	}
 }

@@ -13,6 +13,8 @@ export interface AgentHost {
 	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): Message | null
 	/** Ссылки из вызова инструмента агента → источники его сессии. */
 	onToolUrls(agent: AgentIdentity, urls: readonly string[]): void
+	/** Готовая заранее созданная сессия nessy для пространства (null — нет, создавать самому). */
+	takeWarmSession(space: string): string | null
 	saveSoon(): void
 }
 

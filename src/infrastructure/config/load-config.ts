@@ -36,6 +36,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		maxHops: int(env['ORCH_MAX_HOPS'], 8),
 		rateLimitPerMinute: int(env['ORCH_RATE_LIMIT'], 30),
 		healthTimeoutMs: int(env['ORCH_HEALTH_TIMEOUT_MS'], 60000),
+		warmSessions: Math.max(0, int(env['ORCH_WARM_SESSIONS'], 2)),
 		uiDir: env['ORCH_UI_DIR'] ?? path.join(root, 'ui', 'dist'),
 		seedRoles: flag(env['ORCH_SEED_ROLES'], true),
 		rolesDir: path.join(root, 'roles'),

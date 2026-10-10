@@ -9,6 +9,7 @@ import { flagBool, parseArgs } from './args'
 import { agentCommands } from './commands/agents.commands'
 import type { CommandTable } from './commands/command.types'
 import { feedCommands } from './commands/feed.commands'
+import { hookCommands } from './commands/hook.commands'
 import { roleCommands } from './commands/roles.commands'
 import { serviceCommands } from './commands/service.commands'
 import { spaceCommands } from './commands/spaces.commands'
@@ -16,12 +17,14 @@ import { sessionCommands } from './commands/sessions.commands'
 import { CliError } from './errors'
 import { red } from './format'
 import { HELP } from './help'
+import { isPathArg } from './launch'
 import { info, out } from './io'
 
-const COMMANDS: CommandTable = { ...agentCommands, ...feedCommands, ...spaceCommands, ...roleCommands, ...sessionCommands, ...serviceCommands }
+const COMMANDS: CommandTable = { ...agentCommands, ...feedCommands, ...spaceCommands, ...roleCommands, ...sessionCommands, ...hookCommands, ...serviceCommands }
 const ALIASES: Record<string, string> = { list: 'ls', agents: 'ls', rm: 'kill', log: 'feed', messages: 'feed', spaces: 'space', roles: 'role', sessions: 'session' }
 
 async function main(argv: string[]): Promise<void> {
+	if (isPathArg(argv[0])) argv = ['app', ...argv]
 	const [name, ...rest] = argv
 	if (!name || name === 'help' || name === '--help' || name === '-h') return out(HELP)
 	const cmd = COMMANDS[ALIASES[name] ?? name]

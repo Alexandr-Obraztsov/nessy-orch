@@ -11,9 +11,13 @@ let package = Package(
 		.library(name: "NessyKit", targets: ["NessyKit"]),
 		.executable(name: "NessyOrch", targets: ["NessyOrch"]),
 	],
+	dependencies: [
+		// встроенный терминал (MIT); 1.20.0 — последняя стабильная 1.x
+		.package(url: "https://github.com/migueldeicaza/SwiftTerm.git", .upToNextMinor(from: "1.20.0")),
+	],
 	targets: [
 		.target(name: "NessyKit", swiftSettings: [.swiftLanguageMode(.v5)]),
-		.executableTarget(name: "NessyOrch", dependencies: ["NessyKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
+		.executableTarget(name: "NessyOrch", dependencies: ["NessyKit", .product(name: "SwiftTerm", package: "SwiftTerm")], swiftSettings: [.swiftLanguageMode(.v5)]),
 		.testTarget(name: "NessyKitTests", dependencies: ["NessyKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
 	]
 )

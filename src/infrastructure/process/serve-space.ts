@@ -15,7 +15,7 @@ import type { ServeSpaceDeps } from './serve-space.types'
 
 const KILL_GRACE_MS = 5000
 const STOP_WAIT_MS = 6000
-const HEALTH_POLL_MS = 300
+const HEALTH_POLL_MS = 100
 
 export class ServeSpace implements SpaceRuntime {
 	readonly name: string

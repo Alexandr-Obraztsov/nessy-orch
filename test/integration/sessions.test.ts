@@ -1,12 +1,15 @@
 /** Сессии по HTTP: CRUD, spawn в сессии и наследование, inbox по сессиям (два оркестратора), поток, рестарт. */
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import * as path from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import type { AgentView, ApiError, GraphView, InboxResponse, SpawnResponse, StreamEvent, SessionView } from '../../shared/types'
+import type { AgentView, ApiError, GraphView, InboxResponse, SpawnBatchResponse, SpawnResponse, StreamEvent, SessionView } from '../../shared/types'
 import { startHarness } from '../support/harness'
 import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
 
 const T = { timeout: 30000 }
+const CLI_MAIN = path.join(__dirname, '..', '..', 'src', 'interfaces', 'cli', 'main.js')
 
 describe('сессии (HTTP)', () => {
 	let h: Harness
@@ -112,5 +115,112 @@ describe('сессии (HTTP)', () => {
 		assert.equal(h.orch.getAgent('lead-1').session, t1.id)
 		assert.equal(h.orch.getAgent('sub-1').session, t1.id)
 		assert.deepEqual((await h.api<InboxResponse>('GET', `/inbox?session=${t1.id}`)).body.messages, [], 'курсор сессии сохранён')
+	})
+})
+
+describe('пакетный запуск агентов', () => {
+	let h: Harness | null = null
+	after(async () => {
+		await h?.close()
+	})
+
+	it('POST /agents/batch: несколько агентов за вызов, ошибка одного не мешает остальным, cwd выбирает пространство', T, async () => {
+		h = await startHarness()
+		const s = await h.api<SessionView>('POST', '/sessions', { title: 'Пакет' })
+		const r = await h.api<SpawnBatchResponse>('POST', '/agents/batch', {
+			cwd: h.ws,
+			session: s.body.id,
+			agents: [
+				{ name: 'one', prompt: 'первое' },
+				{ name: 'two', prompt: 'второе' },
+				{ name: 'one', prompt: 'дубль имени' },
+			],
+		})
+		assert.equal(r.status, 201)
+		assert.deepEqual(
+			r.body.results.map(x => (x.ok ? ['ok', x.agent.name, x.agent.session] : ['fail', x.code])),
+			[
+				['ok', 'one', s.body.id],
+				['ok', 'two', s.body.id],
+				['fail', 'name_taken'],
+			],
+		)
+		assert.equal(h.orch.graph().spaces.length, 1, 'пространство создано по cwd вызывающего')
+		const bad = await h.api('POST', '/agents/batch', { agents: [] })
+		assert.equal(bad.status, 400)
+	})
+})
+
+describe('хуки Claude Code (updates, ping, CLI hook)', () => {
+	let h: Harness | null = null
+	after(async () => {
+		await h?.close()
+	})
+
+	const runHook = (port: number, session: string | undefined, event: string, stdin = '{}'): Promise<{ code: number | null; stdout: string }> =>
+		new Promise(resolve => {
+			const env: NodeJS.ProcessEnv = { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1' }
+			delete env['NESSY_ORCH_SESSION']
+			if (session) env['NESSY_ORCH_SESSION'] = session
+			const p = spawn(process.execPath, [CLI_MAIN, 'hook', event], { env })
+			let stdout = ''
+			p.stdout.on('data', (d: Buffer) => (stdout += d.toString()))
+			p.on('close', code => resolve({ code, stdout }))
+			p.stdin.end(stdin)
+		})
+
+	it('ping меняет состояние Claude и публикуется; updates отдаёт агентов и ответы с общим курсором inbox', T, async () => {
+		h = await startHarness()
+		await h.api('POST', '/spaces', { path: h.ws, name: 'main' })
+		const s = await h.api<SessionView>('POST', '/sessions', { title: 'Хуки' })
+		const ping = await h.api<SessionView>('POST', `/sessions/${s.body.id}/ping`, { state: 'working' })
+		assert.equal(ping.body.claude?.state, 'working')
+		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ping`, { state: 'sleeping' })).status, 400)
+		assert.equal((await h.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'working')
+
+		await h.api('POST', '/agents', { space: 'main', name: 'worker', session: s.body.id, prompt: 'сделай', wait: true, waitTimeoutSec: 8 })
+		const peek = await h.api<{ agents: Array<{ name: string }>; replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates`)
+		assert.equal(peek.body.agents[0]?.name, 'worker')
+		assert.equal(peek.body.replies.length, 1, 'без consume ответ виден, но не потреблён')
+		const take = await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates?consume=1`)
+		assert.equal(take.body.replies.length, 1)
+		assert.equal((await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates?consume=1`)).body.replies.length, 0, 'второй раз — пусто')
+		assert.equal((await h.api<InboxResponse>('GET', `/inbox?session=${s.body.id}&peek=1`)).body.messages.length, 0, 'курсор общий с inbox сессии')
+	})
+
+	it('CLI hook: старт — контекст, prompt — сводка, без переменной — тишина, Stop блокирует при новых ответах', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		const s = await hh.api<SessionView>('POST', '/sessions', { title: 'CLI-хуки' })
+		const start = await runHook(hh.port, s.body.id, 'start')
+		assert.equal(start.code, 0)
+		const ctx = JSON.parse(start.stdout) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } }
+		assert.equal(ctx.hookSpecificOutput.hookEventName, 'SessionStart')
+		assert.match(ctx.hookSpecificOutput.additionalContext, new RegExp(s.body.id))
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'idle')
+
+		const silent = await runHook(hh.port, undefined, 'prompt')
+		assert.deepEqual(silent, { code: 0, stdout: '' }, 'без NESSY_ORCH_SESSION хук молчит')
+
+		const calm = await runHook(hh.port, s.body.id, 'prompt')
+		assert.equal(calm.stdout, '', 'агентов и ответов нет — нечего сообщать')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'working')
+
+		await hh.api('POST', '/agents', { space: 'main', name: 'helper', session: s.body.id, prompt: 'сделай', wait: true, waitTimeoutSec: 8 })
+		const stop = await runHook(hh.port, s.body.id, 'stop')
+		const decision = JSON.parse(stop.stdout) as { decision: string; reason: string }
+		assert.equal(decision.decision, 'block')
+		assert.match(decision.reason, /helper/)
+		const stop2 = await runHook(hh.port, s.body.id, 'stop')
+		assert.equal(stop2.stdout, '', 'ответ доставлен один раз')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'idle')
+
+		await runHook(hh.port, s.body.id, 'end')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'ended')
+	})
+
+	it('хук не ломает Claude при недоступном оркестраторе', T, async () => {
+		const r = await runHook(1, 'any', 'prompt')
+		assert.deepEqual(r, { code: 0, stdout: '' })
 	})
 })

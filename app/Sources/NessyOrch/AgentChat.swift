@@ -8,7 +8,6 @@ struct ResultContent: View {
 	@Environment(AppModel.self) private var model
 	var agent: AgentView
 	var chat: ChatModel?
-	@State private var copied = false
 
 	private var text: String? {
 		if let r = agent.lastReply, r.failed == nil, let m = model.store.messagesById[r.msgId] { return m.text }
@@ -44,6 +43,7 @@ struct ResultContent: View {
 			.frame(maxWidth: .infinity, alignment: .leading)
 		}
 		.scrollEdgeEffectStyle(.soft, for: .top)
+		.scrollEdgeEffectStyle(.soft, for: .bottom)
 	}
 
 	private func reason(_ word: String, _ text: String, _ color: Color) -> some View {
@@ -52,20 +52,11 @@ struct ResultContent: View {
 			.textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
 	}
 
-	/// Счётчики одной строкой серым + «Копировать ответ».
+	/// Счётчики одной строкой серым.
 	private var counters: some View {
 		HStack(spacing: DS.Metrics.s2) {
 			if agent.stats.turns + agent.stats.toolCalls > 0 {
 				Text(Numbers.statsLine(agent.stats)).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).monospacedDigit()
-			}
-			Spacer(minLength: DS.Metrics.s2)
-			if let text {
-				Button {
-					Pasteboard.copy(ReplyParser.parse(text).body)
-					copied = true
-					Task { try? await Task.sleep(for: .seconds(1.4)); copied = false }
-				} label: { Image(systemName: copied ? "checkmark" : "doc.on.doc").contentTransition(.symbolEffect(.replace)) }
-					.buttonStyle(.borderless).foregroundStyle(DS.Palette.textSecondary).help("Копировать ответ")
 			}
 		}
 	}
@@ -80,6 +71,7 @@ struct ChatContent: View {
 	var goal: String
 	@State private var position = ScrollPosition(edge: .bottom)
 	@State private var atBottom = true
+	@State private var geoAtBottom = true
 	@State private var unread = 0
 
 	var body: some View {
@@ -91,6 +83,7 @@ struct ChatContent: View {
 						ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(DS.Metrics.s6)
 					}
 					ForEach(entries) { LogEntryView(entry: $0) }
+					Color.clear.frame(height: 1).id("chat-end")
 				}
 				.padding(DS.Metrics.s4)
 				.frame(maxWidth: .infinity, alignment: .leading)
@@ -98,19 +91,28 @@ struct ChatContent: View {
 			.scrollPosition($position)
 			.defaultScrollAnchor(.bottom)
 			.scrollEdgeEffectStyle(.soft, for: .top)
-			.onScrollGeometryChange(for: Bool.self) { g in g.contentOffset.y + g.containerSize.height >= g.contentSize.height - 40 } action: { _, now in
-				atBottom = now
+			.scrollEdgeEffectStyle(.soft, for: .bottom)
+			// «липкий» низ: пока пользователь сам не прокрутил вверх, лента остаётся у последнего сообщения,
+			// даже когда содержимое растёт (повтор истории, новые сообщения)
+			.onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY >= g.contentSize.height - 20 } action: { _, now in
+				geoAtBottom = now
 				if now { unread = 0 }
 			}
+			.onScrollPhaseChange { _, phase in
+				if phase == .idle { atBottom = geoAtBottom; if atBottom { unread = 0 } }
+			}
+			.onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height } action: { _, _ in
+				if atBottom { position.scrollTo(id: "chat-end", anchor: .bottom) }
+			}
 			.onChange(of: chat.items.count) { old, new in
-				if atBottom { position.scrollTo(edge: .bottom) } else if new > old { unread += new - old }
+				if atBottom { position.scrollTo(id: "chat-end", anchor: .bottom) } else if new > old { unread += new - old }
 			}
 			.overlay(alignment: .bottom) {
 				if !atBottom, unread > 0 {
-					Button { withAnimation(dsAnimation(DS.Motion.panel)) { position.scrollTo(edge: .bottom) } } label: {
-						Label("Новое · \(unread)", systemImage: "arrow.down")
+					GlassIconButton(systemImage: "arrow.down", help: "Новое: \(unread) — к концу") {
+						withAnimation(dsAnimation(DS.Motion.panel)) { position.scrollTo(id: "chat-end", anchor: .bottom) }
 					}
-					.buttonStyle(.glass).padding(.bottom, DS.Metrics.s3).transition(.opacity)
+					.padding(.bottom, DS.Metrics.s3).transition(.opacity)
 				}
 			}
 		} else {
@@ -210,11 +212,14 @@ struct LogEntryView: View {
 
 // MARK: - Поле ввода
 
-/// Многострочное поле: растёт до 6 строк, ↩ — отправить, ⇧↩ — перенос. Черновик хранится на агента.
+/// Плавающая карточка внизу панели: многострочное поле (растёт до 6 строк), справа «отправить».
+/// ↩ — отправить (прерывает ход), ⇧↩ — перенос, Esc — свернуть раскрытые карточки или снять фокус. Черновик хранится на агента.
 struct AgentComposer: View {
 	@Environment(AppModel.self) private var model
+	@Environment(\.sessionWindow) private var win
 	var agent: AgentView
-	@FocusState private var focused: Bool
+	var onEscape: () -> Bool = { false }
+	@State private var fieldH: CGFloat = 20
 
 	private var draft: Binding<String> {
 		Binding(get: { model.drafts[agent.id] ?? "" }, set: { model.drafts[agent.id] = $0 })
@@ -222,40 +227,33 @@ struct AgentComposer: View {
 	private var canSend: Bool { !draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.isOffline }
 
 	var body: some View {
+		let font = NSFont.systemFont(ofSize: 13)
 		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 			HStack(alignment: .bottom, spacing: DS.Metrics.s2) {
-				TextField("Написать \(agent.name)…", text: draft, axis: .vertical)
-					.textFieldStyle(.plain)
-					.font(DS.Typography.body)
-					.lineLimit(1...6)
-					.focused($focused)
-					.onKeyPress(.return, phases: .down) { press in
-						if press.modifiers.contains(.shift) || press.modifiers.contains(.option) { draft.wrappedValue += "\n"; return .handled }
-						if press.modifiers.contains(.command) { return .ignored }
-						if canSend { model.send(to: agent, text: draft.wrappedValue) }
-						return .handled
+				ComposerTextView(text: draft, height: $fieldH, font: font, maxHeight: 6 * 17, onSubmit: submit, onEscape: {
+					if onEscape() { return true }
+					win?.listFocusTick += 1
+					return false
+				})
+				.frame(height: max(fieldH, 17))
+				.overlay(alignment: .topLeading) {
+					if draft.wrappedValue.isEmpty {
+						Text(agent.canStop ? "Написать \(agent.name) — ход прервётся…" : "Написать \(agent.name)…").font(.system(size: 13)).foregroundStyle(DS.Palette.textTertiary).allowsHitTesting(false)
 					}
-					.padding(.vertical, DS.Metrics.s2 - 1)
-				Button { model.send(to: agent, text: draft.wrappedValue) } label: {
-					Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold))
-						.foregroundStyle(DS.Palette.panel)
-						.frame(width: 28, height: 28)
-						.background(canSend ? DS.Palette.textPrimary : DS.Palette.textTertiary.opacity(0.5), in: Circle())
 				}
-				.buttonStyle(.plain).disabled(!canSend)
-				.help(model.isOffline ? "Нет связи" : "Отправить (↩)")
-			}
-			.padding(.leading, DS.Metrics.s4).padding(.trailing, DS.Metrics.s2 - 1).padding(.vertical, DS.Metrics.s1 + 1)
-			.background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-			.overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
-			if agent.canStop {
-				Text("Отправка прервёт текущий ход").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary).padding(.leading, DS.Metrics.s4)
+				.padding(.vertical, DS.Metrics.s1)
+				GlassIconButton(systemImage: "arrow.up", help: model.isOffline ? "Нет связи" : "Отправить (↩)", action: submit)
+					.disabled(!canSend)
 			}
 		}
-		.padding(.horizontal, DS.Metrics.s3).padding(.bottom, DS.Metrics.s3).padding(.top, DS.Metrics.s2)
-		.onChange(of: focused) { _, _ in sync() }
-		.onChange(of: draft.wrappedValue) { _, _ in sync() }
+		.padding(.leading, DS.Metrics.s3).padding(.trailing, DS.Metrics.s2).padding(.vertical, DS.Metrics.s2)
+		.frame(maxWidth: .infinity, alignment: .leading)
+		.dsFloatingCard()
+		.padding(.horizontal, DS.Metrics.s3).padding(.bottom, DS.Metrics.s3)
 	}
 
-	private func sync() { model.composerBusy = focused && !draft.wrappedValue.isEmpty }
+	private func submit() {
+		guard canSend else { return }
+		model.send(to: agent, text: draft.wrappedValue)
+	}
 }

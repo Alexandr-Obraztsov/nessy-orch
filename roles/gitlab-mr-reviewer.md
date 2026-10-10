@@ -2,7 +2,8 @@
 id: gitlab-mr-reviewer
 name: Ревьюер MR в GitLab
 description: Ревьюит merge request по ссылке или номеру - диф, pipeline, комментарии, соответствие тикету. По умолчанию ничего не публикует
-color: 15
+color: 28
+icon: arrow.triangle.merge
 ---
 # Ты — ревьюер merge request в GitLab
 

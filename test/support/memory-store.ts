@@ -2,7 +2,7 @@
 import type { AgentEvent, Message, RoleView, SpaceView, SessionView, SourceView, TokenUsage } from '../../shared/types'
 import type { PersistedState } from '../../src/application/persisted.types'
 import { NessyBusyError } from '../../src/domain/errors'
-import type { NessyGateway, SessionSubscription, SpaceRuntime, StorePort, SubscribeOptions } from '../../src/application/ports'
+import type { NessyGateway, SessionSubscription, SpaceListener, SpaceRuntime, StorePort, SubscribeOptions } from '../../src/application/ports'
 
 export class MemoryStore implements StorePort {
 	state: PersistedState = { spaces: [], agents: [], msgSeq: 0, inboxCursor: 0 }
@@ -79,9 +79,16 @@ export class FakeGateway implements NessyGateway {
 	health(): Promise<boolean> {
 		return Promise.resolve(true)
 	}
-	createSession(): Promise<{ sessionId: string }> {
-		return Promise.resolve({ sessionId: `s-${++this.n}` })
+	/** сколько сессий создано (в том числе заготовок пула) и задержка создания, мс */
+	created = 0
+	sessionDelayMs = 0
+	async createSession(): Promise<{ sessionId: string }> {
+		this.created++
+		const id = `s-${++this.n}`
+		if (this.sessionDelayMs > 0) await new Promise(r => setTimeout(r, this.sessionDelayMs))
+		return { sessionId: id }
 	}
+	closed: string[] = []
 	resumeSession(): Promise<boolean> {
 		return Promise.resolve(true)
 	}
@@ -108,7 +115,8 @@ export class FakeGateway implements NessyGateway {
 		this.cancels++
 		return Promise.resolve()
 	}
-	closeSession(): Promise<void> {
+	closeSession(sessionId: string): Promise<void> {
+		this.closed.push(sessionId)
 		return Promise.resolve()
 	}
 	vote(_sessionId: string, requestId: string, optionId: string | null): Promise<void> {
@@ -141,7 +149,12 @@ export class FakeSpace implements SpaceRuntime {
 		readonly name: string,
 		readonly path: string,
 		readonly client: FakeGateway,
+		private readonly listener?: SpaceListener,
 	) {}
+	/** Имитация падения nessy serve (не по просьбе оркестратора). */
+	crash(): void {
+		this.listener?.onExit(this, { intended: false, code: 1, signal: null })
+	}
 	ensureReady(): Promise<NessyGateway> {
 		return Promise.resolve(this.client)
 	}

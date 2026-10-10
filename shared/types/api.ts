@@ -12,6 +12,8 @@ export interface GraphView {
 export interface SpawnRequest {
 	/** имя пространства или путь к воркспейсу */
 	space?: string
+	/** каталог вызывающего (CLI передаёт свой cwd): пространство, если `space` не указан и пространств не одно */
+	cwd?: string
 	name?: string
 	/** id или имя роли */
 	role?: string
@@ -22,6 +24,22 @@ export interface SpawnRequest {
 	from?: NodeId
 	wait?: boolean
 	waitTimeoutSec?: number
+}
+
+/** POST /agents/batch — запустить несколько агентов за один вызов; общие поля применяются к каждому, у агента могут быть свои. */
+export interface SpawnBatchRequest {
+	space?: string
+	cwd?: string
+	session?: string
+	from?: NodeId
+	agents: SpawnRequest[]
+}
+
+/** Результат одного агента пакета: создан (`agent`) либо ошибка (`error`, `code`) — остальные агенты запускаются независимо. */
+export type SpawnBatchItem = { ok: true; agent: AgentView; message?: Message } | { ok: false; error: string; code: string; name?: string }
+
+export interface SpawnBatchResponse {
+	results: SpawnBatchItem[]
 }
 
 export interface SendRequest {
@@ -68,6 +86,8 @@ export interface RoleRequest {
 	instructions: string
 	/** hue 0..360; по умолчанию — из имени */
 	color?: number
+	/** имя иконки SF Symbols (`[a-z0-9.-]`, до 40 символов); пусто — без иконки; при правке без значения сохраняется прежняя */
+	icon?: string
 	/** slug; по умолчанию — из имени (только при создании) */
 	id?: string
 }
@@ -90,6 +110,25 @@ export interface SessionPatch {
 export interface InboxResponse {
 	messages: Message[]
 	cursor: number
+}
+
+/** Краткая сводка агента для хуков Claude Code. */
+export interface AgentBrief {
+	id: string
+	name: string
+	role: string | null
+	status: 'starting' | 'working' | 'idle' | 'error'
+	archived: boolean
+	/** последняя команда/инструмент */
+	lastTool: string | null
+	/** шаги плана: выполнено / всего (null — плана нет) */
+	plan: { done: number; total: number } | null
+}
+
+/** GET /sessions/:id/updates — что нового для Claude: агенты сессии и новые ответы (курсор общий с inbox сессии). */
+export interface SessionUpdates {
+	agents: AgentBrief[]
+	replies: Message[]
 }
 
 export interface StatusResponse {

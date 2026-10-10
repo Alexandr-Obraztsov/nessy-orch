@@ -58,6 +58,7 @@ export interface RoleFields {
 	description: string
 	instructions: string
 	color: number
+	icon: string | null
 }
 
 /** Сырые поля роли из запроса (до проверки). */
@@ -66,6 +67,7 @@ export interface RoleInput {
 	description?: string
 	instructions: string
 	color?: number
+	icon?: string
 	id?: string
 }
 
