@@ -24,6 +24,7 @@ struct CenterView: View {
 		.overlay(alignment: .bottom) {
 			if model.isOffline { OfflineBanner().clipShape(RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous)).padding(DS.Metrics.s3) }
 		}
+		.overlay(alignment: .topTrailing) { if win?.isFullScreen ?? false { MoreMenu(glass: true).padding(.trailing, 14).padding(.top, 10) } }
 		.toolbar {
 			// «⋯» — стеклянная кнопка шапки справа: только горячие клавиши и настройки
 			ToolbarSpacer(.flexible, placement: .primaryAction)
@@ -55,6 +56,8 @@ struct ClaudeStateIndicator: View {
 
 /// «⋯» в шапке справа: только горячие клавиши и настройки.
 struct MoreMenu: View {
+	/// вне тулбара (полный экран): кнопка рисует стеклянный круг сама
+	var glass = false
 	@Environment(AppModel.self) private var model
 	@Environment(\.openSettings) private var openSettings
 	var body: some View {
@@ -65,7 +68,15 @@ struct MoreMenu: View {
 			Image(systemName: "ellipsis")
 		}
 		.menuIndicator(.hidden)
+		.modifier(FloatingGlass(on: glass))
 		.tint(DS.Palette.textSecondary)
 		.help("Ещё").accessibilityLabel("Ещё")
+	}
+}
+
+private struct FloatingGlass: ViewModifier {
+	var on: Bool
+	func body(content: Content) -> some View {
+		if on { content.menuStyle(.button).buttonStyle(GlassCircleStyle(size: 34, prominent: false)).fixedSize() } else { content }
 	}
 }

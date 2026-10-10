@@ -52,6 +52,8 @@ final class TerminalContainer: NSView {
 	private var defaultsToken: NSObjectProtocol?
 	/// отступ сверху: высота шапки (постоянная, поэтому высота терминала от панели не зависит)
 	private var topInset: CGFloat = TerminalContainer.inset
+	private var insetTarget: CGFloat = TerminalContainer.inset
+	private var insetTimer: Timer?
 
 	override init(frame: NSRect) {
 		terminal = LocalProcessTerminalView(frame: .zero)
@@ -82,11 +84,28 @@ final class TerminalContainer: NSView {
 	}
 
 	/// Отступ сверху: панель открыта — почти нулевой (терминал под прозрачной шапкой), закрыта — высота шапки.
-	/// Рамка всегда считается от текущих границ контейнера (`layout`), поэтому ширина и высота не расходятся при анимации панели.
+	/// Меняется плавно: каждый кадр рамка считается заново от текущих границ контейнера, поэтому ширина (панель едет одновременно)
+	/// и высота не расходятся, а колонки и строки пересчитываются по ходу.
 	func setTopInset(_ v: CGFloat, animated: Bool = true) {
-		guard abs(v - topInset) > 0.5 else { return }
-		topInset = v
-		needsLayout = true
+		guard abs(v - insetTarget) > 0.5 else { return }
+		insetTarget = v
+		insetTimer?.invalidate()
+		guard animated, window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+			topInset = v; needsLayout = true; return
+		}
+		let from = topInset, start = CACurrentMediaTime(), duration = 0.32
+		let t = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+			MainActor.assumeIsolated {
+				guard let self else { timer.invalidate(); return }
+				let x = min(1, (CACurrentMediaTime() - start) / duration)
+				let e = 1 - pow(1 - x, 3) // ease-out
+				self.topInset = from + (self.insetTarget - from) * CGFloat(e)
+				self.layoutTerminal()
+				if x >= 1 { timer.invalidate() }
+			}
+		}
+		RunLoop.main.add(t, forMode: .common)
+		insetTimer = t
 	}
 
 	private var terminalFrame: CGRect {

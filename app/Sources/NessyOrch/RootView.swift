@@ -141,6 +141,9 @@ private struct SessionWindowBody: View {
 		}
 		.navigationTitle(Projects.name(ofPath: win.dir))
 		.toolbar(removing: .title)
+		// полный экран: тулбар не рисуется (шапка не растёт), кнопки панели и «⋯» плавают в углах
+		.toolbar(win.isFullScreen ? .hidden : .automatic, for: .windowToolbar)
+		.overlay(alignment: .topLeading) { if win.isFullScreen { FullScreenPanelButton(win: win) } }
 		// без плоской полосы: в шапке светофор и системная кнопка панели; «⋯» — в правом углу терминала
 		.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
 		.background { WindowConfigurator(window: win) { model.activeWindow = win } }
@@ -157,6 +160,15 @@ private struct SessionWindowBody: View {
 				DispatchQueue.main.asyncAfter(deadline: .now() + 9) { if model.store.agents[id]?.session == win.sessionId { win.open(agent: id) } }
 			}
 		}
+	}
+}
+
+/// Кнопка панели в полноэкранном режиме: тулбара нет, поэтому она всегда в левом верхнем углу.
+private struct FullScreenPanelButton: View {
+	var win: SessionWindowModel
+	var body: some View {
+		GlassIconButton(systemImage: "sidebar.left", help: "Панель агентов (⌥⌘B)", size: 34) { win.toggleAgents() }
+			.padding(.leading, 14).padding(.top, 10)
 	}
 }
 

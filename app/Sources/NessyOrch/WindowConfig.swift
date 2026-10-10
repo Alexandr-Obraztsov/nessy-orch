@@ -31,6 +31,15 @@ struct WindowConfigurator: NSViewRepresentable {
 			measure(w)
 		}
 
+		/// Полный экран: убрать плоскую полосу шапки (отдельное окно системы с тулбаром и материалом) и пустой тулбар.
+		private func stripFullScreenBar(_ w: NSWindow) {
+			w.toolbar?.isVisible = false
+			for other in NSApp.windows where String(describing: type(of: other)) == "NSToolbarFullScreenWindow" {
+				other.alphaValue = 0
+				other.ignoresMouseEvents = true
+			}
+		}
+
 		/// Высота шапки по фактическому окну: от неё терминал отступает сверху.
 		private func measure(_ w: NSWindow) {
 			guard !w.styleMask.contains(.fullScreen) else { return }
@@ -47,18 +56,19 @@ struct WindowConfigurator: NSViewRepresentable {
 			let nc = NotificationCenter.default
 			tokens.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.onKey() } })
 			// полноэкранный режим: шапка прячется и выезжает у кромки; на выходе заново меряем светофор
-			for (n, on) in [(NSWindow.willEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
+			for (n, on) in [(NSWindow.willEnterFullScreenNotification, true), (NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
 				tokens.append(nc.addObserver(forName: n, object: w, queue: .main) { [weak self] _ in
 					MainActor.assumeIsolated {
 						guard let self else { return }
 						self.model?.isFullScreen = on
-						if !on { DispatchQueue.main.async { self.style(w) } }
+						DispatchQueue.main.async { self.style(w); if on { self.stripFullScreenBar(w) } }
 					}
 				})
 			}
 			tokens.append(nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.measure(w) } })
 			model?.isFullScreen = w.styleMask.contains(.fullScreen)
-			DispatchQueue.main.async { [weak self] in self?.measure(w) }
+			DispatchQueue.main.async { [weak self] in self?.measure(w); if w.styleMask.contains(.fullScreen) { self?.stripFullScreenBar(w) } }
+			DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in if w.styleMask.contains(.fullScreen) { self?.stripFullScreenBar(w) } }
 			if w.isKeyWindow { onKey() }
 			if let m = model, guardian == nil, !(w.delegate is CloseGuard) {
 				let g = CloseGuard(original: w.delegate, model: m)
