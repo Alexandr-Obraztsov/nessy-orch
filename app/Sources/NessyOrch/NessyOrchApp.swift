@@ -24,7 +24,6 @@ struct NessyOrchApp: App {
 					.tint(DS.Palette.accent)
 			}
 		}
-		.windowStyle(.hiddenTitleBar)
 		.defaultLaunchBehavior(.suppressed)
 		.defaultSize(width: 1280, height: 780)
 

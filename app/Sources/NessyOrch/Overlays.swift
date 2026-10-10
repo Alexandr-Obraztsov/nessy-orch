@@ -18,26 +18,42 @@ enum Shortcuts {
 struct ShortcutsView: View {
 	@Environment(\.dismiss) private var dismiss
 	var body: some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s4) {
-			HStack { Text("Горячие клавиши").font(DS.Typography.panelTitle); Spacer(); GlassIconButton(systemImage: "xmark", help: "Закрыть (Esc)") { dismiss() }.keyboardShortcut(.cancelAction) }
+		VStack(spacing: 0) {
+			HStack {
+				Text("Горячие клавиши").font(DS.Typography.panelTitle)
+				Spacer()
+				GlassIconButton(systemImage: "xmark", help: "Закрыть (Esc)") { dismiss() }.keyboardShortcut(.cancelAction)
+			}
+			.padding(.horizontal, DS.Metrics.s5).padding(.top, DS.Metrics.s5).padding(.bottom, DS.Metrics.s3)
 			ScrollView {
 				VStack(alignment: .leading, spacing: DS.Metrics.s5) {
 					ForEach(Shortcuts.groups, id: \.0) { g in
 						VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 							DSGroupHeader(title: g.0, count: nil)
-							ForEach(g.1, id: \.0) { k in
-								HStack {
-									Text(k.1).foregroundStyle(DS.Palette.textPrimary)
-									Spacer()
-									Text(k.0).font(DS.Typography.mono).foregroundStyle(DS.Palette.textSecondary)
-								}.font(DS.Typography.secondary)
+							VStack(spacing: 0) {
+								ForEach(Array(g.1.enumerated()), id: \.offset) { i, k in
+									if i > 0 { DSSeparator() }
+									HStack {
+										Text(k.1).foregroundStyle(DS.Palette.textPrimary)
+										Spacer()
+										Text(k.0).font(DS.Typography.mono).foregroundStyle(DS.Palette.textSecondary)
+									}
+									.font(DS.Typography.secondary)
+									.padding(.horizontal, DS.Metrics.s3).frame(minHeight: 34)
+								}
 							}
+							.dsGroup()
 						}
 					}
-				}.frame(maxWidth: .infinity, alignment: .leading)
+				}
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.padding(.horizontal, DS.Metrics.s5).padding(.bottom, DS.Metrics.s5).padding(.top, DS.Metrics.s1)
 			}
+			.scrollIndicators(.hidden)
+			.scrollBounceBehavior(.basedOnSize)
+			.scrollEdgeEffectStyle(.soft, for: .top)
 		}
-		.padding(DS.Metrics.s5).frame(width: 480, height: 540)
+		.frame(width: 460, height: 560)
 	}
 }
 

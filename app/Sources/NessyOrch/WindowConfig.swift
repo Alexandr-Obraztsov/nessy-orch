@@ -22,23 +22,20 @@ struct WindowConfigurator: NSViewRepresentable {
 		private var tokens: [NSObjectProtocol] = []
 		private var guardian: CloseGuard?
 
-		/// Окно в стиле терминала: без плашки заголовка, фон как у терминала (следует за темой).
+		/// Окно в стиле терминала: прозрачная шапка без заголовка, фон как у терминала (углы и края не выделяются).
 		private func style(_ w: NSWindow) {
 			w.titleVisibility = .hidden
 			w.titlebarAppearsTransparent = true
-			w.styleMask.insert(.fullSizeContentView)
-			w.isMovableByWindowBackground = false
 			let dark = w.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 			w.backgroundColor = TerminalTheme.ns(TerminalTheme.scheme(dark: dark).background)
 			measure(w)
 		}
 
-		/// Высота шапки подстраивается под светофор: её центр = центр кнопок.
+		/// Высота шапки по фактическому окну: от неё терминал отступает сверху.
 		private func measure(_ w: NSWindow) {
-			guard !w.styleMask.contains(.fullScreen), let b = w.standardWindowButton(.closeButton), let sup = b.superview else { return }
-			let r = sup.convert(b.frame, to: nil)
-			let center = w.frame.height - r.midY
-			if center > 8, center < 40, abs((model?.lightsCenter ?? 0) - center) > 0.5 { model?.lightsCenter = center }
+			guard !w.styleMask.contains(.fullScreen) else { return }
+			let h = w.frame.height - w.contentLayoutRect.height
+			if h >= 28, h < 120, abs((model?.headerHeight ?? 0) - h) > 0.5 { model?.headerHeight = h }
 		}
 
 		override func viewDidMoveToWindow() {
@@ -55,14 +52,9 @@ struct WindowConfigurator: NSViewRepresentable {
 					MainActor.assumeIsolated {
 						guard let self else { return }
 						self.model?.isFullScreen = on
-						self.model?.barHover = false
 						if !on { DispatchQueue.main.async { self.style(w) } }
 					}
 				})
-			}
-			// пока открыто меню шапки, она не прячется
-			for (n, on) in [(NSMenu.didBeginTrackingNotification, true), (NSMenu.didEndTrackingNotification, false)] {
-				tokens.append(nc.addObserver(forName: n, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.model?.menuOpen = on } })
 			}
 			tokens.append(nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.measure(w) } })
 			model?.isFullScreen = w.styleMask.contains(.fullScreen)
@@ -102,6 +94,11 @@ final class CloseGuard: NSObject, NSWindowDelegate {
 			guard a.runModal() == .alertFirstButtonReturn else { return false }
 		}
 		return original?.windowShouldClose?(sender) ?? true
+	}
+
+	/// Полный экран: шапка прячется вместе с меню и выезжает у верхней кромки (терминалу достаётся всё место).
+	func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposed: NSApplication.PresentationOptions = []) -> NSApplication.PresentationOptions {
+		proposed.union([.autoHideToolbar, .autoHideMenuBar, .fullScreen])
 	}
 
 	func windowWillClose(_ notification: Notification) {

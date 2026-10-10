@@ -50,6 +50,8 @@ final class TerminalContainer: NSView {
 	static let inset: CGFloat = 12
 	let terminal: LocalProcessTerminalView
 	private var defaultsToken: NSObjectProtocol?
+	/// отступ сверху: высота шапки (постоянная, поэтому высота терминала от панели не зависит)
+	private var topInset: CGFloat = TerminalContainer.inset
 
 	override init(frame: NSRect) {
 		terminal = LocalProcessTerminalView(frame: .zero)
@@ -79,9 +81,15 @@ final class TerminalContainer: NSView {
 		layer?.backgroundColor = TerminalTheme.ns(TerminalTheme.scheme(dark: isDark).background).cgColor
 	}
 
+	func setTopInset(_ v: CGFloat) {
+		guard abs(v - topInset) > 0.5 else { return }
+		topInset = v
+		layoutTerminal()
+	}
+
 	private func layoutTerminal() {
 		let i = Self.inset
-		terminal.frame = CGRect(x: i, y: i, width: max(0, bounds.width - 2 * i), height: max(0, bounds.height - i - 4))
+		terminal.frame = CGRect(x: i, y: i, width: max(0, bounds.width - 2 * i), height: max(0, bounds.height - i - topInset))
 	}
 
 	override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyTheme() }
@@ -175,10 +183,12 @@ final class TerminalStore {
 /// Показывает вид готового терминала и отдаёт ему фокус.
 struct TerminalHost: NSViewRepresentable {
 	var tab: TerminalTab
+	var topInset: CGFloat
 
 	func makeNSView(context: Context) -> TerminalContainer {
 		let c = tab.container
 		c.removeFromSuperview()
+		c.setTopInset(topInset)
 		// окно появляется не сразу: пробуем несколько раз
 		for delay in [0.0, 0.15, 0.5] {
 			DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
@@ -188,5 +198,5 @@ struct TerminalHost: NSViewRepresentable {
 		}
 		return c
 	}
-	func updateNSView(_ v: TerminalContainer, context: Context) {}
+	func updateNSView(_ v: TerminalContainer, context: Context) { v.setTopInset(topInset) }
 }

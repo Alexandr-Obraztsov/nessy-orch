@@ -32,15 +32,12 @@ final class SessionWindowModel {
 	/// Esc в поле ввода просит список агентов забрать фокус (↑/↓ и J/K снова работают)
 	var listFocusTick = 0
 	/// боковая панель с агентами
-	var panelHidden = false
-	/// полноэкранный режим: шапка прячется и показывается у верхней кромки
+	var columnVisibility: NavigationSplitViewVisibility = .all
+	var panelHidden: Bool { columnVisibility == .detailOnly }
+	/// полноэкранный режим: шапка системная и прячется вместе с меню; терминалу нужен минимальный отступ
 	var isFullScreen = false
-	/// курсор у верхней кромки окна (в полноэкранном режиме показывает шапку)
-	var barHover = false
-	/// открыто меню «⋯» шапки: пока оно открыто, шапка не прячется
-	var menuOpen = false
-	/// центр светофора от верха окна: высота шапки подстраивается под него
-	var lightsCenter: CGFloat = 0
+	/// высота шапки (светофор, кнопки) от верха окна — по фактическому окну; терминал начинается под ней
+	var headerHeight: CGFloat = 52
 	private var started = false
 	/// сессию создало это окно (а не открыло уже существующую)
 	private var createdSession = false
@@ -50,7 +47,7 @@ final class SessionWindowModel {
 		self.value = value
 		sessionId = value.session
 		// для снимков: `-debug.panel hidden` — боковая панель свёрнута с самого начала
-		if UserDefaults.standard.string(forKey: "debug.panel") == "hidden" { panelHidden = true }
+		if UserDefaults.standard.string(forKey: "debug.panel") == "hidden" { columnVisibility = .detailOnly }
 	}
 
 	/// сессия текущего чата Claude этого окна: самая недавно активная среди сессий окна (один чат = одна сессия)
@@ -73,17 +70,12 @@ final class SessionWindowModel {
 	func open(agent id: String?) {
 		withAnimation(dsAnimation(DS.Motion.panel)) {
 			openAgentId = id
-			if let id { selectedAgentId = id; panelHidden = false }
+			if let id { selectedAgentId = id; columnVisibility = .all }
 		}
 		if let id, let a = app.store.agents[id] { app.store.markSeen(agent: a) }
 	}
 
-	func toggleAgents() { withAnimation(dsAnimation(DS.Motion.panel)) { panelHidden.toggle() } }
-
-	/// Высота шапки: по центру светофора, но не ниже 34 pt.
-	var barHeight: CGFloat { max(34, lightsCenter * 2) }
-	/// шапка видна всегда, кроме полноэкранного режима, где она выезжает у верхней кромки
-	var barVisible: Bool { !isFullScreen || barHover || menuOpen }
+	func toggleAgents() { withAnimation(dsAnimation(DS.Motion.panel)) { columnVisibility = panelHidden ? .all : .detailOnly } }
 
 	/// Первый показ окна: сессия оркестратора (если нет) и терминал в папке. Без связи терминал всё равно запускается.
 	func bootstrap() async {
@@ -120,9 +112,8 @@ extension EnvironmentValues {
 	@Entry var sessionWindow: SessionWindowModel? = nil
 }
 
-/// Окно-терминал: сверху низкая шапка (светофор · кнопка панели · «⋯»), под ней слева стеклянная панель агентов, правее терминал.
-/// Шапка и терминал одного цвета — шва нет; терминал всегда начинается под шапкой, поэтому при открытии и закрытии панели
-/// меняется только его ширина, а не высота. В полноэкранном режиме шапка выезжает у верхней кромки и прячется вместе с кнопками.
+/// Окно-терминал: слева системная панель агентов (парящее стекло), в центре терминал. Шапка прозрачная, того же цвета, что терминал;
+/// терминал всегда начинается под ней, поэтому открытие и закрытие панели меняет только его ширину.
 struct SessionWindowView: View {
 	@Environment(AppModel.self) private var model
 	@Environment(\.openWindow) private var openWindow
@@ -139,40 +130,24 @@ struct SessionWindowView: View {
 
 private struct SessionWindowBody: View {
 	@Environment(AppModel.self) private var model
-	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 	@Bindable var win: SessionWindowModel
 
 	var body: some View {
-		// в полноэкранном режиме шапка лежит поверх терминала и верхний отступ минимальный
-		let top: CGFloat = win.isFullScreen ? 8 : win.barHeight
-		let anim: Animation = reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.38, dampingFraction: 1)
-		ZStack(alignment: .top) {
-			DS.Palette.terminalBackground
-			// панель выезжает на всю высоту окна и накрывает светофор и кнопку панели; терминал — справа, под своей шапкой
-			HStack(spacing: 0) {
-				SidePanel(win: win)
-				ZStack(alignment: .top) {
-					CenterView().padding(.top, top)
-					BarBackground(win: win)
-						.offset(y: win.barVisible ? 0 : -(win.barHeight + 6))
-						.opacity(win.barVisible ? 1 : 0)
-						.animation(anim, value: win.barVisible)
-				}
-			}
-			WindowBar(win: win)
-				.offset(y: win.barVisible ? 0 : -(win.barHeight + 6))
-				.opacity(win.barVisible ? 1 : 0)
-				.animation(anim, value: win.barVisible)
-			// верхняя кромка в полноэкранном режиме: курсор здесь показывает шапку
-			if win.isFullScreen { TopEdgeHover(height: win.barHeight + 4) { win.barHover = $0 } }
+		NavigationSplitView(columnVisibility: $win.columnVisibility) {
+			AgentsPanel()
+				.navigationSplitViewColumnWidth(min: DS.Metrics.sidePanelWidth.min, ideal: DS.Metrics.sidePanelWidth.ideal, max: DS.Metrics.sidePanelWidth.max)
+		} detail: {
+			CenterView()
 		}
-		.ignoresSafeArea()
 		.navigationTitle(Projects.name(ofPath: win.dir))
+		.toolbar(removing: .title)
+		// без плоской полосы: в шапке светофор и системная кнопка панели; «⋯» — в правом углу терминала
+		.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
 		.background { WindowConfigurator(window: win) { model.activeWindow = win } }
 		// листы показывает только окно в фокусе
 		.sheet(isPresented: Binding(get: { model.showPalette && model.activeWindow === win }, set: { model.showPalette = $0 })) { PaletteView() }
 		.sheet(isPresented: Binding(get: { model.showShortcuts && model.activeWindow === win }, set: { model.showShortcuts = $0 })) { ShortcutsView() }
-		.frame(minWidth: 760, minHeight: 440)
+		.frame(minWidth: 860, minHeight: 480)
 		.onAppear {
 			model.activeWindow = win
 			// для снимков: `-debug.openAgent <id>` открывает карточку агента через 9 с после запуска
@@ -180,115 +155,6 @@ private struct SessionWindowBody: View {
 				DispatchQueue.main.asyncAfter(deadline: .now() + 9) { if model.store.agents[id]?.session == win.sessionId { win.open(agent: id) } }
 			}
 		}
-	}
-}
-
-/// Боковая панель: стеклянная плитка слева от терминала; ширина анимируется, содержимое не пересобирается по кадрам.
-private struct SidePanel: View {
-	@Bindable var win: SessionWindowModel
-	@Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-	var body: some View {
-		let w = DS.Metrics.sidePanelWidth.ideal
-		AgentsPanel()
-			.padding(.top, max(0, win.barHeight - DS.Metrics.panelInset))
-			.frame(width: w)
-			.glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous))
-			.padding(.leading, DS.Metrics.panelInset).padding(.bottom, DS.Metrics.panelInset).padding(.top, DS.Metrics.panelInset)
-			.frame(width: win.panelHidden ? 0 : w + DS.Metrics.panelInset, alignment: .leading)
-			.clipped()
-			.opacity(win.panelHidden ? 0 : 1)
-			.allowsHitTesting(!win.panelHidden)
-			.accessibilityHidden(win.panelHidden)
-	}
-}
-
-/// Шапка: слева место под светофор и кнопка панели, справа «⋯» (горячие клавиши и настройки). Без заголовка и без своей плашки:
-/// цвет терминала с мягким краем; в полноэкранном режиме под ней размытие (материал).
-private struct WindowBar: View {
-	@Environment(\.openSettings) private var openSettings
-	@Environment(AppModel.self) private var model
-	@Bindable var win: SessionWindowModel
-
-	var body: some View {
-		HStack(spacing: DS.Metrics.s1) {
-			// светофор рисует система; в полноэкранном режиме его нет
-			Color.clear.frame(width: win.isFullScreen ? 6 : 76, height: 1)
-			BarIcon(systemImage: "sidebar.left", help: "Панель агентов (⌥⌘B)") { win.toggleAgents() }
-			Spacer(minLength: 0)
-			Menu {
-				Button("Горячие клавиши") { model.showShortcuts = true }
-				Button("Настройки…") { openSettings(); NSApp.activate() }
-			} label: {
-				Image(systemName: "ellipsis").font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26).contentShape(Rectangle())
-			}
-			.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-			.foregroundStyle(DS.Palette.textSecondary)
-			.help("Ещё").accessibilityLabel("Ещё")
-		}
-		.padding(.horizontal, DS.Metrics.s3)
-		.frame(height: win.barHeight)
-	}
-}
-
-/// Фон шапки над терминалом: цвет терминала с мягким краем; в полноэкранном режиме под ним размытие (материал).
-private struct BarBackground: View {
-	var win: SessionWindowModel
-	var body: some View {
-		Group {
-			if win.isFullScreen {
-				Rectangle().fill(.ultraThinMaterial)
-					.overlay(DS.Palette.terminalBackground.opacity(0.55))
-					.mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.7), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
-					.padding(.bottom, -8)
-			} else {
-				DS.Palette.terminalBackground
-			}
-		}
-		.frame(height: win.barHeight)
-		.allowsHitTesting(false)
-	}
-}
-
-private struct BarIcon: View {
-	var systemImage: String
-	var help: String
-	var action: () -> Void
-	@State private var hover = false
-	var body: some View {
-		Button(action: action) {
-			Image(systemName: systemImage).font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26).contentShape(Rectangle())
-		}
-		.buttonStyle(.plain)
-		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
-		.onHover { hover = $0 }
-		.help(help).accessibilityLabel(help)
-	}
-}
-
-/// Невидимая полоса у верхней кромки: сообщает, что курсор над ней, но не перехватывает клики терминала.
-private struct TopEdgeHover: NSViewRepresentable {
-	var height: CGFloat
-	var onChange: (Bool) -> Void
-	func makeNSView(context: Context) -> NSView { let v = EdgeView(); v.onChange = onChange; return v }
-	func updateNSView(_ v: NSView, context: Context) { (v as? EdgeView)?.onChange = onChange; (v as? EdgeView)?.height = height }
-
-	final class EdgeView: NSView {
-		var onChange: (Bool) -> Void = { _ in }
-		var height: CGFloat = 40 { didSet { needsLayout = true } }
-		private var area: NSTrackingArea?
-		override func hitTest(_ point: NSPoint) -> NSView? { nil }
-		override func updateTrackingAreas() {
-			super.updateTrackingAreas()
-			if let area { removeTrackingArea(area) }
-			// следим за всей верхней полосой окна: шапка остаётся, пока курсор в ней
-			let r = NSRect(x: 0, y: bounds.height - height, width: bounds.width, height: height)
-			let a = NSTrackingArea(rect: r, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self)
-			addTrackingArea(a); area = a
-		}
-		override func layout() { super.layout(); updateTrackingAreas() }
-		override func mouseEntered(with event: NSEvent) { onChange(true) }
-		override func mouseExited(with event: NSEvent) { onChange(false) }
 	}
 }
 

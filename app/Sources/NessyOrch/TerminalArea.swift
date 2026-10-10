@@ -10,7 +10,7 @@ struct CenterView: View {
 	var body: some View {
 		Group {
 			if let tab = win?.terminal {
-				TerminalHost(tab: tab)
+				TerminalHost(tab: tab, topInset: (win?.isFullScreen ?? false) ? 10 : (win?.headerHeight ?? 52))
 					.id(tab.id)
 					.accessibilityLabel("Терминал")
 			} else {
@@ -20,10 +20,16 @@ struct CenterView: View {
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.opacity(model.isOffline ? 0.6 : 1)
 		.background(DS.Palette.terminalBackground)
+		.ignoresSafeArea(.container, edges: .top)
 		.overlay(alignment: .bottom) {
 			if model.isOffline { OfflineBanner().clipShape(RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous)).padding(DS.Metrics.s3) }
 		}
-		.overlay(alignment: .top) { ToastView().padding(.top, 12) }
+		.toolbar {
+			// «⋯» — стеклянная кнопка шапки справа: только горячие клавиши и настройки
+			ToolbarSpacer(.flexible, placement: .primaryAction)
+			ToolbarItem(placement: .primaryAction) { MoreMenu() }
+		}
+		.overlay(alignment: .top) { ToastView().padding(.top, 56) }
 	}
 }
 
@@ -44,5 +50,22 @@ struct ClaudeStateIndicator: View {
 	}
 	private var label: String {
 		switch state { case .working: "Claude работает"; case .idle: "Claude ждёт вас"; case .ended: "Claude завершил работу"; case nil: "" }
+	}
+}
+
+/// «⋯» в шапке справа: только горячие клавиши и настройки.
+struct MoreMenu: View {
+	@Environment(AppModel.self) private var model
+	@Environment(\.openSettings) private var openSettings
+	var body: some View {
+		Menu {
+			Button("Горячие клавиши") { model.showShortcuts = true }
+			Button("Настройки…") { openSettings(); NSApp.activate() }
+		} label: {
+			Image(systemName: "ellipsis")
+		}
+		.menuIndicator(.hidden)
+		.tint(DS.Palette.textSecondary)
+		.help("Ещё").accessibilityLabel("Ещё")
 	}
 }
