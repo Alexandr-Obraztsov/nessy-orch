@@ -146,6 +146,11 @@ final class AppModel {
 		raise(all[(cur + delta + all.count) % all.count])
 	}
 
+	/// Закрыть окно проекта (с подтверждением, если в нём живой терминал).
+	func close(_ w: SessionWindowModel) {
+		NSApp.windows.first { ($0.delegate as? CloseGuard)?.key == w.key }?.performClose(nil)
+	}
+
 	/// Поднять окно на передний план.
 	func raise(_ w: SessionWindowModel) {
 		NSApp.activate()

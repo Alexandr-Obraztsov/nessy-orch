@@ -225,36 +225,50 @@ private struct SidePanel: View {
 	}
 }
 
-/// Переключатель окон в шапке: имя текущего проекта; меню — все открытые окна (⌘1…⌘9), новое окно и открытие папки.
+/// Переключатель окон в шапке — сегментный тоггл (как «Chat / Code» в Claude Desktop): по сегменту на окно, активное подсвечено;
+/// «+» — новое окно в той же папке. Выбор сегмента поднимает окно; контекстное меню сегмента — закрыть.
 private struct WindowSwitcher: View {
 	@Environment(AppModel.self) private var model
+	@Namespace private var ns
 	var current: SessionWindowModel
-	@State private var hover = false
 
 	var body: some View {
 		let wins = model.projectWindows
-		Menu {
+		HStack(spacing: 2) {
 			ForEach(wins, id: \.key) { w in
-				Button { model.raise(w) } label: {
-					if w === current { Label(model.label(of: w), systemImage: "checkmark") } else { Text(model.label(of: w)) }
-				}
+				Segment(title: model.label(of: w), selected: w === current, ns: ns) { model.raise(w) }
+					.contextMenu { Button("Закрыть окно") { model.close(w) } }
 			}
-			Divider()
-			Button("Новое окно") { model.newWindowHere() }
-			Button("Открыть папку…") { model.openFolderPanel() }
-		} label: {
-			HStack(spacing: 5) {
-				Text(model.label(of: current)).font(.system(size: 13, weight: .medium)).lineLimit(1)
-				Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(DS.Palette.textTertiary)
+			Button { model.newWindowHere() } label: {
+				Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 22).contentShape(Rectangle())
 			}
-			.padding(.horizontal, 9).frame(height: 26)
-			.background(hover ? DS.Palette.hover : .clear, in: Capsule())
-			.contentShape(Capsule())
+			.buttonStyle(.plain).focusEffectDisabled().foregroundStyle(DS.Palette.textTertiary).help("Новое окно (⌘N)")
 		}
-		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().focusEffectDisabled()
-		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
-		.onHover { hover = $0 }
-		.help("Окна")
+		.padding(2)
+		.background(DS.Palette.hover, in: Capsule())
+		.animation(dsAnimation(DS.Motion.panel), value: current.key)
+	}
+
+	private struct Segment: View {
+		var title: String
+		var selected: Bool
+		var ns: Namespace.ID
+		var action: () -> Void
+		@State private var hover = false
+		var body: some View {
+			Button(action: action) {
+				Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+					.frame(maxWidth: 120)
+					.padding(.horizontal, 11).frame(height: 22)
+					.foregroundStyle(selected ? DS.Palette.textPrimary : (hover ? DS.Palette.textPrimary : DS.Palette.textSecondary))
+					.background {
+						if selected { Capsule().fill(DS.Palette.panel).matchedGeometryEffect(id: "seg", in: ns) }
+					}
+					.contentShape(Capsule())
+			}
+			.buttonStyle(.plain).focusEffectDisabled()
+			.onHover { hover = $0 }
+		}
 	}
 }
 
