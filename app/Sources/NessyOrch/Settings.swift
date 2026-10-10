@@ -43,10 +43,12 @@ struct GeneralSettings: View {
 
 struct TerminalSettings: View {
 	@AppStorage("terminal.fontSize") private var fontSize = 13.0
+	@AppStorage("autoStartClaude") private var autoClaude = true
 
 	var body: some View {
 		Form {
 			Section {
+				Toggle("Запускать Claude при открытии проекта", isOn: $autoClaude)
 				Stepper(value: $fontSize, in: 10...24, step: 1) { LabeledContent("Размер шрифта", value: "\(Int(fontSize)) pt") }
 			} footer: {
 				Text("Применяется ко всем открытым терминалам сразу. Оболочка — ваша login-оболочка ($SHELL); команда `claude` уже идёт с хуками оркестратора.")

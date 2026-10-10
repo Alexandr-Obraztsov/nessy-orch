@@ -69,6 +69,7 @@ struct AppCommands: Commands {
 	var body: some Commands {
 		// ⌘N/⌘W — окна; когда фокус в терминале, остальные клавиши достаются ему (команд без ⌘ здесь нет)
 		CommandGroup(replacing: .newItem) {
+			Button("Новое окно") { model.newWindowHere() }.keyboardShortcut("n")
 			Button("Открыть папку…") { model.openFolderPanel() }.keyboardShortcut("o", modifiers: [.command, .shift])
 		}
 		CommandGroup(replacing: .saveItem) {
@@ -84,8 +85,11 @@ struct AppCommands: Commands {
 		// окна проектов: один проект — одно окно; ⌘1…⌘9 переключают, ⌘` — по кругу (системное)
 		CommandGroup(after: .windowArrangement) {
 			Divider()
+			Button("Следующее окно") { model.cycleWindow(1) }.keyboardShortcut("]", modifiers: [.command, .shift])
+			Button("Предыдущее окно") { model.cycleWindow(-1) }.keyboardShortcut("[", modifiers: [.command, .shift])
+			Divider()
 			ForEach(Array(model.projectWindows.prefix(9).enumerated()), id: \.element.key) { i, w in
-				Button(Projects.name(ofPath: w.dir)) { model.raise(w) }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
+				Button(model.label(of: w)) { model.raise(w) }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .command)
 			}
 		}
 		CommandMenu("Сессия") {
@@ -170,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		let wins = model.projectWindows
 		if !wins.isEmpty { m.addItem(.separator()) }
 		for w in wins {
-			let it = NSMenuItem(title: Projects.name(ofPath: w.dir), action: #selector(raiseWindow(_:)), keyEquivalent: "")
+			let it = NSMenuItem(title: model.label(of: w), action: #selector(raiseWindow(_:)), keyEquivalent: "")
 			it.target = self
 			it.representedObject = w.key
 			m.addItem(it)

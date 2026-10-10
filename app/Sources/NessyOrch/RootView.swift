@@ -225,6 +225,39 @@ private struct SidePanel: View {
 	}
 }
 
+/// Переключатель окон в шапке: имя текущего проекта; меню — все открытые окна (⌘1…⌘9), новое окно и открытие папки.
+private struct WindowSwitcher: View {
+	@Environment(AppModel.self) private var model
+	var current: SessionWindowModel
+	@State private var hover = false
+
+	var body: some View {
+		let wins = model.projectWindows
+		Menu {
+			ForEach(wins, id: \.key) { w in
+				Button { model.raise(w) } label: {
+					if w === current { Label(model.label(of: w), systemImage: "checkmark") } else { Text(model.label(of: w)) }
+				}
+			}
+			Divider()
+			Button("Новое окно") { model.newWindowHere() }
+			Button("Открыть папку…") { model.openFolderPanel() }
+		} label: {
+			HStack(spacing: 5) {
+				Text(model.label(of: current)).font(.system(size: 13, weight: .medium)).lineLimit(1)
+				Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(DS.Palette.textTertiary)
+			}
+			.padding(.horizontal, 9).frame(height: 26)
+			.background(hover ? DS.Palette.hover : .clear, in: Capsule())
+			.contentShape(Capsule())
+		}
+		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().focusEffectDisabled()
+		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+		.onHover { hover = $0 }
+		.help("Окна")
+	}
+}
+
 /// Шапка поверх окна: слева светофор (система, без обёртки), справа кнопка панели и «⋯» на одной линии с ним. Пока панель открыта,
 /// кнопки лежат прямо на её стекле (своей капсулы нет); панель закрыта — они собираются в свою стеклянную капсулу.
 private struct WindowBar: View {
@@ -234,7 +267,9 @@ private struct WindowBar: View {
 	var body: some View {
 		let m = SessionWindowModel.panelMargin
 		HStack(spacing: 0) {
-			// светофор рисует система и ничем не оборачивается
+			// светофор рисует система и ничем не оборачивается; правее него переключатель окон
+			if !win.isFullScreen { Color.clear.frame(width: 78, height: 1) }
+			if !win.dir.isEmpty { WindowSwitcher(current: win).padding(.leading, win.isFullScreen ? 12 : 0) }
 			Spacer(minLength: 0)
 			HStack(spacing: 2) {
 				BarIcon(systemImage: "sidebar.right", help: "Панель агентов (⌥⌘B)") { win.toggleAgents() }

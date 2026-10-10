@@ -17,6 +17,8 @@ final class AppModel {
 	let store: OrchStore
 	/// состояние окон сессий (карточка агента, курсор списка): по одному на сессию
 	@ObservationIgnored private(set) var windows: [String: SessionWindowModel] = [:]
+	/// порядок открытия окон (переключатель в шапке и ⌘1…⌘9 идут в нём)
+	@ObservationIgnored private var windowOrder: [String] = []
 	/// растёт при открытии и закрытии окон: по нему обновляются меню «Окно» и меню Dock
 	private(set) var windowsRevision = 0
 	/// открыть окна ждали, пока из окружения появится `openWindow` (ссылка при холодном старте)
@@ -92,12 +94,14 @@ final class AppModel {
 		if let w = windows[value.key] { return w }
 		let w = SessionWindowModel(app: self, value: value)
 		windows[value.key] = w
+		windowOrder.append(value.key)
 		Task { @MainActor in self.windowsRevision += 1 }
 		return w
 	}
 
 	func forget(window w: SessionWindowModel) {
 		windows[w.key] = nil
+		windowOrder.removeAll { $0 == w.key }
 		windowsRevision += 1
 		if activeWindow === w { activeWindow = nil }
 	}
@@ -120,10 +124,26 @@ final class AppModel {
 	}
 
 	/// Новое окно-терминал в папке (ссылка, `open -a … <папка>`, ⌘N).
-	/// Окна проектов по алфавиту (для меню и переключения).
+	/// Окна проектов в порядке открытия (для переключателя в шапке, меню и ⌘1…⌘9).
 	var projectWindows: [SessionWindowModel] {
 		_ = windowsRevision
-		return windows.values.filter { !$0.dir.isEmpty }.sorted { Projects.name(ofPath: $0.dir).localizedCaseInsensitiveCompare(Projects.name(ofPath: $1.dir)) == .orderedAscending }
+		return windowOrder.compactMap { windows[$0] }.filter { !$0.dir.isEmpty }
+	}
+
+	/// Подпись окна: имя папки; одинаковые отличаются номером («proj», «proj 2»).
+	func label(of w: SessionWindowModel) -> String {
+		let name = Projects.name(ofPath: w.dir)
+		let same = projectWindows.filter { Projects.name(ofPath: $0.dir) == name }
+		guard same.count > 1, let i = same.firstIndex(where: { $0 === w }), i > 0 else { return name }
+		return "\(name) \(i + 1)"
+	}
+
+	/// Следующее (+1) или предыдущее (−1) окно по кругу.
+	func cycleWindow(_ delta: Int) {
+		let all = projectWindows
+		guard all.count > 1 else { return }
+		let cur = all.firstIndex { $0 === activeWindow } ?? 0
+		raise(all[(cur + delta + all.count) % all.count])
 	}
 
 	/// Поднять окно на передний план.
@@ -134,10 +154,10 @@ final class AppModel {
 		nw.makeKeyAndOrderFront(nil)
 	}
 
-	/// Одна папка — одно окно: повторное открытие той же папки поднимает уже открытое окно, а не плодит копии.
-	func openTerminal(dir: String) {
+	/// Окно в папке. Внешние вызовы (Finder, ссылка, `nessy-orch .`) поднимают уже открытое окно этой папки; `forceNew` (⌘N) открывает ещё одно.
+	func openTerminal(dir: String, forceNew: Bool = false) {
 		let d = Projects.normalize(dir).flatMap { TerminalLaunch.isUsableDirectory($0) ? $0 : nil } ?? NSHomeDirectory()
-		if let w = windows.values.first(where: { $0.dir == d }) { raise(w); return }
+		if !forceNew, let w = projectWindows.first(where: { $0.dir == d }) { raise(w); return }
 		closeEmptyWindows()
 		open(.fresh(dir: d))
 	}
@@ -267,6 +287,8 @@ final class AppModel {
 
 /// Настройки, не требующие модели.
 enum AppSettings {
+	/// запускать `claude` сразу при открытии проекта
+	static var autoStartClaude: Bool { UserDefaults.standard.object(forKey: "autoStartClaude") as? Bool ?? true }
 	/// размер шрифта терминала (pt)
 	static var terminalFontSize: CGFloat {
 		let v = UserDefaults.standard.double(forKey: "terminal.fontSize")

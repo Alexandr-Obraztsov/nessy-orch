@@ -36,6 +36,11 @@ extension AppModel {
 		openTerminal(dir: u.path)
 	}
 
+	/// ⌘N: ещё одно окно в той же папке, что у окна в фокусе (нет окна — выбор папки).
+	func newWindowHere() {
+		if let d = activeWindow?.dir, !d.isEmpty { openTerminal(dir: d, forceNew: true) } else { openFolderPanel() }
+	}
+
 	/// ⇧⌘O: ещё одно окно в выбранной папке.
 	func openFolderPanel() { chooseProject(title: "Открыть папку", message: "Папка, в которой откроется терминал") }
 
@@ -65,6 +70,10 @@ extension AppModel {
 		let spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, orchestrator: AppSettings.serverURL,
 										   base: ProcessInfo.processInfo.environment, command: UserDefaults.standard.string(forKey: "debug.terminalCommand"))
 		let tab = terminals.add(spec, key: win.key)
+		// при открытии проекта сразу запускается Claude (команда `claude` уже идёт с хуками оркестратора)
+		if AppSettings.autoStartClaude, UserDefaults.standard.string(forKey: "debug.terminalCommand") == nil {
+			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { tab.container.terminal.send(txt: "claude\r") }
+		}
 		// `exit` в оболочке закрывает окно, как в Terminal.app
 		tab.onExit = { [weak win] code in
 			guard code == 0, let win else { return }
