@@ -14,6 +14,7 @@
 import type { AgentPlan, AgentStatus, AgentView, Message, PlanEntry, ReplyBrief, ToolBrief } from '../../../shared/types'
 import { archiveAfterTurn, restoredStatus, statusAfterAttach, statusAfterTurn } from '../../domain/agent-status'
 import { YOU } from '../../domain/constants'
+import { NessyBusyError } from '../../domain/errors'
 import { pickPermissionOption } from '../../domain/permission'
 import { coercePlanEntries, planOnTurnStart } from '../../domain/plan'
 import { planReminder } from '../../domain/preamble'
@@ -22,9 +23,14 @@ import type { AgentIdentity, TurnOutcome } from '../../domain/types'
 import { errMsg } from '../../lib/json'
 import { clip, plainText } from '../../lib/text'
 import type { PersistedAgent } from '../persisted.types'
-import type { SessionEvent, SessionSubscription } from '../ports'
+import type { NessyGateway, SessionEvent, SessionSubscription } from '../ports'
 import { AgentJournal } from './agent-journal'
 import type { AgentDeps, AgentInit, CurrentTurn, LiveRun, PendingPermission } from './agent.types'
+
+/** повторы промпта при временном отказе nessy: сколько раз и пауза */
+const PROMPT_RETRY_MAX = 5
+const PROMPT_RETRY_BASE_MS = 1000
+const PROMPT_RETRY_MAX_DELAY_MS = 30000
 
 export class Agent implements AgentIdentity {
 	readonly id: string
@@ -355,7 +361,7 @@ export class Agent implements AgentIdentity {
 		try {
 			const client = this.deps.host.getSpace(this.space)?.client
 			if (!client || !this.sessionId) throw new Error('нет соединения с nessy')
-			const { promptId } = await client.prompt(this.sessionId, this.buildPrompt(msg))
+			const { promptId } = await this.promptWithRetry(client, this.sessionId, msg)
 			this.introduced = true
 			const turn = this.turnFor(msg)
 			if (turn) {
@@ -366,6 +372,25 @@ export class Agent implements AgentIdentity {
 			}
 		} catch (e) {
 			if (this.turnFor(msg)) this.finishTurn({ error: errMsg(e) })
+		}
+	}
+
+	/**
+	 * Отправить промпт; на временный отказ nessy (очередь переполнена, 429, сессия занята) ждём и повторяем
+	 * с растущей паузой (или Retry-After), пока ход не отменили. Окончательная ошибка пробрасывается.
+	 */
+	private async promptWithRetry(client: NessyGateway, sessionId: string, msg: Message): Promise<{ promptId: string | null }> {
+		const base = this.deps.promptRetryBaseMs ?? PROMPT_RETRY_BASE_MS
+		for (let attempt = 0; ; attempt++) {
+			try {
+				return await client.prompt(sessionId, this.buildPrompt(msg))
+			} catch (e) {
+				const cur = this.turnFor(msg)
+				if (!(e instanceof NessyBusyError) || attempt >= PROMPT_RETRY_MAX || !cur || cur.cancelRequested) throw e
+				const delay = Math.min(e.retryAfterMs ?? base * 2 ** attempt, PROMPT_RETRY_MAX_DELAY_MS)
+				if (attempt === 0) this.addSystem(`nessy занят (${e.reason}) — повторю отправку`)
+				await new Promise<void>(resolve => setTimeout(resolve, delay).unref())
+			}
 		}
 	}
 

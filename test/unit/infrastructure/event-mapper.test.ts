@@ -192,3 +192,15 @@ describe('маппер событий nessy: план (ACP plan)', () => {
 		assert.deepEqual(map('session_update', su({ sessionUpdate: 'plan' })), { kind: 'plan', entries: [] })
 	})
 })
+
+describe('маппер событий nessy: отдельный кадр turn_error', () => {
+	it('turn_error{message,code,retryable} → turn_error', () => {
+		assert.deepEqual(map('turn_error', frame('turn_error', { message: 'Rate limit', code: 429, retryable: true, promptId: 'p' })), {
+			kind: 'turn_error',
+			message: 'Rate limit',
+			retryable: true,
+			code: 429,
+		})
+		assert.deepEqual(map('turn_error', frame('turn_error', {})), { kind: 'turn_error', message: 'ошибка nessy', retryable: false, code: null })
+	})
+})

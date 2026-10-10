@@ -94,14 +94,15 @@
 Ядро уже развязано: бэкенд за портом `NessyGateway` (`src/application/ports.ts`), протокол изолирован
 в `src/infrastructure/nessy/`. Замена рантайма = новый класс + `src/app.ts`.
 
-**P0 — корректность протокола** (баги, подтверждённые верификатором):
-1. `src/infrastructure/nessy/event-mapper.ts` — **не обрабатывает `turn_error`** как отдельный кадр
-   (switch → default null). Ошибки промпта теряются: вложенный `_meta.nessy/error` в живом потоке не
+**P0 — корректность протокола** (сделано 2026-10-10: пп. 1–2; п. 3 — только документация):
+1. ✅ `src/infrastructure/nessy/event-mapper.ts` — `_meta.nessy/error` разбирался и раньше; добавлен разбор
+   отдельного кадра `turn_error` (раньше switch → default null). Ошибки промпта теряются: вложенный `_meta.nessy/error` в живом потоке не
    приходит. Добавить разбор `turn_error{message,code,promptId}`. *Примечание: то, что `turn_error`
    приходит отдельным топ-левел кадром, подтверждено кодом рантайма (`broadcastTurnError`,
    `TURN_BOUNDARY_TYPES`), живьём воспроизвести кадр не удалось.*
-2. `src/infrastructure/nessy/nessy-client.ts` — `request()` не читает `Retry-After`; `ok()` не различает
-   429/503 (все → 502). Различать `prompt_queue_full` (503), `session_busy` (409), 429.
+2. ✅ `src/infrastructure/nessy/nessy-client.ts` — `request()` читает `Retry-After`, `ok()` бросает `NessyBusyError`
+   (`queue_full`/`session_busy`/`rate_limited`/`unavailable`); `Agent.promptWithRetry` повторяет промпт до 5 раз с паузой
+   (Retry-After или 1 с × 2ⁿ, ≤ 30 с). Раньше всё → 502. Различать `prompt_queue_full` (503), `session_busy` (409), 429.
 3. Согласовать отмену: док обещает `stopReason:'cancelled'`; живьём (0.13.15) при `POST /session/:id/cancel`
    → 204 и в SSE приходят `prompt_cancelled`, дальше — **либо** `turn_complete{stopReason:'cancelled'}`,
    **либо** `turn_error` — зависит от сценария отмены. Сообщение `"Request was aborted"` относится к abort

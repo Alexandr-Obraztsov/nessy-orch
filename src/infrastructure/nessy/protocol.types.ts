@@ -16,4 +16,6 @@ export interface ToolCallBuffer {
 export interface NessyResponse {
 	status: number
 	json: Record<string, unknown>
+	/** заголовок Retry-After в миллисекундах (null — нет или не разобран) */
+	retryAfterMs: number | null
 }

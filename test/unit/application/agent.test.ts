@@ -328,3 +328,16 @@ describe('агент: архив и прерывание', () => {
 		assert.equal(ctx.orch.getAgent(id).queued, 1)
 	})
 })
+
+describe('агент: временный отказ nessy', () => {
+	it('prompt_queue_full → промпт повторяется, ход не падает', async () => {
+		const ctx = setup()
+		ctx.gw.busyPrompts = 2
+		const r = await ctx.orch.spawn({ space: 'main', name: 'alpha', prompt: 'задача' })
+		await until(() => ctx.gw.prompts.length === 3, 3000, 'два отказа и успешная отправка')
+		const a = ctx.orch.resolveAgent(r.agent.id)
+		assert.equal(a.status, 'working')
+		assert.equal(a.error, null)
+		assert.equal(history(ctx, r.agent.id).filter(e => e.kind === 'system' && e.text.includes('nessy занят')).length, 1, 'об ожидании пишем один раз')
+	})
+})

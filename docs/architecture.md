@@ -135,6 +135,8 @@ you ◄──inbox/feed/stream── Feed.append(reply) ◄── onTurnDone ◄
 - События вне хода (реплей `Last-Event-ID`) игнорируются: `text`/`thought`, а также обновления неизвестных инструментов.
 - Ход завершается по `turn_complete` (с проверкой `promptId`), `prompt_cancelled` (`stopReason: cancelled`), `session_died`
   или по ошибке отправки промпта. `turn_error` (мета `nessy/error`) запоминается и попадает в итог хода как ошибка.
+- Временный отказ nessy на промпт (`prompt_queue_full`, `session_busy`, 429, 503 → `NessyBusyError`): до 5 повторов с паузой
+  (`Retry-After` или 1 с × 2ⁿ, не больше 30 с), в чат пишется «nessy занят»; отмена хода прекращает повторы. Прочие ошибки — сразу `error`.
 - `client_evicted` — отцепиться и подключиться заново (сначала `/load`). Падение `nessy serve` — `onSpaceDown`: ход с ошибкой,
   сессия поднимется при следующем сообщении.
 - `permission_request`: при `autoApprove` — голос через `pickPermissionOption` (`allow_once` предпочтительнее) и запись

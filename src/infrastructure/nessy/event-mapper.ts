@@ -133,6 +133,13 @@ export function mapNessyEvent(eventName: string, frame: unknown, tools: Map<stri
 		case 'turn_complete':
 			tools.clear()
 			return { kind: 'turn_complete', stopReason: str(d['stopReason'], 'end_turn'), promptId: strOrNull(d['promptId']) }
+		case 'turn_error':
+			return {
+				kind: 'turn_error',
+				message: str(d['message']) || 'ошибка nessy',
+				retryable: d['retryable'] === true,
+				code: typeof d['code'] === 'number' ? d['code'] : null,
+			}
 		case 'prompt_cancelled':
 			return { kind: 'cancelled', promptId: strOrNull(d['promptId']) }
 		case 'session_metadata_updated': {

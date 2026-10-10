@@ -9,7 +9,8 @@
 import * as http from 'node:http'
 import { URL } from 'node:url'
 import type { NessyGateway, SessionSubscription, SubscribeOptions } from '../../application/ports'
-import { AppError } from '../../domain/errors'
+import { AppError, NessyBusyError } from '../../domain/errors'
+import type { NessyBusyReason } from '../../domain/errors'
 import { isObject, parseJson, str, strOrNull } from '../../lib/json'
 import type { JsonObject } from '../../lib/json.types'
 import { clip } from '../../lib/text'
@@ -18,6 +19,24 @@ import { NessyEventMapper } from './event-mapper'
 import type { NessyResponse } from './protocol.types'
 
 const RECONNECT_MS = 1000
+
+/** Retry-After: секунды или HTTP-дата; результат в мс. */
+export function parseRetryAfter(v: string | undefined, now = Date.now()): number | null {
+	if (!v) return null
+	const sec = Number(v)
+	if (Number.isFinite(sec) && sec >= 0) return Math.round(sec * 1000)
+	const at = Date.parse(v)
+	return Number.isNaN(at) ? null : Math.max(0, at - now)
+}
+
+/** Временный отказ nessy (его стоит переждать) или null, если ошибка окончательная. */
+export function busyReason(status: number, code: string): NessyBusyReason | null {
+	if (code === 'prompt_queue_full') return 'queue_full'
+	if (code === 'session_busy') return 'session_busy'
+	if (status === 429) return 'rate_limited'
+	if (status === 503) return 'unavailable'
+	return null
+}
 
 export class NessyClient implements NessyGateway {
 	private readonly host: string
@@ -50,7 +69,12 @@ export class NessyClient implements NessyGateway {
 					res.on('data', (c: string) => (d += c))
 					res.on('end', () => {
 						const parsed = parseJson(d)
-						resolve({ status: res.statusCode ?? 0, json: isObject(parsed) ? parsed : { raw: d } })
+						const ra = res.headers['retry-after']
+						resolve({
+							status: res.statusCode ?? 0,
+							json: isObject(parsed) ? parsed : { raw: d },
+							retryAfterMs: parseRetryAfter(ra),
+						})
 					})
 				},
 			)
@@ -65,7 +89,10 @@ export class NessyClient implements NessyGateway {
 		const r = await this.request(method, path, body, timeoutMs)
 		if (r.status >= 400) {
 			const detail = str(r.json['error']) || str(r.json['raw']) || JSON.stringify(r.json)
-			throw new AppError(502, 'nessy_error', `nessy ${method} ${path} → ${r.status}: ${clip(detail, 300)}`)
+			const message = `nessy ${method} ${path} → ${r.status}: ${clip(detail, 300)}`
+			const reason = busyReason(r.status, str(r.json['code']) || str(r.json['error']))
+			if (reason) throw new NessyBusyError(reason, message, r.retryAfterMs)
+			throw new AppError(502, 'nessy_error', message)
 		}
 		return r.json
 	}

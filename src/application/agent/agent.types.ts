@@ -22,6 +22,8 @@ export interface AgentDeps {
 	autoApprove: boolean
 	/** ожидание подтверждения отмены от nessy (мс) */
 	cancelGraceMs: number
+	/** базовая пауза повтора промпта при временном отказе nessy (мс, растёт вдвое); по умолчанию 1000 */
+	promptRetryBaseMs?: number
 	/** команда CLI оркестратора (для напоминания о плане в промпте) */
 	cliPath: string
 }

@@ -1,6 +1,7 @@
 /** Хранилище в памяти и поддельный шлюз nessy для unit-тестов прикладного слоя. */
 import type { AgentEvent, Message, RoleView, SpaceView, TaskView } from '../../shared/types'
 import type { PersistedState } from '../../src/application/persisted.types'
+import { NessyBusyError } from '../../src/domain/errors'
 import type { NessyGateway, SessionSubscription, SpaceRuntime, StorePort, SubscribeOptions } from '../../src/application/ports'
 
 export class MemoryStore implements StorePort {
@@ -77,8 +78,14 @@ export class FakeGateway implements NessyGateway {
 	}
 	/** пока задан — ответ на prompt задерживается (промпт «летит» в nessy) */
 	promptGate: Promise<void> | null = null
+	/** сколько ближайших промптов отклонить временной ошибкой nessy (prompt_queue_full) */
+	busyPrompts = 0
 	async prompt(_sessionId: string, text: string): Promise<{ promptId: string | null }> {
 		this.prompts.push(text)
+		if (this.busyPrompts > 0) {
+			this.busyPrompts--
+			throw new NessyBusyError('queue_full', 'nessy POST /prompt → 503: prompt_queue_full', 5)
+		}
 		const id = `p-${this.prompts.length}`
 		if (this.promptGate) await this.promptGate
 		return { promptId: id }
