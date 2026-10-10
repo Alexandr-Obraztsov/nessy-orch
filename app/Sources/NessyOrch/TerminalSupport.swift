@@ -113,7 +113,15 @@ final class TerminalContainer: NSView {
 		return CGRect(x: i, y: i, width: max(0, bounds.width - 2 * i), height: max(0, bounds.height - i - topInset))
 	}
 
-	private func layoutTerminal() { terminal.frame = terminalFrame }
+	private func layoutTerminal() {
+		terminal.frame = terminalFrame
+		hideScroller()
+	}
+
+	/// Полосы прокрутки нет (колесо и трекпад работают как раньше): постоянно видимая полоса портит вид.
+	private func hideScroller() {
+		for case let s as NSScroller in terminal.subviews where s.alphaValue != 0 { s.alphaValue = 0 }
+	}
 
 	override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyTheme() }
 	override func layout() { super.layout(); layoutTerminal() }
