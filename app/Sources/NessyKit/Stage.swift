@@ -54,10 +54,6 @@ public struct AgentStage: Equatable, Sendable {
 }
 
 public extension AgentView {
-	var toolPhrase: ToolPhrase? {
-		lastTool.map { ToolPhrases.of(ToolNames.view(name: $0.name, title: $0.title, input: [:])) }
-	}
-
 	/// Номер шага (с 0): первый `in_progress`, иначе первый `pending`.
 	internal var currentStepIndex: Int? {
 		guard let e = plan?.entries else { return nil }

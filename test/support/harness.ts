@@ -59,7 +59,6 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 			maxHops: 8,
 			rateLimitPerMinute: 30,
 			healthTimeoutMs: 10000,
-			uiDir: path.join(base, 'ui'),
 			cliPath: CLI,
 			seedRoles: false,
 			rolesDir: path.join(base, 'roles'),

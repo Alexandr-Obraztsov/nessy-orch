@@ -49,6 +49,5 @@ launchd, запускается через login shell с окружением �
   в коде агента сессия nessy называется `nessyId`.
 - Приложение: `app/` — SwiftPM (`NessyKit` — модель, API, SSE, состояние, тесты `swift test`; `NessyOrch` — SwiftUI, macOS 26).
   Сборка `.app`: `app/scripts/build-app.sh`. Схема для ссылок: `nessy-orch://session/<id>`, `nessy-orch://agent/<id>`.
-- Веб-UI (`ui/`, `e2e/`) выведен из сборки и проверок и не поддерживается; удалить его можно по решению владельца.
 - Проверки: `npm run check` (typecheck + lint + тесты сервера), `cd app && swift test` (тесты NessyKit).
 - Стиль: табы, без точек с запятой, одинарные кавычки, комментарии по-русски. `any` и `@ts-ignore` запрещены.

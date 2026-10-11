@@ -15,8 +15,8 @@ nessy, агенты общаются между собой и с главной 
 
 - Ядро перестроено по слоям (domain, application, infrastructure, interfaces) — см. [architecture.md](architecture.md).
 - Клиент `nessy serve` исправлен по [contract/README.md](contract/README.md) (`src/infrastructure/nessy/`).
-- UI написан: React + Vite, `ui/` (описание — в [README.md](../README.md), «Веб-интерфейс»).
-- Серверные тесты: 105 проходят (`npm test`). E2E-набор Playwright лежит в `e2e/` (`npm run test:e2e`).
+- Клиент — нативное приложение TClaude-Orch (`app/`, описание — в [app/README.md](../app/README.md)); веб-интерфейса нет.
+- Серверные тесты: `npm test`.
 
 ## Быстрый старт (вне песочницы)
 

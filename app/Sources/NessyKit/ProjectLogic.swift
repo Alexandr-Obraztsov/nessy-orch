@@ -2,8 +2,6 @@ import Foundation
 
 /// Папка сессии: каталог её терминала → пространство, где у сессии больше всего агентов → nil (layout-v2.md).
 public enum Projects {
-	public static let noneName = "Без проекта"
-
 	/// Каталог без хвостового `/` и `~`-сокращений; пустой путь — nil.
 	public static func normalize(_ path: String?) -> String? {
 		guard var p = path?.trimmingCharacters(in: .whitespacesAndNewlines), !p.isEmpty else { return nil }

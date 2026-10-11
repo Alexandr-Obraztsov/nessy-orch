@@ -103,11 +103,6 @@ public final class ChatModel {
 		return nil
 	}
 
-	/// Блок текста ещё пишется (последний элемент — text/thought, и агент работает).
-	public func isStreaming(_ seq: Int) -> Bool {
-		guard agent?.status == .working, let last = items.last else { return false }
-		return last.seq == seq && { if case .text = last { return true } else { return false } }()
-	}
 }
 
 /// Элемент ленты чата для показа: подряд идущие инструменты схлопываются в группу.

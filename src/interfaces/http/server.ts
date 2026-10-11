@@ -14,7 +14,6 @@
  *   GET  /messages?agent=&since=&limit=
  *   GET  /inbox?wait=&peek=1&after=&session=   (session — свой курсор на сессию)
  *   GET  /stream (SSE: snapshot + все события)
- * Всё остальное по GET — статика UI.
  */
 import * as http from 'node:http'
 import type { Orchestrator } from '../../application/orchestrator'
@@ -30,7 +29,6 @@ import { registerSpaceRoutes } from './routes/spaces.routes'
 import { registerSystemRoutes } from './routes/system.routes'
 import { registerSessionRoutes } from './routes/sessions.routes'
 import type { ServerOptions } from './server.types'
-import { serveStatic } from './static-files'
 
 export function buildRouter(): Router {
 	const r = new Router()
@@ -53,7 +51,6 @@ function splitPath(p: string): string[] {
 
 export function createServer(orch: Orchestrator, opts: ServerOptions): http.Server {
 	const router = buildRouter()
-	const apiRoots = router.roots()
 
 	async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
 		assertLocalClient(req, opts.port)
@@ -61,10 +58,6 @@ export function createServer(orch: Orchestrator, opts: ServerOptions): http.Serv
 		const method = req.method ?? 'GET'
 		const seg = splitPath(url.pathname)
 
-		if (method === 'GET' && !apiRoots.has(seg[0] ?? '')) {
-			serveStatic(res, url.pathname, opts.uiDir)
-			return
-		}
 		const hit = router.match(method, seg)
 		if (!hit) throw new AppError(404, 'not_found', `${method} ${url.pathname}`)
 		await hit.handler({ req, res, orch, opts, params: hit.params, query: url.searchParams })

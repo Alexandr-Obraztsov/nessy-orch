@@ -1,8 +1,0 @@
-#!/usr/bin/env node
-'use strict';
-// Совместимость: nessy-watch <агент> → nessy-orch watch
-const path = require('node:path');
-const { spawnSync } = require('node:child_process');
-const ref = process.argv[2];
-if (!ref) { process.stderr.write('usage: nessy-watch <агент>\n'); process.exit(2); }
-process.exit(spawnSync(process.execPath, [path.join(__dirname, 'nessy-orch'), 'watch', ref], { stdio: 'inherit' }).status ?? 1);

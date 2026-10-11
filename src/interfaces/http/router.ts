@@ -9,11 +9,6 @@ export class Router {
 		return this
 	}
 
-	/** Первые сегменты всех маршрутов (для отличия API от статики UI). */
-	roots(): Set<string> {
-		return new Set(this.routes.map(r => r.segments[0] ?? ''))
-	}
-
 	match(method: string, seg: readonly string[]): RouteMatch | null {
 		for (const r of this.routes) {
 			if (r.method !== method || r.segments.length !== seg.length) continue

@@ -32,8 +32,6 @@ final class SessionWindowModel {
 	var selectedAgentId: String?
 	/// Esc в поле ввода просит список агентов забрать фокус (↑/↓ и J/K снова работают)
 	var listFocusTick = 0
-	/// панель агентов, её ширина и полный экран — общие для всех проектов окна (хранятся в `AppModel`)
-	var panelHidden: Bool { !app.showAgents }
 	var panelWidth: CGFloat { get { app.panelWidth } set { app.panelWidth = newValue } }
 	var isFullScreen: Bool { app.isFullScreen }
 	/// общая линия шапки: центр светофора, кнопок справа и заголовка панели — на этой высоте от верха окна

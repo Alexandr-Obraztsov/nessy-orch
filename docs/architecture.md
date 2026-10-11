@@ -262,17 +262,16 @@ id роли (`reviewer`, `reviewer-2`, …), а `preambleFor` добавляет
 | `ORCH_MAX_HOPS` | 8 | максимальная длина цепочки |
 | `ORCH_RATE_LIMIT` | 30 | сообщений в минуту на пару |
 | `ORCH_HEALTH_TIMEOUT_MS` | 60000 | ожидание готовности serve |
-| `ORCH_UI_DIR` | `<проект>/ui/dist` | каталог собранного UI для статики |
 
 ## Структура репозитория
 
 ```
-bin/            nessy-orch (обёртка над dist/), nessy-ask|jobs|watch (алиасы совместимости)
-shared/types/   общие типы (сервер, CLI, UI): domain, events, api
+bin/            nessy-orch (обёртка над dist/)
+shared/types/   общие типы (сервер, CLI, приложение): domain, events, api
 src/            сервер и CLI (слои — выше); сборка в dist/src/
 test/           unit/ (lib, domain, application, infrastructure, interfaces), integration/, support/ (фейковый nessy serve, стенд)
-e2e/            Playwright-сценарии UI
-ui/src/         React + Vite, Feature-Sliced Design (app, widgets, features, entities, shared)
+app/            нативное приложение macOS (SwiftPM: NessyKit — модель и логика, NessyOrch — SwiftUI)
+plugins/nessy/  плагин Claude Code: скилл nessy-orch, команды, хуки сессий, CLI в bin/
 docs/           эта документация + contract/ (референс протокола nessy)
 scripts/        postbuild.mjs (exec-биты)
 ```
@@ -282,4 +281,4 @@ scripts/        postbuild.mjs (exec-биты)
 - `tsconfig`: `strict`, `noUncheckedIndexedAccess`, `noUnusedLocals/Parameters`, `useUnknownInCatchVariables`.
 - ESLint `strictTypeChecked`: запрещены `any`, `no-unsafe-*`, `@ts-ignore`, `no-floating-promises`, обязателен `import type`.
 - Внешний JSON читается только через хелперы `src/lib/json.ts`.
-- Проверка: `npm run check` (typecheck + lint + test); e2e UI — `npm run test:e2e`.
+- Проверка: `npm run check` (typecheck + lint + test).

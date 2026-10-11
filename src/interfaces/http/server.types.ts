@@ -3,7 +3,6 @@ import type { Orchestrator } from '../../application/orchestrator'
 
 export interface ServerOptions {
 	version: string
-	uiDir: string
 	port: number
 	host: string
 }

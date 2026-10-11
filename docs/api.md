@@ -25,9 +25,8 @@
 | GET | `/health` | `{status:"ok"}` |
 | GET | `/status` | `StatusResponse` (`version,pid,uptimeSec,rev,home,autoApprove,spaces,agents,working,roles`) |
 | GET | `/graph` | `GraphView` = `{rev, spaces[], agents[], roles[]}` (агенты — включая архивных) |
-| GET | любой путь, не начинающийся с API-сегмента | статика из `ORCH_UI_DIR` (`/` → `index.html`, `Cache-Control: no-store`); нет SPA-fallback — для роутинга в UI используйте hash. Нет файла → `404 not_found`, выход за каталог → `403 forbidden` |
 
-API-сегменты (первые сегменты маршрутов): `health status graph stream spaces agents roles sessions messages inbox`. Неизвестный маршрут → `404 not_found`.
+Сервер отдаёт только API (статики нет): первые сегменты маршрутов — `health status graph stream spaces agents roles sessions messages inbox`; неизвестный маршрут → `404 not_found`.
 
 ## Пространства
 

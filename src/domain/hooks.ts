@@ -10,8 +10,6 @@ import { clip } from '../lib/text'
 const REPLY_MAX = 1500
 const TOTAL_MAX = 8000
 
-export type HookEvent = 'start' | 'prompt' | 'stop' | 'end'
-
 const STATE_RU: Record<AgentBrief['status'], string> = { starting: 'запускается', working: 'работает', idle: 'свободен', error: 'ошибка' }
 
 /** Команда фонового ожидания ответов сессии (Bash с `run_in_background: true`). */

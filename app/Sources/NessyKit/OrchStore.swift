@@ -169,7 +169,6 @@ public final class OrchStore {
 
 	public var allAgents: [AgentView] { Array(agents.values) }
 	public func agents(inSession id: String?) -> [AgentView] { allAgents.filter { $0.session == id } }
-	public var agentsWithoutSession: [AgentView] { allAgents.filter { $0.session == nil } }
 	public func session(_ id: String?) -> SessionView? { id.flatMap { id in sessions.first { $0.id == id } } }
 	public func role(_ id: String?) -> RoleView? { id.flatMap { id in roles.first { $0.id == id } } }
 	public func space(_ name: String) -> SpaceView? { spaces.first { $0.name == name } }
@@ -196,8 +195,6 @@ public final class OrchStore {
 			return a != b ? !a : sortKey($0) > sortKey($1)
 		}
 	}
-	public var staleSessions: [SessionView] { sessions.filter { $0.status == .active && isStale($0) }.sorted { sortKey($0) > sortKey($1) } }
-	public var doneSessions: [SessionView] { sessions.filter { $0.status == .done }.sorted { sortKey($0) > sortKey($1) } }
 	private func sortKey(_ t: SessionView) -> Date { ISO.parse(t.updatedAt) ?? .distantPast }
 
 	/// Сессия считается брошенной: активна, никто не работает и не ждёт, давно нет событий.
@@ -218,8 +215,6 @@ public final class OrchStore {
 		defaults.set(Array(seenReplies.suffix(600)), forKey: Self.seenKey)
 	}
 	public func markSeen(agent a: AgentView) { if let r = a.lastReply { markSeen([r.msgId]) } }
-	public func markAllSeen() { markSeen(allAgents.compactMap { $0.lastReply?.msgId }) }
-
 	// MARK: действия (ошибки возвращаются вызывающему)
 
 	public func decide(_ item: AttentionItem, approve: Bool) async throws {

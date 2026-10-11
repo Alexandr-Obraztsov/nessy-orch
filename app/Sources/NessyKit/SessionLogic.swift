@@ -53,8 +53,6 @@ public struct SessionRollup: Sendable, Equatable {
 		tokens = tokenAgents > 0 ? t : nil
 	}
 
-	/// Самое срочное состояние сессии.
-	public var headline: AgentState? { summary.top }
 }
 
 public struct SourceGroup: Identifiable, Sendable {

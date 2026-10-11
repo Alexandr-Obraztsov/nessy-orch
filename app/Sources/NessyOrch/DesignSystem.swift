@@ -28,21 +28,11 @@ extension DS {
 		static let accentText = Color.ds(0x0066D6, 0x4CA2FF, hc: (0x004FA8, 0x7DBBFF))
 		/// «ждёт вас» — тот же синий nessy, что и акцент (оранжевого в интерфейсе нет)
 		static let attention = Color.ds(0x0066D6, 0x4CA2FF, hc: (0x004FA8, 0x7DBBFF))
-		/// подложка запроса прав: акцент 10 % (HC — 16 %) + обводка attentionStroke
-		static let attentionTint = Color.ds(0x0A6CE0, 0x1F6FE0, alpha: 0.10, hcAlpha: 0.16)
 		static let attentionStroke = Color.ds(0x0A6CE0, 0x4CA2FF, alpha: 0.35, hcAlpha: 0.6)
 		static let danger = Color.ds(0xC9001A, 0xFF5C52, hc: (0x9E0014, 0xFF8A82))
 		static let dangerTint = Color.ds(0xFDECEC, 0x3A1C1C)
 		static let quiet = Color.ds(0x8E8E93, 0x7C7C82, hc: (0x5F5F66, 0xA3A3AA))
 
-		static func tone(_ t: Tone) -> Color {
-			switch t {
-			case .neutral: textSecondary
-			case .accent: accentText
-			case .attention: attention
-			case .danger: danger
-			}
-		}
 	}
 }
 
@@ -75,7 +65,6 @@ extension DS {
 		static let caption = Font.subheadline
 		static let mono = Font.system(.callout, design: .monospaced)
 		static let monoCaption = Font.system(.subheadline, design: .monospaced)
-		static let metric = Font.title.weight(.semibold).monospacedDigit()
 		static let timer = Font.callout.monospacedDigit()
 		static let readingLineSpacing: CGFloat = 3
 	}
@@ -87,12 +76,8 @@ extension DS {
 	enum Metrics {
 		static let s1: CGFloat = 4, s2: CGFloat = 8, s3: CGFloat = 12, s4: CGFloat = 16, s5: CGFloat = 20, s6: CGFloat = 24, s8: CGFloat = 32
 		static let contentInset: CGFloat = 20
-		static let sidebarWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 264, 300)
-		/// окно агента: screens.md §2 (400, 360…480) — под окно 900×600
-		static let agentPanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (360, 400, 480)
 		/// левая панель агентов (layout-v2.md, итог): 300…440, по умолчанию 340
 		static let sidePanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 300, 520)
-		static let panelInset: CGFloat = 8
 		static let panelRadius: CGFloat = 22
 		/// круглые кнопки: 36 — везде, 40 — в тулбаре; иконка 16–17 pt (layout-v2.md, «Кнопки»)
 		static let button: CGFloat = 36, toolbarButton: CGFloat = 40, buttonIcon: CGFloat = 16.5
@@ -126,16 +111,6 @@ extension DS {
 
 		static func pick(_ a: Animation, reduceMotion: Bool) -> Animation { reduceMotion ? reduced : a }
 
-		/// Окно агента: приходит справа и уходит туда же (симметрично).
-		static func panelTransition(reduceMotion: Bool) -> AnyTransition {
-			reduceMotion ? .opacity : .opacity.combined(with: .offset(x: 24)).combined(with: .scale(scale: 0.98, anchor: .trailing))
-		}
-
-		/// Боковая панель: выезжает от своего края и уходит туда же.
-		static func sideTransition(edge: Edge, reduceMotion: Bool) -> AnyTransition {
-			reduceMotion ? .opacity : .move(edge: edge).combined(with: .opacity)
-		}
-
 		static func rowTransition(reduceMotion: Bool) -> AnyTransition {
 			reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top))
 		}
@@ -154,9 +129,6 @@ extension View {
 	/// Контентная группа: непрозрачная поверхность + волосяная обводка (HC — 1 pt). Внутренние формы — концентричные.
 	func dsGroup() -> some View { modifier(DSGroup()) }
 
-	/// Плавающее окно агента: непрозрачная поверхность, тень, форма концентрична окну.
-	func dsPanel() -> some View { modifier(DSPanelSurface()) }
-
 	/// Карточка панели агента: стеклянный слой поверх чата, одинаковый радиус у всех карточек.
 	func dsFloatingCard() -> some View {
 		let shape = RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous)
@@ -167,7 +139,6 @@ extension View {
 			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
 	}
 
-	func dsHover(active: Bool = true) -> some View { modifier(DSHover(active: active)) }
 }
 
 private struct DSGroup: ViewModifier {
@@ -179,33 +150,6 @@ private struct DSGroup: ViewModifier {
 			.clipShape(shape)
 			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: contrast == .increased ? DS.Metrics.hairlineHC : DS.Metrics.hairline))
 			.containerShape(shape)
-	}
-}
-
-private struct DSPanelSurface: ViewModifier {
-	@Environment(\.colorSchemeContrast) private var contrast
-	func body(content: Content) -> some View {
-		let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(DS.Metrics.panelRadiusFallback)), isUniform: true)
-		content
-			.background(DS.Palette.panel, in: shape)
-			.clipShape(shape)
-			.overlay(shape.stroke(DS.Palette.separator, lineWidth: contrast == .increased ? DS.Metrics.hairlineHC : DS.Metrics.hairline))
-			.shadow(color: .black.opacity(0.18), radius: 24, y: 8)
-			.shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-	}
-}
-
-private struct DSHover: ViewModifier {
-	var active: Bool
-	@State private var hovering = false
-	func body(content: Content) -> some View {
-		content
-			.background {
-				ConcentricRectangle(corners: .concentric(minimum: .fixed(DS.Metrics.groupRadius - DS.Metrics.rowInset)), isUniform: true)
-					.fill(hovering && active ? DS.Palette.hover : .clear)
-					.padding(DS.Metrics.rowInset)
-			}
-			.onHover { h in withAnimation(h ? DS.Motion.hoverIn : DS.Motion.hoverOut) { hovering = h } }
 	}
 }
 
@@ -301,32 +245,6 @@ private struct DSSpinner: View {
 					.rotationEffect(.degrees(angle))
 			}
 			.padding(size * 0.07)
-		}
-	}
-}
-
-/// Бейдж: слово + (необязательно) символ; заливка только у attention/danger.
-struct DSBadge: View {
-	var text: String
-	var tone: DS.Tone = .neutral
-	var systemImage: String?
-	var body: some View {
-		Label {
-			Text(text)
-		} icon: {
-			if let systemImage { Image(systemName: systemImage) }
-		}
-		.labelStyle(.titleAndIcon)
-		.font(DS.Typography.caption.weight(.medium))
-		.foregroundStyle(DS.Palette.tone(tone))
-		.padding(.horizontal, DS.Metrics.s2).padding(.vertical, 2)
-		.background(background, in: Capsule())
-	}
-	private var background: Color {
-		switch tone {
-		case .attention: DS.Palette.attentionTint
-		case .danger: DS.Palette.dangerTint
-		case .neutral, .accent: DS.Palette.hover
 		}
 	}
 }

@@ -73,8 +73,6 @@ public final class OrchClient: @unchecked Sendable {
 	public func decide(agent ref: String, requestId: String, approve: Bool) async throws {
 		try await raw("POST", "/agents/\(ref)/permission/\(requestId)", body: ["approve": approve])
 	}
-	public func removeAgent(_ ref: String) async throws { try await raw("DELETE", "/agents/\(ref)") }
-
 	/// Написать агенту от имени человека: по умолчанию прерывает текущий ход, агент продолжает с нового сообщения (docs/api.md, SendRequest).
 	/// Возвращает сохранённое сообщение; тело ответа не критично, поэтому его разбор не роняет вызов.
 	@discardableResult
@@ -96,18 +94,7 @@ public final class OrchClient: @unchecked Sendable {
 
 	// MARK: сессии
 	public func sources(session id: String) async throws -> [SourceView] { try await get("/sessions/\(id)/sources") }
-	public func closeSession(_ id: String, summary: String? = nil) async throws {
-		_ = try await raw("PATCH", "/sessions/\(id)", body: SessionPatchBody(status: "done", summary: summary))
-	}
-	public func reopenSession(_ id: String) async throws {
-		_ = try await raw("PATCH", "/sessions/\(id)", body: SessionPatchBody(status: "active", summary: nil))
-	}
 	public func deleteSession(_ id: String) async throws { try await raw("DELETE", "/sessions/\(id)") }
-	/// Новая сессия оркестратора (`POST /sessions`): для Claude, которого запускает само приложение.
-	public func createSession(title: String, owner: String = "claude") async throws -> SessionView {
-		try await send("POST", "/sessions", body: SessionCreateBody(title: title, owner: owner))
-	}
-
 	// MARK: потоки
 	public func stream() -> SSEStream { SSEStream(url: url("/stream")) }
 	public func agentStream(_ ref: String) -> SSEStream { SSEStream(url: url("/agents/\(ref)/stream")) }
@@ -128,9 +115,6 @@ struct SendBody: Encodable {
 	var from = "you"
 	var interrupt: Bool
 }
-
-struct SessionCreateBody: Encodable { var title: String; var owner: String }
-struct SessionPatchBody: Encodable { var status: String; var summary: String? }
 
 struct AnyEncodable: Encodable {
 	let base: Encodable

@@ -29,7 +29,6 @@ describe('HTTP: маршрутизатор', () => {
 	})
 	it('все маршруты API на месте', () => {
 		const r = buildRouter()
-		assert.deepEqual([...r.roots()].sort(), ['agents', 'graph', 'health', 'inbox', 'messages', 'roles', 'sessions', 'spaces', 'status', 'stream'])
 		const routes: Array<[string, string[]]> = [
 			['GET', ['health']],
 			['GET', ['status']],

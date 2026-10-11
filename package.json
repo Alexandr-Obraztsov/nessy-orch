@@ -14,12 +14,9 @@
     "build": "npm run build:server",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:server": "npm run clean && tsc -p tsconfig.json && node scripts/postbuild.mjs",
-    "build:ui": "vite build",
-    "dev:ui": "vite",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "npm run build:server && node --test --test-force-exit \"dist/test/**/*.test.js\"",
-    "test:e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm test",
     "start": "npm run build && node dist/src/main.js",
     "skills:install": "bash scripts/install.sh",
@@ -28,20 +25,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
-    "@fontsource/jetbrains-mono": "^5.1.1",
-    "@playwright/test": "^1.64.0",
     "@types/node": "^22.0.0",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
-    "dompurify": "^3.2.3",
     "eslint": "^9.0.0",
-    "highlight.js": "^11.12.0",
-    "marked": "^14.1.4",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
     "typescript": "^5.6.0",
-    "typescript-eslint": "^8.0.0",
-    "vite": "^5.4.11"
+    "typescript-eslint": "^8.0.0"
   }
 }

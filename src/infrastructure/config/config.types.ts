@@ -11,7 +11,6 @@ export interface Config extends OrchSettings {
 	serveBasePort: number
 	maxSessionsPerSpace: number
 	healthTimeoutMs: number
-	uiDir: string
 	/** заливать пресеты ролей при первом запуске (ORCH_SEED_ROLES) */
 	seedRoles: boolean
 	/** каталог готовых ролей (по умолчанию <root>/roles) */

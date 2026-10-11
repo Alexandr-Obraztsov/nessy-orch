@@ -28,10 +28,6 @@ const STATUS_COLOR: Record<string, (s: string) => string> = {
 }
 export const status = (s: string): string => (STATUS_COLOR[s] ?? ((x: string) => x))(s)
 
-export function pad(s: string, n: number): string {
-	return s.length >= n ? s : s + ' '.repeat(n - s.length)
-}
-
 export function table(rows: string[][], header?: string[]): string {
 	const all = header ? [header, ...rows] : rows
 	const widths: number[] = []

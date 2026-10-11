@@ -1,4 +1,4 @@
-// Ставит exec-биты на собранные точки входа. UI собирает Vite (см. vite.config.ts).
+// Ставит exec-биты на собранные точки входа.
 import { chmodSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'

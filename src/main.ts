@@ -37,8 +37,6 @@ async function main(): Promise<void> {
 		process.exit(1)
 	})
 	app.start()
-	if (!fs.existsSync(path.join(config.uiDir, 'index.html')))
-		console.log('[nessy-orch] UI не найден в ' + config.uiDir + ' (API работает; см. ui/README.md)')
 
 	let closing = false
 	const stop = (sig: string): void => {
