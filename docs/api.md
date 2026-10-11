@@ -45,7 +45,7 @@
 | POST | `/agents/batch` | `SpawnBatchRequest {agents[], space?, cwd?, session?, from?}` (до 20 агентов; общие поля применяются к каждому) | `201 {results[]}`: на каждого `{ok:true, agent, message?}` или `{ok:false, error, code, name?}` — ошибка одного не мешает остальным; `wait` не поддерживается |
 | GET | `/agents/:ref` | — | `AgentView` |
 | DELETE | `/agents/:ref` | — | `{ok:true}` (отмена хода, закрытие сессии, архив истории) |
-| POST | `/agents/:ref/send` | `SendRequest` | `SendResponse` |
+| POST | `/agents/:ref/send` | `SendRequest` | `SendResponse`; `started` — адресат был свободен и сообщение запустило его в работу, `interrupted` — работавшему прерван ход, `queued` — встало в очередь |
 | POST | `/agents/:ref/cancel` | `{}` | `AgentView` (прервать ход, очистить очередь) |
 | POST | `/agents/:ref/archive` | `{}` | `AgentView` (`archived:true`); агент работает или у него очередь → `409 busy` |
 | POST | `/agents/:ref/restore` | `{}` | `AgentView` (`archived:false`, без сообщения) |
@@ -55,7 +55,7 @@
 | GET | `/sessions/:id` | — | `SessionView` или `404 no_session` |
 | PATCH | `/sessions/:id` | `SessionPatch {title?, status?, summary?}` | `SessionView` (`updatedAt` обновляется); `status: done` ставит оркестратор или человек из приложения |
 | GET | `/sessions/:id/updates?consume=1` | — | `SessionUpdates {agents: AgentBrief[], replies: Message[], watching: boolean}`: краткая сводка агентов сессии, новые ответы и признак, что по сессии висит фоновое ожидание (`inbox --session … --wait`); хук Stop по нему требует запустить ожидание, если агенты работают; `consume=1` сдвигает ТОТ ЖЕ курсор, что `inbox --session` (ответ доставляется один раз). Для хуков Claude Code |
-| POST | `/sessions/bind` | `{claudeSession, session?, title?}` | `SessionView` — привязка чата Claude (`session_id` хука) к сессии: уже привязанная (resume) → она; иначе свободная `session`; иначе новая. Поля `claudeId`, `origin` сохраняются |
+| POST | `/sessions/bind` | `{claudeSession, session?, title?, terminal?, cwd?}` | `SessionView` — привязка чата Claude (`session_id` хука) к сессии: уже привязанная (resume) → она; иначе свободная `session`; иначе новая. Поля `claudeId`, `origin` сохраняются |
 | POST | `/sessions/:id/ping` | `{state: working\|idle\|ended}` | `SessionView` с `claude: {state, at}` — состояние Claude Code по хуку (в памяти, не сохраняется) |
 | DELETE | `/sessions/:id` | — | `{ok:true}`; в сессии работают агенты (ход или очередь) → `409 session_busy`; агенты сессии остаются с `session:null`, курсор inbox и источники сессии забываются |
 | GET | `/sessions/:id/sources` | — | `SourceView[]` по порядку появления: ссылки из итоговых ответов агентов («Источники») и из входа их вызовов инструментов, без дублей; `404 no_session` |
@@ -170,7 +170,7 @@
 | Метод | Путь | Ответ |
 |---|---|---|
 | GET | `/messages?agent=&since=&limit=200` | `Message[]` по возрастанию `seq`; `agent` — все сообщения, где он отправитель или получатель; `since` — только `seq > since` |
-| GET | `/inbox?wait=СЕК&peek=1&after=SEQ&session=<id>` | `InboxResponse` = `{messages, cursor}`; новые `reply` для `you`. Без `peek`/`after` курсор сдвигается. `wait` — long-poll. С `session` — только ответы агентов этой сессии и **свой курсор на сессию** (общий курсор не трогается); неизвестная сессия → `404 no_session` |
+| GET | `/inbox?wait=СЕК&peek=1&after=SEQ&session=<id>` | `InboxResponse` = `{messages, cursor, active}`, где `active` — сколько агентов (сессии, без `session` — всех) ещё работают или ждут в очереди; новые `reply` для `you`. Без `peek`/`after` курсор сдвигается. `wait` — long-poll. С `session` — только ответы агентов этой сессии и **свой курсор на сессию** (общий курсор не трогается); неизвестная сессия → `404 no_session`  **`wait` ждёт, только пока `active > 0`**: никто не работает и ответов нет — возврат сразу (клиент не зависает); ожидание снимается и при завершении, прерывании или удалении агента. |
 
 ## Потоки (SSE)
 

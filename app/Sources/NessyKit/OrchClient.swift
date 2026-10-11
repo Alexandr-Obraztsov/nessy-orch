@@ -69,6 +69,7 @@ public final class OrchClient: @unchecked Sendable {
 	public func status() async throws -> StatusResponse { try await get("/status") }
 
 	// MARK: действия человека (приложение только наблюдает; запускает агентов Claude)
+	public func removeAgent(_ ref: String) async throws { try await raw("DELETE", "/agents/\(ref)") }
 	public func cancel(_ ref: String) async throws { try await raw("POST", "/agents/\(ref)/cancel") }
 	public func decide(agent ref: String, requestId: String, approve: Bool) async throws {
 		try await raw("POST", "/agents/\(ref)/permission/\(requestId)", body: ["approve": approve])

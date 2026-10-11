@@ -65,11 +65,20 @@ describe('сообщения и маршрутизация', () => {
 		assert.ok(afterCursor.body.messages.length >= 1, 'after=N читает историю, не трогая курсор')
 	})
 
-	it('long-poll inbox возвращается по таймауту пустым', T, async () => {
+	it('inbox без работающих агентов возвращается сразу (active=0), с работающим — ждёт таймаут', T, async () => {
 		const t0 = Date.now()
-		const r = await h.api<InboxResponse>('GET', '/inbox?wait=1')
+		const idle = await h.api<InboxResponse>('GET', '/inbox?wait=20')
+		assert.equal(idle.body.messages.length, 0)
+		assert.equal(idle.body.active, 0)
+		assert.ok(Date.now() - t0 < 1500, 'ждать некого — не висим')
+		await h.api('POST', '/agents/beta/send', { text: '#long' })
+		await until(() => h.orch.getAgent('beta').status === 'working', 4000, 'beta working')
+		const t1 = Date.now()
+		const r = await h.api<InboxResponse>('GET', '/inbox?wait=1&peek=1')
 		assert.equal(r.body.messages.length, 0)
-		assert.ok(Date.now() - t0 >= 900)
+		assert.ok(r.body.active >= 1)
+		assert.ok(Date.now() - t1 >= 900)
+		await until(() => h.orch.getAgent('beta').status !== 'working', 8000, 'beta done')
 	})
 
 	it('очередь (interrupt:false): пока агент работает, сообщения ждут и обрабатываются по порядку', T, async () => {

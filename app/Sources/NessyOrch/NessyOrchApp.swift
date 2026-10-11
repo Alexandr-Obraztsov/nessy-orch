@@ -95,6 +95,8 @@ struct AppCommands: Commands {
 			}.keyboardShortcut("o").disabled(model.targetAgent == nil)
 			Button("Остановить ход") { if let a = model.targetAgent { model.stop(a) } }
 				.keyboardShortcut(".").disabled(model.targetAgent?.canStop != true || model.isOffline)
+			Button("Удалить агента") { if let a = model.targetAgent { model.remove(agent: a) } }
+				.keyboardShortcut(.delete, modifiers: .command).disabled(model.targetAgent == nil || model.isOffline)
 			Button("К списку агентов") { active?.open(agent: nil) }.disabled(active?.openAgent == nil)
 		}
 	}

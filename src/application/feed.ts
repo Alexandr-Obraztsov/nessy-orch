@@ -131,8 +131,8 @@ export class Feed {
 		const watch = session !== undefined && !q.peek && q.wait !== undefined && q.wait > 0
 		if (watch) this.watchers.set(session, (this.watchers.get(session) ?? 0) + 1)
 		try {
-			// будят любые сообщения к you (в том числе чужих сессий) — ждём своего до дедлайна
-			while (!list.length && !this.closed && Date.now() < deadline) {
+			// ждём, только пока есть кого ждать: нет работающих агентов и нет ответов — возвращаемся сразу (иначе Claude завис бы на всё время wait)
+			while (!list.length && !this.closed && Date.now() < deadline && this.deps.activeAgents(session) > 0) {
 				await this.sleepUntilMessage(deadline - Date.now())
 				list = read()
 			}
@@ -149,7 +149,7 @@ export class Feed {
 			else this.sessionCursors.set(session, cursor)
 			this.deps.onChange()
 		}
-		return { messages: list, cursor }
+		return { messages: list, cursor, active: this.deps.activeAgents(session) }
 	}
 
 	/** Ждать нового сообщения к you не дольше ms. */
@@ -163,6 +163,11 @@ export class Feed {
 			const timer = setTimeout(done, ms)
 			this.inboxWaiters.add(done)
 		})
+	}
+
+	/** Разбудить ожидающих inbox: изменилось число работающих агентов (кто-то закончил без ответа, удалён, прерван). */
+	wake(): void {
+		for (const w of [...this.inboxWaiters]) w()
 	}
 
 	/** Освободить висящие long-poll/ожидания (при остановке). */

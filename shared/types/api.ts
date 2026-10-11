@@ -56,6 +56,12 @@ export interface SendRequest {
 
 export interface SendResponse {
 	message: Message
+	/** адресат был свободен — сообщение запустило его в работу */
+	started?: boolean
+	/** адресат работал — его ход прерван сообщением (или сообщение встало в очередь, см. queued) */
+	interrupted?: boolean
+	/** адресат работал — сообщение ждёт в его очереди */
+	queued?: boolean
 	/** при wait=true: ответ агента */
 	reply?: Message
 	timedOut?: boolean
@@ -110,6 +116,8 @@ export interface SessionPatch {
 export interface InboxResponse {
 	messages: Message[]
 	cursor: number
+	/** сколько агентов сессии (без `session` — всех) ещё работают или ждут в очереди; 0 и нет сообщений — ждать нечего */
+	active: number
 }
 
 /** Краткая сводка агента для хуков Claude Code. */

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { AppError } from '../../../src/domain/errors'
-import { parseBatchText } from '../../../src/domain/spawn-batch'
+import { parseBatchSpecs, parseBatchText } from '../../../src/domain/spawn-batch'
 
 describe('пакет агентов из текста', () => {
 	it('блоки «@@ имя role=…» с многострочными поручениями без экранирования', () => {
@@ -32,5 +32,21 @@ describe('пакет агентов из текста', () => {
 		assert.throws(() => parseBatchText('@@ a role=\nx'), bad)
 		assert.throws(() => parseBatchText('[{"name":'), bad)
 		assert.throws(() => parseBatchText('[]'), bad)
+	})
+})
+
+describe('пакет агентов из позиционных аргументов (без heredoc)', () => {
+	it('«имя|роль|поручение»: пустые имя и роль, «|» внутри поручения', () => {
+		assert.deepEqual(parseBatchSpecs(['ci|executor|Починить тест', '|verifier|Проверить', 'x||одна | из | строк', 'y|-|без роли']), [
+			{ name: 'ci', role: 'executor', prompt: 'Починить тест' },
+			{ role: 'verifier', prompt: 'Проверить' },
+			{ name: 'x', prompt: 'одна | из | строк' },
+			{ name: 'y', prompt: 'без роли' },
+		])
+	})
+	it('ошибки: нет разделителей, пустое поручение, пустой список', () => {
+		assert.throws(() => parseBatchSpecs(['просто текст']), /формат «имя\|роль\|поручение»/)
+		assert.throws(() => parseBatchSpecs(['a|b|  ']), /пустое поручение/)
+		assert.throws(() => parseBatchSpecs([]), /нет агентов/)
 	})
 })

@@ -11,7 +11,7 @@ export const SEND_FLAGS: FlagSpec = { ...WAIT_FLAGS, bool: [...(WAIT_FLAGS.bool 
 /** spawn: --role — роль из `nessy-orch role ls`, --session — сессия (по умолчанию NESSY_ORCH_SESSION) */
 export const SPAWN_FLAGS: FlagSpec = { ...WAIT_FLAGS, value: [...(WAIT_FLAGS.value ?? []), 'role', 'session'] }
 /** spawn-many: пакет агентов из stdin или --file; --session/--space/--from — общие для всех */
-export const SPAWN_MANY_FLAGS: FlagSpec = { bool: ['json', 'help'], value: ['session', 'space', 'from', 'file'] }
+export const SPAWN_MANY_FLAGS: FlagSpec = { bool: ['json', 'help', 'stdin'], value: ['session', 'space', 'from', 'file'] }
 /** ask: как spawn --wait, плюс --session */
 export const ASK_FLAGS: FlagSpec = { ...WAIT_FLAGS, value: [...(WAIT_FLAGS.value ?? []), 'session'] }
 /** ls: --all — с архивом, --session — только агенты сессии */

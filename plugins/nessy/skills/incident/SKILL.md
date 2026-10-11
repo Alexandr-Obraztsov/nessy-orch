@@ -27,7 +27,7 @@ description: Рецепт nessy-orch для расследования инци�
 ## Поручения
 
 ```bash
-nessy-orch spawn --session <id> --space <путь к сервису или ~/tmp> --role debugger --name inc-<тема> "
+nessy-orch spawn --session <id> --role debugger --name inc-<тема> "
 Цель: найти причину <симптом: рост 504 у shippy> с <время начала, часовой пояс>.
 Контекст: <сервис, окружение, что заметили, алерты, ссылки>.
 Источники: Sage (логи и метрики <сервис> и соседей: <список>), последние деплои и MR в GitLab, задачи Jira с меткой incident.
@@ -36,13 +36,13 @@ nessy-orch spawn --session <id> --space <путь к сервису или ~/tmp
 не проверена); наиболее вероятная причина; что сделать дальше.
 В конце: строка «Статус: …»."
 
-nessy-orch spawn --session <id> --space ~/tmp --role wiki-researcher --name inc-<тема>-wiki "
+nessy-orch spawn --session <id> --role wiki-researcher --name inc-<тема>-wiki "
 Цель: найти runbook <сервис>, схему его зависимостей и разборы похожих инцидентов (<симптом>).
 Границы: только чтение.
 Результат: 5–10 пунктов со ссылками; что из runbook применимо к симптому.
 В конце: строка «Статус: …»."
 
-nessy-orch spawn --session <id> --space ~/tmp --role jira-analyst --name inc-<тема>-jira "
+nessy-orch spawn --session <id> --role jira-analyst --name inc-<тема>-jira "
 Цель: найти в Jira похожие инциденты <сервис> и изменения, закрытые за последние <7> дней.
 Границы: только чтение Jira.
 Результат: таблица ключ | заголовок | статус | дата | связь с симптомом.

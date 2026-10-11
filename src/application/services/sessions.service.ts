@@ -34,6 +34,11 @@ export class SessionsService {
 			.sort((a, b) => (a.status === b.status ? b.updatedAt.localeCompare(a.updatedAt) : a.status === 'active' ? -1 : 1))
 	}
 
+	/** Каталог чата Claude этой сессии (из хука) или null. */
+	cwdOf(id: string): string | null {
+		return this.sessions.get(id)?.cwd ?? null
+	}
+
 	has(id: string): boolean {
 		return this.sessions.has(id)
 	}
@@ -101,29 +106,31 @@ export class SessionsService {
 	 * Привязка чата Claude к сессии: уже привязанная к этому чату (resume) → она; иначе заданная `ref`, если она свободна
 	 * (первый запуск в окне приложения); иначе новая сессия (новый чат в том же окне, /clear). Привязка сохраняется на диск.
 	 */
-	bind(claudeId: string, ref: string | null, title: string, terminal: string | null = null): SessionView {
+	bind(claudeId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null): SessionView {
 		const id = claudeId.trim()
 		if (!id) throw new AppError(400, 'bad_request', 'claudeSession не задан')
 		const free = ref ? this.sessions.get(ref.trim().toLowerCase()) : undefined
 		// терминал приложения, в котором идёт чат (из окружения хука): по нему окно находит свою сессию без заранее созданной пустой
 		const origin = terminal?.trim() || (free ? (free.origin ?? free.id) : null)
 		const hit = [...this.sessions.values()].find(s => s.claudeId === id)
+		const dir = cwd && cwd.startsWith('/') ? cwd : null
 		if (hit) {
-			// чат продолжили в другом терминале (/resume): сессия переезжает в него
-			if (origin && hit.origin !== origin && hit.id !== origin) {
-				const moved: SessionView = { ...hit, origin }
+			// чат продолжили в другом терминале (/resume) или в другой папке: сессия переезжает
+			const move = !!origin && hit.origin !== origin && hit.id !== origin
+			if (move || (dir && hit.cwd !== dir)) {
+				const moved: SessionView = { ...hit, origin: move ? origin : hit.origin, cwd: dir ?? hit.cwd ?? null }
 				this.put(moved)
 				return moved
 			}
 			return hit
 		}
 		if (free && !free.claudeId) {
-			const next: SessionView = { ...free, claudeId: id, origin }
+			const next: SessionView = { ...free, claudeId: id, origin, cwd: dir }
 			this.put(next)
 			return next
 		}
 		const made = this.create({ title: title || free?.title || 'Claude', owner: 'claude' })
-		const next: SessionView = { ...made, claudeId: id, origin }
+		const next: SessionView = { ...made, claudeId: id, origin, cwd: dir }
 		this.put(next)
 		return next
 	}

@@ -60,10 +60,10 @@ describe('сессии (HTTP)', () => {
 
 	it('два оркестратора: у каждой сессии свой inbox и курсор, ответы не крадутся', T, async () => {
 		await h.api('GET', '/inbox') // общий курсор — в конец
-		const w1 = h.api<InboxResponse>('GET', `/inbox?session=${t1.id}&wait=10`)
-		const w2 = h.api<InboxResponse>('GET', `/inbox?session=${t2.id}&wait=10`)
 		await h.api('POST', '/agents/lead-2/send', { text: 'для второго' })
 		await h.api('POST', '/agents/lead-1/send', { text: 'для первого' })
+		const w1 = h.api<InboxResponse>('GET', `/inbox?session=${t1.id}&wait=10`)
+		const w2 = h.api<InboxResponse>('GET', `/inbox?session=${t2.id}&wait=10`)
 		const [r1, r2] = await Promise.all([w1, w2])
 		assert.deepEqual(r1.body.messages.map(m => m.text), ['ответ: для первого'])
 		assert.deepEqual(r2.body.messages.map(m => m.text), ['ответ: для второго'])
@@ -158,15 +158,17 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		await h?.close()
 	})
 
-	const runHook = (port: number, session: string | undefined, event: string, stdin = '{}', extraEnv: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; stdout: string }> =>
+	const runHook = (port: number, session: string | undefined, event: string, stdin = '{}', extraEnv: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; stdout: string; stderr: string }> =>
 		new Promise(resolve => {
 			const env: NodeJS.ProcessEnv = { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', ...extraEnv }
 			delete env['NESSY_ORCH_SESSION']
 			if (session) env['NESSY_ORCH_SESSION'] = session
 			const p = spawn(process.execPath, [CLI_MAIN, 'hook', event], { env })
 			let stdout = ''
+			let stderr = ''
 			p.stdout.on('data', (d: Buffer) => (stdout += d.toString()))
-			p.on('close', code => resolve({ code, stdout }))
+			p.stderr.on('data', (d: Buffer) => (stderr += d.toString()))
+			p.on('close', code => resolve({ code, stdout, stderr }))
 			p.stdin.end(stdin)
 		})
 
@@ -195,13 +197,12 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		const s = await hh.api<SessionView>('POST', '/sessions', { title: 'CLI-хуки' })
 		const start = await runHook(hh.port, s.body.id, 'start')
 		assert.equal(start.code, 0)
-		const ctx = JSON.parse(start.stdout) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } }
-		assert.equal(ctx.hookSpecificOutput.hookEventName, 'SessionStart')
-		assert.match(ctx.hookSpecificOutput.additionalContext, new RegExp(s.body.id))
+		assert.match(start.stdout, new RegExp(s.body.id), 'контекст старта — простой текст в stdout')
+		assert.ok(!start.stdout.trimStart().startsWith('{'), 'не JSON: схема вывода хуков не нужна')
 		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'idle')
 
 		const silent = await runHook(hh.port, undefined, 'prompt')
-		assert.deepEqual(silent, { code: 0, stdout: '' }, 'без NESSY_ORCH_SESSION хук молчит')
+		assert.deepEqual(silent, { code: 0, stdout: '', stderr: '' }, 'без NESSY_ORCH_SESSION хук молчит')
 
 		const calm = await runHook(hh.port, s.body.id, 'prompt')
 		assert.equal(calm.stdout, '', 'агентов и ответов нет — нечего сообщать')
@@ -209,11 +210,10 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 
 		await hh.api('POST', '/agents', { space: 'main', name: 'helper', session: s.body.id, prompt: 'сделай', wait: true, waitTimeoutSec: 8 })
 		const stop = await runHook(hh.port, s.body.id, 'stop')
-		const decision = JSON.parse(stop.stdout) as { decision: string; reason: string }
-		assert.equal(decision.decision, 'block')
-		assert.match(decision.reason, /helper/)
+		assert.equal(stop.code, 2, 'код 2: не останавливаться; причина — в stderr')
+		assert.match(stop.stderr, /helper/)
 		const stop2 = await runHook(hh.port, s.body.id, 'stop')
-		assert.equal(stop2.stdout, '', 'ответ доставлен один раз')
+		assert.equal(stop2.code, 0, 'ответ доставлен один раз')
 		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'idle')
 
 		await runHook(hh.port, s.body.id, 'end')
@@ -248,6 +248,33 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.claude?.state, 'working')
 	})
 
+	it('CLI: inbox без работающих агентов — код 4 сразу; spawn-many позиционно создаёт агентов в сессии', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		const cli = (args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> =>
+			new Promise(resolve => {
+				const p = spawn(process.execPath, [CLI_MAIN, ...args], { env: { ...process.env, ORCH_PORT: String(hh.port), NO_COLOR: '1', NESSY_ORCH_SESSION: '' }, stdio: ['ignore', 'pipe', 'pipe'] })
+				let stdout = ''
+				let stderr = ''
+				p.stdout.on('data', (d: Buffer) => (stdout += d.toString()))
+				p.stderr.on('data', (d: Buffer) => (stderr += d.toString()))
+				p.on('close', code => resolve({ code, stdout, stderr }))
+			})
+		const sess = (await hh.api<SessionView>('POST', '/sessions', { title: 'CLI-ожидание' })).body.id
+		const t0 = Date.now()
+		const idle = await cli(['inbox', '--session', sess, '--wait', '30'])
+		assert.equal(idle.code, 4)
+		assert.match(idle.stderr, /ждать нечего/)
+		assert.ok(Date.now() - t0 < 5000, 'не зависает на весь --wait')
+		const many = await cli(['spawn-many', '--session', sess, 'пара-1||Сделай раз', 'пара-2||Сделай два'])
+		assert.equal(many.code, 0, many.stderr)
+		assert.match(many.stdout, /пара-1/)
+		assert.match(many.stdout, /пара-2/)
+		const bad = await cli(['spawn-many', '--session', sess])
+		assert.equal(bad.code, 2)
+		assert.match(bad.stderr, /имя\|роль\|поручение/)
+	})
+
 	it('терминал без заранее созданной сессии: сессия рождается по хуку из session_id чата и привязана к терминалу', T, async () => {
 		const hh = h
 		assert.ok(hh)
@@ -274,6 +301,6 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 
 	it('хук не ломает Claude при недоступном оркестраторе', T, async () => {
 		const r = await runHook(1, 'any', 'prompt')
-		assert.deepEqual(r, { code: 0, stdout: '' })
+		assert.deepEqual(r, { code: 0, stdout: '', stderr: '' })
 	})
 })

@@ -58,9 +58,13 @@ export class MessagingService {
 		const hops = nextHops(sender?.currentMessage ?? null, sender !== null)
 
 		const interrupt = req.interrupt ?? from === YOU
+		// что произойдёт с адресатом: свободного сообщение запускает в работу, работающего прерывает или ставит в очередь
+		const target = to === YOU ? undefined : registry.agents.get(to)
+		const wasBusy = !!target && (target.isBusy || target.queue.length > 0)
+		const state: Pick<SendResponse, 'started' | 'interrupted' | 'queued'> = target ? (wasBusy ? (interrupt ? { interrupted: true } : { queued: true }) : { started: true }) : {}
 		const message = this.post({ from, to, kind: 'msg', text, hops, wait }, interrupt)
-		if (!wait) return { message }
-		return this.waitReply(message, from, to, req.waitTimeoutSec)
+		if (!wait) return { message, ...state }
+		return { ...(await this.waitReply(message, from, to, req.waitTimeoutSec)), ...state }
 	}
 
 	private async waitReply(message: Message, from: string, to: string, timeoutSec?: number): Promise<SendResponse> {

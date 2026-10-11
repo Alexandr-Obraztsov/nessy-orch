@@ -1,6 +1,8 @@
 /** Сервис сессий на хранилище в памяти: CRUD, события шины, привязка агентов, раздельные курсоры inbox. */
 import assert from 'node:assert/strict'
+import * as fs from 'node:fs'
 import * as os from 'node:os'
+import * as path from 'node:path'
 import { beforeEach, describe, it } from 'node:test'
 import type { HubEvent, SessionView } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
@@ -87,6 +89,11 @@ describe('сессии: сервис', () => {
 		assert.equal(ctx.orch.snapshot().sessions[0]?.id, t.id)
 	})
 
+	/** Пометить агента «в работе» (в очереди ждёт сообщение): ждать его ответа имеет смысл. */
+	const markBusy = (id: string): void => {
+		ctx.orch.resolveAgent(id).queue.push({ seq: 0, id: 'm-busy', ts: 0, from: 'you', to: id, kind: 'msg', text: 'ждёт', hops: 0 })
+	}
+
 	it('remove: занятый агент → 409 session_busy; иначе агенты отвязываются (session=null)', async () => {
 		const t = ctx.orch.createSession({ title: 'Удаляемая' })
 		const a = (await ctx.orch.spawn({ space: 'main', name: 'w', session: t.id })).agent
@@ -122,6 +129,8 @@ describe('сессии: сервис', () => {
 		const t2 = ctx.orch.createSession({ title: 'Вторая' })
 		const a1 = (await ctx.orch.spawn({ space: 'main', name: 'a1', session: t1.id })).agent.id
 		const a2 = (await ctx.orch.spawn({ space: 'main', name: 'a2', session: t2.id })).agent.id
+		markBusy(a1)
+		markBusy(a2)
 		const waiting = ctx.orch.inbox({ session: t1.id, wait: 5 })
 		setTimeout(() => ctx.orch.post({ from: a2, to: 'you', kind: 'reply', text: 'чужое' }), 20)
 		setTimeout(() => ctx.orch.post({ from: a1, to: 'you', kind: 'reply', text: 'своё' }), 80)
@@ -131,6 +140,7 @@ describe('сессии: сервис', () => {
 	it('два ожидающих сборщика одной сессии не получают один ответ дважды', async () => {
 		const t = ctx.orch.createSession({ title: 'Дубли' })
 		const a = (await ctx.orch.spawn({ space: 'main', name: 'a', session: t.id })).agent.id
+		markBusy(a)
 		const w1 = ctx.orch.inbox({ session: t.id, wait: 5 })
 		const w2 = ctx.orch.inbox({ session: t.id, wait: 5 })
 		setTimeout(() => ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'один' }), 20)
@@ -151,10 +161,11 @@ describe('сессии: сервис', () => {
 	it('watching: пока висит inbox --wait по сессии, sessionUpdates видит ожидание; после — нет', async () => {
 		const t = ctx.orch.createSession({ title: 'Ожидание' })
 		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, false)
+		const a = (await ctx.orch.spawn({ space: 'main', name: 'w', session: t.id })).agent.id
+		markBusy(a)
 		const waiting = ctx.orch.inbox({ session: t.id, wait: 5 })
 		await new Promise(r => setTimeout(r, 20))
 		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, true)
-		const a = (await ctx.orch.spawn({ space: 'main', name: 'w', session: t.id })).agent.id
 		ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'вот' })
 		await waiting
 		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, false)
@@ -163,6 +174,52 @@ describe('сессии: сервис', () => {
 		await new Promise(r => setTimeout(r, 20))
 		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, false)
 		await peeking
+	})
+
+	it('inbox: нет работающих агентов — сразу возврат (не висим весь wait); есть — ждём; агент закончил без ответа — просыпаемся', async () => {
+		const t = ctx.orch.createSession({ title: 'Некого ждать' })
+		const t0 = Date.now()
+		const none = await ctx.orch.inbox({ session: t.id, wait: 30 })
+		assert.deepEqual({ n: none.messages.length, active: none.active }, { n: 0, active: 0 })
+		assert.ok(Date.now() - t0 < 1000, 'без агентов ждать нечего')
+		const a = (await ctx.orch.spawn({ space: 'main', name: 'idle-one', session: t.id })).agent.id
+		const idleNow = await ctx.orch.inbox({ session: t.id, wait: 30 })
+		assert.equal(idleNow.active, 0, 'свободный агент — не повод ждать')
+		markBusy(a)
+		const waiting = ctx.orch.inbox({ session: t.id, wait: 30 })
+		await new Promise(r => setTimeout(r, 30))
+		const t1 = Date.now()
+		ctx.orch.resolveAgent(a).queue.length = 0 // агент освободился без ответа (прерван/удалён)
+		ctx.orch.resolveAgent(a).publishNode()
+		const r = await waiting
+		assert.equal(r.active, 0)
+		assert.ok(Date.now() - t1 < 2000, 'ожидание сняло изменение состояния агента')
+	})
+
+	it('агент без --space запускается в каталоге оркестратора (cwd чата Claude), а не в единственном существующем пространстве', async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-cwd-'))
+		const t = ctx.orch.bindSession('chat-cwd', null, 'proj', 'term-1', dir)
+		assert.equal(t.cwd, dir)
+		const a = (await ctx.orch.spawn({ name: 'here', session: t.id })).agent
+		const space = ctx.orch.graph().spaces.find(x => x.name === a.space)
+		assert.equal(fs.realpathSync(space?.path ?? ''), fs.realpathSync(dir), 'пространство = каталог чата; отдельных каталогов не заводится')
+		// явный space важнее
+		const b = (await ctx.orch.spawn({ name: 'there', session: t.id, space: 'main' })).agent
+		assert.equal(b.space, 'main')
+		// чат переехал в другую папку (/resume там): cwd сессии обновляется
+		const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-cwd-'))
+		assert.equal(ctx.orch.bindSession('chat-cwd', null, 'proj', 'term-1', dir2).cwd, dir2)
+	})
+
+	it('send: свободного агента запускает (started), работающего прерывает или ставит в очередь', async () => {
+		const a = (await ctx.orch.spawn({ space: 'main', name: 'sendee' })).agent.id
+		const idle = await ctx.orch.send(a, { text: 'начни', from: 'you' })
+		assert.equal(idle.started, true)
+		markBusy(a)
+		const interrupted = await ctx.orch.send(a, { text: 'срочно', from: 'you' })
+		assert.equal(interrupted.interrupted, true)
+		const queued = await ctx.orch.send(a, { text: 'потом', from: 'you', interrupt: false })
+		assert.equal(queued.queued, true)
 	})
 
 	it('рестарт: сессии, привязка агентов и курсоры сессий восстанавливаются; старые агенты → session=null', async () => {

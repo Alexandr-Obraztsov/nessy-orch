@@ -105,6 +105,8 @@ export interface SessionView {
 	claudeId?: string | null
 	/** окно приложения, в котором ведётся чат: id первой сессии окна; в одном окне подряд могут идти несколько чатов Claude */
 	origin?: string | null
+	/** каталог чата Claude (cwd из хука): агенты сессии запускаются здесь, отдельные каталоги не нужны */
+	cwd?: string | null
 }
 
 export interface AgentView {

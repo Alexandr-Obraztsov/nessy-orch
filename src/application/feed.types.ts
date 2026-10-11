@@ -10,6 +10,8 @@ export interface FeedDeps {
 	onChange: () => void
 	/** сессия узла-отправителя (агента) или null — для inbox по сессии */
 	sessionOf: (nodeId: string) => string | null
+	/** сколько агентов ещё работают или ждут в очереди (session — только этой сессии; без неё — все) */
+	activeAgents: (session?: string) => number
 }
 
 export interface FeedQuery {

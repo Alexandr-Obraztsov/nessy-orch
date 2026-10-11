@@ -5,13 +5,14 @@
  */
 import * as fs from 'node:fs'
 import type { ClaudeState, RoleView, SessionUpdates, SessionView } from '../../../../shared/types'
-import { contextOutput, startContext, stopDecision, updatesContext } from '../../../domain/hooks'
+import { startContext, stopDecision, updatesContext } from '../../../domain/hooks'
 import { isObject, parseJson } from '../../../lib/json'
 import { enc, get, out, post } from '../io'
 import type { CommandTable } from './command.types'
 
 /** Хук не должен задерживать Claude дольше этого (мс). */
-const HOOK_BUDGET_MS = 2500
+const HOOK_BUDGET_MS = 4000
+const END_BUDGET_MS = 1000
 
 /** JSON события из stdin (если он не терминал); пустой объект при любой проблеме. */
 function readInput(): Record<string, unknown> {
@@ -30,10 +31,10 @@ const ping = (session: string, state: ClaudeState): Promise<unknown> => post<Ses
  * Сессия оркестратора этого чата Claude: чат (session_id хука, в том числе после /resume) привязывается к сессии один раз и навсегда.
  * Первый чат окна берёт сессию окна (`NESSY_ORCH_SESSION`), следующий (новый чат, /clear) получает новую; без session_id — сессия окна.
  */
-async function bindSession(claudeId: string, windowSession: string, terminal: string, title: string): Promise<string | null> {
+async function bindSession(claudeId: string, windowSession: string, terminal: string, title: string, cwd: string): Promise<string | null> {
 	if (!claudeId) return windowSession || null
 	try {
-		const s = await post<SessionView>('/sessions/bind', { claudeSession: claudeId, session: windowSession || undefined, terminal: terminal || undefined, title: title || undefined })
+		const s = await post<SessionView>('/sessions/bind', { claudeSession: claudeId, session: windowSession || undefined, terminal: terminal || undefined, title: title || undefined, cwd: cwd || undefined })
 		return s.id
 	} catch {
 		return windowSession || null
@@ -54,7 +55,7 @@ function exportSession(session: string): void {
 async function run(event: string, windowSession: string, terminal: string, input: Record<string, unknown>): Promise<void> {
 	const claudeId = typeof input['session_id'] === 'string' ? input['session_id'] : ''
 	const cwd = typeof input['cwd'] === 'string' ? input['cwd'] : ''
-	const session = await bindSession(claudeId, windowSession, terminal, cwd.split('/').filter(Boolean).pop() ?? '')
+	const session = await bindSession(claudeId, windowSession, terminal, cwd.split('/').filter(Boolean).pop() ?? '', cwd)
 	if (!session) return
 	if (event === 'start') exportSession(session)
 	const roles = (): Promise<RoleView[]> => get<RoleView[]>('/roles').catch(() => [])
@@ -69,18 +70,20 @@ async function run(event: string, windowSession: string, terminal: string, input
 		// /resume: у возобновлённого чата уже есть агенты и, возможно, непрочитанные ответы — сразу в контекст
 		const n = names(u, rs)
 		const state = updatesContext(u, n.roleName, n.nameOf, session)
-		out(contextOutput('SessionStart', [startContext(s, rs), state].filter(Boolean).join('\n\n')))
+		out([startContext(s, rs), state].filter(Boolean).join('\n\n')) // простой текст в stdout SessionStart уходит в контекст Claude
 	} else if (event === 'prompt') {
 		const [u, rs] = await Promise.all([updates(), roles(), ping(session, 'working')])
 		const n = names(u, rs)
 		const text = updatesContext(u, n.roleName, n.nameOf, session)
-		if (text) out(contextOutput('UserPromptSubmit', text))
+		if (text) out(text) // простой текст в stdout UserPromptSubmit уходит в контекст Claude
 	} else if (event === 'stop') {
 		const [u, rs] = await Promise.all([updates(), roles()])
 		const decision = stopDecision(u, names(u, rs).nameOf, { session, stopHookActive: input['stop_hook_active'] === true })
 		if (decision) {
 			await ping(session, 'working') // Claude продолжает работу с ответами агентов
-			out(JSON.stringify(decision))
+			// код 2 + причина в stderr — «не останавливаться» без JSON-схемы (она у Stop строгая и менялась): так хук не может сломаться на валидации
+			process.stderr.write(decision.reason + '\n')
+			process.exitCode = 2
 		} else await ping(session, 'idle')
 	} else if (event === 'end') {
 		await ping(session, 'ended')
@@ -94,7 +97,9 @@ async function cmdHook(p: { positionals: string[] }): Promise<void> {
 	const terminal = process.env['NESSY_ORCH_TERMINAL']?.trim() ?? ''
 	if ((!session && !terminal) || !['start', 'prompt', 'stop', 'end'].includes(event)) return
 	try {
-		await Promise.race([run(event, session, terminal, input), new Promise<void>(resolve => setTimeout(resolve, HOOK_BUDGET_MS).unref())])
+		// SessionEnd у Claude Code на всё про всё ~1,5 с: укладываемся, остальное успеют сервис и приложение
+		const budget = event === 'end' ? END_BUDGET_MS : HOOK_BUDGET_MS
+		await Promise.race([run(event, session, terminal, input), new Promise<void>(resolve => setTimeout(resolve, budget).unref())])
 	} catch {
 		/* хук не должен ломать Claude */
 	}

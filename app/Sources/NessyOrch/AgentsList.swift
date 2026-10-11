@@ -182,13 +182,15 @@ struct AgentRow: View {
 			Button("Открыть") { if compact { model.reveal(agent: a.id) } else { win?.open(agent: a.id) } }
 			Button("Открыть в окне") { model.openAgentWindow?(a.id) }
 			if a.canStop { Button("Остановить") { model.stop(a) }.disabled(model.isOffline) }
+			Divider()
+			Button("Удалить", role: .destructive) { model.remove(agent: a) }.disabled(model.isOffline)
 		}
 		.accessibilityElement(children: .contain)
 		.accessibilityLabel("\(a.name), \(a.stateWord)")
 		.accessibilityAddTraits(selected ? .isSelected : [])
 	}
 
-	/// Справа: таймер. Кнопок в строке нет: остановка — в контекстном меню и в «⋯» панели.
+	/// Справа: таймер. Кнопок в строке нет: остановка и удаление — в контекстном меню (⌘. и ⌘⌫ — с клавиатуры).
 	@ViewBuilder private var trailing: some View {
 		HStack(spacing: DS.Metrics.s2) {
 			if model.store.isNew(a) { DSNewDot() }

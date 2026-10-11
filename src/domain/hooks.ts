@@ -54,8 +54,8 @@ export function startContext(session: SessionView, roles: readonly RoleView[]): 
 	return [
 		`[TClaude-Orch] Ты запущен из приложения TClaude-Orch. Сессия оркестратора уже создана: ${session.id} «${session.title}» (переменная NESSY_ORCH_SESSION) — новую не заводи.`,
 		`Скилл nessy-orch подключён приложением (плагин nessy): загрузи его (Skill → nessy:nessy-orch) перед первым поручением агентам и работай по его циклу.`,
-		`Работай оркестратором: делегируй агентам nessy командами \`nessy-orch spawn --session ${session.id} --role <роль> "<поручение>"\` или \`nessy-orch spawn-many\` (несколько за раз); сам исполнение не делай.`,
-		`ЖЁСТКОЕ ПРАВИЛО ОЖИДАНИЯ: после каждого spawn/send, пока хоть один агент работает, в фоне (Bash, run_in_background: true) должен висеть \`${watchCommand(session.id)}\`. Не переходи к финальному ответу и не заканчивай ход, пока он не запущен или пока все агенты не ответили. Когда фоновая команда вернулась (ответы пришли или таймаут), разбери ответы и, если агенты ещё работают, сразу запусти её снова. Ответы также подмешиваются в контекст перед твоим ходом и при остановке.`,
+		`Работай оркестратором: делегируй агентам nessy и сам исполнение не делай. Агенты запускаются в каталоге этого чата (--space не нужен). Один агент: \`nessy-orch spawn --role <роль> --name <имя> "<поручение>"\`; несколько сразу — одним вызовом БЕЗ heredoc (в песочнице он не работает): \`nessy-orch spawn-many "имя1|роль1|поручение1" "имя2||поручение2"\`.`,
+		`ЖЁСТКОЕ ПРАВИЛО ОЖИДАНИЯ: после каждого spawn/spawn-many/send, пока хоть один агент работает, в фоне (Bash, run_in_background: true) должен висеть \`${watchCommand(session.id)}\` (код выхода 0 — ответы, 3 — таймаут, агенты ещё работают, 4 — ждать нечего: никто не работает; он никогда не зависает). Не заканчивай ход, пока он не запущен или пока все агенты не ответили. Когда он вернулся, разбери ответы и, если агенты ещё работают, сразу запусти его снова. send свободному агенту запускает его в работу. Команду show вызывай только когда нужна причина ошибки: ответы приходят сами.`,
 		`Роли: ${list}.`,
 	].join('\n')
 }
@@ -111,7 +111,3 @@ function workTail(u: SessionUpdates, session: string): string {
 	return r ? `\n\n${r}` : ''
 }
 
-/** Вывод для SessionStart/UserPromptSubmit в формате хуков Claude Code. */
-export function contextOutput(event: 'SessionStart' | 'UserPromptSubmit', text: string): string {
-	return JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: text } })
-}

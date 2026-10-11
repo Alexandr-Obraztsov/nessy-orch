@@ -23,7 +23,7 @@ description: Рецепт nessy-orch для сводки задач Jira — «�
 ## Поручение
 
 ```bash
-nessy-orch spawn --session <id> --space ~/tmp --role jira-analyst --name jira-<тема> "
+nessy-orch spawn --session <id> --role jira-analyst --name jira-<тема> "
 Цель: <что собрать: открытые баги компонента payments> — для <зачем: планирование спринта / отчёт>.
 Контекст: проект <KEY>, фильтр: <компонент, эпик, спринт, метки, исполнитель>, период <последние 30 дней>.
 Границы: только чтение Jira, ничего не менять и не комментировать.

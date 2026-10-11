@@ -67,7 +67,8 @@ export class SpacesService {
 	 */
 	resolve(spec?: string, cwd?: string): SpaceRuntime {
 		const { spaces } = this.ctx.registry
-		if (!spec && cwd && path.isAbsolute(cwd) && spaces.size !== 1) spec = cwd
+		// каталог оркестратора (cwd чата Claude или CLI) важнее «единственного пространства»: агент работает там, где работает Claude
+		if (!spec && cwd && path.isAbsolute(cwd)) spec = cwd
 		if (!spec) {
 			if (spaces.size === 1) return [...spaces.values()][0] as SpaceRuntime
 			throw new AppError(

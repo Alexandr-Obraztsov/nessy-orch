@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { AgentBrief, Message, RoleView, SessionUpdates, SessionView } from '../../../shared/types'
-import { agentLine, contextOutput, startContext, stopDecision, updatesContext, watchCommand, watchReminder } from '../../../src/domain/hooks'
+import { agentLine, startContext, stopDecision, updatesContext, watchCommand, watchReminder } from '../../../src/domain/hooks'
 
 const agent = (over: Partial<AgentBrief> = {}): AgentBrief => ({ id: 'a-1', name: 'ci-fixer', role: 'executor', status: 'working', archived: false, lastTool: 'npm test', plan: { done: 2, total: 4 }, ...over })
 const reply = (over: Partial<Message> = {}): Message => ({ seq: 1, id: 'm-1', ts: 1, from: 'a-1', to: 'you', kind: 'reply', text: 'готово\n\nСтатус: DONE', hops: 0, ...over })
@@ -74,9 +74,5 @@ describe('хуки Claude Code: тексты', () => {
 		assert.ok(d)
 		assert.match(d.reason, /агенты ответили/)
 		assert.match(d.reason, /ВНИМАНИЕ/)
-	})
-
-	it('формат вывода SessionStart/UserPromptSubmit', () => {
-		assert.deepEqual(JSON.parse(contextOutput('UserPromptSubmit', 'текст')), { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'текст' } })
 	})
 })

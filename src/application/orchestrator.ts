@@ -81,6 +81,12 @@ export class Orchestrator implements AgentHost {
 			ids,
 			onChange: () => this.saveSoon(),
 			sessionOf: id => this.registry.agents.get(id)?.session ?? null,
+			activeAgents: session =>
+				[...this.registry.agents.values()].filter(a => (session === undefined || a.session === session) && !a.archived && (a.isBusy || a.queue.length > 0)).length,
+		})
+		// кто-то закончил, был прерван или удалён: ожидающие inbox пересчитывают, есть ли ещё кого ждать
+		this.hub.subscribe(e => {
+			if (e.t === 'agent' || e.t === 'agent_removed') this.feed.wake()
 		})
 		this.pool = new SessionPool({
 			target: () => deps.settings.warmSessions ?? 0,
@@ -343,8 +349,8 @@ export class Orchestrator implements AgentHost {
 
 	/** Входящие для you; с session — только ответы агентов сессии, со своим курсором (неизвестная → 404 no_session). */
 	/** Состояние Claude Code сессии по хуку (`POST /sessions/:id/ping`). */
-	bindSession(claudeId: string, ref: string | null, title: string, terminal: string | null = null): SessionView {
-		return this.sessionsSvc.bind(claudeId, ref, title, terminal)
+	bindSession(claudeId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null): SessionView {
+		return this.sessionsSvc.bind(claudeId, ref, title, terminal, cwd)
 	}
 
 	pingSession(id: string, state: ClaudeState): SessionView {

@@ -50,6 +50,27 @@ export function parseBatchText(text: string): SpawnRequest[] {
 	return out
 }
 
+/**
+ * Пакет из позиционных аргументов без heredoc и файлов (в песочнице heredoc не работает): каждый аргумент — «имя|роль|поручение».
+ * Имя и роль можно оставить пустыми («|executor|…», «имя||…»); «|» в самом поручении допустим — делится только по первым двум.
+ */
+export function parseBatchSpecs(specs: readonly string[]): SpawnRequest[] {
+	if (!specs.length) throw bad('нет агентов: ожидаются аргументы «имя|роль|поручение»')
+	return specs.map((spec, i) => {
+		const first = spec.indexOf('|')
+		const second = first < 0 ? -1 : spec.indexOf('|', first + 1)
+		if (second < 0) throw bad(`аргумент ${i + 1}: формат «имя|роль|поручение» (два символа «|»), получено: ${spec.slice(0, 60)}`)
+		const name = spec.slice(0, first).trim()
+		const role = spec.slice(first + 1, second).trim()
+		const prompt = spec.slice(second + 1).trim()
+		if (!prompt) throw bad(`аргумент ${i + 1}: пустое поручение`)
+		const req: SpawnRequest = { prompt }
+		if (name) req.name = name
+		if (role && role !== '-') req.role = role
+		return req
+	})
+}
+
 function parseBatchJson(text: string): SpawnRequest[] {
 	let raw: unknown
 	try {

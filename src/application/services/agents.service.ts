@@ -32,12 +32,13 @@ export class AgentsService {
 
 	async spawn(req: SpawnRequest): Promise<SpawnResponse> {
 		const { registry } = this.ctx
-		const space = this.spaces.resolve(req.space, req.cwd)
 		const from = registry.resolveSender(req.from)
 		const parent = req.parent ?? from
 		const role = req.role?.trim() ? this.roles.resolve(req.role) : null
 		// сессия: явная (проверяем существование) или сессия родителя — агент, запущенный агентом, наследует её
 		const session = req.session?.trim() ? this.sessions.resolve(req.session).id : (registry.agents.get(parent)?.session ?? null)
+		// без --space агент запускается в каталоге оркестратора — там, где идёт чат Claude (cwd сессии), отдельные каталоги не создаются
+		const space = this.spaces.resolve(req.space, (session ? this.sessions.cwdOf(session) : null) ?? req.cwd)
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)
 		while (registry.agents.has(id))

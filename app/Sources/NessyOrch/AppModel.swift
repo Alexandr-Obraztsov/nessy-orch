@@ -281,6 +281,21 @@ final class AppModel {
 		do { try await store.client.deleteRole(id); return true }
 		catch { flash("Роль не удалена: \(error.localizedDescription)", error: true); return false }
 	}
+	/// Удалить агента (работающего сервер сначала прерывает). Работающего — с подтверждением.
+	func remove(agent a: AgentView) {
+		if a.canStop {
+			let alert = NSAlert()
+			alert.messageText = "Удалить «\(a.name)»?"
+			alert.informativeText = "Агент сейчас работает: его ход будет прерван, а чат удалён."
+			alert.addButton(withTitle: "Удалить")
+			alert.addButton(withTitle: "Отмена")
+			alert.alertStyle = .warning
+			guard alert.runModal() == .alertFirstButtonReturn else { return }
+		}
+		for w in tabs where w.openAgentId == a.id { w.open(agent: nil) }
+		Task { await run("Удаление агента") { try await self.store.client.removeAgent(a.id) } }
+	}
+
 	func stop(_ a: AgentView) { Task { await run("Остановка") { try await self.store.client.cancel(a.id) } } }
 }
 

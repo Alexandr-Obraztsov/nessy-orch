@@ -38,8 +38,14 @@ async function cmdInbox(p: Parsed): Promise<void> {
 	const r = await get<InboxResponse>(`/inbox?wait=${wait ?? 0}${flagBool(p, 'peek') ? '&peek=1' : ''}${session ? `&session=${enc(session)}` : ''}`)
 	if (flagBool(p, 'json')) return json(r)
 	if (!r.messages.length) {
-		info(dim('новых сообщений нет'))
-		process.exitCode = wait ? 3 : 0 // 3 = таймаут ожидания (удобно в скриптах)
+		if (r.active === 0) {
+			// ждать некого: никто не работает и ответов нет — возврат сразу, а не зависание на весь --wait
+			info(dim(`ждать нечего: ${session ? 'в сессии' : 'в оркестраторе'} нет работающих агентов и непрочитанных ответов (запустите агента: spawn / send)`))
+			process.exitCode = wait ? 4 : 0 // 4 = нет работающих агентов
+		} else {
+			info(dim(`новых сообщений нет, агентов в работе: ${r.active}`))
+			process.exitCode = wait ? 3 : 0 // 3 = таймаут ожидания: агенты ещё работают — запустить inbox снова
+		}
 		return
 	}
 	const g = await get<GraphView>('/graph')

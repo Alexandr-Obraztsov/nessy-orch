@@ -148,8 +148,6 @@ struct AgentHeaderCard: View {
 		return t
 	}
 	private var role: (name: String, icon: String?, hue: Double, description: String)? { model.roleInfo(of: agent) }
-	private var roleDescription: String { role?.description ?? "" }
-	private var expandable: Bool { true }
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
@@ -164,24 +162,16 @@ struct AgentHeaderCard: View {
 				HStack(spacing: DS.Metrics.s1) {
 					subtitle
 					Spacer(minLength: 0)
-					if expandable {
-						Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold))
-							.foregroundStyle(DS.Palette.textTertiary).rotationEffect(.degrees(expanded ? 90 : 0))
-					}
+					Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold))
+						.foregroundStyle(DS.Palette.textTertiary).rotationEffect(.degrees(expanded ? 90 : 0))
 				}
 				.padding(.leading, DS.Metrics.glyphHeader + DS.Metrics.s3)
 			}
-			// нажатие по шапке раскрывает описание роли и цель
-			.contentShape(Rectangle())
-			.onTapGesture { if expandable { withAnimation(dsAnimation(DS.Motion.disclosure)) { expanded.toggle() } } }
 
 			if expanded {
 				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-					if !roleDescription.isEmpty {
-						Text(roleDescription).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
-					}
+					// сразу цель целиком (описание роли не пишем); очень длинная прокручивается внутри
 					if !text.isEmpty {
-						// вся цель сразу; очень длинная прокручивается внутри карточки
 						ScrollView { goalText }
 							.scrollBounceBehavior(.basedOnSize)
 							.frame(maxHeight: cap)
@@ -191,11 +181,17 @@ struct AgentHeaderCard: View {
 				}
 				.padding(.top, DS.Metrics.s1)
 				.transition(.opacity)
+			} else if !text.isEmpty {
+				// свёрнуто: видны первые 2–3 строки цели
+				goalText.lineLimit(3).padding(.top, DS.Metrics.s1)
 			}
 		}
 		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.dsFloatingCard()
+		// нажатие по карточке раскрывает цель целиком и статистику
+		.contentShape(RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous))
+		.onTapGesture { withAnimation(dsAnimation(DS.Motion.disclosure)) { expanded.toggle() } }
 	}
 
 	private var goalText: some View {

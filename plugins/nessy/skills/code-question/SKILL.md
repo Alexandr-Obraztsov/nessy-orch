@@ -27,7 +27,7 @@ description: Рецепт nessy-orch для вопроса по коду чуж�
 ## Поручения
 
 ```bash
-nessy-orch spawn --session <id> --space ~/tmp --role code-explorer --name <тема>-explorer "
+nessy-orch spawn --session <id> --role code-explorer --name <тема>-explorer "
 Цель: <вопрос одним предложением> — чтобы <зачем: оценить правку / ответить команде / найти место бага>.
 Контекст: репозиторий <группа/проект> в GitLab, ветка <main>. Известно: <что уже знаем, если есть>.
 Границы: только чтение, ничего не коммитить и не пушить; клон удалить в конце.
@@ -37,13 +37,13 @@ nessy-orch spawn --session <id> --space ~/tmp --role code-explorer --name <те�
 ```
 
 После `spawn` — фоновый `nessy-orch inbox --session <id> --wait 1500` (`run_in_background`), ответ придёт уведомлением.
-`--space` для `code-explorer` — любой каталог: репозиторий агент скачает сам. Несколько репозиториев —
+Агент работает в каталоге чата, репозиторий он скачает сам. Несколько репозиториев —
 несколько таких `spawn` без `--wait`, затем фоновый `inbox --session <id> --wait 1500`, пока не придут все.
 
 Проверка (отдельным агентом, не тем же):
 
 ```bash
-nessy-orch spawn --session <id> --space ~/tmp --role verifier --name <тема>-verify "
+nessy-orch spawn --session <id> --role verifier --name <тема>-verify "
 Цель: независимо проверить ответ про код <группа/проект> (ветка <main>).
 Заявлено: <краткий ответ explorer со ссылками файл:строка>.
 Границы: только чтение; клон удалить в конце. Не доверяй ответу — открой каждую ссылку и проверь цепочку.

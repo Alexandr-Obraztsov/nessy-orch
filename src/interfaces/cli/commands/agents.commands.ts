@@ -1,9 +1,9 @@
 /** Команды агентов: spawn, send, ask, ls, show, watch, plan, cancel, archive, restore, kill. */
 import * as path from 'node:path'
 import * as fs from 'node:fs'
-import type { AgentEvent, AgentView, GraphView, SendResponse, SpawnBatchResponse, SpawnResponse } from '../../../../shared/types'
+import type { AgentEvent, AgentView, GraphView, SendResponse, SpawnBatchResponse, SpawnRequest, SpawnResponse } from '../../../../shared/types'
 import { parsePlanArgs } from '../../../domain/plan'
-import { parseBatchText } from '../../../domain/spawn-batch'
+import { parseBatchSpecs, parseBatchText } from '../../../domain/spawn-batch'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { Parsed } from '../args.types'
 import { asAgentStreamEvent, sse } from '../client'
@@ -32,7 +32,10 @@ function printSendResult(p: Parsed, agent: AgentView | null, r: SendResponse): v
 		throw new CliError(`ответ не получен за отведённое время; агент продолжает работу: nessy-orch watch ${agent?.id ?? r.message.to}`, 3)
 	} else {
 		const session = agent?.session ? ` --session ${agent.session}` : ''
-		info(dim(`отправлено ${r.message.id} → ${r.message.to}. Ответ придёт в inbox: nessy-orch inbox${session} --wait 60`))
+		if (r.started && !agent) info(dim('агент был свободен — сообщение запустило его в работу'))
+		else if (r.interrupted) info(dim('агент работал — его ход прерван этим сообщением (чтобы не прерывать: --queue)'))
+		else if (r.queued) info(dim('агент работает — сообщение встало в очередь и будет обработано после текущего хода'))
+		info(dim(`отправлено ${r.message.id} → ${r.message.to}. Ответ придёт в inbox: nessy-orch inbox${session} --wait 1500 (в фоне)`))
 	}
 }
 
@@ -64,12 +67,22 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 	printSendResult(p, r.agent, r)
 }
 
-/** Пакет агентов одним вызовом: блоки «@@ имя role=…» + поручение из stdin или --file (либо JSON-массив). */
+/**
+ * Пакет агентов одним вызовом. Основной способ — позиционные аргументы «имя|роль|поручение» (heredoc и stdin в песочнице Claude
+ * не работают); запасные — `--file` (блоки «@@ имя role=…» или JSON) и `--stdin`.
+ */
 async function cmdSpawnMany(p: Parsed): Promise<void> {
 	const file = flagStr(p, 'file')
-	if (file === undefined && process.stdin.isTTY) throw new CliError('использование: nessy-orch spawn-many [--session S] [--space P] <<\'EOF\'\n@@ имя role=роль\nпоручение\nEOF', 2)
-	const text = fs.readFileSync(file ?? 0, 'utf8')
-	const agents = parseBatchText(text).map(a => ({ ...a, space: spaceArg(a.space) }))
+	let agents: SpawnRequest[]
+	if (p.positionals.length) agents = parseBatchSpecs(p.positionals)
+	else if (file !== undefined) agents = parseBatchText(fs.readFileSync(file, 'utf8'))
+	else if (flagBool(p, 'stdin')) agents = parseBatchText(fs.readFileSync(0, 'utf8'))
+	else
+		throw new CliError(
+			'использование: nessy-orch spawn-many [--session S] "имя|роль|поручение" "имя2|роль2|поручение2" …\n(пустая роль — «имя||поручение»; длинные поручения — --file <файл> с блоками «@@ имя role=роль»)',
+			2,
+		)
+	agents = agents.map(a => ({ ...a, space: spaceArg(a.space) }))
 	const r = await post<SpawnBatchResponse>('/agents/batch', {
 		agents,
 		space: spaceArg(flagStr(p, 'space')),
