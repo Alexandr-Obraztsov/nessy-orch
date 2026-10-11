@@ -30,8 +30,7 @@ nessy-orch session done <id> --summary "<короткий итог>"            
 работают, продолжай разговор с пользователем. Сборщик `inbox --session <id>` держи один на сессию.
 
 Для типовых задач в плагине есть рецепты (`code-question`, `mr-review`, `incident`,
-`jira-report`, `implement`) и команды `/nessy:ui`, `/nessy:status`. Установка плагина в любом проекте:
-`/plugin marketplace add <путь или git URL репозитория>` → `/plugin install nessy@nessy-orch` (см. README).
+`jira-report`, `implement`) и команда `/nessy:status`. Плагин в Claude ставит приложение (`~/.claude/skills/nessy`).
 
 Готовые роли лежат в `roles/*.md` и загружаются командой `nessy-orch role import`. Например, `code-explorer`
 изучает чужой репозиторий: клонирует его, ищет по коду (`rg`), отвечает и удаляет клон.

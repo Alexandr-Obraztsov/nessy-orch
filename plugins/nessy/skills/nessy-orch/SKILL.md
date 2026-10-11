@@ -245,7 +245,7 @@ nessy-orch session done <id> --summary "<короткий итог>"   # в ко
 | `[session_busy]` при `session rm` | В сессии работают агенты: дождись или `cancel`. Обычно сессию не удаляют, а закрывают `session done` |
 | `[hop_limit]`, `[rate_limit]`, `[deadlock]` | Остановись и перестрой план, не повторяй в цикле |
 
-Пользователь следит за работой в приложении TClaude-Orch: ссылку `nessy-orch://session/<id>` ты даёшь ему на шаге 0 (`nessy-orch open <id>` открывает сессию сам). В плагине для этого есть команды `/nessy:ui` (ссылка и состояние) и `/nessy:status` (кто чем занят).
+Пользователь следит за работой в приложении TClaude-Orch: ссылку `nessy-orch://session/<id>` ты даёшь ему на шаге 0 (`nessy-orch open <id>` открывает сессию сам). В плагине для этого есть команда `/nessy:status` (кто чем занят).
 
 <!-- Подход собран из: obra/superpowers (dispatching-parallel-agents, verification-before-completion,
 subagent-driven-development; MIT © 2025 Jesse Vincent), wshobson/agents (agent-teams; MIT © 2024 Seth Hobson),

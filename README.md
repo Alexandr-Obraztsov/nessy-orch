@@ -157,8 +157,7 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 
 ## Плагин для Claude Code
 
-Репозиторий — маркетплейс плагинов Claude Code (`.claude-plugin/marketplace.json`) с одним плагином `nessy`
-в [`plugins/nessy/`](plugins/nessy/). Плагин переводит Claude в роль ведущего: работая через nessy-orch, Claude
+Плагин Claude Code `nessy` лежит в [`plugins/nessy/`](plugins/nessy/) (скилл, команды, хуки сессий, CLI в `bin/`). Плагин переводит Claude в роль ведущего: работая через nessy-orch, Claude
 не выполняет задачу сам, а проходит цикл:
 
 0. Заводит сессию **один раз на разговор** (`session new "<цель>" --owner claude`) и сразу пишет пользователю ссылку на неё:
@@ -180,38 +179,9 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 
 ### Установка
 
-В Claude Code:
-
-```text
-/plugin marketplace add Alexandr-Obraztsov/nessy-orch      # или git URL, или локальный путь: ./путь/к/nessy-orch
-/plugin install nessy@nessy-orch
-```
-
-Из shell — то же самое: `claude plugin marketplace add <источник>` и `claude plugin install nessy@nessy-orch`.
-Обновить: `/plugin marketplace update nessy-orch` (затем `/reload-plugins`), или в `/plugin` → **Marketplaces** →
-**Update marketplace**. Маркетплейс, добавленный из локального каталога, читается на месте: правки в
-`plugins/nessy/` подхватываются после `/reload-plugins`. CLI `nessy-orch` должен быть в PATH (или лежать в
-`~/Projects/nessy-orch/bin/`). Проверить манифесты: `claude plugin validate .`.
-
-#### Без плагина: `scripts/install.sh`
-
-Скрипт кладёт скиллы из `plugins/nessy/skills` в любой каталог скиллов — Claude Code (`.claude/skills`) или
-nessy (`.nessy/skills`, устроен так же), глобально или в проект. По умолчанию ставит симлинки, поэтому
-`git pull` обновляет скиллы сам. Чужие скиллы с теми же именами не трогает.
-
-```bash
-scripts/install.sh                          # ~/.claude/skills
-scripts/install.sh nessy                    # ~/.nessy/skills
-scripts/install.sh claude --project ~/Projects/shippy   # ~/Projects/shippy/.claude/skills
-scripts/install.sh nessy --project ~/Projects/shippy    # ~/Projects/shippy/.nessy/skills
-scripts/install.sh --dir ~/somewhere/skills # произвольный каталог
-scripts/install.sh --only nessy-orch,code-question --copy   # выборочно и копиями
-scripts/install.sh nessy --uninstall        # удалить
-scripts/install.sh --list                   # что есть
-```
-
-То же через npm: `npm run skills:install -- nessy --project <путь>`. При установке скиллами (а не плагином)
-они вызываются без префикса: `/nessy-orch`, `/code-question` и т. д.
+Ставить ничего не нужно: приложение TClaude-Orch при запуске копирует плагин в `~/.claude/skills/nessy`, и Claude Code загружает его как
+`nessy@skills-dir` при любом запуске `claude`. Для разработки плагина: `claude --plugin-dir plugins/nessy`; проверить манифест:
+`claude plugin validate plugins/nessy`.
 
 ### Что внутри
 
@@ -223,7 +193,6 @@ scripts/install.sh --list                   # что есть
 | Скилл `incident` | `/nessy:incident` | Инцидент: `debugger` ‖ `wiki-researcher` / `jira-analyst`, хронология и гипотезы |
 | Скилл `jira-report` | `/nessy:jira-report` | Сводка задач Jira таблицей: `jira-analyst` |
 | Скилл `implement` | `/nessy:implement` | Изменение кода: `analyst` → `executor` → `verifier` |
-| Команда `ui` | `/nessy:ui` | Ссылка на панель и `nessy-orch status` |
 | Команда `status` | `/nessy:status` | `nessy-orch ls --all` и короткая сводка |
 
 Роли в плагин не входят: они живут в [`roles/`](roles/) и загружаются в оркестратор (см. ниже).
