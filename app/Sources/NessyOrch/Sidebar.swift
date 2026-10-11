@@ -71,12 +71,6 @@ struct SessionRow: View {
 		.contentShape(Rectangle())
 		.onTapGesture { model.show(session: session.id) }
 		.help(help(agents.count))
-		.contextMenu {
-			if session.status == .active { Button("Завершить сессию") { model.closeSession(session.id) } }
-			else { Button("Вернуть в работу") { model.reopenSession(session.id) } }
-			Divider()
-			Button("Удалить", role: .destructive) { model.deleteSession(session.id) }
-		}
 		.accessibilityElement(children: .combine)
 	}
 

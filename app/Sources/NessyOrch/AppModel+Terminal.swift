@@ -6,15 +6,9 @@ import NessyKit
 extension AppModel {
 	// MARK: папки
 
-	/// Папка сессии: запомненная папка терминала, иначе пространство с наибольшим числом её агентов.
+	/// Папка сессии — по её агентам (пространство с наибольшим числом агентов).
 	func projectPath(of session: String) -> String? {
-		Projects.path(ofSession: session, sessionDirs: sessionDirs, agents: store.allAgents, spaces: store.spaces)
-	}
-
-	func rememberDirectory(_ dir: String, session: String) {
-		guard let n = Projects.normalize(dir) else { return }
-		sessionDirs[session] = n
-		UserDefaults.standard.set(sessionDirs, forKey: "sessionDirs")
+		Projects.path(ofSession: session, sessionDirs: [:], agents: store.allAgents, spaces: store.spaces)
 	}
 
 	/// Системный выбор папки; новое окно-терминал в ней. Панель по центру экрана, стартует с последней выбранной папки.
@@ -47,37 +41,14 @@ extension AppModel {
 
 	// MARK: запуск
 
-	/// Прозрачные хуки Claude: файл хуков и скрипты оболочек в `~/.nessy-orch` (файлы пользователя не трогаем).
-	/// В файле хуков — путь к CLI: установленная ссылка `~/.local/bin/nessy-orch`, иначе встроенный скрипт.
-	func prepareShellIntegration() {
-		let cli = CLISupport.shared
-		let path: String
-		if case .installed = cli.state { path = cli.linkPath }
-		else if let script = cli.installer.script?.path { path = script }
-		else { path = cli.linkPath }
-		do {
-			try ClaudeHooks.write(cli: path)
-			// плагин nessy (скилл `nessy-orch`) лежит в приложении: `claude --plugin-dir` подключает его в любой папке проекта
-			let plugin = Bundle.main.resourceURL?.appendingPathComponent("orch/plugin").path
-			let pluginDir = plugin.flatMap { FileManager.default.fileExists(atPath: $0 + "/.claude-plugin/plugin.json") ? $0 : nil }
-			try ShellIntegration.install(layout: ShellIntegration.Layout(home: FileManager.default.homeDirectoryForCurrentUser), plugin: pluginDir)
-		} catch {
-			flash("Хуки Claude не подключены: \(error.localizedDescription)", error: true)
-		}
-	}
-
 	/// Запустить терминал окна: оболочка пользователя в папке, с `NESSY_ORCH_SESSION` и `NESSY_ORCH_DIR`.
 	/// `-debug.terminalCommand "<команда>"` — выполнить команду и остаться в оболочке (для проверок).
 	func startTerminal(for win: SessionWindowModel) {
-		prepareShellIntegration()
 		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, terminalKey: win.key, orchestrator: AppSettings.serverURL,
 										   base: ProcessInfo.processInfo.environment, command: UserDefaults.standard.string(forKey: "debug.terminalCommand"))
-		// папки, выбранные при установке (CLI и Claude Code), — в начало PATH терминала
-		// встроенный `nessy-orch` доступен в терминале приложения без установки: его папка bin — в PATH
+		// `nessy-orch` из приложения доступен и в самой оболочке терминала
 		let bundledBin = Bundle.main.resourceURL.map { $0.appendingPathComponent("orch/bin").path }.flatMap { FileManager.default.fileExists(atPath: $0 + "/nessy-orch") ? $0 : nil }
-		let extra = [bundledBin, UserDefaults.standard.string(forKey: "cliDirectory"),
-					 UserDefaults.standard.string(forKey: "claudePath").map { ($0 as NSString).deletingLastPathComponent }]
-			.compactMap { $0 }.filter { !$0.isEmpty }
+		let extra = [bundledBin].compactMap { $0 }
 		if !extra.isEmpty, let i = spec.environment.firstIndex(where: { $0.hasPrefix("PATH=") }) {
 			spec.environment[i] = "PATH=" + (extra + [String(spec.environment[i].dropFirst(5))]).joined(separator: ":")
 		}

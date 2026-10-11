@@ -35,7 +35,6 @@ final class AppModel {
 	/// черновики поля ввода по агентам
 	var drafts: [String: String] = [:]
 	var showPalette = false
-	var showShortcuts = false
 	var toast: Toast?
 	/// желаемая ширина правой панели (тянется за левый край), 340…480
 	var panelWidth: CGFloat = {
@@ -44,8 +43,6 @@ final class AppModel {
 	}() { didSet { UserDefaults.standard.set(Double(panelWidth), forKey: "panelWidth") } }
 	/// правая панель агентов видна (запоминается, общая для всех окон)
 	var showAgents = UserDefaults.standard.object(forKey: "showAgents") as? Bool ?? true { didSet { UserDefaults.standard.set(showAgents, forKey: "showAgents") } }
-	/// папка терминала каждой сессии (чтобы повторно открыть сессию в её папке)
-	var sessionDirs: [String: String] = UserDefaults.standard.dictionary(forKey: "sessionDirs") as? [String: String] ?? [:]
 	let terminals = TerminalStore.shared
 	/// первичная установка и проверка окружения (CLI, служба, Claude Code, скилл)
 	let setup = SetupModel()
@@ -97,8 +94,6 @@ final class AppModel {
 
 	/// Dock или повторный запуск без окон.
 	func openMainWindow() { showMainWindow() }
-
-	var hasTerminalWindows: Bool { !tabs.isEmpty }
 
 	/// Проекты в порядке открытия (переключатель в шапке, меню и ⌘1…⌘9).
 	var projectWindows: [SessionWindowModel] { tabs }
@@ -292,13 +287,6 @@ final class AppModel {
 		catch { flash("Роль не удалена: \(error.localizedDescription)", error: true); return false }
 	}
 	func stop(_ a: AgentView) { Task { await run("Остановка") { try await self.store.client.cancel(a.id) } } }
-	func closeSession(_ id: String) { Task { await run("Завершение сессии") { try await self.store.client.closeSession(id) } } }
-	func reopenSession(_ id: String) { Task { await run("Возврат сессии") { try await self.store.client.reopenSession(id) } } }
-	func deleteSession(_ id: String) {
-		Task {
-			await run("Удаление") { try await self.store.client.deleteSession(id) }
-		}
-	}
 }
 
 /// Настройки, не требующие модели.
@@ -330,7 +318,7 @@ enum Daemon {
 	/// Перезапустить службу; если её ещё нет — установить из встроенной копии сервера.
 	static func kickstart() async -> Bool {
 		if await launchctlKickstart() { return true }
-		return await CLISupport.shared.installService()
+		return await AppModel.shared.setup.installService()
 	}
 
 	private static func launchctlKickstart() async -> Bool {

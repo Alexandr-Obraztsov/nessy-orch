@@ -489,93 +489,60 @@ struct DialogTests {
 	}
 }
 
-@Suite("Установка CLI из приложения")
-struct CLIInstallerTests {
-	func sandbox() throws -> (CLIInstaller, URL) {
-		let root = FileManager.default.temporaryDirectory.appendingPathComponent("cli-\(UUID().uuidString)")
+@Suite("Служба и плагин")
+struct InstallerTests {
+	func tmp() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("inst-\(UUID().uuidString)") }
+
+	@Test func serviceMatchesBundle() throws {
+		let root = tmp()
+		defer { try? FileManager.default.removeItem(at: root) }
 		let bundle = root.appendingPathComponent("App/Resources/orch")
 		try FileManager.default.createDirectory(at: bundle.appendingPathComponent("bin"), withIntermediateDirectories: true)
-		try FileManager.default.createDirectory(at: bundle.appendingPathComponent("dist/src"), withIntermediateDirectories: true)
-		FileManager.default.createFile(atPath: bundle.appendingPathComponent("bin/nessy-orch").path, contents: Data("#!/usr/bin/env node\n".utf8))
+		FileManager.default.createFile(atPath: bundle.appendingPathComponent("bin/nessy-orch").path, contents: Data())
 		let home = root.appendingPathComponent("home")
-		try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-		return (CLIInstaller(bundleRoot: bundle, home: home), root)
+		let svc = ServiceInstaller(bundleRoot: bundle, home: home)
+		#expect(svc.isBundled)
+		#expect(svc.serviceMatchesBundle() == nil, "службы нет")
+		try FileManager.default.createDirectory(at: svc.plist.deletingLastPathComponent(), withIntermediateDirectories: true)
+		try "<string>exec node '\(svc.daemonMain?.path ?? "")'</string>".write(to: svc.plist, atomically: true, encoding: .utf8)
+		#expect(svc.serviceMatchesBundle() == true)
+		try "<string>exec node '/old/dist/src/main.js'</string>".write(to: svc.plist, atomically: true, encoding: .utf8)
+		#expect(svc.serviceMatchesBundle() == false, "служба смотрит на старый путь — надо переустановить")
+		#expect(!ServiceInstaller(bundleRoot: nil, home: home).isBundled)
 	}
 
-	@Test func customLinkDirectory() throws {
-		let (_, root) = try sandbox()
-		defer { try? FileManager.default.removeItem(at: root) }
-		let bundle = root.appendingPathComponent("App/Resources/orch")
-		let dir = root.appendingPathComponent("mybin")
-		let inst = CLIInstaller(bundleRoot: bundle, home: root, linkDirectory: dir)
-		try inst.install()
-		#expect(inst.link.path == dir.appendingPathComponent("nessy-orch").path)
-		#expect(inst.state() == .installed)
+	func makePlugin(_ dir: URL, version: String) throws {
+		try FileManager.default.createDirectory(at: dir.appendingPathComponent(".claude-plugin"), withIntermediateDirectories: true)
+		try FileManager.default.createDirectory(at: dir.appendingPathComponent("bin"), withIntermediateDirectories: true)
+		try FileManager.default.createDirectory(at: dir.appendingPathComponent("hooks"), withIntermediateDirectories: true)
+		try #"{"name":"nessy","version":"\#(version)"}"#.write(to: dir.appendingPathComponent(".claude-plugin/plugin.json"), atomically: true, encoding: .utf8)
+		try "{}".write(to: dir.appendingPathComponent("hooks/hooks.json"), atomically: true, encoding: .utf8)
+		let cli = dir.appendingPathComponent("bin/nessy-orch")
+		try "#!/usr/bin/env node\n".write(to: cli, atomically: true, encoding: .utf8)
+		try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
 	}
 
-	@Test func installsSymlinkAndIsIdempotent() throws {
-		let (cli, root) = try sandbox()
+	@Test func pluginInstallUpdateUninstall() throws {
+		let root = tmp()
 		defer { try? FileManager.default.removeItem(at: root) }
-		#expect(cli.state() == .missing)
-		try cli.install()
-		#expect(cli.state() == .installed)
-		try cli.install() // повторно — без ошибок
-		#expect(cli.state() == .installed)
-		#expect(try FileManager.default.destinationOfSymbolicLink(atPath: cli.link.path) == cli.script?.path)
-	}
-
-	@Test func staleLinkIsRepointedButRealFileIsKept() throws {
-		let (cli, root) = try sandbox()
-		defer { try? FileManager.default.removeItem(at: root) }
-		try FileManager.default.createDirectory(at: cli.linkDirectory, withIntermediateDirectories: true)
-		try FileManager.default.createSymbolicLink(atPath: cli.link.path, withDestinationPath: "/old/place/bin/nessy-orch")
-		#expect(cli.state() == .stale("/old/place/bin/nessy-orch"))
-		try cli.install()
-		#expect(cli.state() == .installed)
-
-		try FileManager.default.removeItem(at: cli.link)
-		FileManager.default.createFile(atPath: cli.link.path, contents: Data("свой скрипт".utf8))
-		#expect(cli.state() == .conflict)
-		#expect(throws: CLIInstaller.InstallError.self) { try cli.install() }
-		#expect(FileManager.default.contents(atPath: cli.link.path) == Data("свой скрипт".utf8), "чужой файл не тронут")
-	}
-
-	@Test func notBundledAndServiceMatch() throws {
-		let none = CLIInstaller(bundleRoot: nil, home: FileManager.default.temporaryDirectory)
-		#expect(none.state() == .notBundled)
-		#expect(throws: CLIInstaller.InstallError.self) { try none.install() }
-
-		let (cli, root) = try sandbox()
-		defer { try? FileManager.default.removeItem(at: root) }
-		#expect(cli.serviceMatchesBundle() == nil, "службы нет")
-		try FileManager.default.createDirectory(at: cli.plist.deletingLastPathComponent(), withIntermediateDirectories: true)
-		try "<string>exec node '\(cli.daemonMain?.path ?? "")'</string>".write(to: cli.plist, atomically: true, encoding: .utf8)
-		#expect(cli.serviceMatchesBundle() == true)
-		try "<string>exec node '/old/dist/src/main.js'</string>".write(to: cli.plist, atomically: true, encoding: .utf8)
-		#expect(cli.serviceMatchesBundle() == false, "служба смотрит на старый путь — надо переустановить")
-	}
-}
-
-@Suite("Установка скилла")
-struct SkillInstallerTests {
-	@Test func installCompareUninstall() throws {
-		let root = FileManager.default.temporaryDirectory.appendingPathComponent("skill-\(UUID().uuidString)")
-		defer { try? FileManager.default.removeItem(at: root) }
-		let src = root.appendingPathComponent("src/nessy-orch")
-		try FileManager.default.createDirectory(at: src.appendingPathComponent("references"), withIntermediateDirectories: true)
-		try "# skill".write(to: src.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
-		try "ref".write(to: src.appendingPathComponent("references/a.md"), atomically: true, encoding: .utf8)
-		let inst = SkillInstaller(source: src, root: root.appendingPathComponent("skills"))
+		let src = root.appendingPathComponent("app/plugin")
+		try makePlugin(src, version: "1.0.1")
+		let inst = PluginInstaller(source: src, root: root.appendingPathComponent("skills"))
 		#expect(inst.state() == .missing)
 		try inst.install()
 		#expect(inst.state() == .upToDate)
-		try "# changed".write(to: src.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
-		#expect(inst.state() == .outdated)
+		#expect(inst.destination?.lastPathComponent == "nessy")
+		#expect(FileManager.default.isExecutableFile(atPath: inst.destination!.appendingPathComponent("bin/nessy-orch").path), "права на CLI сохраняются")
+		try makePlugin(src, version: "1.0.2")
+		#expect(inst.state() == .outdated(installed: "1.0.1"))
 		try inst.install()
 		#expect(inst.state() == .upToDate)
+		// повреждённая копия (нет хуков) — не «актуальна»
+		try FileManager.default.removeItem(at: inst.destination!.appendingPathComponent("hooks/hooks.json"))
+		#expect(inst.state() == .outdated(installed: "1.0.2"))
 		try inst.uninstall()
 		#expect(inst.state() == .missing)
-		#expect(SkillInstaller(source: nil, root: root).state() == .notBundled)
+		#expect(PluginInstaller(source: nil, root: root).state() == .notBundled)
 	}
 }
 

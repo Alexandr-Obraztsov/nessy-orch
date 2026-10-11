@@ -164,9 +164,9 @@ id роли (`reviewer`, `reviewer-2`, …), а `preambleFor` добавляет
 
 ### Хуки Claude Code
 
-Приложение запускает Claude с `claude --settings ~/.nessy-orch/claude-hooks.json` и `NESSY_ORCH_SESSION=<id>`; файл настроек подключает
-хуки `SessionStart`/`UserPromptSubmit`/`Stop`/`SessionEnd` на команду `nessy-orch hook start|prompt|stop|end` (глобальные настройки
-пользователя не меняются). Хук читает JSON события из stdin и печатает JSON-ответ (`domain/hooks.ts`):
+Хуки приходят с плагином nessy (`hooks/hooks.json`; приложение кладёт плагин в `~/.claude/skills/nessy`, он глобален для Claude Code). Команда хука
+срабатывает только в терминале приложения (проверка `NESSY_ORCH_TERMINAL`); сессия оркестратора создаётся по `session_id` чата Claude и привязана к терминалу.
+Хук читает JSON события из stdin и печатает JSON-ответ (`domain/hooks.ts`):
 - `start` — контекст: сессия уже заведена, как делегировать, роли; состояние Claude `idle`;
 - `prompt` — сводка агентов сессии и новые ответы перед ходом (`additionalContext`); состояние `working`;
 - `stop` — если за ход пришли ответы агентов, `{decision:"block", reason}`: Claude не останавливается, а обрабатывает их (ответы

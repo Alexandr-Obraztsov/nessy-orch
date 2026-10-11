@@ -136,7 +136,6 @@ private struct MainWindowBody: View {
 		.navigationTitle(model.activeWindow.map { model.label(of: $0) } ?? "TClaude-Orch")
 		.background { WindowConfigurator(app: model) }
 		.sheet(isPresented: Bindable(model).showPalette) { PaletteView() }
-		.sheet(isPresented: Bindable(model.setup).visible) { SetupView() }
 		.frame(minWidth: 760, minHeight: 440)
 		.onAppear {
 			// для снимков: `-debug.togglePanel YES` — через 9 с панель сворачивается или разворачивается
@@ -337,19 +336,6 @@ struct OfflineBanner: View {
 			try? await Task.sleep(for: .seconds(2))
 			await model.store.refreshStatus()
 			starting = false
-		}
-	}
-}
-
-/// Нет связи и нечего показать: символ, фраза, одно действие.
-struct OfflineEmpty: View {
-	@Environment(AppModel.self) private var model
-	@State private var starting = false
-	var body: some View {
-		ContentUnavailableView {
-			Label("Нет связи с оркестратором", systemImage: "bolt.slash")
-		} description: {
-			Text("Служба nessy-orch не отвечает. Перезапустить: меню «⋯» внизу слева.")
 		}
 	}
 }

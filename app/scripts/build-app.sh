@@ -23,9 +23,23 @@ cp -R "$ROOT/dist/src" "$ORCH/dist/src"
 cp -R "$ROOT/dist/shared" "$ORCH/dist/shared"
 cp -R "$ROOT/roles" "$ORCH/roles"
 cp "$ROOT/package.json" "$ORCH/package.json"
-# плагин nessy (скилл nessy-orch): терминал приложения запускает claude с --plugin-dir на эту копию
-mkdir -p "$ORCH/plugin"
-cp -R "$ROOT/plugins/nessy/." "$ORCH/plugin/"
+# плагин nessy — самодостаточный (скилл, команды, хуки сессий и CLI в bin/ с собранным кодом): приложение копирует его в ~/.claude/skills/nessy,
+# и Claude Code подхватывает его как плагин при любом запуске claude. Версия содержит номер сборки — по ней приложение обновляет копию.
+PLUGIN="$ORCH/plugin"
+mkdir -p "$PLUGIN"
+cp -R "$ROOT/plugins/nessy/." "$PLUGIN/"
+mkdir -p "$PLUGIN/dist"
+cp -R "$ROOT/dist/src" "$PLUGIN/dist/src"
+cp -R "$ROOT/dist/shared" "$PLUGIN/dist/shared"
+chmod +x "$PLUGIN/bin/nessy-orch"
+BUILD="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 0).$(date +%y%m%d%H%M)"
+python3 - "$PLUGIN/.claude-plugin/plugin.json" "$BUILD" <<'PY'
+import json, sys
+p, build = sys.argv[1], sys.argv[2]
+d = json.load(open(p))
+d["version"] = "1.0." + build
+open(p, "w").write(json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+PY
 cp "$ROOT/bin/nessy-orch" "$ORCH/bin/nessy-orch"
 chmod +x "$ORCH/bin/nessy-orch" "$ORCH/dist/src/main.js" "$ORCH/dist/src/interfaces/cli/main.js"
 

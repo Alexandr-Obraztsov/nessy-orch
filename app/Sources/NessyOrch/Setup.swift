@@ -1,212 +1,68 @@
 import SwiftUI
-import AppKit
 import NessyKit
 
-/// Первичная настройка по шагам: на каждом шаге приложение показывает, что найдено, и предлагает действия; решает пользователь
-/// (какую папку выбрать, ставить ли). Сам Claude Code приложение не устанавливает — только находит или принимает путь, который указал пользователь.
-/// Скилл `nessy-orch` лежит в приложении и подключается к `claude` из терминала приложения через `--plugin-dir`; копию в свою папку можно сделать на шаге «Скилл».
+/// Установка — только плагин nessy: при запуске приложение копирует его (скилл `nessy-orch`, CLI `nessy-orch` в `bin/`, хуки сессий) в
+/// `~/.claude/skills/nessy`, и Claude Code подхватывает его при любом запуске `claude` (в том числе после закрытия и повторного открытия).
+/// Копия обновляется, когда версия плагина в приложении другая. Служба оркестратора («хост») поднимается молча, как раньше.
 @MainActor
 @Observable
 final class SetupModel {
-	enum Step: Int, CaseIterable, Identifiable {
-		case claude, cli, skill, service
-		var id: Int { rawValue }
-		var title: String {
-			switch self {
-			case .claude: "Claude Code"
-			case .cli: "Команда nessy-orch в PATH"
-			case .service: "Служба оркестратора"
-			case .skill: "Скилл nessy-orch"
-			}
-		}
-		var lead: String {
-			switch self {
-			case .claude: "Терминал приложения запускает вашу команду `claude`. Приложение его не устанавливает: оно ищет его в PATH или берёт путь, который вы укажете."
-			case .cli: "В терминале приложения `nessy-orch` уже доступна. Если хотите вызывать её и из других терминалов, приложение создаст ссылку на встроенную копию в выбранной папке (обычно ~/.local/bin). Нужно ли это?"
-			case .service: "Сервер оркестратора работает фоном (launchd) и нужен приложению и CLI. Ему нужен Node.js 20 или новее."
-			case .skill: "В терминале приложения скилл подключается сам. Если хотите, чтобы Claude видел его в любом запуске, приложение положит копию в личные скиллы Claude (обычно ~/.claude/skills). Нужно ли это?"
-			}
-		}
-	}
+	let service = ServiceInstaller(bundleRoot: Bundle.main.resourceURL?.appendingPathComponent("orch"))
+	/// плагин внутри приложения → `~/.claude/skills/nessy`
+	var plugin: PluginInstaller { PluginInstaller(source: Bundle.main.resourceURL?.appendingPathComponent("orch/plugin")) }
+	private(set) var revision = 0
 
-	var visible = false
-	var step: Step = .claude
-	var busy = false
-	/// строка статуса текущего шага (что найдено / что получилось)
-	var status = ""
-	var statusOK = true
+	var autoPlugin: Bool { UserDefaults.standard.object(forKey: "autoPlugin") as? Bool ?? true }
+	var autoService: Bool { UserDefaults.standard.object(forKey: "autoInstallService") as? Bool ?? true }
 
-	/// Первый запуск: мастер ещё не проходили.
-	static var firstRun: Bool { UserDefaults.standard.object(forKey: "setup.done") == nil }
-
-	/// Мастер на запуске показывается только если без него не заработает: нет `claude`, нет Node.js или не установлена/устарела служба оркестратора.
-	/// `nessy-orch` и скилл лежат в приложении и подключаются сами (CLI — через PATH терминала, скилл — через `--plugin-dir`), их ставить не нужно.
-	static func problemsExist() async -> Bool {
-		let cli = CLISupport.shared
-		let claudePath = UserDefaults.standard.string(forKey: "claudePath").flatMap { $0.isEmpty ? nil : ClaudeHooks.shellQuote($0) } ?? "claude"
-		let claude = await Shell.run("command -v \(claudePath)")
-		if claude.status != 0 { return true }
-		if cli.isBundled {
-			if await cli.ensureNode() == nil { return true }
-			if cli.installer.serviceMatchesBundle() != true, case .offline = AppModel.shared.store.daemon { return true }
-		}
-		return false
-	}
-
-	func start() {
-		step = .claude
-		visible = true
-		refresh()
-	}
-
-	func next() {
-		if let n = Step(rawValue: step.rawValue + 1) { step = n; refresh() } else { finish() }
-	}
-	func back() { if let p = Step(rawValue: step.rawValue - 1) { step = p; refresh() } }
-	var isLast: Bool { step == Step.allCases.last }
-
-	func finish() {
-		UserDefaults.standard.set(true, forKey: "setup.done")
-		visible = false
-	}
-
-	private func report(_ text: String, ok: Bool = true) { status = text; statusOK = ok }
-
-	// MARK: проверка текущего шага
-
-	func refresh() {
-		busy = true
+	/// Запуск приложения: плагин (нет или другая версия) и служба (нет, старый путь или не отвечает) — молча.
+	func launch(daemonOnline: @escaping @MainActor () async -> Bool) {
+		if autoPlugin { installPluginIfNeeded() }
+		guard autoService, service.isBundled else { return }
 		Task {
-			defer { busy = false }
-			switch step {
-			case .claude: await checkClaude()
-			case .cli: checkCLI()
-			case .service: await checkService()
-			case .skill: await checkSkill()
-			}
+			try? await Task.sleep(for: .seconds(2.5)) // дать подключиться к уже работающему оркестратору
+			let match = service.serviceMatchesBundle()
+			let online = match == nil ? await daemonOnline() : true
+			if match == false || (match == nil && !online) { await installService() }
 		}
 	}
 
-	private func claudeCommand() -> String {
-		if let p = UserDefaults.standard.string(forKey: "claudePath"), !p.isEmpty { return ClaudeHooks.shellQuote(p) }
-		return "claude"
-	}
-
-	private func checkClaude() async {
-		let r = await Shell.run("command -v \(claudeCommand()) && \(claudeCommand()) --version")
-		if r.status == 0 {
-			let lines = r.output.split(separator: "\n").map(String.init)
-			report("Найден: \(lines.first ?? "") · \(lines.last ?? "")")
-		} else { report("Не найден. Установите Claude Code сами или укажите путь к команде `claude`.", ok: false) }
-	}
-
-	/// Указать, где лежит `claude` (файл).
-	func chooseClaude() {
-		let p = NSOpenPanel()
-		p.canChooseFiles = true
-		p.canChooseDirectories = false
-		p.message = "Выберите исполняемый файл claude"
-		p.directoryURL = URL(fileURLWithPath: NSHomeDirectory() + "/.local/bin")
-		p.treatsFilePackagesAsDirectories = true
-		guard p.runModal() == .OK, let u = p.url else { return }
-		UserDefaults.standard.set(u.path, forKey: "claudePath")
-		refresh()
-	}
-	func forgetClaudePath() { UserDefaults.standard.removeObject(forKey: "claudePath"); refresh() }
-
-	private func checkCLI() {
-		let cli = CLISupport.shared
-		cli.refresh()
-		let place = cli.linkPath.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-		switch cli.state {
-		case .installed: report("Установлена: \(place)")
-		case .missing: report("Не установлена. Будет создана ссылка \(place)", ok: false)
-		case .stale: report("Ссылка \(place) ведёт на другое место — её можно обновить.", ok: false)
-		case .conflict: report("По пути \(place) лежит обычный файл. Выберите другую папку.", ok: false)
-		case .notBundled: report("Сборка без встроенной командной строки (запуск из исходников).", ok: false)
+	private func installPluginIfNeeded() {
+		switch plugin.state() {
+		case .missing, .outdated: installPlugin()
+		case .upToDate, .notBundled: break
 		}
 	}
 
-	func installCLI() {
-		let cli = CLISupport.shared
-		if !cli.installLink() { report(cli.lastError ?? "Не удалось поставить ссылку.", ok: false) } else { checkCLI() }
+	func installPlugin() {
+		do { try plugin.install() } catch { AppModel.shared.flash("Плагин не установлен: \(error.localizedDescription)", error: true) }
+		revision += 1
 	}
 
-	func chooseCLIFolder() {
-		let p = NSOpenPanel()
-		p.canChooseDirectories = true
-		p.canChooseFiles = false
-		p.canCreateDirectories = true
-		p.message = "Папка для команды nessy-orch (она должна быть в PATH)"
-		p.directoryURL = CLISupport.shared.installer.linkDirectory
-		guard p.runModal() == .OK, let u = p.url else { return }
-		CLISupport.shared.moveLink(to: u)
-		checkCLI()
-		if statusOK { report(status + " Папку нужно добавить в PATH, если её там нет.") }
+	func removePlugin() {
+		try? plugin.uninstall()
+		revision += 1
 	}
 
-	private func checkService() async {
-		let cli = CLISupport.shared
-		let node = await cli.ensureNode()
-		guard cli.isBundled else { report("Нет встроенной копии сервера (запуск из исходников).", ok: false); return }
-		let nodeText = node.map { "Node.js: \($0)" } ?? "Node.js не найден (нужен ≥ 20: `brew install node`)"
-		switch cli.installer.serviceMatchesBundle() {
-		case true?: report("Установлена и актуальна. \(nodeText)")
-		case false?: report("Установлена со старого места — её можно переустановить. \(nodeText)", ok: false)
-		case nil: report("Не установлена. \(nodeText)", ok: false)
+	/// Статус для настроек.
+	var pluginStatus: String {
+		_ = revision
+		let p = plugin
+		let place = (p.destination?.path ?? "~/.claude/skills/nessy").replacingOccurrences(of: NSHomeDirectory(), with: "~")
+		switch p.state() {
+		case .upToDate: return "Установлен: \(place) · версия \(p.bundled?.version ?? "?")"
+		case .missing: return "Не установлен (\(place))"
+		case .outdated(let v): return "Установлена версия \(v ?? "?"), в приложении \(p.bundled?.version ?? "?")"
+		case .notBundled: return "В этой сборке нет плагина (запуск из исходников)"
 		}
 	}
 
-	func installService() {
-		busy = true
-		Task {
-			defer { busy = false }
-			let cli = CLISupport.shared
-			if await cli.installService() { await checkService() } else { report(cli.lastError ?? "Не удалось установить службу.", ok: false) }
-		}
-	}
-
-	private var pluginDir: URL? { Bundle.main.resourceURL?.appendingPathComponent("orch/plugin") }
-
-	/// Установщик глобального скилла: папка скиллов — выбранная пользователем или `~/.claude/skills`.
-	static func skillInstaller() -> SkillInstaller {
-		let src = Bundle.main.resourceURL?.appendingPathComponent("orch/plugin/skills/nessy-orch")
-		if let d = UserDefaults.standard.string(forKey: "skillsDirectory"), !d.isEmpty { return SkillInstaller(source: src, root: URL(fileURLWithPath: d)) }
-		return SkillInstaller(source: src)
-	}
-
-	private func checkSkill() async {
-		let inst = Self.skillInstaller()
-		let place = inst.destination.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-		switch inst.state() {
-		case .notBundled: report("В приложении нет скилла (запуск из исходников).", ok: false)
-		case .missing: report("Глобально не установлен (в терминале приложения он подключается и так). Копия будет в \(place).", ok: false)
-		case .upToDate: report("Установлен глобально: \(place), версия совпадает с приложением.")
-		case .outdated: report("Установлен глобально, но старой версии: \(place). Его можно обновить.", ok: false)
-		}
-	}
-
-	func installSkill() {
-		do { try Self.skillInstaller().install(); Task { await checkSkill() } } catch { report(error.localizedDescription, ok: false) }
-	}
-	func removeSkill() {
-		do { try Self.skillInstaller().uninstall(); Task { await checkSkill() } } catch { report(error.localizedDescription, ok: false) }
-	}
-	func chooseSkillsFolder() {
-		let p = NSOpenPanel()
-		p.canChooseDirectories = true
-		p.canChooseFiles = false
-		p.canCreateDirectories = true
-		p.message = "Папка скиллов Claude (обычно ~/.claude/skills)"
-		p.directoryURL = URL(fileURLWithPath: NSHomeDirectory() + "/.claude")
-		guard p.runModal() == .OK, let u = p.url else { return }
-		UserDefaults.standard.set(u.path, forKey: "skillsDirectory")
-		installSkill()
-	}
-
-	func removeLink() {
-		try? CLISupport.shared.installer.uninstall()
-		checkCLI()
+	/// Служба launchd из встроенной копии сервера: `node <orch>/bin/nessy-orch install` (пишет plist и запускает).
+	@discardableResult
+	func installService() async -> Bool {
+		guard let script = service.script?.path else { return false }
+		guard let node = await Shell.run("command -v node").output.split(separator: "\n").last.map(String.init), node.hasPrefix("/") else { return false }
+		return await Shell.run("exec \(ShellQuote.quote(node)) \(ShellQuote.quote(script)) install", timeout: 60).status == 0
 	}
 }
 
@@ -233,61 +89,25 @@ enum Shell {
 	}
 }
 
-/// Мастер первичной настройки: один шаг на экране, действия решает пользователь.
-struct SetupView: View {
+/// Блок настроек «Плагин Claude»: статус, автоподключение, переустановка и удаление.
+struct InstallSettingsSection: View {
 	@Environment(AppModel.self) private var model
+	@AppStorage("autoPlugin") private var autoPlugin = true
 
 	var body: some View {
-		let s = model.setup
-		VStack(alignment: .leading, spacing: DS.Metrics.s4) {
-			HStack(spacing: DS.Metrics.s1) {
-				ForEach(SetupModel.Step.allCases) { st in
-					Capsule().fill(st.rawValue <= s.step.rawValue ? DS.Palette.accent : DS.Palette.hover).frame(height: 3)
-				}
-			}
-			VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-				Text(s.step.title).font(DS.Typography.panelTitle)
-				Text(s.step.lead).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).fixedSize(horizontal: false, vertical: true)
-			}
-			HStack(alignment: .top, spacing: DS.Metrics.s2) {
-				if s.busy { ProgressView().controlSize(.small) }
-				else { Image(systemName: s.statusOK ? "checkmark.circle.fill" : "exclamationmark.circle").foregroundStyle(s.statusOK ? DS.Palette.accent : DS.Palette.textSecondary) }
-				Text(s.busy ? "Проверяю…" : s.status).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary).fixedSize(horizontal: false, vertical: true)
-				Spacer(minLength: 0)
-			}
-			.padding(DS.Metrics.s3).frame(maxWidth: .infinity, alignment: .leading).dsGroup()
-			actions(s)
-			Spacer(minLength: 0)
+		let setup = model.setup
+		Section {
+			LabeledContent("Плагин nessy") { Text(setup.pluginStatus).foregroundStyle(.secondary).multilineTextAlignment(.trailing) }
+			Toggle("Подключать к Claude Code автоматически", isOn: $autoPlugin)
 			HStack {
-				if s.step != .claude { Button("Назад") { s.back() } }
-				Spacer()
-				Button("Закрыть мастер") { s.finish() }.buttonStyle(.plain).foregroundStyle(DS.Palette.textTertiary)
-				Button(s.isLast ? "Готово" : ((s.step == .cli || s.step == .skill) && !s.statusOK ? "Не нужно" : "Далее")) { s.next() }.keyboardShortcut(.defaultAction)
+				Button(setup.plugin.state() == .upToDate ? "Переустановить" : "Установить") { setup.installPlugin() }
+				Button("Удалить") { setup.removePlugin() }.disabled(setup.plugin.state() == .missing)
 			}
-		}
-		.padding(DS.Metrics.s5)
-		.frame(width: 520, height: 400)
-	}
-
-	@ViewBuilder private func actions(_ s: SetupModel) -> some View {
-		HStack(spacing: DS.Metrics.s2) {
-			switch s.step {
-			case .claude:
-				Button("Указать путь…") { s.chooseClaude() }
-				if UserDefaults.standard.string(forKey: "claudePath") != nil { Button("Искать в PATH") { s.forgetClaudePath() } }
-			case .cli:
-				Button("Создать ссылку") { s.installCLI() }.disabled(s.busy)
-				Button("Другая папка…") { s.chooseCLIFolder() }
-				if case .installed = CLISupport.shared.state { Button("Удалить ссылку") { s.removeLink() } }
-			case .skill:
-				Button(SetupModel.skillInstaller().state() == .outdated ? "Обновить" : "Установить") { s.installSkill() }
-					.disabled(s.busy || SetupModel.skillInstaller().state() == .upToDate)
-				Button("Другая папка…") { s.chooseSkillsFolder() }
-				if SetupModel.skillInstaller().state() != .missing { Button("Удалить") { s.removeSkill() } }
-			case .service:
-				Button("Установить и запустить") { s.installService() }.disabled(s.busy)
-			}
-			Spacer(minLength: 0)
+		} header: {
+			Text("Claude Code")
+		} footer: {
+			Text("Плагин (скилл nessy-orch, команда nessy-orch и хуки сессий) лежит в ~/.claude/skills/nessy и обновляется вместе с приложением. Работает в любом запуске claude.")
+				.foregroundStyle(DS.Palette.textSecondary)
 		}
 	}
 }

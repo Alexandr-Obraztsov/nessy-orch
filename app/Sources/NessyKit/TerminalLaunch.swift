@@ -46,19 +46,23 @@ public enum TerminalLaunch {
 
 	static func pairs(_ env: [String: String]) -> [String] { env.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" } }
 
-	/// Терминал окна: login-оболочка пользователя (`$SHELL`) в папке, с окружением сессии и прозрачными хуками Claude
-	/// (`ShellIntegration`). `command` — для проверок: выполнить и остаться в оболочке.
+	/// Оболочка пользователя: `$SHELL`, если она существует, иначе zsh.
+	public static func userShell(env: [String: String], fm: FileManager = .default) -> String {
+		if let s = env["SHELL"], s.hasPrefix("/"), fm.isExecutableFile(atPath: s) { return s }
+		return "/bin/zsh"
+	}
+
+	/// Терминал окна: login-оболочка пользователя (`$SHELL`) в папке, с окружением терминала (хуки плагина nessy читают
+	/// `NESSY_ORCH_TERMINAL`). `command` — для проверок: выполнить и остаться в оболочке.
 	public static func terminal(directory: String, sessionId: String?, terminalKey: String? = nil, orchestrator: URL, base: [String: String], command: String? = nil,
 								home: String = NSHomeDirectory(), fm: FileManager = .default) -> LaunchSpec {
-		let shell = ShellIntegration.userShell(env: base, fm: fm)
-		let kind = ShellIntegration.kind(ofShell: shell)
-		let layout = ShellIntegration.Layout(home: URL(fileURLWithPath: home))
+		let shell = userShell(env: base, fm: fm)
 		var env = environment(base: base, sessionId: sessionId, terminalKey: terminalKey, orchestrator: orchestrator, home: home)
 		env["NESSY_ORCH_DIR"] = directory
 		env["SHELL"] = shell
-		for (k, v) in ShellIntegration.environment(kind: kind, layout: layout, base: base, home: home) { env[k] = v }
-		return LaunchSpec(executable: shell, args: ShellIntegration.arguments(kind: kind, shell: shell, layout: layout, command: command),
-						  environment: pairs(env), directory: directory)
+		var args = ["-l"]
+		if let command { args = ["-l", "-i", "-c", "\(command); exec \(ShellQuote.quote(shell)) -l"] }
+		return LaunchSpec(executable: shell, args: args, environment: pairs(env), directory: directory)
 	}
 
 	/// Папка из ссылки: `nessy-orch://terminal?dir=<путь>` или файловый URL папки (открытие папки приложением).

@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "[ -z \"${NESSY_ORCH_TERMINAL}${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook start" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "[ -z \"${NESSY_ORCH_TERMINAL}${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook prompt" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "[ -z \"${NESSY_ORCH_TERMINAL}${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook stop" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "[ -z \"${NESSY_ORCH_TERMINAL}${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook end" }] }]
+  }
+}

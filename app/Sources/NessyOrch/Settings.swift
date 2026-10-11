@@ -37,7 +37,7 @@ struct GeneralSettings: View {
 					.onChange(of: login) { _, v in LoginItem.set(v); login = LoginItem.isEnabled }
 				Button("Роли агентов…") { openWindow(id: "roles") }
 			}
-			CLISettingsSection()
+			InstallSettingsSection()
 		}
 		.formStyle(.grouped)
 	}

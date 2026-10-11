@@ -76,26 +76,19 @@ struct TerminalLaunchTests {
 		#expect(e["PATH"] == "/Users/me/.local/bin:/usr/bin")
 	}
 
-	@Test func zshTerminalSpec() {
-		let t = TerminalLaunch.terminal(directory: "/w/x", sessionId: "s-1", orchestrator: url, base: base, home: "/Users/me")
+	@Test func terminalSpec() {
+		let t = TerminalLaunch.terminal(directory: "/w/x", sessionId: nil, terminalKey: "term-1", orchestrator: url, base: base, home: "/Users/me")
 		#expect(t.executable == "/bin/zsh" && t.args == ["-l"] && t.directory == "/w/x")
-		#expect(t.env["NESSY_ORCH_SESSION"] == "s-1")
+		#expect(t.env["NESSY_ORCH_TERMINAL"] == "term-1")
 		#expect(t.env["NESSY_ORCH_DIR"] == "/w/x")
-		#expect(t.env["ZDOTDIR"] == "/Users/me/.nessy-orch/zdotdir")
-		#expect(t.env["NESSY_USER_ZDOTDIR"] == "/Users/me")
-	}
-
-	@Test func userZdotdirIsPreserved() {
-		var b = base; b["ZDOTDIR"] = "/Users/me/.config/zsh"
-		let t = TerminalLaunch.terminal(directory: "/w", sessionId: nil, orchestrator: url, base: b, home: "/Users/me")
-		#expect(t.env["NESSY_USER_ZDOTDIR"] == "/Users/me/.config/zsh")
-		#expect(t.env["NESSY_ORCH_SESSION"] == nil)
+		#expect(t.env["ZDOTDIR"] == nil, "файлы оболочки пользователя не подменяются")
+		#expect(TerminalLaunch.userShell(env: ["SHELL": "/definitely/missing"]) == "/bin/zsh")
+		#expect(TerminalLaunch.userShell(env: ["SHELL": "/bin/bash"]) == "/bin/bash")
 	}
 
 	@Test func commandForChecks() {
-		let t = TerminalLaunch.terminal(directory: "/w", sessionId: "s", orchestrator: url, base: base, command: "type claude", home: "/Users/me")
-		#expect(t.args.prefix(3) == ["-l", "-i", "-c"])
-		#expect(t.args[3].hasPrefix("type claude; exec env ZDOTDIR='/Users/me/.nessy-orch/zdotdir' '/bin/zsh' -l"))
+		let t = TerminalLaunch.terminal(directory: "/w", sessionId: nil, orchestrator: url, base: base, command: "type claude", home: "/Users/me")
+		#expect(t.args == ["-l", "-i", "-c", "type claude; exec '/bin/zsh' -l"])
 	}
 
 	@Test func titleDirectoryAndUrls() {
@@ -112,105 +105,11 @@ struct TerminalLaunchTests {
 	}
 }
 
-@Suite("Интеграция оболочки")
-struct ShellIntegrationTests {
-	let layout = ShellIntegration.Layout(home: URL(fileURLWithPath: "/Users/me"))
-
-	@Test func pluginDirIsPassedToClaudeWhenPresent() {
-		let f = ShellIntegration.claudeFunction(settings: "/s.json", plugin: "/App/orch/plugin")
-		#expect(f.contains("--settings '/s.json' --plugin-dir '/App/orch/plugin'"))
-		#expect(!ShellIntegration.claudeFunction(settings: "/s.json").contains("--plugin-dir"))
-		#expect(ShellIntegration.wrapper(settings: "/s.json", plugin: "/p").contains("--plugin-dir '/p'"))
-	}
-
-	@Test func shellKinds() {
-		#expect(ShellIntegration.kind(ofShell: "/bin/zsh") == .zsh)
-		#expect(ShellIntegration.kind(ofShell: "/opt/homebrew/bin/bash") == .bash)
-		#expect(ShellIntegration.kind(ofShell: "/opt/homebrew/bin/fish") == .other)
-		#expect(ShellIntegration.userShell(env: ["SHELL": "/definitely/missing"]) == "/bin/zsh")
-		#expect(ShellIntegration.userShell(env: ["SHELL": "/bin/bash"]) == "/bin/bash")
-	}
-
-	@Test func functionQuotesPathAndKeepsUserSettings() {
-		let f = ShellIntegration.claudeFunction(settings: "/Users/o'neil/.nessy-orch/claude-hooks.json")
-		#expect(f.contains("'/Users/o'\\''neil/.nessy-orch/claude-hooks.json'"))
-		#expect(f.contains("--settings "))
-		#expect(f.contains("command claude \"$@\""))
-		#expect(f.contains(#"*" --settings "*|*" --settings="*)"#))
-	}
-
-	@Test func zshFilesDelegateToUserFiles() {
-		#expect(ShellIntegration.zshenv().contains("$_nessy_orig/.zshenv"))
-		#expect(ShellIntegration.zprofile().contains("$_nessy_orig/.zprofile"))
-		let rc = ShellIntegration.zshrc(settings: "/s.json")
-		#expect(rc.contains("source \"$_nessy_orig/.zshrc\""))
-		#expect(rc.contains("ZDOTDIR=\"$_nessy_orig\""))
-		#expect(rc.contains("claude() {"))
-		// функция определяется после пользовательского .zshrc
-		#expect(rc.range(of: "source \"$_nessy_orig/.zshrc\"")!.lowerBound < rc.range(of: "claude() {")!.lowerBound)
-	}
-
-	@Test func bashAndWrapper() {
-		let b = ShellIntegration.bashrc(settings: "/s.json")
-		#expect(b.contains("/etc/profile") && b.contains(".bash_profile") && b.contains("claude() {"))
-		let w = ShellIntegration.wrapper(settings: "/s.json")
-		#expect(w.hasPrefix("#!/bin/sh") && w.contains("exec claude --settings '/s.json'") && w.contains("grep -vxF"))
-	}
-
-	@Test func launchArgumentsAndEnvironment() {
-		#expect(ShellIntegration.arguments(kind: .zsh, shell: "/bin/zsh", layout: layout) == ["-l"])
-		#expect(ShellIntegration.arguments(kind: .bash, shell: "/bin/bash", layout: layout) == ["--rcfile", "/Users/me/.nessy-orch/bashrc", "-i"])
-		#expect(ShellIntegration.arguments(kind: .other, shell: "/usr/bin/fish", layout: layout) == ["-l"])
-		#expect(ShellIntegration.environment(kind: .bash, layout: layout, base: [:], home: "/Users/me").isEmpty)
-		#expect(ShellIntegration.environment(kind: .other, layout: layout, base: ["PATH": "/usr/bin"], home: "/Users/me")["PATH"] == "/Users/me/.nessy-orch/bin:/usr/bin")
-	}
-
-	@Test func installWritesFilesOnce() throws {
-		let home = FileManager.default.temporaryDirectory.appendingPathComponent("home-\(UUID().uuidString)")
-		defer { try? FileManager.default.removeItem(at: home) }
-		let l = ShellIntegration.Layout(home: home)
-		try ShellIntegration.install(layout: l)
-		for f in ShellIntegration.files(layout: l) { #expect(FileManager.default.fileExists(atPath: f.url.path)) }
-		#expect(FileManager.default.isExecutableFile(atPath: l.wrapper.path))
-		let m1 = try FileManager.default.attributesOfItem(atPath: l.bashrc.path)[.modificationDate] as? Date
-		try ShellIntegration.install(layout: l)
-		#expect(try FileManager.default.attributesOfItem(atPath: l.bashrc.path)[.modificationDate] as? Date == m1)
-		// файлы пользователя не появляются
-		#expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".zshrc").path))
-	}
-}
-
 @Suite("Хуки Claude и состояние")
 struct HooksTests {
-	@Test func settingsJSONHasFourHooks() throws {
-		let json = ClaudeHooks.settingsJSON(cli: "/Users/me/.local/bin/nessy-orch")
-		let obj = try #require(try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
-		let hooks = try #require(obj["hooks"] as? [String: Any])
-		#expect(Set(hooks.keys) == ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"])
-		let stop = try #require(hooks["Stop"] as? [[String: Any]])
-		let inner = try #require(stop[0]["hooks"] as? [[String: Any]])
-		#expect(inner[0]["type"] as? String == "command")
-		#expect(inner[0]["command"] as? String == "'/Users/me/.local/bin/nessy-orch' hook stop")
-		#expect(json.contains("hook prompt") && json.contains("hook start") && json.contains("hook end"))
-	}
-
 	@Test func quotingEscapesSingleQuotes() {
-		#expect(ClaudeHooks.shellQuote("a b") == "'a b'")
-		#expect(ClaudeHooks.shellQuote("it's") == "'it'\\''s'")
-		#expect(ClaudeHooks.command(cli: "/x y/nessy-orch", sub: "end") == "'/x y/nessy-orch' hook end")
-	}
-
-	@Test func writeIsIdempotent() throws {
-		let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hooks-\(UUID().uuidString)")
-		let url = dir.appendingPathComponent(".nessy-orch/claude-hooks.json")
-		defer { try? FileManager.default.removeItem(at: dir) }
-		try ClaudeHooks.write(cli: "/a/nessy-orch", to: url)
-		let t1 = try String(contentsOf: url, encoding: .utf8)
-		let m1 = try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
-		try ClaudeHooks.write(cli: "/a/nessy-orch", to: url)
-		#expect(try FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date == m1)
-		try ClaudeHooks.write(cli: "/b/nessy-orch", to: url)
-		#expect(try String(contentsOf: url, encoding: .utf8) != t1)
+		#expect(ShellQuote.quote("a b") == "'a b'")
+		#expect(ShellQuote.quote("it's") == "'it'\\''s'")
 	}
 
 	@Test func sessionClaudeStateDecodesWithFallback() throws {

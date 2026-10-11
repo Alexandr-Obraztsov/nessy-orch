@@ -43,7 +43,7 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
 ПРОСТРАНСТВА
   space add <путь> [--name N] [--url URL]    space ls    space rm <имя> [--force]
 
-ХУКИ CLAUDE CODE (их подключает приложение через claude --settings; нужна NESSY_ORCH_SESSION)
+ХУКИ CLAUDE CODE (их задаёт плагин nessy; работают в терминале приложения — нужна NESSY_ORCH_TERMINAL)
   hook start|prompt|stop|end   подмешивает в контекст Claude сводку агентов и новые ответы (stdin — JSON события хука)
 
 ПРИЛОЖЕНИЕ

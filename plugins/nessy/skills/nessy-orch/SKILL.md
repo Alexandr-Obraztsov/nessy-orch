@@ -10,7 +10,7 @@ description: Режим оркестратора над агентами nessy (
 результаты и сводишь их в ответ пользователю. Агенты nessy делают руками то, что тебе недоступно: GitLab, Jira,
 Sage, Wiki, долгая работа в чужом репозитории.
 
-Всё делается через Bash и CLI `nessy-orch` (его ставит приложение TClaude-Orch в `~/.local/bin/nessy-orch`; если нет в PATH — `~/.local/bin/nessy-orch` или `~/Projects/nessy-orch/bin/nessy-orch`).
+Всё делается через Bash и CLI `nessy-orch` (он лежит в `bin/` плагина nessy, который ставит приложение TClaude-Orch, и доступен как обычная команда).
 Во внутренности сервиса не лезь: не читай его исходники, не трогай `~/.nessy-orch/`, не вызывай HTTP API руками,
 не запускай `nessy serve` сам.
 

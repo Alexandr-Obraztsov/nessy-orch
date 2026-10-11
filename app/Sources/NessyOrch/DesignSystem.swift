@@ -12,10 +12,7 @@ enum DS {
 
 extension DS {
 	enum Palette {
-		static let windowBackground = Color.ds(0xF2F2F4, 0x1B1B1D)
 		/// фон терминала и окна-терминала: один цвет (шапка, углы за панелью и терминал не выделяются)
-		/// колонка боковой панели: чуть светлее терминала
-		static let sidebarSurface = Color.ds(0xF3F3F5, 0x1C1C1E)
 		/// плитка боковой панели: один ровный цвет
 		static let panelSurface = Color.ds(0xF7F7F9, 0x242427)
 		static let terminalBackground = Color.ds(0xFBFBFC, 0x1C1C1E)
@@ -170,14 +167,6 @@ extension View {
 			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
 	}
 
-	/// Плавающая панель на Liquid Glass, как системный сайдбар.
-	func dsGlassPanel() -> some View { modifier(DSGlassPanel()) }
-
-	/// Стекло — только слой управления (тосты, плавающие кнопки). Тинт — только у главного действия.
-	func dsControlGlass(prominent: Bool = false) -> some View {
-		self.glassEffect(.regular.tint(prominent ? DS.Palette.accent : nil).interactive(), in: Capsule())
-	}
-
 	func dsHover(active: Bool = true) -> some View { modifier(DSHover(active: active)) }
 }
 
@@ -203,15 +192,6 @@ private struct DSPanelSurface: ViewModifier {
 			.overlay(shape.stroke(DS.Palette.separator, lineWidth: contrast == .increased ? DS.Metrics.hairlineHC : DS.Metrics.hairline))
 			.shadow(color: .black.opacity(0.18), radius: 24, y: 8)
 			.shadow(color: .black.opacity(0.08), radius: 2, y: 1)
-	}
-}
-
-private struct DSGlassPanel: ViewModifier {
-	func body(content: Content) -> some View {
-		let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(DS.Metrics.panelRadiusFallback)), isUniform: true)
-		content
-			.clipShape(shape)
-			.glassEffect(.regular, in: shape)
 	}
 }
 
@@ -506,22 +486,6 @@ struct GlassIconButton: View {
 	}
 }
 
-/// Меню в виде круглой стеклянной кнопки-иконки.
-struct GlassIconMenu<Content: View>: View {
-	var systemImage: String
-	var help: String
-	var size: CGFloat = DS.Metrics.button
-	var prominent = false
-	@ViewBuilder var content: Content
-	var body: some View {
-		Menu { content } label: { Image(systemName: systemImage) }
-			.menuStyle(.button).menuIndicator(.hidden)
-			.buttonStyle(GlassCircleStyle(size: size, prominent: prominent))
-			.fixedSize()
-			.help(help).accessibilityLabel(help)
-	}
-}
-
 // MARK: - Простые кнопки внутри панели (без стекла)
 
 /// Иконка без плашки: при наведении лёгкая подложка. Внутри панели агентов стеклянных кнопок нет — стекло только у шапки и самой панели.
@@ -550,23 +514,3 @@ struct PlainIconButton: View {
 	}
 }
 
-struct PlainIconMenu<Content: View>: View {
-	var systemImage: String
-	var help: String
-	var size: CGFloat = 28
-	@ViewBuilder var content: Content
-	@State private var hover = false
-	var body: some View {
-		Menu { content } label: {
-			Image(systemName: systemImage)
-				.font(.system(size: 13, weight: .semibold))
-				.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
-				.frame(width: size, height: size)
-				.background(hover ? DS.Palette.hover : .clear, in: Circle())
-				.contentShape(Circle())
-		}
-		.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-		.onHover { hover = $0 }
-		.help(help).accessibilityLabel(help)
-	}
-}

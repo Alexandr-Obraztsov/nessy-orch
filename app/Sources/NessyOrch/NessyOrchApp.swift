@@ -107,21 +107,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		let model = AppModel.shared
-		// «просто запустил приложение — всё доступно»: ссылка на встроенный CLI и, если нужно, служба оркестратора
-		CLISupport.shared.autoSetup {
-			await model.store.refreshStatus()
-			if case .online = model.store.daemon { return true }
-			return false
-		}
-		// первый запуск: мастер спрашивает про глобальную команду и скилл; дальше он открывается сам, только если без него не заработает
-		// (нет claude, Node.js или службы). Уже установленную глобальную копию скилла молча обновляем при смене версии приложения.
+		// «просто запустил приложение — оркестрация работает»: служба оркестратора и плагин nessy в Claude Code (глобально) ставятся и обновляются сами;
+		// окно «Установка» — на первом запуске и если нужно участие (нет claude или Node.js)
 		if UserDefaults.standard.string(forKey: "debug.terminalCommand") == nil {
-			let inst = SetupModel.skillInstaller()
-			if inst.state() == .outdated { try? inst.install() }
-			Task { @MainActor in
-				try? await Task.sleep(for: .seconds(3.5))
-				if SetupModel.firstRun { model.setup.start() }
-				else if await SetupModel.problemsExist() { model.setup.start() }
+			model.setup.launch {
+				await model.store.refreshStatus()
+				if case .online = model.store.daemon { return true }
+				return false
 			}
 		}
 		NSApp.setActivationPolicy(UserDefaults.standard.bool(forKey: "menuBarOnly") ? .accessory : .regular)

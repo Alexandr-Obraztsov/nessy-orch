@@ -1,6 +1,6 @@
 /**
- * Хуки Claude Code: `nessy-orch hook start|prompt|stop|end`. Приложение запускает Claude с `--settings` (хуки на эти команды) и
- * переменной NESSY_ORCH_SESSION; хук читает JSON события из stdin и печатает JSON-ответ в stdout (формат — domain/hooks.ts).
+ * Хуки Claude Code: `nessy-orch hook start|prompt|stop|end`. Хуки задаёт плагин nessy (`hooks/hooks.json`), терминал приложения даёт
+ * переменную NESSY_ORCH_TERMINAL; хук читает JSON события из stdin и печатает JSON-ответ в stdout (формат — domain/hooks.ts).
  * Хук не должен ломать Claude: любая ошибка (оркестратор недоступен, нет переменной) — тихий выход с кодом 0 и пустым выводом.
  */
 import * as fs from 'node:fs'
