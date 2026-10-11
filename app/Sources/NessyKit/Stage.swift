@@ -81,7 +81,10 @@ public extension AgentView {
 		guard let t = lastTool else { return nil }
 		let v = ToolNames.view(name: t.name, title: t.title, input: [:])
 		if v.name == "Bash" { return v.arg.isEmpty ? nil : v.arg }
-		return v.arg.isEmpty ? v.name : v.name + " " + v.arg
+		// понятная фраза о вызове («Читает retry.ts», «Прочитал retry.ts»), а не «Read src/net/retry.ts»
+		let p = ToolPhrases.of(v)
+		if status == .working || status == .starting { return p.present }
+		return p.past.prefix(1).uppercased() + p.past.dropFirst()
 	}
 
 	/// Что агент делает сейчас, сырым текстом: текущий пункт плана, иначе (план кончился или его нет) последняя команда.
@@ -153,5 +156,66 @@ public enum PlanWindowing {
 	/// Текущий шаг: первый «в работе», иначе первый не выполненный; все выполнены — nil.
 	public static func current(_ entries: [PlanEntry]) -> Int? {
 		entries.firstIndex { $0.status == .inProgress } ?? entries.firstIndex { $0.status == .pending }
+	}
+}
+
+// MARK: сводка вызовов инструментов
+
+/// Вид вызова инструмента: по нему рисуется значок и считается сводка «Запустил 3 команды · прочитал 2 файла».
+public enum ToolKind: Int, CaseIterable, Sendable {
+	case command, read, edit, search, web, other
+
+	public static func of(name: String) -> ToolKind {
+		switch name {
+		case "Bash": .command
+		case "Read", "LS": .read
+		case "Write", "Edit": .edit
+		case "Grep", "Glob": .search
+		case "WebFetch", "WebSearch": .web
+		default: .other
+		}
+	}
+
+	/// SF Symbol для значка вызова.
+	public var symbol: String {
+		switch self {
+		case .command: "terminal"
+		case .read: "doc.text"
+		case .edit: "pencil"
+		case .search: "magnifyingglass"
+		case .web: "globe"
+		case .other: "wrench.and.screwdriver"
+		}
+	}
+}
+
+public enum ToolSummary {
+	/// «Запустил 3 команды · прочитал 2 файла · изменил файл». Служебные (план, размышления) не считаются; пусто — считать нечего.
+	public static func text(_ tools: [AgentEvent.ToolEvent]) -> String {
+		var counts: [ToolKind: Int] = [:]
+		for t in tools {
+			let name = t.view.name
+			if name == "TodoWrite" || name == "Think" { continue }
+			counts[ToolKind.of(name: name), default: 0] += 1
+		}
+		var parts: [String] = []
+		for k in ToolKind.allCases {
+			guard let n = counts[k], n > 0 else { continue }
+			parts.append(phrase(k, n))
+		}
+		guard !parts.isEmpty else { return Numbers.count(tools.count, "вызов", "вызова", "вызовов") }
+		let s = parts.joined(separator: " · ")
+		return s.prefix(1).uppercased() + s.dropFirst()
+	}
+
+	static func phrase(_ k: ToolKind, _ n: Int) -> String {
+		switch k {
+		case .command: "запустил " + Numbers.count(n, "команду", "команды", "команд")
+		case .read: "прочитал " + Numbers.count(n, "файл", "файла", "файлов")
+		case .edit: "изменил " + Numbers.count(n, "файл", "файла", "файлов")
+		case .search: "поискал " + Numbers.count(n, "раз", "раза", "раз")
+		case .web: "сходил в сеть " + Numbers.count(n, "раз", "раза", "раз")
+		case .other: "вызвал " + Numbers.count(n, "инструмент", "инструмента", "инструментов")
+		}
 	}
 }

@@ -331,7 +331,8 @@ extension AnswerText {
 }
 
 
-/// Подряд идущие вызовы: «▸ 4 шага · 1:12  прочитал retry.ts · …»; в подробном — каждый вызов с вводом/выводом.
+/// Подряд идущие вызовы инструментов — как в чатах агентов: одна строка-сводка «Запустил 3 команды · прочитал 2 файла ›», по нажатию — список вызовов
+/// со значками видов (терминал, файл, карандаш, поиск, сеть); работающий вызов показан бегущей строкой, ошибки — красным.
 struct ToolRunView: View {
 	var tools: [AgentEvent.ToolEvent]
 	var verbose: Bool
@@ -340,35 +341,35 @@ struct ToolRunView: View {
 	var body: some View {
 		let isOpen = open ?? verbose
 		let failed = tools.filter { $0.status == .failed }.count
+		let running = tools.last { $0.status == .inProgress || $0.status == .pending }
 		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 			Button { withAnimation(dsAnimation(DS.Motion.disclosure)) { open = !isOpen } } label: {
-				HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
+				HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s1) {
+					Text(ToolSummary.text(tools)).foregroundStyle(DS.Palette.textSecondary).lineLimit(2).multilineTextAlignment(.leading)
+					if let d = span { Text("· \(Durations.clock(d * 1000))").foregroundStyle(DS.Palette.textTertiary).monospacedDigit() }
+					if failed > 0 { Text("· ошибок \(failed)").foregroundStyle(DS.Palette.danger) }
 					Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold))
 						.rotationEffect(.degrees(isOpen ? 90 : 0))
-						.foregroundStyle(DS.Palette.textSecondary)
-					VStack(alignment: .leading, spacing: 2) {
-						HStack(spacing: DS.Metrics.s1) {
-							Text(Numbers.count(tools.count, "шаг", "шага", "шагов")).foregroundStyle(DS.Palette.textPrimary)
-							if let d = span { Text("· \(Durations.clock(d * 1000))").foregroundStyle(DS.Palette.textSecondary).monospacedDigit() }
-							if failed > 0 { Text("· ошибок \(failed)").foregroundStyle(DS.Palette.danger) }
-							if tools.contains(where: { $0.status == .inProgress }) { DSStateGlyph(state: .working, size: DS.Metrics.s3) }
-						}
-						if !isOpen {
-							Text(tools.map { ToolPhrases.of($0.view).past }.joined(separator: " · "))
-								.foregroundStyle(DS.Palette.textSecondary).lineLimit(2)
-						}
-					}
+						.foregroundStyle(DS.Palette.textTertiary)
 					Spacer(minLength: 0)
 				}
 				.font(DS.Typography.secondary)
 				.contentShape(Rectangle())
 			}
 			.buttonStyle(.plain)
+			// пока вызов идёт, под сводкой — что делается прямо сейчас
+			if let r = running, !isOpen {
+				HStack(spacing: DS.Metrics.s2) {
+					DSStateGlyph(state: .working, size: DS.Metrics.s3)
+					Text(ToolPhrases.of(r.view).present).foregroundStyle(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
+				}
+				.font(DS.Typography.caption)
+			}
 			if isOpen {
 				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 					ForEach(tools, id: \.seq) { ToolCallRow(tool: $0, verbose: verbose) }
 				}
-				.padding(.leading, DS.Metrics.s5)
+				.padding(.leading, DS.Metrics.s3)
 				.transition(.opacity)
 			}
 		}
@@ -380,6 +381,7 @@ struct ToolRunView: View {
 	}
 }
 
+/// Один вызов: значок вида (терминал, файл, карандаш…), что сделано, длительность; в подробном режиме — ввод и вывод.
 struct ToolCallRow: View {
 	var tool: AgentEvent.ToolEvent
 	var verbose: Bool
@@ -387,25 +389,23 @@ struct ToolCallRow: View {
 
 	var body: some View {
 		let phrase = ToolPhrases.of(tool.view)
+		let kind = ToolKind.of(name: tool.view.name)
 		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
-			Button { if verbose { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } } } label: {
+			Button { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } } label: {
 				HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
 					Group {
 						switch tool.status {
-						case .completed: Image(systemName: "checkmark").foregroundStyle(DS.Palette.quiet)
-						case .failed: Image(systemName: "xmark").foregroundStyle(DS.Palette.danger)
 						case .inProgress, .pending: DSStateGlyph(state: .working, size: DS.Metrics.s3)
+						case .failed: Image(systemName: kind.symbol).foregroundStyle(DS.Palette.danger)
+						case .completed: Image(systemName: kind.symbol).foregroundStyle(DS.Palette.textTertiary)
 						}
 					}
-					.font(DS.Typography.caption.weight(.semibold)).frame(width: DS.Metrics.s3)
-					Text(phrase.present).foregroundStyle(DS.Palette.textPrimary).lineLimit(1).truncationMode(.middle)
+					.font(DS.Typography.caption).frame(width: DS.Metrics.s4)
+					Text(tool.status == .inProgress || tool.status == .pending ? phrase.present : phrase.past.prefix(1).uppercased() + phrase.past.dropFirst())
+						.foregroundStyle(tool.status == .failed ? DS.Palette.danger : DS.Palette.textPrimary).lineLimit(1).truncationMode(.middle)
 					Spacer(minLength: DS.Metrics.s2)
-					if let d = tool.duration {
-						Text(String(format: "%.1f с", d).replacingOccurrences(of: ".", with: ",")).monospacedDigit().foregroundStyle(DS.Palette.textSecondary)
-					}
-					if verbose, tool.output != nil || !tool.input.isEmpty {
-						Image(systemName: "chevron.down").font(DS.Typography.caption).rotationEffect(.degrees(open ? 180 : 0))
-							.foregroundStyle(DS.Palette.textSecondary)
+					if let d = tool.duration, d >= 0.1 {
+						Text(String(format: "%.1f с", d).replacingOccurrences(of: ".", with: ",")).monospacedDigit().foregroundStyle(DS.Palette.textTertiary)
 					}
 				}
 				.font(DS.Typography.secondary)

@@ -614,3 +614,24 @@ struct WindowSessionsTests {
 		#expect(WindowSessions.current([], origin: "w") == "w")
 	}
 }
+
+@Suite("Сводка вызовов инструментов")
+struct ToolSummaryTests {
+	func tool(_ name: String, _ seq: Int = 0) -> AgentEvent.ToolEvent {
+		AgentEvent.ToolEvent(seq: seq, ts: 0, toolId: "t\(seq)", name: name, title: name, input: [:], status: .completed, output: nil, endedTs: 1)
+	}
+
+	@Test func summaryCountsByKind() {
+		let t = [tool("Bash", 1), tool("Bash", 2), tool("Bash", 3), tool("Read", 4), tool("Read", 5), tool("Edit", 6), tool("Grep", 7)]
+		#expect(ToolSummary.text(t) == "Запустил 3 команды · прочитал 2 файла · изменил 1 файл · поискал 1 раз")
+		#expect(ToolSummary.text([tool("Bash")]) == "Запустил 1 команду")
+		#expect(ToolSummary.text([tool("TodoWrite"), tool("Think")]) == "2 вызова", "служебные вызовы не считаются видами")
+		#expect(ToolSummary.text([tool("custom_mcp_tool"), tool("custom_mcp_tool", 1)]) == "Вызвал 2 инструмента")
+	}
+
+	@Test func kindsAndSymbols() {
+		#expect(ToolKind.of(name: "Write") == .edit)
+		#expect(ToolKind.of(name: "WebSearch") == .web)
+		#expect(ToolKind.command.symbol == "terminal")
+	}
+}
