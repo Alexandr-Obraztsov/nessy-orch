@@ -81,10 +81,7 @@ public extension AgentView {
 		guard let t = lastTool else { return nil }
 		let v = ToolNames.view(name: t.name, title: t.title, input: [:])
 		if v.name == "Bash" { return v.arg.isEmpty ? nil : v.arg }
-		// понятная фраза о вызове («Читает retry.ts», «Прочитал retry.ts»), а не «Read src/net/retry.ts»
-		let p = ToolPhrases.of(v)
-		if status == .working || status == .starting { return p.present }
-		return p.past.prefix(1).uppercased() + p.past.dropFirst()
+		return v.arg.isEmpty ? v.name : v.name + " " + v.arg
 	}
 
 	/// Что агент делает сейчас, сырым текстом: текущий пункт плана, иначе (план кончился или его нет) последняя команда.
