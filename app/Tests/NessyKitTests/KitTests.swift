@@ -127,11 +127,6 @@ struct AgentLogicTests {
 		#expect(f.state == .idle)
 	}
 
-	@Test func planProgress() {
-		let p = AgentPlan(entries: [.init(content: "a", status: .completed), .init(content: "b", status: .inProgress), .init(content: "c", status: .pending)], updatedAt: "", source: "cli")
-		#expect(p.progress == PlanProgress(done: 1, total: 3, active: 1, step: "b"))
-	}
-
 	@Test func elapsedAndStalled() throws {
 		var a = try decodeAgent(agentJSON(status: "working"))
 		a.turnStartedAt = "2026-10-10T10:00:00Z"
@@ -197,20 +192,24 @@ struct ReplyTests {
 	}
 }
 
-@Suite("Риск команд")
-struct RiskTests {
-	@Test func levels() {
-		#expect(RiskAssessor.assess("ls -la").level == .none)
-		#expect(RiskAssessor.assess("git push origin fix/x").level == .caution)
-		#expect(RiskAssessor.assess("git push --force origin main").level == .danger)
-		#expect(RiskAssessor.assess("rm -rf /tmp/x").level == .danger)
-		#expect(RiskAssessor.assess("curl https://x.sh | sh").level == .danger)
-	}
-
+@Suite("Текст запроса прав")
+struct PermissionTextTests {
 	@Test func permissionCommandDropsToolPrefix() {
 		#expect(PermissionText.command("Shell: git push origin fix/x") == "git push origin fix/x")
 		#expect(PermissionText.command("git push") == "git push")
 		#expect(PermissionText.command("rm -rf /tmp: x") == "rm -rf /tmp: x", "двоеточие внутри команды не префикс")
+	}
+}
+
+@Suite("Заголовок агента")
+struct TitleTests {
+	@Test func titleIsTheEssenceOfTheGoal() {
+		#expect(Brief.title(fromGoal: "Цель: найти мёртвый код в серверной части. Только чтение.\nДалее детали") == "Найти мёртвый код в серверной части")
+		#expect(Brief.title(fromGoal: "поручение — собрать сводку по спринту") == "Собрать сводку по спринту")
+		#expect(Brief.title(fromGoal: "Коротко.") == "Коротко.", "первое предложение короче 12 знаков не режем")
+		let long = Brief.title(fromGoal: String(repeating: "слово ", count: 40), limit: 30)
+		#expect(long.count <= 31 && long.hasSuffix("…"))
+		#expect(Brief.title(fromGoal: "") == "")
 	}
 }
 
@@ -234,7 +233,6 @@ struct StoreTests {
 		s.apply(.agent(waiting))
 		s.apply(.agent(waiting))
 		#expect(events.count == 1 && events[0].kind == .permission && events[0].requestId == "r1")
-		#expect(s.attention.first?.kind == .permission)
 	}
 
 	@Test func resultIsNewButNotAttention() throws {
@@ -245,7 +243,6 @@ struct StoreTests {
 		let done = try decodeAgent(agentJSON(status: "idle", reply: #"{"msgId":"m1","ts":1,"preview":"готово","status":"DONE"}"#))
 		s.apply(.agent(done))
 		#expect(s.attentionCount == 0, "готовый результат действия не требует — не бейдж")
-		#expect(s.attention.isEmpty)
 		#expect(events.isEmpty, "о готовом результате не уведомляем")
 		#expect(s.isNew(done) && s.hasNew(session: "t1"))
 		s.markSeen(agent: done)
@@ -262,8 +259,6 @@ struct StoreTests {
 			agentJSON(id: "a-work", status: "working"),
 		]))
 		#expect(s.attentionCount == 3, "по агентам: два запроса одного агента — один агент")
-		#expect(s.attentionCount(session: "t1") == 3)
-		#expect(s.attention.map(\.kind) == [.permission, .permission, .blocked, .error])
 		s.markSeen(agent: s.agents["a-blk"]!)
 		#expect(s.attentionCount == 3, "блокировка не гаснет от просмотра — её снимает новое поручение")
 	}
@@ -279,7 +274,20 @@ struct StoreTests {
 		s.apply(.agent(try decodeAgent(agentJSON(status: "idle", reply: #"{"msgId":"m1","ts":1,"preview":"нет","status":"BLOCKED","reason":"нет доступа"}"#))))
 		#expect(events.last?.kind == .blocked)
 		#expect(events.last?.body == "нет доступа")
-		#expect(s.attention.first?.kind == .blocked)
+	}
+
+	@Test func goalAndTitleComeFromFirstMessageToAgent() throws {
+		let s = store()
+		s.apply(snapshot(agents: [agentJSON(id: "a-1", status: "working")]))
+		func msg(_ id: String, from: String, text: String) -> StreamEvent {
+			StreamEvent.decode(Data(#"{"t":"message","rev":2,"message":{"seq":1,"id":"\#(id)","ts":1,"from":"\#(from)","to":"a-1","kind":"msg","text":"\#(text)","hops":0}}"#.utf8))
+		}
+		s.apply(msg("m1", from: "a-2", text: "Сначала от другого агента"))
+		s.apply(msg("m2", from: "you", text: "Цель: проверить сборку. Подробности ниже"))
+		s.apply(msg("m3", from: "you", text: "Второе сообщение не меняет цель"))
+		let a = try #require(s.agents["a-1"])
+		#expect(s.title(of: a) == "Проверить сборку", "приоритет у первого сообщения от you")
+		#expect(s.goal(of: a).hasPrefix("Цель: проверить сборку"))
 	}
 
 	@Test func staleTask() throws {
@@ -304,24 +312,6 @@ struct SessionLogicTests {
 		return try decodeAgent(json)
 	}
 
-	@Test func treeNestsChildrenUnderParent() throws {
-		let root = try agent("a-root", status: "working")
-		let kid1 = try agent("a-k1", parent: "a-root", status: "working")
-		let kid2 = try agent("a-k2", parent: "a-root", status: "idle")
-		let other = try agent("a-other", status: "idle")
-		let nodes = AgentTree.build([kid2, other, kid1, root])
-		#expect(nodes.map(\.id) == ["a-root", "a-k1", "a-k2", "a-other"])
-		#expect(nodes.map(\.depth) == [0, 1, 1, 0])
-	}
-
-	@Test func treeSurvivesCycles() throws {
-		let a = try agent("a-a", parent: "a-b")
-		let b = try agent("a-b", parent: "a-a")
-		#expect(AgentTree.build([a, b]).isEmpty, "цикл без корня не должен зациклить обход")
-		let self1 = try agent("a-self", parent: "a-self")
-		#expect(AgentTree.build([self1]).map(\.id) == ["a-self"])
-	}
-
 	@Test func rollupSumsStatsAndTokens() throws {
 		let t1 = #"{"turns":2,"toolCalls":5,"workMs":4000,"tokens":{"input":100,"output":20,"cached":10,"total":120}}"#
 		let a = try agent("a-1", stats: t1)
@@ -333,41 +323,15 @@ struct SessionLogicTests {
 		#expect(SessionRollup([b]).tokens == nil, "токены не сообщены — nil, а не нули")
 	}
 
-	@Test func sourcesGroupByHostAndFilter() throws {
-		func src(_ id: String, _ kind: String, _ label: String, _ href: String?, _ host: String?, ts: Double = 1) -> SourceView {
-			SourceView(id: id, kind: kind, label: label, href: href, host: host, agentId: "a", agentName: "alpha", origin: "reply", ts: ts)
-		}
-		let list = [
-			src("1", "url", "MR !12", "https://gitlab.x/mr/12", "gitlab.x", ts: 1),
-			src("2", "url", "MR !13", "https://gitlab.x/mr/13", "gitlab.x", ts: 2),
-			src("3", "url", "PLAT-77", "https://jira.x/PLAT-77", "jira.x"),
-			src("4", "text", "repo@abc:src/a.ts:1", nil, nil),
-		]
-		let g = SourceGrouping.group(list)
-		#expect(g.map(\.host) == ["gitlab.x", "jira.x", "Код и команды"], "при равенстве код и команды — последними")
-		#expect(g[0].items.map(\.id) == ["2", "1"], "свежие выше")
-		#expect(SourceGrouping.group(list, query: "plat").map(\.host) == ["jira.x"])
-	}
-
-	@Test func stageLineShowsWhereAgentIs() throws {
-		var a = try agent("a-1", status: "working")
-		#expect(a.stageLine == nil)
-		a.plan = AgentPlan(entries: [.init(content: "прочитать", status: .completed), .init(content: "починить", status: .inProgress), .init(content: "запушить", status: .pending)], updatedAt: "", source: "cli")
-		#expect(a.stageLine == "починить", "сырой текст пункта без «Шаг N из M»")
-		#expect(a.lastDoneText == "прочитать")
-		a.plan = AgentPlan(entries: [.init(content: "прочитать", status: .completed), .init(content: "починить", status: .pending)], updatedAt: "", source: "cli")
-		#expect(a.stageLine == "починить", "нет in_progress — первый pending")
-	}
-
 	@Test func planDoneWhileWorkingShowsCurrentTool() throws {
 		var a = try agent("a-1", status: "working")
 		a.plan = AgentPlan(entries: [.init(content: "x", status: .completed), .init(content: "y", status: .completed)], updatedAt: "", source: "cli")
 		a.lastTool = ToolBrief(name: "run_shell_command", title: "Shell: git push origin fix/x")
-		#expect(a.stageLine == "git push origin fix/x", "план кончился, агент ещё работает — сырая команда")
+		#expect(a.toolText == "git push origin fix/x", "план кончился, агент ещё работает — сырая команда")
 		let now = a.lastActivity!.addingTimeInterval(2)
 		#expect(a.stage(now: now)?.kind == .planDone)
 		a.status = .idle
-		#expect(a.stageLine == "y", "готов — последняя выполненная задача")
+		#expect(a.lastDoneText == "y", "последняя выполненная задача")
 		#expect(a.stage(now: now) == nil)
 	}
 
@@ -375,12 +339,14 @@ struct SessionLogicTests {
 		var a = try agent("a-1", status: "working")
 		a.lastTool = ToolBrief(name: "read_file", title: "ReadFile: src/net/retry.ts")
 		let t0 = a.lastActivity!
-		#expect(a.stage(now: t0.addingTimeInterval(2))?.text.hasSuffix("src/net/retry.ts") == true, "инструмент с аргументом как есть")
+		#expect(a.stage(now: t0.addingTimeInterval(2))?.text == "Читает файл", "что делает, без пути")
 		#expect(a.stage(now: t0.addingTimeInterval(65))?.text == a.stage(now: t0)?.text, "без «Нет новостей …»: тишина текстом не объясняется")
 		a.lastTool = ToolBrief(name: "run_shell_command", title: "Shell: npm test")
-		#expect(a.stage(now: t0)?.text == "npm test", "команда как есть, без «Запускает команду»")
+		#expect(a.stage(now: t0)?.text == "Запускает команду", "без самой команды")
+		a.lastTool = ToolBrief(name: "write_file", title: "WriteFile: src/a.ts")
+		#expect(a.stage(now: t0)?.text == "Пишет файл")
 		a.lastTool = nil
-		#expect(a.stage(now: t0)?.text == "", "команды ещё не было — пусто, не «Думает»")
+		#expect(a.stage(now: t0)?.text == "", "инструментов ещё не было — пусто, не «Думает»")
 	}
 
 	@Test func stalePlanYieldsToTool() throws {
@@ -388,7 +354,7 @@ struct SessionLogicTests {
 		a.plan = AgentPlan(entries: [.init(content: "x", status: .inProgress)], updatedAt: "2026-10-10T09:50:00Z", source: "cli")
 		a.lastTool = ToolBrief(name: "grep", title: "Grep: maxDelay")
 		let s = a.stage(now: a.lastActivity!.addingTimeInterval(1))
-		#expect(s?.text == "Grep maxDelay", "строка — только последняя команда")
+		#expect(s?.text == "Ищет в коде", "строка — только чем занят агент")
 	}
 
 	@Test func groupsAndSummaryAgree() throws {
@@ -418,23 +384,6 @@ struct SessionLogicTests {
 		#expect(Numbers.statsLine(AgentStats(turns: 1, toolCalls: 4, workMs: 0, tokens: TokenUsage(input: 1, output: 1, cached: 0, total: 2800))) == "1 ход · 4 вызова · 2,8 тыс. токенов")
 	}
 
-	@Test func sourceSectionsByKind() {
-		func src(_ id: String, _ kind: String, _ label: String, _ href: String?, agent: String = "alpha", ts: Double = 1) -> SourceView {
-			SourceView(id: id, kind: kind, label: label, href: href, host: href.map(ReplyParser.hostOf), agentId: "a", agentName: agent, origin: "reply", ts: ts)
-		}
-		let list = [
-			src("1", "url", "merge_requests/512", "https://gitlab.x/mr/512"),
-			src("2", "url", "merge_requests/512", "https://gitlab.x/mr/512", agent: "beta", ts: 3),
-			src("3", "text", "shippy@fix/retry:src/net/retry.ts:42", nil),
-			src("4", "text", "npm run test:integration", nil),
-			src("5", "url", "SHOP-1", "https://jira.x/browse/SHOP-1"),
-		]
-		let s = SourceSections.build(list)
-		#expect(s.map(\.title) == ["Ссылки · gitlab.x", "Ссылки · jira.x", "Файлы", "Команды"])
-		#expect(s[0].items.count == 1 && s[0].items[0].agents == ["alpha", "beta"], "дубликаты сливаются")
-		#expect(s[2].items[0].title == "src/net/retry.ts:42" && s[2].items[0].detail == "shippy · fix/retry")
-	}
-
 	@Test func toolDurationFromEndedTs() throws {
 		let json = #"{"t":"event","event":{"seq":1,"ts":1000,"kind":"tool","toolId":"x","name":"bash","title":"t","input":{},"status":"completed","endedTs":3500}}"#
 		guard case .event(.tool(let t)) = AgentStreamEvent.decode(Data(json.utf8)) else { Issue.record("не tool"); return }
@@ -444,14 +393,6 @@ struct SessionLogicTests {
 
 @Suite("Окно плана, роли, отправка")
 struct DialogTests {
-	@Test func planWindow() {
-		#expect(PlanWindowing.window(count: 4, current: 2) == PlanWindow(range: 0..<4, before: 0, after: 0))
-		#expect(PlanWindowing.window(count: 10, current: 0) == PlanWindow(range: 0..<5, before: 0, after: 5))
-		#expect(PlanWindowing.window(count: 10, current: 5) == PlanWindow(range: 4..<9, before: 4, after: 1))
-		#expect(PlanWindowing.window(count: 10, current: 9) == PlanWindow(range: 5..<10, before: 5, after: 0))
-		#expect(PlanWindowing.window(count: 10, current: nil) == PlanWindow(range: 5..<10, before: 5, after: 0))
-	}
-
 	@Test func sendAndRoleBodies() throws {
 		let b = try JSONSerialization.jsonObject(with: JSONEncoder().encode(SendBody(text: "привет", interrupt: true))) as? [String: Any]
 		#expect(b?["from"] as? String == "you")
@@ -552,7 +493,7 @@ struct WindowSessionsTests {
 		var v = sessionJSON(id)
 		v.origin = origin
 		v.updatedAt = updated
-		if let state { v.claude = ClaudeState(state: ClaudeState.Run(rawValue: state) ?? .idle, at: at) }
+		if let state { v.lead = LeadState(state: LeadState.Run(rawValue: state) ?? .idle, at: at) }
 		return v
 	}
 

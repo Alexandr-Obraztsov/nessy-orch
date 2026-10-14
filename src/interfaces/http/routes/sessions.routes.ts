@@ -1,7 +1,7 @@
 /** Маршруты сессий оркестраторов. */
 import { AppError } from '../../../domain/errors'
 import { isObject } from '../../../lib/json'
-import { parseClaudeState, parseSessionPatch, parseSessionRequest, parseSessionStatus } from '../parsers'
+import { parseLeadState, parseSessionPatch, parseSessionRequest, parseSessionStatus } from '../parsers'
 import { readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -30,11 +30,11 @@ export function registerSessionRoutes(r: Router): void {
 		const b = await readBody(req)
 		const o = isObject(b) ? b : {}
 		const str = (k: string): string => (typeof o[k] === 'string' ? o[k] : '')
-		sendJson(res, 200, orch.bindSession(str('claudeSession'), str('session') || null, str('title'), str('terminal') || null, str('cwd') || null))
+		sendJson(res, 200, orch.bindChat(str('chatId'), str('session') || null, str('title'), str('terminal') || null, str('cwd') || null))
 	})
-	r.add('POST', '/sessions/:id/ping', async ({ req, res, orch, params }) => {
+	r.add('POST', '/sessions/:id/lead-state', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)
-		sendJson(res, 200, orch.pingSession(params['id'] ?? '', parseClaudeState(body)))
+		sendJson(res, 200, orch.setLeadState(params['id'] ?? '', parseLeadState(body)))
 	})
 	r.add('PATCH', '/sessions/:id', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)

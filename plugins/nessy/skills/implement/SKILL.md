@@ -5,7 +5,7 @@ description: Рецепт nessy-orch для изменения кода в ре�
 
 # Рецепт: изменение кода (план → исполнение → проверка)
 
-Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (`session new "<цель>" --owner claude` → id, ссылка на панель задачи `nessy-orch://session/<id>`),
+Сначала загрузи скилл `nessy-orch` и иди по его циклу: шаг 0 (`session new "<цель>" --owner lead` → id, ссылка на сессию `nessy-orch://session/<id>`),
 `ls --all --session <id>`, `role ls`. Все `spawn` — с `--session <id>`, сборщик — `inbox --session <id>`, в конце — `session done <id> --summary "…"`. Здесь — то, что специфично для изменения кода. Даже если репозиторий открыт у тебя,
 код правит агент.
 

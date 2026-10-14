@@ -8,7 +8,7 @@
 При любой задаче через nessy-orch (GitLab, Jira, Sage, Wiki, чужой репозиторий, «спроси nessy») **сначала
 загрузи скилл `nessy-orch`** (плагин `nessy`: `plugins/nessy/skills/nessy-orch/SKILL.md`, в этом репозитории
 доступен и как `.claude/skills/nessy-orch` — симлинк) и работай по его циклу: заведи сессию **один раз на весь разговор**
-(`nessy-orch session new "<краткая цель>" --owner claude` → id) и сразу дай пользователю ссылку
+(`nessy-orch session new "<краткая цель>" --owner lead` → id) и сразу дай пользователю ссылку
 `nessy-orch://session/<id>` (открывает её в приложении TClaude-Orch) → осмотрись (`ls --all --session <id>`, `role ls`) →
 разбей задачу → выбери роль → напиши поручение по шаблону → запусти (независимое — параллельно, все `spawn` с
 `--session <id>`) → проверь результат (отдельным `verifier`) → сведи ответ → в конце разговора `session done <id> --summary "<итог>"`.
@@ -19,8 +19,8 @@
 (Это относится к работе через nessy-orch, а не к разработке самого этого репозитория.)
 
 ```bash
-nessy-orch session new "<краткая цель>" --owner claude                     # один раз: id сессии + ссылка nessy-orch://session/<id>
-nessy-orch spawn --session <id> --space <путь> --role <роль> --name <имя> "<поручение>"   # сразу возвращается
+nessy-orch session new "<краткая цель>" --owner lead                     # один раз: id сессии + ссылка nessy-orch://session/<id>
+nessy-orch spawn --session <id> --role <роль> --name <имя> "<поручение>"   # сразу возвращается
 nessy-orch inbox --session <id> --wait 1500   # ТОЛЬКО в фоне (Bash run_in_background) — ответ придёт уведомлением
 nessy-orch send <агент> "уточнение"                                         # продолжить с тем же агентом
 nessy-orch session done <id> --summary "<короткий итог>"                       # в конце

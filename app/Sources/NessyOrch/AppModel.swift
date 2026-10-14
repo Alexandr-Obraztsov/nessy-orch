@@ -47,7 +47,6 @@ final class AppModel {
 
 	/// Открыть главное окно / отдельное окно агента (задаются из View при появлении окон).
 	@ObservationIgnored var openMainWindowAction: (() -> Void)?
-	var openAgentWindow: ((String) -> Void)?
 
 
 	let notifier = Notifier()
@@ -71,7 +70,6 @@ final class AppModel {
 	/// Запомнить действия «открыть окно» (берутся из окружения окна) и выполнить отложенные.
 	func registerWindowOpeners(_ open: OpenWindowAction) {
 		openMainWindowAction = { open(id: "main") }
-		openAgentWindow = { open(id: "agent", value: $0) }
 		if pendingShow { pendingShow = false; showMainWindow() }
 	}
 
@@ -281,21 +279,6 @@ final class AppModel {
 		do { try await store.client.deleteRole(id); return true }
 		catch { flash("Роль не удалена: \(error.localizedDescription)", error: true); return false }
 	}
-	/// Удалить агента (работающего сервер сначала прерывает). Работающего — с подтверждением.
-	func remove(agent a: AgentView) {
-		if a.canStop {
-			let alert = NSAlert()
-			alert.messageText = "Удалить «\(a.name)»?"
-			alert.informativeText = "Агент сейчас работает: его ход будет прерван, а чат удалён."
-			alert.addButton(withTitle: "Удалить")
-			alert.addButton(withTitle: "Отмена")
-			alert.alertStyle = .warning
-			guard alert.runModal() == .alertFirstButtonReturn else { return }
-		}
-		for w in tabs where w.openAgentId == a.id { w.open(agent: nil) }
-		Task { await run("Удаление агента") { try await self.store.client.removeAgent(a.id) } }
-	}
-
 	func stop(_ a: AgentView) { Task { await run("Остановка") { try await self.store.client.cancel(a.id) } } }
 }
 
@@ -303,11 +286,11 @@ final class AppModel {
 enum AppSettings {
 	/// запускать `claude` сразу при открытии проекта
 	/// команда запуска Claude в новом терминале (по умолчанию `claude`; функция `claude` в оболочке сама добавляет хуки оркестратора)
-	static var claudeCommand: String {
+	static var leadCommand: String {
 		let c = (UserDefaults.standard.string(forKey: "claudeCommand") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 		return c.isEmpty ? "claude" : c
 	}
-	static var autoStartClaude: Bool { UserDefaults.standard.object(forKey: "autoStartClaude") as? Bool ?? true }
+	static var autoStartLead: Bool { UserDefaults.standard.object(forKey: "autoStartClaude") as? Bool ?? true }
 	/// размер шрифта терминала (pt)
 	static var terminalFontSize: CGFloat {
 		let v = UserDefaults.standard.double(forKey: "terminal.fontSize")

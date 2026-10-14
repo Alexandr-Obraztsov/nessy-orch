@@ -123,8 +123,7 @@ struct MenuBarPanel: View {
 	private func pause(until d: Date) { UserDefaults.standard.set(d, forKey: "notify.pausedUntil"); pauseTick += 1 }
 
 	private func activate() {
-		openWindow(id: "start")
-		NSApp.activate()
+		model.showMainWindow()
 	}
 
 	@ViewBuilder private func section<C: View>(_ title: String, count: Int, @ViewBuilder content: () -> C) -> some View {

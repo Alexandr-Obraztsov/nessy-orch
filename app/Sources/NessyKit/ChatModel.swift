@@ -8,9 +8,6 @@ import Observation
 public final class ChatModel {
 	public private(set) var items: [AgentEvent] = []
 	public private(set) var replayDone = false
-	public private(set) var connection: SSEState = .connecting
-	/// последнее состояние агента из его потока
-	public private(set) var agent: AgentView?
 
 	private var index: [Int: Int] = [:]
 	private var stream: SSEStream?
@@ -23,7 +20,7 @@ public final class ChatModel {
 		let s = client.agentStream(ref)
 		stream = s
 		s.start(
-			onState: { [weak self] st in Task { @MainActor in self?.connection = st } },
+			onState: { _ in },
 			onOpen: { [weak self] in Task { @MainActor in self?.reset() } },
 			onData: { [weak self] d in
 				let ev = AgentStreamEvent.decode(d)
@@ -47,7 +44,7 @@ public final class ChatModel {
 		switch e {
 		case .event(let ev): upsert(ev)
 		case .chunk(let c): applyChunk(c)
-		case .agent(let a): agent = a
+		case .agent: break
 		case .replayDone: replayDone = true
 		case .unknown: break
 		}

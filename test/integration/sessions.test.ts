@@ -176,10 +176,10 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		h = await startHarness()
 		await h.api('POST', '/spaces', { path: h.ws, name: 'main' })
 		const s = await h.api<SessionView>('POST', '/sessions', { title: 'Хуки' })
-		const ping = await h.api<SessionView>('POST', `/sessions/${s.body.id}/ping`, { state: 'working' })
-		assert.equal(ping.body.claude?.state, 'working')
-		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ping`, { state: 'sleeping' })).status, 400)
-		assert.equal((await h.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'working')
+		const ping = await h.api<SessionView>('POST', `/sessions/${s.body.id}/lead-state`, { state: 'working' })
+		assert.equal(ping.body.lead?.state, 'working')
+		assert.equal((await h.api('POST', `/sessions/${s.body.id}/lead-state`, { state: 'sleeping' })).status, 400)
+		assert.equal((await h.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'working')
 
 		await h.api('POST', '/agents', { space: 'main', name: 'worker', session: s.body.id, prompt: 'сделай', wait: true, waitTimeoutSec: 8 })
 		const peek = await h.api<{ agents: Array<{ name: string }>; replies: unknown[]; cursor: number }>('GET', `/sessions/${s.body.id}/updates`)
@@ -204,14 +204,14 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		assert.equal(start.code, 0)
 		assert.match(start.stdout, new RegExp(s.body.id), 'контекст старта — простой текст в stdout')
 		assert.ok(!start.stdout.trimStart().startsWith('{'), 'не JSON: схема вывода хуков не нужна')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'idle')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'idle')
 
 		const silent = await runHook(hh.port, undefined, 'prompt')
 		assert.deepEqual(silent, { code: 0, stdout: '', stderr: '' }, 'без NESSY_ORCH_SESSION хук молчит')
 
 		const calm = await runHook(hh.port, s.body.id, 'prompt')
 		assert.equal(calm.stdout, '', 'агентов и ответов нет — нечего сообщать')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'working')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'working')
 
 		await hh.api('POST', '/agents', { space: 'main', name: 'helper', session: s.body.id, prompt: 'сделай', wait: true, waitTimeoutSec: 8 })
 		const stop = await runHook(hh.port, s.body.id, 'stop')
@@ -219,10 +219,10 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		assert.match(stop.stderr, /helper/)
 		const stop2 = await runHook(hh.port, s.body.id, 'stop')
 		assert.equal(stop2.code, 0, 'ответ доставлен один раз')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'idle')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'idle')
 
 		await runHook(hh.port, s.body.id, 'end')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'ended')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'ended')
 	})
 
 	it('привязка чата Claude: первый чат окна берёт сессию окна, resume возвращает её, новый чат — новая сессия в том же окне', T, async () => {
@@ -232,15 +232,15 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		const envFile = path.join(hh.ws, 'claude-env')
 		const ev = (id: string): string => JSON.stringify({ session_id: id })
 		await runHook(hh.port, w.body.id, 'start', ev('chat-a'), { CLAUDE_ENV_FILE: envFile })
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.claudeId, 'chat-a')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.chatId, 'chat-a')
 
 		// новый чат в том же окне (/clear) — новая сессия, а Bash-инструменты получают её id
 		await runHook(hh.port, w.body.id, 'start', ev('chat-b'), { CLAUDE_ENV_FILE: envFile })
 		const all = (await hh.api<SessionView[]>('GET', '/sessions')).body
-		const b = all.find(x => x.claudeId === 'chat-b')
+		const b = all.find(x => x.chatId === 'chat-b')
 		assert.ok(b && b.id !== w.body.id)
 		assert.equal(b.origin, w.body.id)
-		assert.equal(b.claude?.state, 'idle')
+		assert.equal(b.lead?.state, 'idle')
 		assert.match(fs.readFileSync(envFile, 'utf8'), new RegExp(`NESSY_ORCH_SESSION='${b.id}'`))
 
 		// resume первого чата: возвращается его же сессия, второй раз ничего не создаётся
@@ -248,9 +248,9 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		const resumed = await runHook(hh.port, w.body.id, 'start', ev('chat-a'))
 		assert.equal((await hh.api<SessionView[]>('GET', '/sessions')).body.length, before, 'resume не создаёт новую сессию')
 		assert.match(resumed.stdout, new RegExp(w.body.id), 'контекст старта — про возобновлённую сессию')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.claude?.state, 'idle')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.lead?.state, 'idle')
 		await runHook(hh.port, w.body.id, 'prompt', ev('chat-a'))
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.claude?.state, 'working')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.lead?.state, 'working')
 	})
 
 	it('CLI: inbox без работающих агентов — код 4 сразу; spawn-many позиционно создаёт агентов в сессии', T, async () => {
@@ -287,14 +287,14 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		const envFile = path.join(hh.ws, 'claude-env-2')
 		const startA = await runHook(hh.port, undefined, 'start', ev('term-chat-a'), { NESSY_ORCH_TERMINAL: 'term-1', CLAUDE_ENV_FILE: envFile })
 		assert.equal(startA.code, 0)
-		const a = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.claudeId === 'term-chat-a')
+		const a = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.chatId === 'term-chat-a')
 		assert.ok(a)
 		assert.equal(a.origin, 'term-1')
 		assert.equal(a.title, 'proj', 'название — по папке чата')
 		assert.match(fs.readFileSync(envFile, 'utf8'), new RegExp(`NESSY_ORCH_SESSION='${a.id}'`))
 		// /clear — новый чат в том же терминале: новая сессия с тем же origin
 		await runHook(hh.port, undefined, 'start', ev('term-chat-b'), { NESSY_ORCH_TERMINAL: 'term-1' })
-		const b = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.claudeId === 'term-chat-b')
+		const b = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.chatId === 'term-chat-b')
 		assert.ok(b && b.id !== a.id && b.origin === 'term-1')
 		// /resume первого чата в другом терминале: его сессия переезжает туда, дубля нет
 		const before = (await hh.api<SessionView[]>('GET', '/sessions')).body.length

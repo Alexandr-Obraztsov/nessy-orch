@@ -20,7 +20,7 @@
 Общая схема для всего, что не попало в рецепты: по агенту на источник, все в фоне, потом сбор.
 
 ```bash
-nessy-orch session new "Баги и регламент релиза payments" --owner claude   # → id (первая строка вывода); ниже <id>
+nessy-orch session new "Баги и регламент релиза payments" --owner lead   # → id (первая строка вывода); ниже <id>
 
 nessy-orch spawn --session <id> --role jira-analyst --name pay-jira "
 Цель: собрать открытые баги компонента payments за последние 30 дней.

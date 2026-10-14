@@ -105,23 +105,23 @@ struct TerminalLaunchTests {
 	}
 }
 
-@Suite("Хуки Claude и состояние")
+@Suite("Хуки главного агента и состояние")
 struct HooksTests {
 	@Test func quotingEscapesSingleQuotes() {
 		#expect(ShellQuote.quote("a b") == "'a b'")
 		#expect(ShellQuote.quote("it's") == "'it'\\''s'")
 	}
 
-	@Test func sessionClaudeStateDecodesWithFallback() throws {
+	@Test func sessionLeadStateDecodesWithFallback() throws {
 		func dec(_ extra: String) throws -> SessionView {
 			let j = #"{"id":"s","title":"T","owner":null,"status":"active","summary":null,"createdAt":"x","updatedAt":"x","sources":0\#(extra)}"#
 			return try JSONDecoder().decode(SessionView.self, from: Data(j.utf8))
 		}
-		#expect(try dec("").claude == nil)
-		#expect(try dec(#","claude":{"state":"working","at":"2026-10-10T10:00:00Z"}"#).claude?.state == .working)
-		#expect(try dec(#","claude":{"state":"ended"}"#).claude?.state == .ended)
-		#expect(try dec(#","claude":{"state":"что-то новое"}"#).claude?.state == .idle)
-		#expect(try dec(#","claude":"мусор""#).claude == nil)
+		#expect(try dec("").lead == nil)
+		#expect(try dec(#","lead":{"state":"working","at":"2026-10-10T10:00:00Z"}"#).lead?.state == .working)
+		#expect(try dec(#","lead":{"state":"ended"}"#).lead?.state == .ended)
+		#expect(try dec(#","lead":{"state":"что-то новое"}"#).lead?.state == .idle)
+		#expect(try dec(#","lead":"мусор""#).lead == nil)
 	}
 
 }

@@ -36,7 +36,10 @@ public final class OrchStore {
 	public private(set) var agents: [String: AgentView] = [:]
 	public private(set) var messages: [Message] = []
 	public private(set) var messagesById: [String: Message] = [:]
-	public private(set) var autoApprove = true
+	/// поручение агента (первое сообщение, лучше от you) и заголовок из него; считаются при приходе сообщения, а не при каждой перерисовке
+	public private(set) var goals: [String: String] = [:]
+	public private(set) var titles: [String: String] = [:]
+	private var goalFromYou: Set<String> = []
 	public private(set) var lastEventAt = Date()
 	/// просмотренные ответы (msgId): у непросмотренных — точка «новое»
 	public private(set) var seenReplies: Set<String>
@@ -94,7 +97,6 @@ public final class OrchStore {
 	public func refreshStatus() async {
 		do {
 			let s = try await client.status()
-			autoApprove = s.autoApprove
 			daemon = .online(version: s.version)
 		} catch let e as APIError where e.isOffline {
 			daemon = .offline(e.message)
@@ -114,6 +116,8 @@ public final class OrchStore {
 			agents = Dictionary(s.agents.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
 			messages = s.messages
 			messagesById = Dictionary(s.messages.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+			goals = [:]; titles = [:]; goalFromYou = []
+			for m in s.messages { noteGoal(m) }
 			if case .online = daemon {} else { daemon = .online(version: "") }
 			if primed { for a in s.agents { detect(old: old[a.id], new: a) } }
 			primed = true
@@ -121,6 +125,7 @@ public final class OrchStore {
 			messages.append(m)
 			if messages.count > 2000 { messages.removeFirst(messages.count - 2000) }
 			messagesById[m.id] = m
+			noteGoal(m)
 		case .agent(let a):
 			let prev = agents[a.id]
 			agents[a.id] = a
@@ -154,13 +159,13 @@ public final class OrchStore {
 		let sub = session(a.session)?.title
 		let oldPerms = Set(old?.pendingPermissions.map(\.requestId) ?? [])
 		for p in a.pendingPermissions where !oldPerms.contains(p.requestId) {
-			onAttention?(.init(kind: .permission, agentId: a.id, sessionId: a.session, title: "\(a.name) просит разрешения", body: PermissionText.command(p.title), requestId: p.requestId, subtitle: sub))
+			onAttention?(.init(kind: .permission, agentId: a.id, sessionId: a.session, title: "\(title(of: a)) просит разрешения", body: PermissionText.command(p.title), requestId: p.requestId, subtitle: sub))
 		}
 		if a.status == .error, old?.status != .error {
-			onAttention?(.init(kind: .error, agentId: a.id, sessionId: a.session, title: "\(a.name): ошибка", body: a.error ?? "Ход завершился ошибкой", requestId: nil, subtitle: sub))
+			onAttention?(.init(kind: .error, agentId: a.id, sessionId: a.session, title: "\(title(of: a)): ошибка", body: a.error ?? "Ход завершился ошибкой", requestId: nil, subtitle: sub))
 		}
 		if a.isBlocked, let r = a.lastReply, r.msgId != old?.lastReply?.msgId, let code = a.replyCode {
-			let title = code == .blocked ? "\(a.name) заблокирован" : "\(a.name): не хватает данных"
+			let title = code == .blocked ? "\(title(of: a)) заблокирован" : "\(title(of: a)): не хватает данных"
 			onAttention?(.init(kind: .blocked, agentId: a.id, sessionId: a.session, title: title, body: a.replyReason.isEmpty ? Brief.summary(a) : a.replyReason, requestId: nil, subtitle: sub))
 		}
 	}
@@ -171,13 +176,9 @@ public final class OrchStore {
 	public func agents(inSession id: String?) -> [AgentView] { allAgents.filter { $0.session == id } }
 	public func session(_ id: String?) -> SessionView? { id.flatMap { id in sessions.first { $0.id == id } } }
 	public func role(_ id: String?) -> RoleView? { id.flatMap { id in roles.first { $0.id == id } } }
-	public func space(_ name: String) -> SpaceView? { spaces.first { $0.name == name } }
 
-	/// Что требует действия (запросы прав, ошибки, блокировки) — по срочности.
-	public var attention: [AttentionItem] { AttentionBuilder.build(agents: allAgents) }
 	/// Сколько агентов ждут вас: бейдж Dock, menu bar, сайдбара. Совпадает с числом в группе «Нужны вы».
 	public var attentionCount: Int { allAgents.filter(\.needsYou).count }
-	public func attentionCount(session id: String) -> Int { agents(inSession: id).filter(\.needsYou).count }
 
 	/// Новый (непросмотренный) результат — точка «новое», не бейдж.
 	public func isNew(_ a: AgentView) -> Bool {
@@ -206,7 +207,21 @@ public final class OrchStore {
 		return now.timeIntervalSince(last) > after
 	}
 
-	public func firstMessages() -> [String: Message] { Brief.firstMessages(messages) }
+	private func noteGoal(_ m: Message) {
+		guard m.kind == .msg else { return }
+		let fromYou = m.from == "you"
+		guard goals[m.to] == nil || (fromYou && !goalFromYou.contains(m.to)) else { return }
+		let g = Brief.plain(m.text)
+		guard !g.isEmpty else { return }
+		goals[m.to] = g
+		titles[m.to] = Brief.title(fromGoal: g)
+		if fromYou { goalFromYou.insert(m.to) }
+	}
+
+	/// Поручение агента целиком.
+	public func goal(of a: AgentView) -> String { goals[a.id] ?? a.displayName ?? Brief.plain(a.preview) }
+	/// Заголовок агента: суть задачи; имя — только если поручения нет.
+	public func title(of a: AgentView) -> String { titles[a.id] ?? a.displayName ?? a.name }
 
 	// MARK: просмотр
 
@@ -215,10 +230,4 @@ public final class OrchStore {
 		defaults.set(Array(seenReplies.suffix(600)), forKey: Self.seenKey)
 	}
 	public func markSeen(agent a: AgentView) { if let r = a.lastReply { markSeen([r.msgId]) } }
-	// MARK: действия (ошибки возвращаются вызывающему)
-
-	public func decide(_ item: AttentionItem, approve: Bool) async throws {
-		guard let rid = item.requestId else { return }
-		try await client.decide(agent: item.agentId, requestId: rid, approve: approve)
-	}
 }

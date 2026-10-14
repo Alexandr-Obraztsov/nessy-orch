@@ -4,7 +4,7 @@
 (clean architecture), зависимости направлены внутрь. Типы лежат в отдельных файлах (`types.ts`, `*.types.ts`, `ports.ts`).
 
 ```
-        you (CLI / UI / Claude Code)
+        you (CLI / приложение / главный агент)
               │  HTTP + SSE  127.0.0.1:4337
 ┌─────────────▼───────────────────────────────────────────────────────┐
 │ interfaces/http   router, guard (Host/Origin), parsers, routes/*,    │
@@ -29,7 +29,7 @@
         nessy serve (по одному на space) ──► N сессий (= N агентов)
 ```
 
-Общие типы контракта сервер ⇄ CLI ⇄ UI — `shared/types/` (`domain.ts`, `events.ts`, `api.ts`; только типы).
+Общие типы контракта сервер ⇄ CLI ⇄ приложение — `shared/types/` (`domain.ts`, `events.ts`, `api.ts`; только типы).
 Утилиты без зависимостей от слоёв — `src/lib/` (`json`, `ids`, `text`, `async`).
 
 ## Composition root
@@ -246,13 +246,12 @@ id роли (`reviewer`, `reviewer-2`, …), а `preambleFor` добавляет
 
 `interfaces/http/guard.ts`: `Host` обязан быть `127.0.0.1|localhost|[::1]:<порт>` (`403 bad_host`), `Origin` — только
 `http://127.0.0.1:<порт>` или `http://localhost:<порт>` (`403 bad_origin`). Тело запроса ограничено 5 МБ (`413 too_large`).
-Статика UI защищена от выхода за каталог (`403 forbidden`).
 
 ## Конфигурация (переменные окружения, `loadConfig`)
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
-| `ORCH_PORT` | 4337 | порт API/UI (хост всегда `127.0.0.1`) |
+| `ORCH_PORT` | 4337 | порт API (хост всегда `127.0.0.1`) |
 | `NESSY_ORCH_HOME` | `~/.nessy-orch` | каталог состояния |
 | `NESSY_BIN` | `~/.local/bin/nessy` | бинарь nessy |
 | `NESSY_SERVE_ARGS` | — | доп. аргументы `nessy serve` |

@@ -52,7 +52,7 @@ async function cmdLs(p: Parsed): Promise<void> {
 async function cmdSpawn(p: Parsed): Promise<void> {
 	const prompt = p.positionals.join(' ').trim()
 	const wait = flagBool(p, 'wait')
-	if (wait && !prompt) throw new CliError('--wait требует текст сессии', 2)
+	if (wait && !prompt) throw new CliError('--wait требует текст поручения', 2)
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(flagStr(p, 'space')),
 		cwd: process.cwd(), // пространство по умолчанию, если --space не указан и пространств не одно
@@ -119,7 +119,7 @@ async function cmdSend(p: Parsed): Promise<void> {
 async function cmdAsk(p: Parsed): Promise<void> {
 	const [space, ...rest] = p.positionals
 	const prompt = rest.join(' ').trim()
-	if (!space || !prompt) throw new CliError('использование: nessy-orch ask <путь|пространство> "сессия"', 2)
+	if (!space || !prompt) throw new CliError('использование: nessy-orch ask <путь|пространство> "поручение"', 2)
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(space),
 		session: sessionOption(p),

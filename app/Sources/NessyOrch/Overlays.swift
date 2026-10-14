@@ -7,7 +7,7 @@ enum Shortcuts {
 	/// Сочетания, которые не настраиваются (показываются в Настройки → «Клавиши»).
 	static let fixed: [(String, String)] = [
 		("⌘1…⌘9", "Перейти к проекту по порядку"), ("⌘W", "Закрыть терминал"), ("⌘K", "Перейти к агенту или сессии"), ("⇧⌘R", "Роли"),
-		("⌘O", "Открыть агента в отдельном окне"), ("⌘.", "Остановить ход агента"), ("⌘⌫", "Удалить агента"), ("⌘,", "Настройки"), ("↑ ↓  ↩  Esc", "Список агентов: выбрать, открыть, назад"),
+		("⌘.", "Остановить ход агента"), ("⌘,", "Настройки"), ("↑ ↓  ↩  Esc", "Список агентов: выбрать, открыть, назад"),
 	]
 }
 
@@ -24,7 +24,7 @@ struct PaletteView: View {
 	private var items: [Item] {
 		let store = model.store
 		var out: [Item] = store.sessions.map { s in Item(id: "s" + s.id, title: s.title, sub: "Сессия") { [model] in model.show(session: s.id) } }
-		out += store.allAgents.map { a in Item(id: "a" + a.id, title: a.name, sub: store.session(a.session)?.title ?? "Агент") { [model] in model.reveal(agent: a.id) } }
+		out += store.allAgents.map { a in Item(id: "a" + a.id, title: store.title(of: a), sub: store.session(a.session)?.title ?? "Агент") { [model] in model.reveal(agent: a.id) } }
 		let q = query.lowercased()
 		return q.isEmpty ? out : out.filter { $0.title.lowercased().contains(q) || $0.sub.lowercased().contains(q) }
 	}

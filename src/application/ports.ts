@@ -40,7 +40,6 @@ export interface SessionSubscription {
 export interface SubscribeOptions {
 	lastEventId: number | null
 	onEvent: (ev: SessionEvent, eventId: number | null) => void
-	onState?: (s: 'open' | 'reconnecting') => void
 }
 
 /** Шлюз к одному `nessy serve`. */

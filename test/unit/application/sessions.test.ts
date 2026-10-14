@@ -198,7 +198,7 @@ describe('сессии: сервис', () => {
 
 	it('агент без --space запускается в каталоге оркестратора (cwd чата Claude), а не в единственном существующем пространстве', async () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-cwd-'))
-		const t = ctx.orch.bindSession('chat-cwd', null, 'proj', 'term-1', dir)
+		const t = ctx.orch.bindChat('chat-cwd', null, 'proj', 'term-1', dir)
 		assert.equal(t.cwd, dir)
 		const a = (await ctx.orch.spawn({ name: 'here', session: t.id })).agent
 		const space = ctx.orch.graph().spaces.find(x => x.name === a.space)
@@ -208,7 +208,7 @@ describe('сессии: сервис', () => {
 		assert.equal(b.space, 'main')
 		// чат переехал в другую папку (/resume там): cwd сессии обновляется
 		const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-cwd-'))
-		assert.equal(ctx.orch.bindSession('chat-cwd', null, 'proj', 'term-1', dir2).cwd, dir2)
+		assert.equal(ctx.orch.bindChat('chat-cwd', null, 'proj', 'term-1', dir2).cwd, dir2)
 	})
 
 	it('send: свободного агента запускает (started), работающего прерывает или ставит в очередь', async () => {

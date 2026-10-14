@@ -1,16 +1,12 @@
 import SwiftUI
 import NessyKit
 
-/// Где показана карточка агента: внутри правой панели (стекло даёт инспектор) или отдельным окном macOS.
-enum PanelMode { case embedded, window }
-
-/// Окно агента без вкладок. Под всем — одна область чата (или итога) на всю высоту панели.
-/// Сверху шапка агента и «План», снизу поле ввода — это safeAreaBar: система отодвигает чат на их фактическую высоту, поэтому
-/// карточки ничего не закрывают. Раскрытая карточка (цель, статистика) растёт, а чат уходит вниз вместе с ней.
+/// Окно агента без вкладок, как в Claude: сверху заголовок (суть задачи) и кнопка «стоп», под ним «План»; в ленте первым идёт блок «Роль + поручение»,
+/// дальше сам чат. Снизу поле ввода — это safeAreaBar: система отодвигает чат на их фактическую высоту, поэтому
+/// карточки ничего не закрывают.
 struct AgentPanel: View {
 	@Environment(AppModel.self) private var model
 	var agentId: String
-	var mode: PanelMode = .embedded
 	@State private var chat: ChatModel?
 	@State private var planOpen = false
 	private var agent: AgentView? { model.store.agents[agentId] }
@@ -19,13 +15,13 @@ struct AgentPanel: View {
 		GeometryReader { geo in
 			Group {
 				if let a = agent {
-					let goal = goalText(a)
+					let goal = model.store.goal(of: a)
 					// чат — на всю панель; карточки сверху и снизу — safeAreaBar: система сама отодвигает прокрутку
 					// и гасит/размывает чат у их краёв (scrollEdgeEffectStyle .soft). Раскрытые карточки выступают за
 					// свёрнутую высоту и ложатся поверх чата, не сдвигая его.
 					Group {
 						if a.isFinished {
-							ResultContent(agent: a, chat: chat)
+							ResultContent(agent: a, chat: chat, goal: goal)
 						} else {
 							ChatContent(agent: a, chat: chat, goal: goal)
 						}
@@ -34,7 +30,7 @@ struct AgentPanel: View {
 					.animation(DS.Motion.fade, value: a.isFinished)
 					.safeAreaBar(edge: .top, spacing: 0) {
 						VStack(spacing: DS.Metrics.s2) {
-							AgentTitleBar(agent: a, mode: mode)
+							AgentTitleBar(agent: a, title: model.store.title(of: a))
 							PlanBlock(agent: a, expanded: $planOpen, cap: geo.size.height * 0.3)
 						}
 						.padding(.horizontal, DS.Metrics.s3).padding(.top, DS.Metrics.s2).padding(.bottom, DS.Metrics.s2)
@@ -53,7 +49,6 @@ struct AgentPanel: View {
 			.frame(width: geo.size.width, height: geo.size.height, alignment: .top)
 		}
 		.animation(DS.Motion.fade, value: agentId)
-		.modifier(PanelSurface(mode: mode))
 		.task(id: agentId) {
 			// для снимков: `-debug.planOpen YES` раскрывает план сразу
 			planOpen = UserDefaults.standard.bool(forKey: "debug.planOpen")
@@ -71,23 +66,6 @@ struct AgentPanel: View {
 		guard planOpen else { return false }
 		withAnimation(dsAnimation(DS.Motion.disclosure)) { planOpen = false }
 		return true
-	}
-
-	/// Поручение: текст первого сообщения агенту.
-	private func goalText(_ a: AgentView) -> String {
-		let first = Brief.firstMessages(model.store.messages)
-		guard first[a.id] != nil else { return "" }
-		return Brief.of(a, first: first)
-	}
-}
-
-private struct PanelSurface: ViewModifier {
-	var mode: PanelMode
-	func body(content: Content) -> some View {
-		switch mode {
-		case .window: content.background(DS.Palette.panel)
-		case .embedded: content
-		}
 	}
 }
 
@@ -130,34 +108,76 @@ struct InfoCard<Trailing: View, Content: View>: View {
 	}
 }
 
-/// Шапка агента: состояние, имя и кнопки (остановить, открыть в окне, удалить). Ни цели, ни роли, ни статистики — под ней только план и чат.
-/// Кнопка «назад» — в верхней строке панели (см. `AgentsPanel`).
+/// Шапка агента: состояние, заголовок (суть задачи) и кнопка «остановить» (пока агент работает). Без карточки и без имени агента:
+/// удаление и открытие в окне не предусмотрены — завершённые агенты убираются сами. «Назад» — в верхней строке панели (см. `AgentsPanel`).
 struct AgentTitleBar: View {
 	@Environment(AppModel.self) private var model
-	@Environment(\.sessionWindow) private var win
 	var agent: AgentView
-	var mode: PanelMode
+	var title: String
 
 	var body: some View {
-		HStack(spacing: DS.Metrics.s2) {
-			DSStateGlyph(state: agent.ds, size: DS.Metrics.glyphHeader)
-			Text(agent.name).font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary).lineLimit(1).truncationMode(.tail)
-				.layoutPriority(1)
+		HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
+			DSStateGlyph(state: agent.ds, size: DS.Metrics.glyphRow)
+				.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3 }
+			Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(DS.Palette.textPrimary)
+				.lineLimit(2).multilineTextAlignment(.leading).layoutPriority(1)
+				.help(title)
 			Spacer(minLength: DS.Metrics.s2)
 			if agent.canStop {
-				TitleButton(symbol: "stop.fill", help: "Остановить ход") { model.stop(agent) }.disabled(model.isOffline)
+				TitleButton(symbol: "stop.fill", help: "Остановить ход (⌘.)") { model.stop(agent) }.disabled(model.isOffline)
 			}
-			if mode == .embedded {
-				TitleButton(symbol: "arrow.up.forward.square", help: "Открыть в отдельном окне") {
-					model.openAgentWindow?(agent.id)
-					win?.open(agent: nil)
+		}
+		.padding(.horizontal, DS.Metrics.s1)
+		.frame(maxWidth: .infinity, alignment: .leading)
+	}
+}
+
+/// Начало ленты: «Роль · состояние» и поручение (первое сообщение) сдержанным блоком; длинное — первые строки и «Показать ещё».
+struct AgentIntro: View {
+	@Environment(AppModel.self) private var model
+	var agent: AgentView
+	var goal: String
+	@State private var open = false
+
+	private var role: String? { model.roleInfo(of: agent)?.name }
+	private var long: Bool { goal.count > 280 || goal.split(separator: "\n").count > 6 }
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
+			HStack(spacing: DS.Metrics.s1) {
+				if let role {
+					Text("Роль").foregroundStyle(DS.Palette.textSecondary)
+					Text(role).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
+				}
+				Spacer(minLength: DS.Metrics.s2)
+				Text(agent.stateWord).foregroundStyle(DS.Palette.textSecondary)
+				if agent.canStop || (agent.lastTurnMs ?? 0) >= 1000 {
+					DSTimer(agent: agent, frozenAt: model.frozenAt).foregroundStyle(DS.Palette.textSecondary)
 				}
 			}
-			TitleButton(symbol: "trash", help: "Удалить агента") { model.remove(agent: agent) }.disabled(model.isOffline)
+			.font(DS.Typography.secondary)
+			if !goal.isEmpty {
+				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+					Text(goal).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
+						.lineLimit(open ? nil : 6).textSelection(.enabled)
+						.frame(maxWidth: .infinity, alignment: .leading)
+						.mask {
+							if long && !open {
+								LinearGradient(stops: [.init(color: .black, location: 0.7), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+							} else {
+								Color.black
+							}
+						}
+					if long {
+						Button(open ? "Свернуть" : "Показать ещё") { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } }
+							.buttonStyle(.plain).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+					}
+				}
+				.padding(DS.Metrics.s3)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous))
+			}
 		}
-		.padding(.horizontal, DS.Metrics.s3).frame(height: 40)
-		.frame(maxWidth: .infinity, alignment: .leading)
-		.dsFloatingCard()
 	}
 }
 
@@ -168,9 +188,9 @@ private struct TitleButton: View {
 	@State private var hover = false
 	var body: some View {
 		Button(action: action) {
-			Image(systemName: symbol).font(.system(size: 12, weight: .medium))
+			Image(systemName: symbol).font(.system(size: 10, weight: .medium))
 				.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
-				.frame(width: 26, height: 26)
+				.frame(width: 22, height: 22)
 				.background(hover ? DS.Palette.hover : .clear, in: Circle())
 				.contentShape(Circle())
 		}
@@ -214,7 +234,7 @@ struct PlanBlock: View {
 							else { Image(systemName: "circle").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary) }
 						}
 						.frame(width: DS.Metrics.glyphRow, height: DS.Metrics.glyphRow)
-						Text(agent.toolText ?? "").font(DS.Typography.secondary)
+						Text(agent.activity ?? "").font(DS.Typography.secondary)
 							.foregroundStyle(agent.canStop ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 							.lineLimit(1).truncationMode(.middle)
 							.frame(maxWidth: .infinity, alignment: .leading)
@@ -322,7 +342,7 @@ struct ToolRunView: View {
 			if let r = running, !isOpen {
 				HStack(spacing: DS.Metrics.s2) {
 					DSStateGlyph(state: .working, size: DS.Metrics.s3)
-					Text(ToolPhrases.of(r.view).present).foregroundStyle(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
+					Text(ToolKind.activity(name: r.view.name)).foregroundStyle(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
 				}
 				.font(DS.Typography.caption)
 			}
@@ -414,17 +434,5 @@ struct ThoughtView: View {
 			.contentShape(Rectangle())
 			.onTapGesture { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } }
 			.help(open ? "Свернуть" : "Показать целиком")
-	}
-}
-
-
-/// Отдельное окно агента: следит за тем же агентом, не за выделением.
-struct AgentWindowView: View {
-	var agentId: String
-	@Environment(AppModel.self) private var model
-	var body: some View {
-		AgentPanel(agentId: agentId, mode: .window)
-			.frame(minWidth: 400, minHeight: 480)
-			.navigationTitle(model.store.agents[agentId]?.name ?? "Агент")
 	}
 }

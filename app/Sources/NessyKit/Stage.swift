@@ -6,8 +6,6 @@ import Foundation
 public struct ToolPhrase: Equatable, Sendable {
 	public var present: String
 	public var past: String
-	/// короткий аргумент (команда, файл) — для «завершает: …»
-	public var short: String
 }
 
 public enum ToolPhrases {
@@ -26,27 +24,27 @@ public enum ToolPhrases {
 		let arg = v.arg
 		func with(_ verb: String, _ obj: String, sep: String = " ") -> String { obj.isEmpty ? verb : verb + sep + obj }
 		switch v.name {
-		case "Bash": return .init(present: with("Запускает команду", arg, sep: " · "), past: with("запустил", arg), short: arg)
-		case "Read": let b = base(arg); return .init(present: with("Читает", b), past: with("прочитал", b), short: b)
-		case "Write": let b = base(arg); return .init(present: with("Пишет", b), past: with("записал", b), short: b)
-		case "Edit": let b = base(arg); return .init(present: with("Правит", b), past: with("поправил", b), short: b)
-		case "Grep", "Glob": return .init(present: with("Ищет в коде", arg, sep: " · "), past: with("искал в коде", arg, sep: " · "), short: arg)
-		case "LS": let b = base(arg); return .init(present: with("Смотрит каталог", b), past: with("посмотрел каталог", b), short: b)
-		case "WebFetch": let h = host(arg); return .init(present: with("Открывает", h), past: with("открыл", h), short: h)
-		case "WebSearch": return .init(present: with("Ищет в сети", arg, sep: " · "), past: with("искал в сети", arg, sep: " · "), short: arg)
-		case "Think": return .init(present: with("Думает", arg, sep: " · "), past: with("подумал", arg, sep: " о "), short: arg)
-		case "TodoWrite": return .init(present: "Обновляет план", past: "обновил план", short: "")
+		case "Bash": return .init(present: with("Запускает команду", arg, sep: " · "), past: with("запустил", arg))
+		case "Read": let b = base(arg); return .init(present: with("Читает", b), past: with("прочитал", b))
+		case "Write": let b = base(arg); return .init(present: with("Пишет", b), past: with("записал", b))
+		case "Edit": let b = base(arg); return .init(present: with("Правит", b), past: with("поправил", b))
+		case "Grep", "Glob": return .init(present: with("Ищет в коде", arg, sep: " · "), past: with("искал в коде", arg, sep: " · "))
+		case "LS": let b = base(arg); return .init(present: with("Смотрит каталог", b), past: with("посмотрел каталог", b))
+		case "WebFetch": let h = host(arg); return .init(present: with("Открывает", h), past: with("открыл", h))
+		case "WebSearch": return .init(present: with("Ищет в сети", arg, sep: " · "), past: with("искал в сети", arg, sep: " · "))
+		case "Think": return .init(present: with("Думает", arg, sep: " · "), past: with("подумал", arg, sep: " о "))
+		case "TodoWrite": return .init(present: "Обновляет план", past: "обновил план")
 		default:
 			let name = v.name.prefix(1).uppercased() + v.name.dropFirst()
 			let p = with(name, arg, sep: " · ")
-			return .init(present: p, past: p.prefix(1).lowercased() + p.dropFirst(), short: arg.isEmpty ? name : arg)
+			return .init(present: p, past: p.prefix(1).lowercased() + p.dropFirst())
 		}
 	}
 }
 
 /// Что показать второй строкой у работающего агента.
 public struct AgentStage: Equatable, Sendable {
-	public enum Kind: Equatable, Sendable { case step, planDone, tool, silent, starting }
+	public enum Kind: Equatable, Sendable { case step, planDone, tool, starting }
 	public var kind: Kind
 	public var text: String
 	/// статусы шагов для сегментов прогресса (только при показе шага плана)
@@ -60,16 +58,15 @@ public extension AgentView {
 		return e.firstIndex { $0.status == .inProgress } ?? e.firstIndex { $0.status == .pending }
 	}
 
-	/// Сырой текст текущего пункта плана (без «Шаг N из M»); nil — плана нет или все пункты выполнены.
-	var currentPlanText: String? {
-		guard let p = plan, let i = currentStepIndex else { return nil }
-		return p.entries[i].content
-	}
+	/// Последний выполненный пункт плана как есть; nil — ни один не выполнен.
+	var lastDoneText: String? { plan?.entries.last(where: { $0.status == .completed })?.content }
 
-	/// Последняя выполненная задача как есть: последний завершённый пункт плана, иначе (пока агент работает) последний инструмент.
-	var lastDoneText: String? {
-		if let e = plan?.entries.last(where: { $0.status == .completed }) { return e.content }
-		return nil
+	/// Чем занят работающий агент, без деталей: «Читает файл», «Пишет файл», «Запускает команду» — как в карточках Claude. Команды и пути не показываем.
+	/// nil — ещё ничего не делал.
+	var activity: String? {
+		if status == .starting { return "Запускается" }
+		guard let t = lastTool else { return nil }
+		return ToolKind.activity(name: ToolNames.view(name: t.name, title: t.title, input: [:]).name)
 	}
 
 	/// Последняя команда или инструмент как есть: «npm test», «Read src/net/retry.ts»; nil — ещё ничего не запускал.
@@ -80,19 +77,12 @@ public extension AgentView {
 		return v.arg.isEmpty ? v.name : v.name + " " + v.arg
 	}
 
-	/// Что агент делает сейчас, сырым текстом: текущий пункт плана, иначе (план кончился или его нет) последняя команда.
-	var stageLine: String? {
-		if let t = currentPlanText { return t }
-		if status == .working || status == .starting { return toolText }
-		return lastDoneText
-	}
-
 	/// Этап работающего агента: текст — только последняя команда как есть (пусто, пока команд не было), без пояснений
 	/// и времени тишины. Статусы шагов — для сегментов прогресса. nil — агент не работает.
 	func stage(now: Date) -> AgentStage? {
 		if status == .starting { return AgentStage(kind: .starting, text: "", steps: []) }
 		guard status == .working else { return nil }
-		let text = toolText ?? ""
+		let text = activity ?? ""
 		guard let p = plan, !p.entries.isEmpty else { return AgentStage(kind: .tool, text: text, steps: []) }
 		return AgentStage(kind: currentStepIndex == nil ? .planDone : .step, text: text, steps: p.entries.map(\.status))
 	}
@@ -125,27 +115,9 @@ public enum Numbers {
 	}
 }
 
-// MARK: окно плана
-
-/// Какие шаги плана показать: окно вокруг текущего с «ещё N» с обеих сторон.
-public struct PlanWindow: Equatable, Sendable {
-	public var range: Range<Int>
-	/// скрыто выше окна
-	public var before: Int
-	/// скрыто ниже окна
-	public var after: Int
-	public init(range: Range<Int>, before: Int, after: Int) { self.range = range; self.before = before; self.after = after }
-}
+// MARK: план
 
 public enum PlanWindowing {
-	/// Короткий план (≤ limit) показываем целиком; длинный — `limit` шагов, текущий — второй сверху (виден один выполненный до него).
-	public static func window(count: Int, current: Int?, limit: Int = 5) -> PlanWindow {
-		guard count > limit, limit > 0 else { return PlanWindow(range: 0..<count, before: 0, after: 0) }
-		let cur = min(max(current ?? count - 1, 0), count - 1)
-		let start = min(max(cur - 1, 0), count - limit)
-		return PlanWindow(range: start..<(start + limit), before: start, after: count - start - limit)
-	}
-
 	/// Текущий шаг: первый «в работе», иначе первый не выполненный; все выполнены — nil.
 	public static func current(_ entries: [PlanEntry]) -> Int? {
 		entries.firstIndex { $0.status == .inProgress } ?? entries.firstIndex { $0.status == .pending }
@@ -166,6 +138,23 @@ public enum ToolKind: Int, CaseIterable, Sendable {
 		case "Grep", "Glob": .search
 		case "WebFetch", "WebSearch": .web
 		default: .other
+		}
+	}
+
+	/// Что делает агент, пока идёт вызов этого инструмента.
+	public static func activity(name: String) -> String {
+		switch name {
+		case "Bash": "Запускает команду"
+		case "Read": "Читает файл"
+		case "LS": "Смотрит каталог"
+		case "Write": "Пишет файл"
+		case "Edit": "Правит файл"
+		case "Grep", "Glob": "Ищет в коде"
+		case "WebFetch": "Открывает страницу"
+		case "WebSearch": "Ищет в сети"
+		case "Think": "Думает"
+		case "TodoWrite": "Обновляет план"
+		default: "Работает"
 		}
 	}
 

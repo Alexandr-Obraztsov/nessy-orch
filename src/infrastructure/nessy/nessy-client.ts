@@ -164,7 +164,6 @@ export class NessyClient implements NessyGateway {
 
 		const again = (): void => {
 			if (closed || retry) return
-			opts.onState?.('reconnecting')
 			retry = setTimeout(() => {
 				retry = null
 				connect()
@@ -186,7 +185,6 @@ export class NessyClient implements NessyGateway {
 					again()
 					return
 				}
-				opts.onState?.('open')
 				res.setEncoding('utf8')
 				const parser = new SseParser(f => {
 					if (closed) return

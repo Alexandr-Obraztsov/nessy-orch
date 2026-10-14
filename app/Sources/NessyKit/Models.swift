@@ -91,8 +91,8 @@ public struct ReplyBrief: Codable, Hashable, Sendable {
 	public var reason: String?
 }
 
-/// Что делает Claude сессии (его сообщают хуки Claude Code: `nessy-orch hook …`).
-public struct ClaudeState: Codable, Hashable, Sendable {
+/// Что делает главный агент сессии (его сообщают хуки: `nessy-orch hook …`).
+public struct LeadState: Codable, Hashable, Sendable {
 	public enum Run: String, Codable, Sendable {
 		case working, idle, ended
 		/// неизвестное значение — «ждёт вас» (тихая точка), приложение не падает
@@ -105,7 +105,7 @@ public struct ClaudeState: Codable, Hashable, Sendable {
 	public init(state: Run, at: String? = nil) { self.state = state; self.at = at }
 }
 
-/// Сессия оркестратора: один разговор одного Claude. В ней агенты, источники и счётчики.
+/// Сессия оркестратора: один разговор главного агента. В ней агенты, источники и счётчики.
 public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	public var id: String
 	public var title: String
@@ -116,10 +116,10 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	public var updatedAt: String
 	/// сколько источников собрано (список — GET /sessions/:id/sources)
 	public var sources: Int
-	/// состояние Claude по хукам; nil — сервер не сообщает (старый сервер или хуки не подключены)
-	public var claude: ClaudeState?
-	/// чат Claude, к которому привязана сессия, и окно (id первой сессии окна), в котором он ведётся
-	public var claudeId: String?
+	/// состояние главного агента по хукам; nil — сервер не сообщает (старый сервер или хуки не подключены)
+	public var lead: LeadState?
+	/// чат главного агента, к которому привязана сессия, и окно (id первой сессии окна), в котором он ведётся
+	public var chatId: String?
 	public var origin: String?
 
 	public init(from decoder: Decoder) throws {
@@ -132,8 +132,8 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 		createdAt = try c.decode(String.self, forKey: .createdAt)
 		updatedAt = try c.decode(String.self, forKey: .updatedAt)
 		sources = try c.decodeIfPresent(Int.self, forKey: .sources) ?? 0
-		claude = (try? c.decodeIfPresent(ClaudeState.self, forKey: .claude)) ?? nil
-		claudeId = try c.decodeIfPresent(String.self, forKey: .claudeId)
+		lead = (try? c.decodeIfPresent(LeadState.self, forKey: .lead)) ?? nil
+		chatId = try c.decodeIfPresent(String.self, forKey: .chatId)
 		origin = try c.decodeIfPresent(String.self, forKey: .origin)
 	}
 }
@@ -152,21 +152,6 @@ public struct AgentStats: Codable, Hashable, Sendable {
 	public var tokens: TokenUsage?
 
 	public static let zero = AgentStats(turns: 0, toolCalls: 0, workMs: 0, tokens: nil)
-}
-
-/// Источник сессии: ссылка из ответа/инструмента или ссылка на код/команду.
-public struct SourceView: Codable, Hashable, Identifiable, Sendable {
-	public var id: String
-	public var kind: String
-	public var label: String
-	public var href: String?
-	public var host: String?
-	public var agentId: String
-	public var agentName: String
-	public var origin: String
-	public var ts: Double
-	public var isURL: Bool { kind == "url" && href != nil }
-	public var date: Date { Date(timeIntervalSince1970: ts / 1000) }
 }
 
 public struct AgentView: Codable, Hashable, Identifiable, Sendable {

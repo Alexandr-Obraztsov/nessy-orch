@@ -4,27 +4,6 @@ import Foundation
 // запрос прав, ошибка, «заблокирован» / «не хватает данных». Новый результат действия не требует:
 // это отдельный признак «новое» (точка), он не попадает в счётчики и бейджи.
 
-/// Что ждёт решения человека. Порядок срочности соответствует порядку случаев.
-public enum AttentionKind: Int, Sendable, Comparable {
-	case permission, blocked, error
-	public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
-}
-
-public struct AttentionItem: Identifiable, Hashable, Sendable {
-	public var id: String
-	public var kind: AttentionKind
-	public var agentId: String
-	public var sessionId: String?
-	public var title: String
-	public var detail: String
-	public var requestId: String?
-	public var ts: Date
-
-	public init(id: String, kind: AttentionKind, agentId: String, sessionId: String?, title: String, detail: String, requestId: String?, ts: Date) {
-		self.id = id; self.kind = kind; self.agentId = agentId; self.sessionId = sessionId; self.title = title; self.detail = detail; self.requestId = requestId; self.ts = ts
-	}
-}
-
 public extension AgentView {
 	/// Статус из последней строки ответа (разбирает сервер).
 	var replyCode: ReplyStatusCode? {
@@ -96,25 +75,6 @@ public enum AgentGrouping {
 			}
 			return AgentSection(group: g, agents: sorted)
 		}
-	}
-}
-
-public enum AttentionBuilder {
-	/// Элементы, требующие действия: запросы прав, ошибки, BLOCKED/NEEDS_CONTEXT.
-	public static func build(agents: [AgentView]) -> [AttentionItem] {
-		var out: [AttentionItem] = []
-		for a in agents {
-			let when = a.lastActivity ?? Date()
-			for p in a.pendingPermissions {
-				out.append(.init(id: "p:\(p.requestId)", kind: .permission, agentId: a.id, sessionId: a.session, title: a.name, detail: p.title, requestId: p.requestId, ts: when))
-			}
-			if a.state == .error {
-				out.append(.init(id: "e:\(a.id):\(a.lastActivityAt)", kind: .error, agentId: a.id, sessionId: a.session, title: a.name, detail: a.error ?? "Ход завершился ошибкой", requestId: nil, ts: when))
-			} else if a.isBlocked, let r = a.lastReply, let code = a.replyCode {
-				out.append(.init(id: "b:\(r.msgId)", kind: .blocked, agentId: a.id, sessionId: a.session, title: a.name, detail: a.replyReason.isEmpty ? code.label : a.replyReason, requestId: nil, ts: Date(timeIntervalSince1970: r.ts / 1000)))
-			}
-		}
-		return out.sorted { $0.kind != $1.kind ? $0.kind < $1.kind : $0.ts > $1.ts }
 	}
 }
 

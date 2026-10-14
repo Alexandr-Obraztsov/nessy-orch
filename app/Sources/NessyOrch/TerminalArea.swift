@@ -31,14 +31,14 @@ struct CenterView: View {
 }
 
 /// Состояние Claude по хукам: работает — лоадер, ждёт вас — синяя точка, завершил — тусклая; нет данных — пусто.
-struct ClaudeStateIndicator: View {
-	var state: ClaudeState.Run?
+struct LeadStateIndicator: View {
+	var state: LeadState.Run?
 	var body: some View {
 		Group {
 			switch state {
-			case .working: DSStateGlyph(state: .working, size: 14).help("Claude работает")
-			case .idle: Circle().fill(DS.Palette.accent).frame(width: 8, height: 8).help("Claude ждёт вас")
-			case .ended: Circle().fill(DS.Palette.quiet.opacity(0.5)).frame(width: 8, height: 8).help("Claude завершил работу")
+			case .working: DSStateGlyph(state: .working, size: 14).help("Главный агент работает")
+			case .idle: Circle().fill(DS.Palette.accent).frame(width: 8, height: 8).help("Главный агент ждёт вас")
+			case .ended: Circle().fill(DS.Palette.quiet.opacity(0.5)).frame(width: 8, height: 8).help("Главный агент завершил работу")
 			case nil: EmptyView()
 			}
 		}
@@ -46,7 +46,7 @@ struct ClaudeStateIndicator: View {
 		.accessibilityLabel(label)
 	}
 	private var label: String {
-		switch state { case .working: "Claude работает"; case .idle: "Claude ждёт вас"; case .ended: "Claude завершил работу"; case nil: "" }
+		switch state { case .working: "Главный агент работает"; case .idle: "Главный агент ждёт вас"; case .ended: "Главный агент завершил работу"; case nil: "" }
 	}
 }
 
@@ -79,7 +79,7 @@ struct NoProjectView: View {
 		VStack(spacing: DS.Metrics.s3) {
 			Image(systemName: "folder.badge.plus").font(.system(size: 34, weight: .light)).foregroundStyle(DS.Palette.textTertiary)
 			Text("Проект не открыт").font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary)
-			Text("Откройте папку проекта — в ней запустится терминал и сессия Claude.")
+			Text("Откройте папку проекта — в ней запустится терминал и сессия агента.")
 				.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).multilineTextAlignment(.center)
 			Button("Открыть папку…") { model.openFolderPanel() }
 				.buttonStyle(.plain).foregroundStyle(DS.Palette.accentText).font(DS.Typography.secondary.weight(.medium))

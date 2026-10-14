@@ -25,15 +25,6 @@ struct NessyOrchApp: App {
 		.defaultSize(width: 1280, height: 780)
 		.commands { AppCommands(model: model) }
 
-		WindowGroup("Агент", id: "agent", for: String.self) { $id in
-			if let id {
-				AgentWindowView(agentId: id)
-					.environment(model)
-					.tint(DS.Palette.accent)
-			}
-		}
-		.defaultSize(width: 440, height: 600)
-
 		Window("Роли", id: "roles") {
 			RolesView().environment(model).tint(DS.Palette.accent)
 		}
@@ -90,13 +81,8 @@ struct AppCommands: Commands {
 			Button("Роли…") { openWindow(id: "roles") }.keyboardShortcut("r", modifiers: [.command, .shift])
 		}
 		CommandMenu("Агент") {
-			Button("Открыть в окне") {
-				if let a = model.targetAgent { model.openAgentWindow?(a.id); active?.open(agent: nil) }
-			}.keyboardShortcut("o").disabled(model.targetAgent == nil)
 			Button("Остановить ход") { if let a = model.targetAgent { model.stop(a) } }
 				.keyboardShortcut(".").disabled(model.targetAgent?.canStop != true || model.isOffline)
-			Button("Удалить агента") { if let a = model.targetAgent { model.remove(agent: a) } }
-				.keyboardShortcut(.delete, modifiers: .command).disabled(model.targetAgent == nil || model.isOffline)
 			Button("К списку агентов") { active?.open(agent: nil) }.disabled(active?.openAgent == nil)
 		}
 	}
@@ -183,7 +169,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		if let k = item.representedObject as? String, let w = AppModel.shared.projectWindows.first(where: { $0.key == k }) { AppModel.shared.raise(w) }
 	}
 	@objc private func openStart() { AppModel.shared.openFolderPanel() }
-	@objc private func openSession(_ item: NSMenuItem) { if let id = item.representedObject as? String { AppModel.shared.show(session: id) } }
 
 	/// Служба Finder (Info.plist → NSServices): папка или файл → окно в этой папке (для файла — в его папке).
 	@objc func openInTClaude(_ pboard: NSPasteboard, userData: String, error: AutoreleasingUnsafeMutablePointer<NSString>) {

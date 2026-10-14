@@ -51,7 +51,8 @@ export class Feed {
 
 	/** Подтвердить доставку: курсор сессии двигается вперёд до `cursor` (назад — никогда: повтор подтверждения безопасен). */
 	ack(session: string, cursor: number): void {
-		if (cursor <= (this.sessionCursors.get(session) ?? 0)) return
+		// курсор «из будущего» спрятал бы ещё не пришедшие ответы
+		if (cursor > this.seq || cursor <= (this.sessionCursors.get(session) ?? 0)) return
 		this.sessionCursors.set(session, cursor)
 		this.deps.onChange()
 	}

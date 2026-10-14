@@ -90,7 +90,7 @@ async function cmdRole(p: Parsed): Promise<void> {
 			icon: flagStr(p, 'icon'),
 		}
 		const r = await post<RoleView>('/roles', body)
-		return asJson ? json(r) : out(`${green('✓')} роль ${bold(r.id)} (${r.name}). Агент с ролью: nessy-orch spawn --role ${r.id} "сессия"`)
+		return asJson ? json(r) : out(`${green('✓')} роль ${bold(r.id)} (${r.name}). Агент с ролью: nessy-orch spawn --role ${r.id} "поручение"`)
 	}
 	if (sub === 'set') {
 		// частичная правка: что не указано — остаётся прежним

@@ -6,8 +6,7 @@
 
 - **Безопасность:** заголовок `Host` обязан быть `127.0.0.1:<порт>` / `localhost:<порт>` / `[::1]:<порт>`, иначе `403 bad_host`.
   Если есть `Origin` — только `http://127.0.0.1:<порт>` или `http://localhost:<порт>`, иначе `403 bad_origin`.
-  Следствие для UI: он должен отдаваться с **того же origin** (статика с оркестратора). Dev-сервер на другом порту обязан
-  проксировать запросы и убирать `Origin`, подменяя `Host`.
+  Следствие: браузерные клиенты с другого origin не работают; приложение и CLI ходят без `Origin`.
 - **Ошибки:** статус ≥ 400, тело `{ "error": "<текст>", "code": "<код>" }`. Коды: `bad_request`, `bad_json`, `bad_path`,
   `bad_from`, `empty_text`, `self_send`, `space_required` (все 400), `no_space` (404), `space_exists` (409),
   `space_busy` (409), `no_agent` (404), `ambiguous_agent` (409), `name_taken` (409), `busy` (409, архив работающего агента),
@@ -56,8 +55,8 @@
 | PATCH | `/sessions/:id` | `SessionPatch {title?, status?, summary?}` | `SessionView` (`updatedAt` обновляется); `status: done` ставит оркестратор или человек из приложения |
 | GET | `/sessions/:id/updates` | — | `SessionUpdates {agents, replies, cursor, watching}`: краткая сводка агентов сессии, новые ответы, курсор для подтверждения и признак фонового ожидания (`inbox --session … --wait`). Без `consume` ответы не потребляются; `consume=1` сдвигает курсор сразу (для простых клиентов). Хуки Claude Code читают без `consume` и подтверждают доставку отдельно |
 | POST | `/sessions/:id/ack` | `{cursor}` | Ответы выведены хуком — сдвинуть курсор сессии (тот же, что у `inbox --session`) до `cursor`; назад не двигается, повтор безопасен. Недоставленные (таймаут хука, обрыв) приходят снова |
-| POST | `/sessions/bind` | `{claudeSession, session?, title?, terminal?, cwd?}` | `SessionView` — привязка чата Claude (`session_id` хука) к сессии: уже привязанная (resume) → она; иначе свободная `session`; иначе новая. Поля `claudeId`, `origin` сохраняются |
-| POST | `/sessions/:id/ping` | `{state: working\|idle\|ended}` | `SessionView` с `claude: {state, at}` — состояние Claude Code по хуку (в памяти, не сохраняется) |
+| POST | `/sessions/bind` | `{chatId, session?, title?, terminal?, cwd?}` | `SessionView` — привязка чата Claude (`session_id` хука) к сессии: уже привязанная (resume) → она; иначе свободная `session`; иначе новая. Поля `chatId`, `origin` сохраняются |
+| POST | `/sessions/:id/lead-state` | `{state: working\|idle\|ended}` | `SessionView` с `claude: {state, at}` — состояние Claude Code по хуку (хранится в sessions.json вместе с сессией) |
 | DELETE | `/sessions/:id` | — | `{ok:true}`; в сессии работают агенты (ход или очередь) → `409 session_busy`; агенты сессии остаются с `session:null`, курсор inbox и источники сессии забываются |
 | GET | `/sessions/:id/sources` | — | `SourceView[]` по порядку появления: ссылки из итоговых ответов агентов («Источники») и из входа их вызовов инструментов, без дублей; `404 no_session` |
 | POST | `/agents/:ref/plan` | `PlanRequest {from?, entries:[{content, status}]}` | `AgentView` с новым планом (заменяет прежний целиком). Неверные записи → `400 bad_plan`; `from` указан и ≠ id агента → `403 forbidden` |

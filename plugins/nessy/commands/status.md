@@ -13,7 +13,7 @@ allowed-tools: Bash(nessy-orch ls), Bash(nessy-orch ls *), Bash(nessy-orch sessi
    Архивных перечисли одной строкой по именам (им можно писать через `send`, они проснутся).
 3. Если есть агенты с ошибкой — подскажи `nessy-orch show <агент>`.
 
-В конце дай ссылку на панель: <http://127.0.0.1:4337> (своей задачи — `nessy-orch://session/<id>`).
+В конце дай ссылку на свою сессию в приложении: `nessy-orch://session/<id>`.
 
 Если команда падает с «оркестратор недоступен», сам его не запускай: попроси пользователя выполнить в обычном
 терминале `bin/nessy-orch install` или `node ~/Projects/nessy-orch/dist/src/main.js`.

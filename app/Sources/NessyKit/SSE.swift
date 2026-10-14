@@ -32,6 +32,7 @@ public final class SSEStream: @unchecked Sendable {
 			cfg.timeoutIntervalForRequest = 60 // сервер шлёт heartbeat каждые 15 с
 			cfg.timeoutIntervalForResource = 24 * 3600
 			let session = URLSession(configuration: cfg)
+			defer { session.invalidateAndCancel() }
 			while !Task.isCancelled {
 				onState(.connecting)
 				do {

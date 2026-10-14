@@ -32,11 +32,6 @@ export class SessionPool {
 
 	constructor(private readonly deps: PoolDeps) {}
 
-	/** Сколько готовых сессий у пространства (для тестов и диагностики). */
-	size(space: string): number {
-		return this.ready.get(space)?.length ?? 0
-	}
-
 	/** Взять готовую свежую сессию (или null) и запустить пополнение. */
 	take(space: string): string | null {
 		const list = this.ready.get(space) ?? []
@@ -61,11 +56,6 @@ export class SessionPool {
 		if (failed !== undefined && this.deps.now() - failed < RETRY_AFTER_MS) return
 		const run = this.fill(space).finally(() => this.filling.delete(space))
 		this.filling.set(space, run)
-	}
-
-	/** Дождаться текущего наполнения (тесты). */
-	idle(space: string): Promise<void> {
-		return this.filling.get(space) ?? Promise.resolve()
 	}
 
 	private async fill(space: string): Promise<void> {

@@ -4,8 +4,8 @@
  * Хук не должен ломать Claude: любая ошибка (оркестратор недоступен, нет переменной) — тихий выход с кодом 0 и пустым выводом.
  */
 import * as fs from 'node:fs'
-import type { ClaudeState, RoleView, SessionUpdates, SessionView } from '../../../../shared/types'
-import { startContext, stopDecision, updatesContext } from '../../../domain/hooks'
+import type { LeadState, RoleView, SessionUpdates, SessionView } from '../../../../shared/types'
+import { deliveredCursor, startContext, stopDecision, updatesContext } from '../../../domain/hooks'
 import { isObject, parseJson } from '../../../lib/json'
 import { enc, get, post } from '../io'
 import type { CommandTable } from './command.types'
@@ -36,18 +36,21 @@ const write = (stream: NodeJS.WriteStream, text: string): Promise<boolean> =>
 	})
 
 /** Ответы реально выведены хуком — сдвинуть курсор сессии. Не дошло (таймаут, обрыв) — ответы придут при следующем хуке или inbox. */
-const ack = (session: string, u: SessionUpdates): Promise<unknown> => (u.replies.length ? post(`/sessions/${enc(session)}/ack`, { cursor: u.cursor }).catch(() => undefined) : Promise.resolve())
+const ack = (session: string, u: SessionUpdates, nameOf: (id: string) => string): Promise<unknown> => {
+	const cursor = deliveredCursor(u.replies, nameOf)
+	return cursor ? post(`/sessions/${enc(session)}/ack`, { cursor }).catch(() => undefined) : Promise.resolve()
+}
 
-const ping = (session: string, state: ClaudeState): Promise<unknown> => post<SessionView>(`/sessions/${enc(session)}/ping`, { state }).catch(() => undefined)
+const setLead = (session: string, state: LeadState): Promise<unknown> => post<SessionView>(`/sessions/${enc(session)}/lead-state`, { state }).catch(() => undefined)
 
 /**
  * Сессия оркестратора этого чата Claude: чат (session_id хука, в том числе после /resume) привязывается к сессии один раз и навсегда.
  * Первый чат окна берёт сессию окна (`NESSY_ORCH_SESSION`), следующий (новый чат, /clear) получает новую; без session_id — сессия окна.
  */
-async function bindSession(claudeId: string, windowSession: string, terminal: string, title: string, cwd: string): Promise<string | null> {
-	if (!claudeId) return windowSession || null
+async function bindChat(chatId: string, windowSession: string, terminal: string, title: string, cwd: string): Promise<string | null> {
+	if (!chatId) return windowSession || null
 	try {
-		const s = await post<SessionView>('/sessions/bind', { claudeSession: claudeId, session: windowSession || undefined, terminal: terminal || undefined, title: title || undefined, cwd: cwd || undefined })
+		const s = await post<SessionView>('/sessions/bind', { chatId: chatId, session: windowSession || undefined, terminal: terminal || undefined, title: title || undefined, cwd: cwd || undefined })
 		return s.id
 	} catch {
 		return windowSession || null
@@ -66,9 +69,9 @@ function exportSession(session: string): void {
 }
 
 async function run(event: string, windowSession: string, terminal: string, input: Record<string, unknown>): Promise<void> {
-	const claudeId = typeof input['session_id'] === 'string' ? input['session_id'] : ''
+	const chatId = typeof input['session_id'] === 'string' ? input['session_id'] : ''
 	const cwd = typeof input['cwd'] === 'string' ? input['cwd'] : ''
-	const session = await bindSession(claudeId, windowSession, terminal, cwd.split('/').filter(Boolean).pop() ?? '', cwd)
+	const session = await bindChat(chatId, windowSession, terminal, cwd.split('/').filter(Boolean).pop() ?? '', cwd)
 	if (!session) return
 	if (event === 'start') exportSession(session)
 	const roles = (): Promise<RoleView[]> => get<RoleView[]>('/roles').catch(() => [])
@@ -79,31 +82,32 @@ async function run(event: string, windowSession: string, terminal: string, input
 	})
 
 	if (event === 'start') {
-		const [s, rs, u] = await Promise.all([get<SessionView>(`/sessions/${enc(session)}`), roles(), updates(), ping(session, 'idle')])
+		const [s, rs, u] = await Promise.all([get<SessionView>(`/sessions/${enc(session)}`), roles(), updates(), setLead(session, 'idle')])
 		// /resume: у возобновлённого чата уже есть агенты и, возможно, непрочитанные ответы — сразу в контекст
 		const n = names(u, rs)
 		const state = updatesContext(u, n.roleName, n.nameOf, session)
 		// простой текст в stdout SessionStart уходит в контекст Claude
-		if (await write(process.stdout, [startContext(s, rs), state].filter(Boolean).join('\n\n') + '\n')) await ack(session, u)
+		if (await write(process.stdout, [startContext(s, rs), state].filter(Boolean).join('\n\n') + '\n')) await ack(session, u, n.nameOf)
 	} else if (event === 'prompt') {
-		const [u, rs] = await Promise.all([updates(), roles(), ping(session, 'working')])
+		const [u, rs] = await Promise.all([updates(), roles(), setLead(session, 'working')])
 		const n = names(u, rs)
 		const text = updatesContext(u, n.roleName, n.nameOf, session)
 		// простой текст в stdout UserPromptSubmit уходит в контекст Claude; ответы считаются доставленными только после записи
-		if (text && (await write(process.stdout, text + '\n'))) await ack(session, u)
+		if (text && (await write(process.stdout, text + '\n'))) await ack(session, u, n.nameOf)
 	} else if (event === 'stop') {
 		const [u, rs] = await Promise.all([updates(), roles()])
-		const decision = stopDecision(u, names(u, rs).nameOf, { session, stopHookActive: input['stop_hook_active'] === true })
+		const n = names(u, rs)
+		const decision = stopDecision(u, n.nameOf, { session, stopHookActive: input['stop_hook_active'] === true })
 		if (decision) {
 			// код 2 + причина в stderr — «не останавливаться» без JSON-схемы (она у Stop строгая и менялась): так хук не может сломаться на валидации
 			if (await write(process.stderr, decision.reason + '\n')) {
 				process.exitCode = 2
-				await ack(session, u)
-				await ping(session, 'working') // Claude продолжает работу с ответами агентов
+				await ack(session, u, n.nameOf)
+				await setLead(session, 'working') // Claude продолжает работу с ответами агентов
 			}
-		} else await ping(session, 'idle')
+		} else await setLead(session, 'idle')
 	} else if (event === 'end') {
-		await ping(session, 'ended')
+		await setLead(session, 'ended')
 	}
 }
 

@@ -63,7 +63,7 @@ function roleCell(id: string | null, roles: ReadonlyMap<string, RoleView>): stri
 /** Таблица агентов; hiddenArchived — сколько архивных скрыто (подсказка про --all). */
 export function agentsTable(agents: readonly AgentView[], spaces: readonly SpaceView[], roles: readonly RoleView[] = [], hiddenArchived = 0): string {
 	const hint = hiddenArchived ? dim(`в архиве: ${hiddenArchived} (показать: nessy-orch ls --all)`) : ''
-	if (!agents.length) return [dim('активных агентов нет. Создайте: nessy-orch spawn --space <путь> "задача"'), hint].filter(Boolean).join('\n')
+	if (!agents.length) return [dim('активных агентов нет. Создайте: nessy-orch spawn --session <id> "поручение"'), hint].filter(Boolean).join('\n')
 	const sp = new Map(spaces.map(s => [s.name, s]))
 	const rl = new Map(roles.map(r => [r.id, r]))
 	const rows = table(
@@ -112,7 +112,7 @@ export function planProgress(plan: AgentPlan | null): string {
 /** Таблица сессий; agents — все агенты (для счётчика «работают/всего»). */
 export function sessionsTable(sessions: readonly SessionView[], agents: readonly AgentView[], hiddenDone = 0): string {
 	const hint = hiddenDone ? dim(`завершённых: ${hiddenDone} (показать: nessy-orch session ls --all)`) : ''
-	if (!sessions.length) return [dim('активных сессий нет. Заведите: nessy-orch session new "<цель>" --owner claude'), hint].filter(Boolean).join('\n')
+	if (!sessions.length) return [dim('активных сессий нет. Заведите: nessy-orch session new "<цель>" --owner lead'), hint].filter(Boolean).join('\n')
 	const rows = table(
 		sessions.map(t => {
 			const mine = agents.filter(a => a.session === t.id)

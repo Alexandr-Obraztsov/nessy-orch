@@ -43,11 +43,11 @@
 ```sh
 cd ~/Projects/nessy-orch
 npm install
-npm run build                       # сервер + UI
+npm run build                       # сервер (TypeScript → dist/)
 node dist/src/main.js               # оркестратор на http://127.0.0.1:4337
 ```
 
-Откройте <http://127.0.0.1:4337> (или `bin/nessy-orch open`).
+Веб-интерфейса нет: оркестрацию показывает приложение TClaude-Orch (`bin/nessy-orch open` открывает его на сессии).
 
 Чтобы оркестратор работал постоянно, установите его как сервис launchd (macOS, `KeepAlive`). Запускайте
 `install` из обычного терминала — не из Claude Code: внутри песочницы Claude сервер и его агенты тоже окажутся
@@ -133,7 +133,7 @@ defaults write com.nessy.orch.app serverURL "http://127.0.0.1:4338"   # друг
 nessy-orch session new "<заголовок>" [--owner X] [--id slug]   # один раз на разговор: id и ссылка nessy-orch://session/<id>
 nessy-orch session ls [--all] | session show <id> | session sources <id> | session reopen <id> | session rm <id>
 nessy-orch session done <id> [--summary "…" | --summary-file F]
-nessy-orch spawn-many [--session S] [--space P] <<'EOF'   # несколько агентов одним вызовом: «@@ имя role=роль» + поручение
+nessy-orch spawn-many [--session S] "имя|роль|поручение" …   # несколько агентов одним вызовом (без heredoc); --file F | --stdin — из файла/потока
 nessy-orch spawn [--session S] [--space S] [--name N] [--role R] [--wait] [--timeout СЕК] ["задача"]
 nessy-orch send <агент|you> "текст" [--wait] [--queue] [--timeout СЕК] [--from ID]
 nessy-orch ask <путь|space> "задача" [--session S]   # = spawn --wait
@@ -160,7 +160,7 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 Плагин Claude Code `nessy` лежит в [`plugins/nessy/`](plugins/nessy/) (скилл, команды, хуки сессий, CLI в `bin/`). Плагин переводит Claude в роль ведущего: работая через nessy-orch, Claude
 не выполняет задачу сам, а проходит цикл:
 
-0. Заводит сессию **один раз на разговор** (`session new "<цель>" --owner claude`) и сразу пишет пользователю ссылку на неё:
+0. Заводит сессию **один раз на разговор** (`session new "<цель>" --owner lead`) и сразу пишет пользователю ссылку на неё:
    `nessy-orch://session/<id>` (открывается в приложении). Смена темы сессию не меняет.
 1. Осматривается: `ls --all --session <id>`, `role ls` (ролей нет — `role import`).
 2. Оценивает объём и делит задачу на независимые части.
@@ -215,9 +215,10 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 
 | Метод и путь | Назначение |
 |---|---|
-| `GET /health`, `GET /status`, `GET /graph` | Служебное: здоровье, состояние, пространства, агенты, роли и задачи |
+| `GET /health`, `GET /status`, `GET /graph` | Служебное: здоровье, состояние, пространства, агенты, роли и сессии |
 | `GET /sessions?status=`, `POST /sessions {title,owner?,id?}` | Сессии оркестраторов; id по умолчанию — slug заголовка + 4 hex (`409 session_exists` при занятом) |
 | `GET /sessions/:id`, `PATCH /sessions/:id {title?,status?,summary?}`, `DELETE /sessions/:id` | Сессия: правка/закрытие (`status: done`), удаление (`409 session_busy`, если агенты работают; агенты → `session: null`) |
+| `GET /sessions/:id/updates`, `POST /sessions/:id/ack {cursor}`, `POST /sessions/:id/lead-state {state}`, `POST /sessions/bind` | Для хуков главного агента: сводка и новые ответы (без потребления), подтверждение доставки, состояние главного агента, привязка чата к сессии |
 | `GET /sessions/:id/sources` | Источники сессии: ссылки из ответов и вызовов инструментов агентов, без дублей |
 | `GET /spaces`, `POST /spaces {path,name?,url?}`, `DELETE /spaces/:name?force=1` | Пространства |
 | `GET /agents?session=`, `POST /agents {space?,name?,role?,session?,prompt?,parent?,from?,wait?}` | Список (включая архивных; `session` — только агенты сессии) и создание агентов (`404 no_session`; без `session` — сессия родителя) |
@@ -274,12 +275,12 @@ src/
     process/             запуск и контроль процессов nessy serve
     sse/, config/        SSE-парсер и форматтер, загрузка конфигурации
   interfaces/
-    http/                HTTP-сервер: роутер, guard (Host/Origin), валидация тел, SSE, статика UI, routes/*
+    http/                HTTP-сервер: роутер, guard (Host/Origin), валидация тел, SSE, routes/*
     cli/                 CLI: аргументы, клиент API, форматирование, commands/*, launchd
 app/                     нативное приложение macOS (SwiftPM): NessyKit (модель, API, SSE, состояние) и NessyOrch (SwiftUI)
 test/
   unit/                  lib, domain, application, infrastructure, interfaces
-  integration/           api, messaging, lifecycle, archive, roles, plan, streams, persistence, startup, sessions
+  integration/           api, messaging, lifecycle, archive, roles, role-presets, plan, streams, persistence, sessions
   support/               тестовый стенд, фейковый nessy serve
 docs/                    требования, контракт nessy serve (ACP), дизайн приложения, исследование аналогов
 ```

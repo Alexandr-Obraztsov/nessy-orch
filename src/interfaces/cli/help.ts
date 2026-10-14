@@ -54,6 +54,7 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
 
 СЛУЖЕБНОЕ
   status               состояние оркестратора
+  open [<id сессии>]   открыть сессию в приложении TClaude-Orch
   install [--print]    установить launchd-сервис  uninstall
 
 ОБЩИЕ ФЛАГИ: --json (машинный вывод), --help

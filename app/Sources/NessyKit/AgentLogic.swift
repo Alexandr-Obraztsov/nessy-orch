@@ -58,26 +58,6 @@ public extension AgentView {
 	}
 }
 
-public struct PlanProgress: Equatable, Sendable {
-	public var done: Int
-	public var total: Int
-	public var active: Int?
-	public var step: String?
-	public var fraction: Double { total == 0 ? 0 : Double(done) / Double(total) }
-}
-
-public extension AgentPlan {
-	var progress: PlanProgress {
-		let active = entries.firstIndex { $0.status == .inProgress }
-		return PlanProgress(
-			done: entries.filter { $0.status == .completed }.count,
-			total: entries.count,
-			active: active,
-			step: active.map { entries[$0].content }
-		)
-	}
-}
-
 public enum AgentOrder {
 	/// Ждут разрешения → работают → ошибка → ждут поручения → выполненные; внутри — по времени запуска (карточки не прыгают).
 	public static func sorted(_ agents: [AgentView]) -> [AgentView] {
@@ -117,6 +97,22 @@ public enum Brief {
 			l = l.replacingOccurrences(of: "\\[([^\\]]+)\\]\\([^)]+\\)", with: "$1", options: .regularExpression)
 			return l.trimmingCharacters(in: .whitespaces)
 		}.filter { !$0.isEmpty }.joined(separator: "\n")
+	}
+
+	/// Заголовок агента — суть задачи: первая строка поручения без «Цель:», первое предложение, до `limit` знаков по границе слова.
+	public static func title(fromGoal goal: String, limit: Int = 80) -> String {
+		var t = goal.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? goal
+		t = t.replacingOccurrences(of: "^\\s*(?:цель|задача|поручение)\\s*[:—–-]\\s*", with: "", options: [.regularExpression, .caseInsensitive])
+		t = t.trimmingCharacters(in: .whitespacesAndNewlines)
+		if let r = t.range(of: "[.!?](\\s|$)", options: .regularExpression), t.distance(from: t.startIndex, to: r.lowerBound) >= 12 {
+			t = String(t[..<r.lowerBound])
+		}
+		if t.count > limit {
+			let cut = String(t.prefix(limit))
+			let head = cut.lastIndex(of: " ").map { String(cut[..<$0]) } ?? cut
+			t = (head.count >= limit / 2 ? head : cut) + "…"
+		}
+		return t.prefix(1).uppercased() + t.dropFirst()
 	}
 
 	public static func of(_ a: AgentView, first: [String: Message]) -> String {

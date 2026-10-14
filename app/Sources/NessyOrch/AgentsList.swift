@@ -11,7 +11,7 @@ struct AgentsPanel: View {
 	var body: some View {
 		ZStack {
 			if let id = win?.openAgent?.id {
-				AgentPanel(agentId: id, mode: .embedded)
+				AgentPanel(agentId: id)
 					.padding(.top, SessionWindowModel.rowHeight)
 					.overlay(alignment: .topLeading) { BackButton { win?.open(agent: nil) } }
 					.transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
@@ -45,7 +45,7 @@ struct AgentsListView: View {
 			if agents.isEmpty {
 				VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 					Text("Агентов пока нет").font(DS.Typography.body).foregroundStyle(DS.Palette.textPrimary)
-					Text("Их запускает Claude.").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+					Text("Их запускает главный агент.").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
 				}
 				.frame(maxWidth: .infinity, alignment: .leading)
 				.padding(.horizontal, DS.Metrics.s4).padding(.top, DS.Metrics.s2)
@@ -62,7 +62,7 @@ struct AgentsListView: View {
 			Text("Агенты").font(DS.Typography.panelTitle)
 			if !agents.isEmpty { Text("·").foregroundStyle(DS.Palette.textTertiary); DSCount(value: agents.count).foregroundStyle(DS.Palette.textSecondary) }
 			Spacer(minLength: 0)
-			ClaudeStateIndicator(state: win?.session?.claude?.state)
+			LeadStateIndicator(state: win?.session?.lead?.state)
 		}
 		.foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
 		.padding(.leading, DS.Metrics.s4).padding(.trailing, 96)
@@ -155,16 +155,11 @@ struct AgentRow: View {
 				.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
 			VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 				HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
-					Text(a.name).font(DS.Typography.agentName).foregroundStyle(DS.Palette.textPrimary).lineLimit(1).layoutPriority(1)
-					// в menu bar вместо роли — сессия: агентов там из разных сессий
-					if compact {
-						if let r = model.store.session(a.session)?.title { Text(r).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).lineLimit(1) }
-					} else if let r = model.roleInfo(of: a) {
-						RoleChip(name: r.name, icon: r.icon, hue: r.hue)
-					}
+					Text(model.store.title(of: a)).font(DS.Typography.agentName).foregroundStyle(DS.Palette.textPrimary).lineLimit(2).layoutPriority(1)
 					Spacer(minLength: DS.Metrics.s2)
 					trailing
 				}
+				meta
 				AgentStageLine(agent: a)
 			}
 		}
@@ -176,21 +171,34 @@ struct AgentRow: View {
 		}
 		.contentShape(Rectangle())
 		.onHover { h in withAnimation(h ? DS.Motion.hoverIn : DS.Motion.hoverOut) { hovering = h } }
-		.onTapGesture(count: 2) { model.openAgentWindow?(a.id) }
 		.onTapGesture { compact ? model.reveal(agent: a.id) : win?.open(agent: a.id) }
 		.contextMenu {
 			Button("Открыть") { if compact { model.reveal(agent: a.id) } else { win?.open(agent: a.id) } }
-			Button("Открыть в окне") { model.openAgentWindow?(a.id) }
 			if a.canStop { Button("Остановить") { model.stop(a) }.disabled(model.isOffline) }
-			Divider()
-			Button("Удалить", role: .destructive) { model.remove(agent: a) }.disabled(model.isOffline)
 		}
 		.accessibilityElement(children: .contain)
-		.accessibilityLabel("\(a.name), \(a.stateWord)")
+		.accessibilityLabel("\(model.store.title(of: a)), \(a.stateWord)")
 		.accessibilityAddTraits(selected ? .isSelected : [])
 	}
 
-	/// Справа: таймер. Кнопок в строке нет: остановка и удаление — в контекстном меню (⌘. и ⌘⌫ — с клавиатуры).
+	/// Роль · токены · вызовы (в menu bar вместо роли — сессия: агенты там из разных сессий). Что есть, то и пишем.
+	@ViewBuilder private var meta: some View {
+		let parts = metaParts
+		if !parts.isEmpty {
+			Text(parts.joined(separator: " · ")).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1)
+		}
+	}
+
+	private var metaParts: [String] {
+		var p: [String] = []
+		if compact { if let t = model.store.session(a.session)?.title { p.append(t) } }
+		else if let r = model.roleInfo(of: a) { p.append(r.name) }
+		if let t = a.stats.tokens, t.total > 0 { p.append("\(Numbers.compact(t.total)) токенов") }
+		if a.stats.toolCalls > 0 { p.append(Numbers.count(a.stats.toolCalls, "вызов", "вызова", "вызовов")) }
+		return p
+	}
+
+	/// Справа: таймер. Кнопок в строке нет: остановка — в контекстном меню (⌘. — с клавиатуры).
 	@ViewBuilder private var trailing: some View {
 		HStack(spacing: DS.Metrics.s2) {
 			if model.store.isNew(a) { DSNewDot() }

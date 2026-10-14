@@ -45,14 +45,14 @@ struct GeneralSettings: View {
 
 struct TerminalSettings: View {
 	@AppStorage("terminal.fontSize") private var fontSize = 13.0
-	@AppStorage("autoStartClaude") private var autoClaude = true
-	@AppStorage("claudeCommand") private var claudeCommand = "claude"
+	@AppStorage("autoStartClaude") private var autoLead = true
+	@AppStorage("claudeCommand") private var leadCommand = "claude"
 
 	var body: some View {
 		Form {
 			Section {
-				Toggle("Запускать Claude при открытии проекта", isOn: $autoClaude)
-				TextField("Команда запуска", text: $claudeCommand, prompt: Text("claude")).disabled(!autoClaude)
+				Toggle("Запускать агента при открытии проекта", isOn: $autoLead)
+				TextField("Команда запуска", text: $leadCommand, prompt: Text("claude")).disabled(!autoLead)
 				Stepper(value: $fontSize, in: 10...24, step: 1) { LabeledContent("Размер шрифта", value: "\(Int(fontSize)) pt") }
 			} footer: {
 				Text("Команда вводится в терминал сразу после старта оболочки, например `claude --model opus`. Команда `claude` уже идёт с хуками оркестратора. Размер шрифта применяется ко всем терминалам сразу.")

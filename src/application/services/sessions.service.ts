@@ -3,7 +3,7 @@
  * Каждый Claude заводит свою сессию, агенты привязываются к ней, у сессии свой inbox (курсор — в ленте).
  * Правила полей — domain/sessions.ts.
  */
-import type { ClaudeState, SessionPatch, SessionRequest, SessionStatus, SessionView } from '../../../shared/types'
+import type { LeadState, SessionPatch, SessionRequest, SessionStatus, SessionView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { isSessionId, sessionIdFrom, validateSessionPatch, validateSessionRequest } from '../../domain/sessions'
 import { hexId } from '../../lib/ids'
@@ -106,13 +106,13 @@ export class SessionsService {
 	 * Привязка чата Claude к сессии: уже привязанная к этому чату (resume) → она; иначе заданная `ref`, если она свободна
 	 * (первый запуск в окне приложения); иначе новая сессия (новый чат в том же окне, /clear). Привязка сохраняется на диск.
 	 */
-	bind(claudeId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null): SessionView {
-		const id = claudeId.trim()
-		if (!id) throw new AppError(400, 'bad_request', 'claudeSession не задан')
+	bind(chatId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null): SessionView {
+		const id = chatId.trim()
+		if (!id) throw new AppError(400, 'bad_request', 'chatId не задан')
 		const free = ref ? this.sessions.get(ref.trim().toLowerCase()) : undefined
 		// терминал приложения, в котором идёт чат (из окружения хука): по нему окно находит свою сессию без заранее созданной пустой
 		const origin = terminal?.trim() || (free ? (free.origin ?? free.id) : null)
-		const hit = [...this.sessions.values()].find(s => s.claudeId === id)
+		const hit = [...this.sessions.values()].find(s => s.chatId === id)
 		const dir = cwd && cwd.startsWith('/') ? cwd : null
 		if (hit) {
 			// чат продолжили в другом терминале (/resume) или в другой папке: сессия переезжает
@@ -124,21 +124,21 @@ export class SessionsService {
 			}
 			return hit
 		}
-		if (free && !free.claudeId) {
-			const next: SessionView = { ...free, claudeId: id, origin, cwd: dir }
+		if (free && !free.chatId) {
+			const next: SessionView = { ...free, chatId: id, origin, cwd: dir }
 			this.put(next)
 			return next
 		}
-		const made = this.create({ title: title || free?.title || 'Claude', owner: 'claude' })
-		const next: SessionView = { ...made, claudeId: id, origin, cwd: dir }
+		const made = this.create({ title: title || free?.title || 'Главный агент', owner: 'lead' })
+		const next: SessionView = { ...made, chatId: id, origin, cwd: dir }
 		this.put(next)
 		return next
 	}
 
 	/** Состояние Claude Code по хукам (в памяти: после рестарта сервиса неизвестно). */
-	ping(ref: string, state: ClaudeState): SessionView {
+	setLeadState(ref: string, state: LeadState): SessionView {
 		const s = this.resolve(ref)
-		const next: SessionView = { ...s, claude: { state, at: this.isoNow() } }
+		const next: SessionView = { ...s, lead: { state, at: this.isoNow() } }
 		this.sessions.set(s.id, next)
 		this.ctx.hub.publish({ t: 'session', session: next }) // без записи на диск: состояние временное
 		return next

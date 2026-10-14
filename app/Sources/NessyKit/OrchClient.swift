@@ -63,17 +63,10 @@ public final class OrchClient: @unchecked Sendable {
 	}
 
 	// MARK: служебное
-	public func health() async -> Bool {
-		(try? await raw("GET", "/health", timeout: 2)) != nil
-	}
 	public func status() async throws -> StatusResponse { try await get("/status") }
 
 	// MARK: действия человека (приложение только наблюдает; запускает агентов Claude)
-	public func removeAgent(_ ref: String) async throws { try await raw("DELETE", "/agents/\(ref)") }
 	public func cancel(_ ref: String) async throws { try await raw("POST", "/agents/\(ref)/cancel") }
-	public func decide(agent ref: String, requestId: String, approve: Bool) async throws {
-		try await raw("POST", "/agents/\(ref)/permission/\(requestId)", body: ["approve": approve])
-	}
 	/// Написать агенту от имени человека: по умолчанию прерывает текущий ход, агент продолжает с нового сообщения (docs/api.md, SendRequest).
 	/// Возвращает сохранённое сообщение; тело ответа не критично, поэтому его разбор не роняет вызов.
 	@discardableResult
@@ -94,7 +87,6 @@ public final class OrchClient: @unchecked Sendable {
 	public func deleteRole(_ id: String) async throws { try await raw("DELETE", "/roles/\(id)") }
 
 	// MARK: сессии
-	public func sources(session id: String) async throws -> [SourceView] { try await get("/sessions/\(id)/sources") }
 	public func deleteSession(_ id: String) async throws { try await raw("DELETE", "/sessions/\(id)") }
 	// MARK: потоки
 	public func stream() -> SSEStream { SSEStream(url: url("/stream")) }

@@ -90,7 +90,7 @@ final class SessionWindowModel {
 	func closed() {
 		app.terminals.close(key: key)
 		// пустые сессии окна (ни агентов, ни чата Claude) удаляются; сессия с чатом остаётся — её можно продолжить через /resume
-		for s in app.store.sessions where owns(s.id) && s.claudeId == nil && s.claude == nil && app.store.agents(inSession: s.id).isEmpty {
+		for s in app.store.sessions where owns(s.id) && s.chatId == nil && s.lead == nil && app.store.agents(inSession: s.id).isEmpty {
 			let id = s.id
 			Task { try? await app.store.client.deleteSession(id) }
 		}
@@ -196,52 +196,116 @@ private struct SidePanel: View {
 	}
 }
 
-/// Переключатель проектов в шапке на Liquid Glass. Один терминал — просто название текущей командной строки; два и больше —
-/// сегментный тоггл (по сегменту на проект, активный подсвечен) и «+». Контекстное меню сегмента — закрыть.
+/// Переключатель проектов в шапке на Liquid Glass: вкладка на проект (активная подсвечена), у каждой — состояние агентов проекта
+/// (работают / ждут вас) и «×» по наведению; справа «+» с меню (новый терминал здесь, открыть папку, недавние). Много проектов —
+/// полоса прокручивается, активный всегда виден. Один проект — просто его название и «+».
 private struct ProjectSwitcher: View {
 	@Environment(AppModel.self) private var model
 	@Namespace private var ns
+	@State private var tabsWidth: CGFloat = 0
 
 	var body: some View {
 		let many = model.tabs.count > 1
 		HStack(spacing: 2) {
-			ForEach(model.tabs, id: \.key) { w in
-				Segment(title: model.label(of: w), selected: many && w === model.activeWindow, plain: !many, ns: ns) { model.select(w) }
-					.contextMenu { Button("Закрыть терминал") { model.close(w) } }
-			}
-			if many {
-				Button { model.newWindowHere() } label: {
-					Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 22).contentShape(Rectangle())
+			ScrollViewReader { proxy in
+				ScrollView(.horizontal) {
+					HStack(spacing: 2) {
+						ForEach(model.tabs, id: \.key) { w in
+							Segment(window: w, title: model.label(of: w), selected: many && w === model.activeWindow, plain: !many, ns: ns,
+									select: { model.select(w) }, close: { model.close(w) })
+								.id(w.key)
+						}
+					}
+					.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tabsWidth = $0 }
 				}
-				.buttonStyle(.plain).focusEffectDisabled().foregroundStyle(DS.Palette.textTertiary).help("Новый терминал в этой папке (\(Hotkeys.shared.display(.newTerminal)))")
+				.scrollIndicators(.hidden)
+				// ширина — ровно по вкладкам (но не шире 560 pt: дальше полоса прокручивается)
+				.frame(width: min(tabsWidth, 560))
+				.onChange(of: model.activeKey) { _, k in withAnimation(dsAnimation(DS.Motion.panel)) { proxy.scrollTo(k) } }
 			}
+			AddMenu()
 		}
 		.padding(3)
 		.glassEffect(.regular, in: Capsule())
 		.animation(dsAnimation(DS.Motion.panel), value: model.activeKey)
 	}
 
+	/// «+»: новый терминал в папке текущего проекта, выбор папки и недавние проекты, которые ещё не открыты.
+	private struct AddMenu: View {
+		@Environment(AppModel.self) private var model
+		private var recent: [String] {
+			let open = Set(model.tabs.map(\.dir))
+			return model.recentProjects.filter { !open.contains($0) && FileManager.default.fileExists(atPath: $0) }.prefix(6).map { $0 }
+		}
+		var body: some View {
+			Menu {
+				if model.activeWindow != nil {
+					Button("Новый терминал здесь") { model.newWindowHere() }
+				}
+				Button("Открыть папку…") { model.openFolderPanel() }
+				if !recent.isEmpty {
+					Divider()
+					ForEach(recent, id: \.self) { d in Button(Projects.name(ofPath: d)) { model.openTerminal(dir: d) }.help(d) }
+				}
+			} label: {
+				Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 22).contentShape(Rectangle())
+			}
+			.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).focusEffectDisabled()
+			.foregroundStyle(DS.Palette.textTertiary)
+			.help("Новый терминал (\(Hotkeys.shared.display(.newTerminal))) · открыть папку (\(Hotkeys.shared.display(.openFolder)))")
+		}
+	}
+
 	private struct Segment: View {
+		var window: SessionWindowModel
 		var title: String
 		var selected: Bool
 		var plain: Bool
 		var ns: Namespace.ID
-		var action: () -> Void
+		var select: () -> Void
+		var close: () -> Void
 		@State private var hover = false
+
+		private var sum: SessionSummary { window.agents.summary }
+
 		var body: some View {
-			Button(action: action) {
+			HStack(spacing: 5) {
+				indicator
 				Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
 					.frame(maxWidth: 140)
-					.padding(.horizontal, 12).frame(height: 22)
-					.foregroundStyle(plain || selected || hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
-					.background {
-						if selected { Capsule().fill(DS.Palette.textPrimary.opacity(0.14)).matchedGeometryEffect(id: "seg", in: ns) }
+				if hover {
+					Button(action: close) {
+						Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).frame(width: 14, height: 14)
+							.background(DS.Palette.hover, in: Circle()).contentShape(Circle())
 					}
-					.contentShape(Capsule())
+					.buttonStyle(.plain).focusEffectDisabled().help("Закрыть проект")
+					.transition(.opacity)
+				}
 			}
-			.buttonStyle(.plain).focusEffectDisabled()
-			.onHover { hover = $0 }
-			.allowsHitTesting(!plain)
+			.padding(.leading, 12).padding(.trailing, hover ? 8 : 12).frame(height: 22)
+			.foregroundStyle(plain || selected || hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+			.background {
+				if selected { Capsule().fill(DS.Palette.textPrimary.opacity(0.14)).matchedGeometryEffect(id: "seg", in: ns) }
+				else if hover && !plain { Capsule().fill(DS.Palette.hover) }
+			}
+			.contentShape(Capsule())
+			.onTapGesture { if !plain { select() } }
+			.onHover { h in withAnimation(DS.Motion.pick(DS.Motion.layout, reduceMotion: false)) { hover = h } }
+			.help(window.dir)
+			.contextMenu { Button("Закрыть проект") { close() } }
+			.accessibilityElement(children: .combine)
+			.accessibilityAddTraits(selected ? .isSelected : [])
+		}
+
+		/// Ждут вас — число на акценте; иначе работают — вращающийся глиф; иначе ничего.
+		@ViewBuilder private var indicator: some View {
+			if sum.needsYou > 0 {
+				DSCount(value: sum.needsYou).font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
+					.padding(.horizontal, 5).background(DS.Palette.accent, in: Capsule())
+					.help("Ждут вас: \(sum.needsYou)")
+			} else if sum.working > 0 {
+				DSStateGlyph(state: .working, size: 11).help("Работают: \(sum.working)")
+			}
 		}
 	}
 }
@@ -311,7 +375,6 @@ private struct BarIcon: View {
 /// Нет связи: полоса над контентом; список остаётся, но тускнеет, таймеры замирают (screens.md §3h).
 struct OfflineBanner: View {
 	@Environment(AppModel.self) private var model
-	@State private var starting = false
 
 	var body: some View {
 		HStack(spacing: DS.Metrics.s3) {
@@ -324,17 +387,6 @@ struct OfflineBanner: View {
 		.background(DS.Palette.surface)
 		.overlay(alignment: .bottom) { DSSeparator() }
 		.transition(.opacity)
-	}
-
-	private func start() {
-		starting = true
-		Task {
-			let ok = await Daemon.kickstart()
-			if !ok { model.flash("Не удалось запустить. В терминале: bin/nessy-orch install", error: true) }
-			try? await Task.sleep(for: .seconds(2))
-			await model.store.refreshStatus()
-			starting = false
-		}
 	}
 }
 

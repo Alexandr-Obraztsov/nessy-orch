@@ -78,10 +78,10 @@ export interface SourceView {
 }
 
 /** Состояние Claude Code этой сессии (сообщают хуки): работает над ходом / ждёт пользователя / сеанс завершён. */
-export type ClaudeState = 'working' | 'idle' | 'ended'
+export type LeadState = 'working' | 'idle' | 'ended'
 
-export interface ClaudeStatus {
-	state: ClaudeState
+export interface LeadStatus {
+	state: LeadState
 	/** когда сообщили (ISO) */
 	at: string
 }
@@ -90,7 +90,7 @@ export interface SessionView {
 	/** slug: латиница, цифры, дефис (например `fix-ci-3f2a`) */
 	id: string
 	title: string
-	/** кто ведёт сессию: свободная метка оркестратора (например `claude`, имя окна) или null */
+	/** кто ведёт сессию: свободная метка оркестратора (например `lead`, имя окна) или null */
 	owner: string | null
 	status: SessionStatus
 	/** итог сессии от оркестратора (session done --summary), markdown */
@@ -100,9 +100,9 @@ export interface SessionView {
 	/** сколько источников собрано за сессию (список — GET /sessions/:id/sources) */
 	sources: number
 	/** состояние Claude Code (по хукам `nessy-orch hook …`); null — хуки не подключены или сервис перезапускался */
-	claude?: ClaudeStatus | null
+	lead?: LeadStatus | null
 	/** id чата Claude Code (session_id из хуков), к которому привязана сессия: один чат (в том числе /resume) — одна сессия */
-	claudeId?: string | null
+	chatId?: string | null
 	/** окно приложения, в котором ведётся чат: id первой сессии окна; в одном окне подряд могут идти несколько чатов Claude */
 	origin?: string | null
 	/** каталог чата Claude (cwd из хука): агенты сессии запускаются здесь, отдельные каталоги не нужны */

@@ -8,6 +8,7 @@ struct ResultContent: View {
 	@Environment(AppModel.self) private var model
 	var agent: AgentView
 	var chat: ChatModel?
+	var goal: String
 
 	private var text: String? {
 		if let r = agent.lastReply, r.failed == nil, let m = model.store.messagesById[r.msgId] { return m.text }
@@ -17,6 +18,7 @@ struct ResultContent: View {
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: DS.Metrics.s5) {
+				AgentIntro(agent: agent, goal: goal)
 				if agent.state == .error { reason("Ошибка", agent.error ?? "ход завершился ошибкой", DS.Palette.danger) }
 				if let text {
 					let parsed = ReplyParser.parse(text)
@@ -79,6 +81,7 @@ struct ChatContent: View {
 			let entries = ChatEntries.build(chat.items, goal: goal)
 			ScrollView {
 				VStack(alignment: .leading, spacing: DS.Metrics.s4) {
+					AgentIntro(agent: agent, goal: goal)
 					if !chat.replayDone && chat.items.isEmpty {
 						ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(DS.Metrics.s6)
 					}
@@ -238,7 +241,7 @@ struct AgentComposer: View {
 				.frame(height: max(fieldH, 17))
 				.overlay(alignment: .topLeading) {
 					if draft.wrappedValue.isEmpty {
-						Text(agent.canStop ? "Написать \(agent.name) — ход прервётся…" : "Написать \(agent.name)…").font(.system(size: 13)).foregroundStyle(DS.Palette.textTertiary).allowsHitTesting(false)
+						Text(agent.canStop ? "Написать агенту — ход прервётся…" : "Написать агенту…").font(.system(size: 13)).foregroundStyle(DS.Palette.textTertiary).allowsHitTesting(false)
 					}
 				}
 				.padding(.vertical, DS.Metrics.s1)

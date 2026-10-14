@@ -5,7 +5,6 @@ import NessyKit
 /// Дизайн-система nessy (docs/design/design-system.md). Цвет — только у того, что требует внимания.
 enum DS {
 	enum AgentState { case idle, working, wait, error, done }
-	enum Tone { case neutral, accent, attention, danger }
 }
 
 // MARK: - Цвет
@@ -28,7 +27,6 @@ extension DS {
 		static let accentText = Color.ds(0x0066D6, 0x4CA2FF, hc: (0x004FA8, 0x7DBBFF))
 		/// «ждёт вас» — тот же синий nessy, что и акцент (оранжевого в интерфейсе нет)
 		static let attention = Color.ds(0x0066D6, 0x4CA2FF, hc: (0x004FA8, 0x7DBBFF))
-		static let attentionStroke = Color.ds(0x0A6CE0, 0x4CA2FF, alpha: 0.35, hcAlpha: 0.6)
 		static let danger = Color.ds(0xC9001A, 0xFF5C52, hc: (0x9E0014, 0xFF8A82))
 		static let dangerTint = Color.ds(0xFDECEC, 0x3A1C1C)
 		static let quiet = Color.ds(0x8E8E93, 0x7C7C82, hc: (0x5F5F66, 0xA3A3AA))
@@ -80,12 +78,11 @@ extension DS {
 		static let sidePanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 300, 520)
 		static let panelRadius: CGFloat = 22
 		/// круглые кнопки: 36 — везде, 40 — в тулбаре; иконка 16–17 pt (layout-v2.md, «Кнопки»)
-		static let button: CGFloat = 36, toolbarButton: CGFloat = 40, buttonIcon: CGFloat = 16.5
+		static let button: CGFloat = 36, buttonIcon: CGFloat = 16.5
 		static let groupRadius: CGFloat = 12
 		/// плавающие карточки панели агента (шапка, цель, план, поле ввода)
 		static let cardRadius: CGFloat = 16
 		static let rowInset: CGFloat = 4
-		static let panelRadiusFallback: CGFloat = 18
 		static let glyphRow: CGFloat = 16, glyphSidebar: CGFloat = 14, glyphHeader: CGFloat = 20
 		static let progressSize = CGSize(width: 48, height: 3)
 		/// отступ текста строки агента от левого края: 12 + глиф 16 + 12
