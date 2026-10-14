@@ -19,7 +19,7 @@ import * as http from 'node:http'
 import type { Orchestrator } from '../../application/orchestrator'
 import { AppError } from '../../domain/errors'
 import { errMsg } from '../../lib/json'
-import { assertLocalClient } from './guard'
+import { assertAllowed, assertLocalClient, identify } from './guard'
 import { sendJson } from './respond'
 import { Router } from './router'
 import { registerAgentRoutes } from './routes/agents.routes'
@@ -60,7 +60,9 @@ export function createServer(orch: Orchestrator, opts: ServerOptions): http.Serv
 
 		const hit = router.match(method, seg)
 		if (!hit) throw new AppError(404, 'not_found', `${method} ${url.pathname}`)
-		await hit.handler({ req, res, orch, opts, params: hit.params, query: url.searchParams })
+		const caller = identify(req, opts.token)
+		assertAllowed(method, hit.pattern, caller)
+		await hit.handler({ req, res, orch, opts, params: hit.params, query: url.searchParams, caller })
 	}
 
 	return http.createServer((req, res) => {

@@ -11,6 +11,21 @@ export function endpoint(env: NodeJS.ProcessEnv = process.env): Endpoint {
 	return { host: '127.0.0.1', port: Number.isFinite(port) ? port : 4337 }
 }
 
+/** ключ агента (`--key`): подтверждает команды от его имени (`--from`) */
+let agentKey: string | null = null
+export function setAgentKey(key: string | undefined): void {
+	agentKey = key?.trim() || null
+}
+
+/** Заголовки доступа: токен оператора из окружения терминала (у агентов nessy его нет) и ключ агента. */
+function authHeaders(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+	const h: Record<string, string> = {}
+	const token = env['NESSY_ORCH_TOKEN']?.trim()
+	if (token) h['X-Orch-Token'] = token
+	if (agentKey) h['X-Agent-Key'] = agentKey
+	return h
+}
+
 const UNREACHABLE =
 	'оркестратор недоступен. Запустите его в обычном терминале (не из Claude Code): `nessy-orch install` (сервис launchd) или `node ~/Projects/nessy-orch/dist/src/main.js`'
 
@@ -23,7 +38,7 @@ export function request(ep: Endpoint, method: string, path: string, body?: unkno
 				port: ep.port,
 				method,
 				path,
-				headers: payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {},
+				headers: { ...authHeaders(), ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}) },
 			},
 			res => {
 				let d = ''

@@ -14,8 +14,12 @@ public final class OrchClient: @unchecked Sendable {
 	public let baseURL: URL
 	private let session: URLSession
 
-	public init(baseURL: URL = URL(string: "http://127.0.0.1:4337")!) {
+	/// токен оператора читается заново при каждом запросе: сервис мог создать его уже после запуска приложения
+	private let token: @Sendable () -> String?
+
+	public init(baseURL: URL = URL(string: "http://127.0.0.1:4337")!, token: @escaping @Sendable () -> String? = { OrchToken.read() }) {
 		self.baseURL = baseURL
+		self.token = token
 		let cfg = URLSessionConfiguration.ephemeral
 		cfg.timeoutIntervalForRequest = 30
 		cfg.waitsForConnectivity = false
@@ -36,6 +40,7 @@ public final class OrchClient: @unchecked Sendable {
 		var req = URLRequest(url: url(path, query: query))
 		req.httpMethod = method
 		if let timeout { req.timeoutInterval = timeout }
+		if let t = token() { req.setValue(t, forHTTPHeaderField: "X-Orch-Token") }
 		if let body {
 			req.httpBody = try JSONEncoder().encode(AnyEncodable(body))
 			req.setValue("application/json", forHTTPHeaderField: "Content-Type")

@@ -6,16 +6,18 @@ function peerLabel(p: PeerInfo): string {
 }
 
 /** Вводная для нового контекста агента: кто он, кто рядом, как писать другим и (если есть) его роль. */
-export function buildPreamble(agent: AgentIdentity, peers: readonly PeerInfo[], cli: string, role: RoleBrief | null = null): string {
+export function buildPreamble(agent: AgentIdentity, peers: readonly PeerInfo[], cli: string, role: RoleBrief | null = null, key?: string): string {
+	// ключ подтверждает, что команда от имени агента выполняется им самим (никому его не показывай и не пересылай)
+	const from = `--from ${agent.id}${key ? ` --key ${key}` : ''}`
 	const lines = [
 		`[nessy-orch] Ты — агент «${agent.name}» (id: ${agent.id}) в оркестраторе, пространство «${agent.space}».`,
 		`Сообщения тебе приходят от оператора (you) или от других агентов; твой финальный ответ уходит отправителю автоматически.`,
 		`Чтобы САМОСТОЯТЕЛЬНО написать другому агенту или оператору, выполни в shell:`,
-		`  ${cli} send --from ${agent.id} <кому> "текст"        # асинхронно, ответ придёт тебе сообщением`,
-		`  ${cli} send --from ${agent.id} --wait <кому> "текст" # дождаться ответа прямо в выводе команды`,
+		`  ${cli} send ${from} <кому> "текст"        # асинхронно, ответ придёт тебе сообщением`,
+		`  ${cli} send ${from} --wait <кому> "текст" # дождаться ответа прямо в выводе команды`,
 		`<кому> — id или имя агента, либо «you». Не пересылай сообщения без необходимости: цепочки ограничены.`,
 		`ПЛАН ОБЯЗАТЕЛЕН для любой задачи. Первое действие — опубликуй план (список целиком, коротко):`,
-		`  ${cli} plan --from ${agent.id} "- [~] шаг 1" "- [ ] шаг 2" "- [ ] шаг 3"`,
+		`  ${cli} plan ${from} "- [~] шаг 1" "- [ ] шаг 2" "- [ ] шаг 3"`,
 		`Закончив КАЖДЫЙ шаг, опубликуй список заново: этот шаг [x], следующий [~]. Перед финальным ответом все шаги — [x] (лишние убери).`,
 		`Твой финальный ответ — последнее сообщение хода: пиши в нём итог целиком, по-русски, коротко и по формату (до ~250 слов, если задача не просит больше):`,
 		`  **Итог** — 1–3 предложения, прямой ответ. Без пересказа задачи и описания процесса.`,
@@ -30,6 +32,6 @@ export function buildPreamble(agent: AgentIdentity, peers: readonly PeerInfo[], 
 }
 
 /** Напоминание в конце каждого промпта: вести план и отмечать шаги. */
-export function planReminder(agentId: string, cli: string): string {
-	return `[nessy-orch] Веди план: опубликуй/обнови его командой \`${cli} plan --from ${agentId} …\` и отмечай каждый выполненный шаг.`
+export function planReminder(agentId: string, cli: string, key?: string): string {
+	return `[nessy-orch] Веди план: опубликуй/обнови его командой \`${cli} plan --from ${agentId}${key ? ` --key ${key}` : ''} …\` и отмечай каждый выполненный шаг.`
 }

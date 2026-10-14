@@ -20,14 +20,14 @@ public enum TerminalLaunch {
 
 	/// Переменные родителя, которые нельзя тащить в новый терминал: чужая сессия оркестратора и признаки «внутри Claude Code».
 	static let stripped: Set<String> = [
-		"NESSY_ORCH_SESSION", "NESSY_ORCH_TERMINAL", "ORCH_PORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH",
+		"NESSY_ORCH_SESSION", "NESSY_ORCH_TERMINAL", "NESSY_ORCH_TOKEN", "ORCH_PORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH",
 		"TERM_PROGRAM", "TERM_PROGRAM_VERSION", "TERM_SESSION_ID", "INSIDE_EMACS",
 	]
 
 	/// Окружение терминала: базовое минус чужое, плюс TERM/COLORTERM/LANG, сессия оркестратора и порт (только нестандартный).
 	/// `~/.local/bin` в начале PATH — туда приложение ставит `nessy-orch`, а `claude` обычно лежит там же; login-оболочка
 	/// дополнит PATH из профилей.
-	public static func environment(base: [String: String], sessionId: String?, terminalKey: String? = nil, orchestrator: URL, home: String = NSHomeDirectory()) -> [String: String] {
+	public static func environment(base: [String: String], sessionId: String?, terminalKey: String? = nil, orchestrator: URL, token: String? = nil, home: String = NSHomeDirectory()) -> [String: String] {
 		var env = base.filter { !stripped.contains($0.key) && !$0.key.hasPrefix("CLAUDE_CODE_") }
 		env["TERM"] = "xterm-256color"
 		env["COLORTERM"] = "truecolor"
@@ -40,6 +40,8 @@ public enum TerminalLaunch {
 		if let sessionId, !sessionId.isEmpty { env["NESSY_ORCH_SESSION"] = sessionId }
 		// ключ терминала приложения: хуки Claude по нему привязывают сессию чата (session_id) к терминалу, сессия заранее не создаётся
 		if let terminalKey, !terminalKey.isEmpty { env["NESSY_ORCH_TERMINAL"] = terminalKey }
+		// токен оператора: по нему CLI и хуки главного агента доказывают, что они не агент nessy
+		if let token, !token.isEmpty { env["NESSY_ORCH_TOKEN"] = token }
 		if let port = orchestrator.port, port != defaultPort { env["ORCH_PORT"] = String(port) }
 		return env
 	}
@@ -56,9 +58,9 @@ public enum TerminalLaunch {
 	/// `NESSY_ORCH_TERMINAL`). `command` — для проверок: выполнить и остаться в оболочке.
 	/// `lead` — главный агент: терминал сразу становится им (`exec`), оболочки пользователя в нём нет, а выход из агента завершает процесс.
 	public static func terminal(directory: String, sessionId: String?, terminalKey: String? = nil, orchestrator: URL, base: [String: String], command: String? = nil,
-								lead: String? = nil, home: String = NSHomeDirectory(), fm: FileManager = .default) -> LaunchSpec {
+								lead: String? = nil, token: String? = nil, home: String = NSHomeDirectory(), fm: FileManager = .default) -> LaunchSpec {
 		let shell = userShell(env: base, fm: fm)
-		var env = environment(base: base, sessionId: sessionId, terminalKey: terminalKey, orchestrator: orchestrator, home: home)
+		var env = environment(base: base, sessionId: sessionId, terminalKey: terminalKey, orchestrator: orchestrator, token: token, home: home)
 		env["NESSY_ORCH_DIR"] = directory
 		env["SHELL"] = shell
 		var args = ["-l"]

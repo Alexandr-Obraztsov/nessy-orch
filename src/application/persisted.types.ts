@@ -21,6 +21,8 @@ export interface PersistedAgent {
 	archived?: boolean
 	/** сессия nessy закрыта по простою; нет в старых состояниях */
 	parked?: boolean
+	/** ключ агента; нет в старых состояниях (получит новый) */
+	key?: string
 	createdAt: string
 	sessionId: string | null
 	/** сообщение, ход по которому шёл в момент записи (при рестарте — потерянный ход); нет в старых состояниях */

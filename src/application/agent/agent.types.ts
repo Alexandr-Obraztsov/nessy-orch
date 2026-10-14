@@ -26,6 +26,10 @@ export interface AgentDeps {
 	autoApprove: boolean
 	/** ожидание подтверждения отмены от nessy (мс) */
 	cancelGraceMs: number
+	/** новый секретный ключ агента (для команд от его имени) */
+	newKey: () => string
+	/** показывать ключ агенту в вводной и напоминаниях (включена проверка токенов) */
+	showKey: boolean
 	/** простой агента до закрытия его сессии nessy, мс (0 — не закрывать) */
 	idleCloseMs: number
 	/** базовая пауза повтора промпта при временном отказе nessy (мс, растёт вдвое); по умолчанию 1000 */
@@ -43,6 +47,7 @@ export interface AgentInit {
 	session?: string | null
 	role?: string | null
 	status?: AgentStatus
+	key?: string
 }
 
 /** Событие агента до присвоения seq/ts. */

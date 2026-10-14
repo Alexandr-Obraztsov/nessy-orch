@@ -2,6 +2,9 @@
  * Orchestrator — фасад прикладного слоя: собирает реестр, ленту и сервисы,
  * реализует AgentHost и отдаёт интерфейсному слою (HTTP) готовые сценарии.
  */
+import * as crypto from 'node:crypto'
+import { USER, YOU } from '../domain/constants'
+import { AppError } from '../domain/errors'
 import type {
 	AgentBrief,
 	AgentEvent,
@@ -114,6 +117,8 @@ export class Orchestrator implements AgentHost {
 				autoApprove: deps.settings.autoApprove,
 				cancelGraceMs: deps.settings.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS,
 				idleCloseMs: deps.settings.idleCloseMs ?? DEFAULT_IDLE_CLOSE_MS,
+				newKey: () => ids.next(24),
+				showKey: deps.settings.authRequired === true,
 				cliPath: deps.settings.cliPath,
 			},
 			saveSoon: () => this.saveSoon(),
@@ -343,6 +348,19 @@ export class Orchestrator implements AgentHost {
 		if (session === undefined) return all
 		const id = this.sessionsSvc.resolve(session).id
 		return all.filter(a => a.session === id)
+	}
+
+	/**
+	 * Проверка «от чьего имени» вызов: оператор (токен) может всё; без токена — только от имени агента с его ключом
+	 * (`--from <агент> --key <ключ>`), иначе агент мог бы выдать себя за оператора или за другого агента. 403 operator_required / bad_agent_key.
+	 */
+	authorizeSender(from: string | undefined, caller: { operator: boolean; agentKey: string | null }): void {
+		if (caller.operator) return
+		if (!from || from === YOU || from === USER) throw new AppError(403, 'operator_required', 'от имени оператора можно только с токеном; агент пишет от своего имени: --from <свой id> --key <ключ из вводной>')
+		const agent = this.registry.resolveAgent(from)
+		const a = Buffer.from(agent.key)
+		const b = Buffer.from(caller.agentKey ?? '')
+		if (a.length === 0 || a.length !== b.length || !crypto.timingSafeEqual(a, b)) throw new AppError(403, 'bad_agent_key', `ключ агента ${agent.id} не подошёл: возьми --key из своей вводной`)
 	}
 
 	// ---------- сообщения ----------

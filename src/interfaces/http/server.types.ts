@@ -5,6 +5,14 @@ export interface ServerOptions {
 	version: string
 	port: number
 	host: string
+	/** токен оператора; нет — все вызывающие считаются оператором */
+	token?: string
+}
+
+/** Кто вызывает: оператор (по токену) или агент (ключ из его вводной — проверяется на маршрутах «от имени агента»). */
+export interface Caller {
+	operator: boolean
+	agentKey: string | null
 }
 
 /** Контекст обработки одного запроса. */
@@ -16,6 +24,7 @@ export interface RouteContext {
 	/** параметры пути (`:ref`, `:name`, …), уже декодированные */
 	params: Record<string, string>
 	query: URLSearchParams
+	caller: Caller
 }
 
 export type RouteHandler = (ctx: RouteContext) => void | Promise<void>
@@ -27,6 +36,7 @@ export interface Route {
 }
 
 export interface RouteMatch {
+	pattern: string
 	handler: RouteHandler
 	params: Record<string, string>
 }

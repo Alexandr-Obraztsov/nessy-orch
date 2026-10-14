@@ -35,7 +35,7 @@ export function buildApp(config: Config, version: string): AppInstance {
 	const firstStart = !orch.hasStoredRoles
 	orch.load()
 	if (config.seedRoles && firstStart) seedRoles(orch, new FileRolePresets(config.rolesDir))
-	const server = createServer(orch, { version, port: config.port, host: config.host })
+	const server = createServer(orch, { version, port: config.port, host: config.host, ...(config.authToken ? { token: config.authToken } : {}) })
 
 	return {
 		orch,

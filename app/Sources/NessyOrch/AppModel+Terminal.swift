@@ -48,7 +48,7 @@ extension AppModel {
 		let debugCommand = UserDefaults.standard.string(forKey: "debug.terminalCommand")
 		let lead = debugCommand == nil ? LeadCommand.build(base: AppSettings.leadCommand, resumeChat: win.value.chat) : nil
 		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, terminalKey: win.key, orchestrator: AppSettings.serverURL,
-										   base: ProcessInfo.processInfo.environment, command: debugCommand, lead: lead)
+										   base: ProcessInfo.processInfo.environment, command: debugCommand, lead: lead, token: OrchToken.read())
 		// `nessy-orch` из приложения доступен и в терминале агента (его Bash-инструментах)
 		let bundledBin = Bundle.main.resourceURL.map { $0.appendingPathComponent("orch/bin").path }.flatMap { FileManager.default.fileExists(atPath: $0 + "/nessy-orch") ? $0 : nil }
 		let extra = [bundledBin].compactMap { $0 }

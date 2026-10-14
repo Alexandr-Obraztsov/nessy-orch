@@ -2,6 +2,8 @@ import type { OrchSettings } from '../../application/settings.types'
 
 /** Полная конфигурация процесса оркестратора (из переменных окружения). */
 export interface Config extends OrchSettings {
+	/** токен оператора (приложение и терминал главного агента); нет — проверка выключена (тесты) */
+	authToken?: string
 	/** корень проекта (где package.json) */
 	root: string
 	host: string

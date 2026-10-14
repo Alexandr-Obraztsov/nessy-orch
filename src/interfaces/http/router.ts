@@ -23,7 +23,7 @@ export class Router {
 					break
 				}
 			}
-			if (ok) return { handler: r.handler, params }
+			if (ok) return { pattern: `${r.method} /${r.segments.join('/')}`, handler: r.handler, params }
 		}
 		return null
 	}

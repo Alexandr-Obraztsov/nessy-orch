@@ -69,6 +69,26 @@ struct LeadCommandTests {
 	}
 }
 
+@Suite("Токен оператора")
+struct OrchTokenTests {
+	@Test func readsTokenFromHomeAndPassesItToTerminal() throws {
+		let dir = FileManager.default.temporaryDirectory.appendingPathComponent("tok-\(UUID().uuidString)")
+		try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+		defer { try? FileManager.default.removeItem(at: dir) }
+		#expect(OrchToken.read(env: ["NESSY_ORCH_HOME": dir.path]) == nil, "файла ещё нет")
+		try "0123456789abcdef0123456789abcdef\n".write(to: dir.appendingPathComponent("token"), atomically: true, encoding: .utf8)
+		let t = OrchToken.read(env: ["NESSY_ORCH_HOME": dir.path])
+		#expect(t == "0123456789abcdef0123456789abcdef")
+		try "коротко".write(to: dir.appendingPathComponent("token"), atomically: true, encoding: .utf8)
+		#expect(OrchToken.read(env: ["NESSY_ORCH_HOME": dir.path]) == nil, "слишком короткий — не токен")
+		#expect(OrchToken.file(env: [:], home: "/Users/me").path == "/Users/me/.nessy-orch/token")
+		let url = URL(string: "http://127.0.0.1:4337")!
+		let e = TerminalLaunch.environment(base: ["NESSY_ORCH_TOKEN": "старый", "PATH": "/usr/bin"], sessionId: nil, orchestrator: url, token: "новый-токен")
+		#expect(e["NESSY_ORCH_TOKEN"] == "новый-токен", "чужой токен из окружения родителя заменяется")
+		#expect(TerminalLaunch.environment(base: ["NESSY_ORCH_TOKEN": "старый"], sessionId: nil, orchestrator: url)["NESSY_ORCH_TOKEN"] == nil)
+	}
+}
+
 @Suite("Запуск терминала")
 struct TerminalLaunchTests {
 	let url = URL(string: "http://127.0.0.1:4337")!

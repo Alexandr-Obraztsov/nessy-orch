@@ -5,7 +5,7 @@
  * Так `nessy-orch spawn --wait ...` удобно читать и главному агенту, и скриптам.
  */
 import { errMsg } from '../../lib/json'
-import { flagBool, parseArgs } from './args'
+import { flagBool, flagStr, parseArgs } from './args'
 import { agentCommands } from './commands/agents.commands'
 import type { CommandTable } from './commands/command.types'
 import { feedCommands } from './commands/feed.commands'
@@ -14,6 +14,7 @@ import { roleCommands } from './commands/roles.commands'
 import { serviceCommands } from './commands/service.commands'
 import { spaceCommands } from './commands/spaces.commands'
 import { sessionCommands } from './commands/sessions.commands'
+import { setAgentKey } from './client'
 import { CliError } from './errors'
 import { red } from './format'
 import { HELP } from './help'
@@ -31,6 +32,7 @@ async function main(argv: string[]): Promise<void> {
 	if (!cmd) throw new CliError(`неизвестная команда «${name}». См. nessy-orch --help`, 2)
 	const p = parseArgs(rest, cmd.spec)
 	if (flagBool(p, 'help')) return out(HELP)
+	setAgentKey(cmd.spec.value?.includes('key') ? flagStr(p, 'key') : undefined)
 	await cmd.run(p)
 }
 

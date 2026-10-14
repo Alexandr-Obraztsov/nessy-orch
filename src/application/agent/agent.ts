@@ -51,6 +51,8 @@ export class Agent implements AgentIdentity {
 	session: string | null
 	/** id роли (роль могли удалить — id остаётся) */
 	readonly role: string | null
+	/** секретный ключ: подтверждает, что команду от имени агента (`--from`) выполняет он сам; в AgentView не попадает */
+	readonly key: string
 	createdAt: string
 	/** id сессии nessy (не путать с сессией оркестратора — `session`) */
 	nessyId: string | null = null
@@ -113,6 +115,7 @@ export class Agent implements AgentIdentity {
 		this.parent = init.parent
 		this.session = init.session ?? null
 		this.role = init.role ?? null
+		this.key = init.key ?? deps.newKey()
 		this.status = init.status ?? 'starting'
 		this.createdAt = this.isoNow()
 		this.lastActivityAt = this.createdAt
@@ -122,7 +125,9 @@ export class Agent implements AgentIdentity {
 	static restore(p: PersistedAgent, deps: AgentDeps): Agent {
 		let evSeq = p.evSeq
 		for (const e of deps.store.readEvents(p.id, 50)) if (e.seq > evSeq) evSeq = e.seq
-		const a = new Agent({ id: p.id, name: p.name, space: p.space, parent: p.parent, session: p.session ?? null, role: p.role ?? null, status: restoredStatus() }, deps, evSeq)
+		const a = new Agent({ id: p.id, name: p.name, space: p.space, parent: p.parent, session: p.session ?? null, role: p.role ?? null, status: restoredStatus(), ...(p.key ? { key: p.key } : {}) }, deps, evSeq)
+		// агент из состояния без ключа получает новый и снова «представляется» (вводная содержит ключ)
+		if (!p.key) a.introduced = false
 		a.createdAt = p.createdAt
 		a.nessyId = p.sessionId
 		a.displayName = p.displayName
@@ -182,6 +187,7 @@ export class Agent implements AgentIdentity {
 			role: this.role,
 			archived: this.archived,
 			parked: this.parked,
+			key: this.key,
 			createdAt: this.createdAt,
 			sessionId: this.nessyId,
 			displayName: this.displayName,
@@ -541,7 +547,7 @@ export class Agent implements AgentIdentity {
 	private buildPrompt(msg: Message): string {
 		const { host } = this.deps
 		// напоминание о плане — в каждом промпте (в истории чата хранится исходный текст без него)
-		const body = `${framePrompt(msg, host.labelOf(msg.from))}\n\n${planReminder(this.id, this.deps.cliPath)}`
+		const body = `${framePrompt(msg, host.labelOf(msg.from))}\n\n${planReminder(this.id, this.deps.cliPath, this.deps.showKey ? this.key : undefined)}`
 		return this.introduced ? body : `${host.preambleFor(this)}\n\n${body}`
 	}
 

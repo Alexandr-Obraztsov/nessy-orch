@@ -5,6 +5,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { buildApp } from './app'
+import { ensureToken } from './infrastructure/config/auth-token'
 import { loadConfig } from './infrastructure/config/load-config'
 import { errMsg } from './lib/json'
 
@@ -20,6 +21,8 @@ function version(root: string): string {
 
 async function main(): Promise<void> {
 	const config = loadConfig()
+	config.authToken = ensureToken(config.home)
+	config.authRequired = true
 	const app = buildApp(config, version(config.root))
 	try {
 		await app.listen()

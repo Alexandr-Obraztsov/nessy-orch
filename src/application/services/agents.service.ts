@@ -27,7 +27,8 @@ export class AgentsService {
 			.filter(a => a.id !== agent.id)
 			.map(a => ({ id: a.id, name: a.name, space: a.space, archived: a.archived, roleName: this.roles.find(a.role)?.name ?? null }))
 		const role = this.roles.find(this.ctx.registry.agents.get(agent.id)?.role ?? null)
-		return buildPreamble(agent, peers, this.ctx.settings.cliPath, role && { name: role.name, instructions: role.instructions })
+		const key = this.ctx.settings.authRequired ? this.ctx.registry.agents.get(agent.id)?.key : undefined
+		return buildPreamble(agent, peers, this.ctx.settings.cliPath, role && { name: role.name, instructions: role.instructions }, key)
 	}
 
 	async spawn(req: SpawnRequest): Promise<SpawnResponse> {
