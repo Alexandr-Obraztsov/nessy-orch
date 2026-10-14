@@ -104,6 +104,9 @@ final class SessionWindowModel {
 	/// Окно закрыто: терминал завершается; пустая сессия (ни агентов, ни состояния Claude) удаляется.
 	func closed() {
 		app.terminals.close(key: key)
+		// сервер завершает сессии терминала и останавливает его работающих агентов (они без хозяина жгли бы токены)
+		let k = key
+		Task { try? await app.store.client.terminalClosed(k) }
 		// пустые сессии окна (ни агентов, ни чата Claude) удаляются; сессия с чатом остаётся — её можно продолжить через /resume
 		for s in app.store.sessions where owns(s.id) && s.chatId == nil && s.lead == nil && app.store.agents(inSession: s.id).isEmpty {
 			let id = s.id

@@ -32,6 +32,8 @@ export type SessionEvent =
 	| { kind: 'plan'; entries: PlanEntry[] }
 	| { kind: 'died'; reason: string }
 	| { kind: 'evicted' }
+	/** кольцо событий nessy не покрывает пропуск: часть событий потеряна (ход мог закончиться незамеченным) */
+	| { kind: 'resync' }
 	/** nessy забрал сообщения из очереди mid-turn в ход: модель их увидела */
 	| { kind: 'injected'; count: number }
 

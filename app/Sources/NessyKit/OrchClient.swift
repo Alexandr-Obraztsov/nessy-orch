@@ -87,6 +87,8 @@ public final class OrchClient: @unchecked Sendable {
 	public func deleteRole(_ id: String) async throws { try await raw("DELETE", "/roles/\(id)") }
 
 	// MARK: сессии
+	/// Терминал проекта закрыт: сервер завершает его сессии и останавливает работающих агентов.
+	public func terminalClosed(_ key: String) async throws { try await raw("POST", "/terminals/\(key)/closed", body: [String: String]()) }
 	public func deleteSession(_ id: String) async throws { try await raw("DELETE", "/sessions/\(id)") }
 	// MARK: потоки
 	public func stream() -> SSEStream { SSEStream(url: url("/stream")) }

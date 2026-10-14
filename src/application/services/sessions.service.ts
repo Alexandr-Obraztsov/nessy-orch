@@ -104,9 +104,10 @@ export class SessionsService {
 
 	/**
 	 * Привязка чата Claude к сессии: уже привязанная к этому чату (resume) → она; иначе заданная `ref`, если она свободна
-	 * (первый запуск в окне приложения); иначе новая сессия (новый чат в том же окне, /clear). Привязка сохраняется на диск.
+	 * (первый запуск в окне приложения); иначе новая сессия (новый чат в том же окне). `source: 'clear'` — продолжение разговора после /clear:
+	 * сессия прежняя (с её агентами), меняется только чат. Привязка сохраняется на диск.
 	 */
-	bind(chatId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null): SessionView {
+	bind(chatId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null, source: string | null = null): SessionView {
 		const id = chatId.trim()
 		if (!id) throw new AppError(400, 'bad_request', 'chatId не задан')
 		const free = ref ? this.sessions.get(ref.trim().toLowerCase()) : undefined
@@ -123,6 +124,17 @@ export class SessionsService {
 				return moved
 			}
 			return hit
+		}
+		// /clear в том же терминале: чат новый, а разговор тот же — агенты и курсор остаются в прежней сессии, у неё меняется chatId
+		if (source === 'clear' && origin) {
+			const prev = [...this.sessions.values()]
+				.filter(s => s.chatId && s.chatId !== id && (s.origin === origin || s.id === origin))
+				.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
+			if (prev) {
+				const moved: SessionView = { ...prev, chatId: id, origin, cwd: dir ?? prev.cwd ?? null }
+				this.put(moved)
+				return moved
+			}
 		}
 		if (free && !free.chatId) {
 			const next: SessionView = { ...free, chatId: id, origin, cwd: dir }

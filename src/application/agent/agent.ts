@@ -667,6 +667,16 @@ export class Agent implements AgentIdentity {
 				if (this.current) this.finishTurn({ error: ev.reason })
 				else this.setStatus('error', ev.reason)
 				return
+			case 'resync':
+				// пропущенные события могли включать конец хода: ход закрываем с ошибкой (а в nessy отменяем), сессию подписываем заново
+				this.detach()
+				this.resume = true
+				if (this.current) {
+					void this.sendCancel()
+					this.finishTurn({ error: 'события nessy потеряны (переполнение кольца) — ход прерван' })
+				}
+				void this.ensureAttached().catch(() => undefined)
+				return
 			case 'evicted':
 				this.detach()
 				this.resume = true

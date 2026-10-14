@@ -211,6 +211,31 @@ describe('сессии: сервис', () => {
 		assert.equal(ctx.orch.bindChat('chat-cwd', null, 'proj', 'term-1', dir2).cwd, dir2)
 	})
 
+	it('/clear в том же терминале: чат меняется, а сессия и её агенты остаются; без source — новая сессия', async () => {
+		const first = ctx.orch.bindChat('chat-1', null, 'proj', 'term-9', '/x')
+		const agent = (await ctx.orch.spawn({ space: 'main', name: 'worker', session: first.id })).agent.id
+		const cleared = ctx.orch.bindChat('chat-2', null, 'proj', 'term-9', '/x', 'clear')
+		assert.equal(cleared.id, first.id)
+		assert.equal(cleared.chatId, 'chat-2')
+		assert.equal(ctx.orch.getAgent(agent).session, first.id)
+		const other = ctx.orch.bindChat('chat-3', null, 'proj', 'term-9', '/x')
+		assert.notEqual(other.id, first.id, 'новый чат без /clear — отдельная сессия')
+		const elsewhere = ctx.orch.bindChat('chat-4', null, 'proj', 'term-other', '/x', 'clear')
+		assert.notEqual(elsewhere.id, first.id, 'в чужом терминале прежней сессии нет')
+	})
+
+	it('терминал закрыт: сессии терминала завершены, работающие агенты остановлены, записи остаются', async () => {
+		const s = ctx.orch.bindChat('chat-1', null, 'proj', 'term-7', '/x')
+		const agent = (await ctx.orch.spawn({ space: 'main', name: 'busy', session: s.id, prompt: 'работай' })).agent.id
+		await new Promise(r => setTimeout(r, 20))
+		const r = await ctx.orch.terminalClosed('term-7')
+		assert.deepEqual(r.sessions, [s.id])
+		assert.equal(r.cancelled, 1)
+		assert.equal(ctx.orch.getSession(s.id).lead?.state, 'ended')
+		assert.equal(ctx.orch.getAgent(agent).session, s.id, 'агент и сессия не удалены')
+		assert.deepEqual((await ctx.orch.terminalClosed('term-none')).sessions, [])
+	})
+
 	it('send: свободного агента запускает (started), работающего прерывает (--interrupt) или ставит в очередь', async () => {
 		const a = (await ctx.orch.spawn({ space: 'main', name: 'sendee' })).agent.id
 		const idle = await ctx.orch.send(a, { text: 'начни', from: 'you' })

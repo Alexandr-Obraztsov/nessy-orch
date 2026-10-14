@@ -30,7 +30,10 @@ export function registerSessionRoutes(r: Router): void {
 		const b = await readBody(req)
 		const o = isObject(b) ? b : {}
 		const str = (k: string): string => (typeof o[k] === 'string' ? o[k] : '')
-		sendJson(res, 200, orch.bindChat(str('chatId'), str('session') || null, str('title'), str('terminal') || null, str('cwd') || null))
+		sendJson(res, 200, orch.bindChat(str('chatId'), str('session') || null, str('title'), str('terminal') || null, str('cwd') || null, str('source') || null))
+	})
+	r.add('POST', '/terminals/:key/closed', async ({ res, orch, params }) => {
+		sendJson(res, 200, await orch.terminalClosed(params['key'] ?? ''))
 	})
 	r.add('POST', '/sessions/:id/lead-state', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)

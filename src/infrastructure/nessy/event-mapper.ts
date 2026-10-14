@@ -160,6 +160,8 @@ export function mapNessyEvent(eventName: string, frame: unknown, tools: Map<stri
 			return { kind: 'died', reason: 'процесс агента nessy завершился' }
 		case 'client_evicted':
 			return { kind: 'evicted' }
+		case 'state_resync_required':
+			return { kind: 'resync' }
 		case 'mid_turn_message_injected':
 			return { kind: 'injected', count: Math.max(1, arr(d['messages']).length) }
 		default:

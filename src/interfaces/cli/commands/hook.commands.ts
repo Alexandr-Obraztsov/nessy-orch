@@ -47,10 +47,10 @@ const setLead = (session: string, state: LeadState): Promise<unknown> => post<Se
  * Сессия оркестратора этого чата Claude: чат (session_id хука, в том числе после /resume) привязывается к сессии один раз и навсегда.
  * Первый чат окна берёт сессию окна (`NESSY_ORCH_SESSION`), следующий (новый чат, /clear) получает новую; без session_id — сессия окна.
  */
-async function bindChat(chatId: string, windowSession: string, terminal: string, title: string, cwd: string): Promise<string | null> {
+async function bindChat(chatId: string, windowSession: string, terminal: string, title: string, cwd: string, source: string): Promise<string | null> {
 	if (!chatId) return windowSession || null
 	try {
-		const s = await post<SessionView>('/sessions/bind', { chatId: chatId, session: windowSession || undefined, terminal: terminal || undefined, title: title || undefined, cwd: cwd || undefined })
+		const s = await post<SessionView>('/sessions/bind', { chatId: chatId, session: windowSession || undefined, terminal: terminal || undefined, title: title || undefined, cwd: cwd || undefined, source: source || undefined })
 		return s.id
 	} catch {
 		return windowSession || null
@@ -71,7 +71,8 @@ function exportSession(session: string): void {
 async function run(event: string, windowSession: string, terminal: string, input: Record<string, unknown>): Promise<void> {
 	const chatId = typeof input['session_id'] === 'string' ? input['session_id'] : ''
 	const cwd = typeof input['cwd'] === 'string' ? input['cwd'] : ''
-	const session = await bindChat(chatId, windowSession, terminal, cwd.split('/').filter(Boolean).pop() ?? '', cwd)
+	const source = typeof input['source'] === 'string' ? input['source'] : ''
+	const session = await bindChat(chatId, windowSession, terminal, cwd.split('/').filter(Boolean).pop() ?? '', cwd, source)
 	if (!session) return
 	if (event === 'start') exportSession(session)
 	const roles = (): Promise<RoleView[]> => get<RoleView[]>('/roles').catch(() => [])
@@ -107,7 +108,8 @@ async function run(event: string, windowSession: string, terminal: string, input
 			}
 		} else await setLead(session, 'idle')
 	} else if (event === 'end') {
-		await setLead(session, 'ended')
+		// /clear завершает чат, но не разговор: агент (а с ним сессия) продолжит жить в новом чате — «завершён» не ставим
+		if (input['reason'] !== 'clear') await setLead(session, 'ended')
 	}
 }
 

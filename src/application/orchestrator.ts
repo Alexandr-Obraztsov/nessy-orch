@@ -351,8 +351,26 @@ export class Orchestrator implements AgentHost {
 
 	/** Входящие для you; с session — только ответы агентов сессии, со своим курсором (неизвестная → 404 no_session). */
 	/** Состояние главного агента сессии по хуку (`POST /sessions/:id/lead-state`). */
-	bindChat(chatId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null): SessionView {
-		return this.sessionsSvc.bind(chatId, ref, title, terminal, cwd)
+	bindChat(chatId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null, source: string | null = null): SessionView {
+		return this.sessionsSvc.bind(chatId, ref, title, terminal, cwd, source)
+	}
+
+	/**
+	 * Терминал приложения закрыт (проект закрыт): главный агент в нём завершён. Сессии терминала помечаются завершёнными, а работающие
+	 * агенты останавливаются (они без хозяина жгли бы токены); записи, чаты и результаты остаются — сессию можно продолжить (`--resume`).
+	 */
+	async terminalClosed(key: string): Promise<{ sessions: string[]; cancelled: number }> {
+		const sessions = this.sessionsSvc.list().filter(s => s.origin === key || s.id === key)
+		let cancelled = 0
+		for (const s of sessions) {
+			this.sessionsSvc.setLeadState(s.id, 'ended')
+			for (const a of this.registry.agents.values()) {
+				if (a.session !== s.id || !a.isBusy) continue
+				cancelled++
+				await a.cancel()
+			}
+		}
+		return { sessions: sessions.map(s => s.id), cancelled }
 	}
 
 	setLeadState(id: string, state: LeadState): SessionView {
