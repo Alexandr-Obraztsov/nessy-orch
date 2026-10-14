@@ -5,6 +5,13 @@ public enum LeadCommand {
 	/// Агенты, умеющие продолжить прежний чат флагом `--resume <id>`.
 	static let resumable: Set<String> = ["claude", "nessy", "qwen"]
 
+	/// Вид главного агента по команде: `claude`, `nessy` или `other` (переменная `NESSY_ORCH_LEAD` терминала: по ней хуки выбирают формат вывода и способ ожидания).
+	public static func kind(of command: String) -> String {
+		guard let first = command.split(separator: " ").first else { return "claude" }
+		let name = URL(fileURLWithPath: String(first)).lastPathComponent
+		return name == "claude" ? "claude" : name == "nessy" ? "nessy" : "other"
+	}
+
 	/// Команда из настроек (по умолчанию `claude`); для повторного открытия сессии к ней добавляется `--resume <id чата>`,
 	/// если агент это умеет и пользователь сам не указал resume/continue.
 	public static func build(base: String, resumeChat: String?) -> String {

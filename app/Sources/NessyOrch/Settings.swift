@@ -38,6 +38,7 @@ struct GeneralSettings: View {
 				Button("Роли агентов…") { openWindow(id: "roles") }
 			}
 			InstallSettingsSection()
+			NessySettingsSection()
 		}
 		.formStyle(.grouped)
 	}

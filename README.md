@@ -155,6 +155,16 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 `ls --all` показывает всех. `--session` у `spawn`, `ask`, `ls`, `inbox` по умолчанию берётся из `NESSY_ORCH_SESSION`.
 `session rm` отказывает (`409 session_busy`), пока в сессии работают агенты; агенты удалённой сессии остаются вне сессий.
 
+## nessy как главный агент
+
+Терминал приложения может запускать не только Claude Code, но и `nessy` (команда — в Настройках → «Терминал»). У nessy нет плагина с хуками и
+CLI, поэтому приложение подключает его так: хуки сессий (`SessionStart`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionEnd`) добавляются в
+`~/.nessy/settings.json` отдельными записями с именем `nessy-orch` (остальные настройки и чужие хуки не трогаются, копия исходного файла —
+`settings.json.nessy-orch.bak`), скиллы плагина копируются в `~/.nessy/skills/`, а команда `nessy-orch` попадает в PATH терминала. Хуки
+действуют только внутри терминала приложения. Различия с Claude: контекст хук отдаёт JSON-ом (`hookSpecificOutput.additionalContext`), а ответов
+агентов nessy ждёт не фоновой командой, а обычным `nessy-orch inbox --session <id> --wait 50`; хук `Stop` возвращает его к ожиданию, пока агенты
+работают. Подключение — автоматически при запуске приложения (если есть `~/.nessy`) или кнопкой в Настройках.
+
 ## Плагин для Claude Code
 
 Плагин Claude Code `nessy` лежит в [`plugins/nessy/`](plugins/nessy/) (скилл, команды, хуки сессий, CLI в `bin/`). Плагин переводит Claude в роль ведущего: работая через nessy-orch, Claude

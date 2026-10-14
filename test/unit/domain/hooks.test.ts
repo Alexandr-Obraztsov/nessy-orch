@@ -1,13 +1,39 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { AgentBrief, Message, RoleView, SessionUpdates, SessionView } from '../../../shared/types'
-import { agentLine, deliveredCursor, defang, fitReplies, replyBlock, startContext, stopDecision, updatesContext, watchCommand, watchReminder } from '../../../src/domain/hooks'
+import { agentLine, deliveredCursor, defang, fitReplies, leadKindOf, waitCommand, replyBlock, startContext, stopDecision, updatesContext, watchCommand, watchReminder } from '../../../src/domain/hooks'
 
 const agent = (over: Partial<AgentBrief> = {}): AgentBrief => ({ id: 'a-1', name: 'ci-fixer', role: 'executor', status: 'working', archived: false, lastTool: 'npm test', plan: { done: 2, total: 4 }, ...over })
 const reply = (over: Partial<Message> = {}): Message => ({ seq: 1, id: 'm-1', ts: 1, from: 'a-1', to: 'you', kind: 'reply', text: 'готово\n\nСтатус: DONE', hops: 0, ...over })
 const session: SessionView = { id: 'fix-ci-1', title: 'Починить CI', owner: null, status: 'active', summary: null, createdAt: '', updatedAt: '', sources: 0 }
 const role: RoleView = { id: 'executor', name: 'Исполнитель', description: 'делает', instructions: 'x', color: 10, icon: null, createdAt: '', updatedAt: '' }
 const nameOf = (id: string): string => (id === 'a-1' ? 'ci-fixer' : id)
+
+describe('хуки главного агента nessy: ожидание без фоновых команд', () => {
+	it('вид главного агента определяется по NESSY_ORCH_LEAD; по умолчанию — Claude', () => {
+		assert.equal(leadKindOf(undefined), 'claude')
+		assert.equal(leadKindOf('nessy'), 'nessy')
+		assert.equal(leadKindOf(' Claude '), 'claude')
+		assert.equal(leadKindOf('qwen'), 'other')
+	})
+
+	it('вводная: nessy ждёт обычным вызовом inbox --wait 50, Claude — фоновым; скилл nessy — из ~/.nessy/skills', () => {
+		const nessy = startContext(session, [role], 'nessy')
+		assert.match(nessy, new RegExp(waitCommand('fix-ci-1').replace(/[-/]/g, '\\$&')))
+		assert.ok(!/run_in_background/.test(nessy))
+		assert.match(nessy, /~\/\.nessy\/skills/)
+		assert.match(startContext(session, [role], 'claude'), /run_in_background/)
+	})
+
+	it('Stop для nessy возвращает к ожиданию, пока агенты работают, даже при stop_hook_active; Claude — один раз', () => {
+		const u: SessionUpdates = { agents: [agent()], replies: [], cursor: 0, watching: false }
+		const first = stopDecision(u, nameOf, { session: 'fix-ci-1', kind: 'nessy' })
+		assert.match(first?.reason ?? '', /inbox --session fix-ci-1 --wait 50/)
+		assert.ok(stopDecision(u, nameOf, { session: 'fix-ci-1', kind: 'nessy', stopHookActive: true }), 'повторный Stop тоже возвращает к ожиданию')
+		assert.equal(stopDecision(u, nameOf, { session: 'fix-ci-1', kind: 'claude', stopHookActive: true }), null, 'Claude второй раз не держим')
+		assert.equal(stopDecision({ ...u, agents: [agent({ status: 'idle' })] }, nameOf, { session: 'fix-ci-1', kind: 'nessy' }), null, 'никто не работает — можно остановиться')
+	})
+})
 
 describe('хуки Claude Code: тексты', () => {
 	it('подтверждается только показанное: не влезшие ответы остаются непрочитанными, обрезанный — со ссылкой на show', () => {

@@ -20,7 +20,7 @@ public enum TerminalLaunch {
 
 	/// Переменные родителя, которые нельзя тащить в новый терминал: чужая сессия оркестратора и признаки «внутри Claude Code».
 	static let stripped: Set<String> = [
-		"NESSY_ORCH_SESSION", "NESSY_ORCH_TERMINAL", "NESSY_ORCH_TOKEN", "ORCH_PORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH",
+		"NESSY_ORCH_SESSION", "NESSY_ORCH_TERMINAL", "NESSY_ORCH_TOKEN", "NESSY_ORCH_LEAD", "ORCH_PORT", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH",
 		"TERM_PROGRAM", "TERM_PROGRAM_VERSION", "TERM_SESSION_ID", "INSIDE_EMACS",
 	]
 
@@ -62,6 +62,7 @@ public enum TerminalLaunch {
 		let shell = userShell(env: base, fm: fm)
 		var env = environment(base: base, sessionId: sessionId, terminalKey: terminalKey, orchestrator: orchestrator, token: token, home: home)
 		env["NESSY_ORCH_DIR"] = directory
+		if let lead { env["NESSY_ORCH_LEAD"] = LeadCommand.kind(of: lead) }
 		env["SHELL"] = shell
 		var args = ["-l"]
 		if let lead { args = ["-l", "-i", "-c", "exec \(lead)"] }

@@ -5,7 +5,8 @@
  */
 import * as fs from 'node:fs'
 import type { LeadState, RoleView, SessionUpdates, SessionView } from '../../../../shared/types'
-import { deliveredCursor, startContext, stopDecision, updatesContext } from '../../../domain/hooks'
+import { deliveredCursor, leadKindOf, startContext, stopDecision, updatesContext } from '../../../domain/hooks'
+import type { LeadKind } from '../../../domain/hooks'
 import { isObject, parseJson } from '../../../lib/json'
 import { enc, get, post } from '../io'
 import type { CommandTable } from './command.types'
@@ -68,7 +69,15 @@ function exportSession(session: string): void {
 	}
 }
 
-async function run(event: string, windowSession: string, terminal: string, input: Record<string, unknown>): Promise<void> {
+/**
+ * Контекст для главного агента. Claude Code берёт простой текст stdout (SessionStart/UserPromptSubmit); nessy читает JSON хука
+ * (`hookSpecificOutput.additionalContext`, формат из его документации).
+ */
+function contextOutput(kind: LeadKind, hookEvent: 'SessionStart' | 'UserPromptSubmit', text: string): string {
+	return kind === 'claude' ? text + '\n' : JSON.stringify({ hookSpecificOutput: { hookEventName: hookEvent, additionalContext: text } }) + '\n'
+}
+
+async function run(event: string, windowSession: string, terminal: string, input: Record<string, unknown>, kind: LeadKind): Promise<void> {
 	const chatId = typeof input['session_id'] === 'string' ? input['session_id'] : ''
 	const cwd = typeof input['cwd'] === 'string' ? input['cwd'] : ''
 	const source = typeof input['source'] === 'string' ? input['source'] : ''
@@ -86,19 +95,19 @@ async function run(event: string, windowSession: string, terminal: string, input
 		const [s, rs, u] = await Promise.all([get<SessionView>(`/sessions/${enc(session)}`), roles(), updates(), setLead(session, 'idle')])
 		// /resume: у возобновлённого чата уже есть агенты и, возможно, непрочитанные ответы — сразу в контекст
 		const n = names(u, rs)
-		const state = updatesContext(u, n.roleName, n.nameOf, session)
-		// простой текст в stdout SessionStart уходит в контекст Claude
-		if (await write(process.stdout, [startContext(s, rs), state].filter(Boolean).join('\n\n') + '\n')) await ack(session, u, n.nameOf)
+		const state = updatesContext(u, n.roleName, n.nameOf, session, kind)
+		// stdout SessionStart уходит в контекст главного агента
+		if (await write(process.stdout, contextOutput(kind, 'SessionStart', [startContext(s, rs, kind), state].filter(Boolean).join('\n\n')))) await ack(session, u, n.nameOf)
 	} else if (event === 'prompt') {
 		const [u, rs] = await Promise.all([updates(), roles(), setLead(session, 'working')])
 		const n = names(u, rs)
-		const text = updatesContext(u, n.roleName, n.nameOf, session)
-		// простой текст в stdout UserPromptSubmit уходит в контекст Claude; ответы считаются доставленными только после записи
-		if (text && (await write(process.stdout, text + '\n'))) await ack(session, u, n.nameOf)
+		const text = updatesContext(u, n.roleName, n.nameOf, session, kind)
+		// stdout UserPromptSubmit уходит в контекст главного агента; ответы считаются доставленными только после записи
+		if (text && (await write(process.stdout, contextOutput(kind, 'UserPromptSubmit', text)))) await ack(session, u, n.nameOf)
 	} else if (event === 'stop') {
 		const [u, rs] = await Promise.all([updates(), roles()])
 		const n = names(u, rs)
-		const decision = stopDecision(u, n.nameOf, { session, stopHookActive: input['stop_hook_active'] === true })
+		const decision = stopDecision(u, n.nameOf, { session, stopHookActive: input['stop_hook_active'] === true, kind })
 		if (decision) {
 			// код 2 + причина в stderr — «не останавливаться» без JSON-схемы (она у Stop строгая и менялась): так хук не может сломаться на валидации
 			if (await write(process.stderr, decision.reason + '\n')) {
@@ -107,6 +116,9 @@ async function run(event: string, windowSession: string, terminal: string, input
 				await setLead(session, 'working') // Claude продолжает работу с ответами агентов
 			}
 		} else await setLead(session, 'idle')
+	} else if (event === 'stop-failure') {
+		// ход закончился ошибкой API вместо Stop: останавливать нечего, главный агент свободен
+		await setLead(session, 'idle')
 	} else if (event === 'end') {
 		// /clear завершает чат, но не разговор: агент (а с ним сессия) продолжит жить в новом чате — «завершён» не ставим
 		if (input['reason'] !== 'clear') await setLead(session, 'ended')
@@ -118,11 +130,11 @@ async function cmdHook(p: { positionals: string[] }): Promise<void> {
 	const event = p.positionals[0] ?? ''
 	const session = process.env['NESSY_ORCH_SESSION']?.trim() ?? ''
 	const terminal = process.env['NESSY_ORCH_TERMINAL']?.trim() ?? ''
-	if ((!session && !terminal) || !['start', 'prompt', 'stop', 'end'].includes(event)) return
+	if ((!session && !terminal) || !['start', 'prompt', 'stop', 'stop-failure', 'end'].includes(event)) return
 	try {
 		// SessionEnd у Claude Code на всё про всё ~1,5 с: укладываемся, остальное успеют сервис и приложение
 		const budget = event === 'end' ? END_BUDGET_MS : HOOK_BUDGET_MS
-		await Promise.race([run(event, session, terminal, input), new Promise<void>(resolve => setTimeout(resolve, budget).unref())])
+		await Promise.race([run(event, session, terminal, input, leadKindOf(process.env['NESSY_ORCH_LEAD'])), new Promise<void>(resolve => setTimeout(resolve, budget).unref())])
 	} catch {
 		/* хук не должен ломать Claude */
 	}

@@ -10,7 +10,13 @@ final class SetupModel {
 	let service = ServiceInstaller(bundleRoot: Bundle.main.resourceURL?.appendingPathComponent("orch"))
 	/// плагин внутри приложения → `~/.claude/skills/nessy`
 	var plugin: PluginInstaller { PluginInstaller(source: Bundle.main.resourceURL?.appendingPathComponent("orch/plugin")) }
+	/// nessy как главный агент: хуки в `~/.nessy/settings.json` и скиллы в `~/.nessy/skills`
+	var nessyLead: NessyLeadInstaller {
+		let res = Bundle.main.resourceURL?.appendingPathComponent("orch")
+		return NessyLeadInstaller(pluginSource: res?.appendingPathComponent("plugin"), shim: res?.appendingPathComponent("bin/nessy-orch"))
+	}
 	private(set) var revision = 0
+	var autoNessy: Bool { UserDefaults.standard.object(forKey: "autoNessy") as? Bool ?? true }
 
 	var autoPlugin: Bool { UserDefaults.standard.object(forKey: "autoPlugin") as? Bool ?? true }
 	var autoService: Bool { UserDefaults.standard.object(forKey: "autoInstallService") as? Bool ?? true }
@@ -18,6 +24,7 @@ final class SetupModel {
 	/// Запуск приложения: плагин (нет или другая версия) и служба (нет, старый путь или не отвечает) — молча.
 	func launch(daemonOnline: @escaping @MainActor () async -> Bool) {
 		if autoPlugin { installPluginIfNeeded() }
+		if autoNessy { installNessyIfNeeded() }
 		guard autoService, service.isBundled else { return }
 		Task {
 			try? await Task.sleep(for: .seconds(2.5)) // дать подключиться к уже работающему оркестратору
@@ -31,6 +38,33 @@ final class SetupModel {
 		switch plugin.state() {
 		case .missing, .outdated: installPlugin()
 		case .upToDate, .notBundled: break
+		}
+	}
+
+	/// Автоподключение — только тем, у кого nessy уже есть (нашлась `~/.nessy`) или наши записи устарели; остальным — кнопкой в настройках.
+	private func installNessyIfNeeded() {
+		let n = nessyLead
+		guard n.state() == .outdated || (n.state() == .missing && FileManager.default.fileExists(atPath: n.home.path)) else { return }
+		installNessy()
+	}
+
+	func installNessy() {
+		do { try nessyLead.install() } catch { AppModel.shared.flash("nessy не подключён: \(error.localizedDescription)", error: true) }
+		revision += 1
+	}
+
+	func removeNessy() {
+		try? nessyLead.uninstall()
+		revision += 1
+	}
+
+	var nessyStatus: String {
+		_ = revision
+		switch nessyLead.state() {
+		case .upToDate: return "Подключён: хуки в ~/.nessy/settings.json, скиллы в ~/.nessy/skills"
+		case .missing: return "Не подключён"
+		case .outdated: return "Нужно обновить (приложение переехало или изменилась версия)"
+		case .notBundled: return "В этой сборке нет плагина (запуск из исходников)"
 		}
 	}
 
@@ -107,6 +141,29 @@ struct InstallSettingsSection: View {
 			Text("Claude Code")
 		} footer: {
 			Text("Плагин (скилл nessy-orch, команда nessy-orch и хуки сессий) лежит в ~/.claude/skills/nessy и обновляется вместе с приложением. Работает в любом запуске claude.")
+				.foregroundStyle(DS.Palette.textSecondary)
+		}
+	}
+}
+
+/// Блок настроек «nessy»: статус, автоподключение, установка и удаление хуков и скиллов.
+struct NessySettingsSection: View {
+	@Environment(AppModel.self) private var model
+	@AppStorage("autoNessy") private var autoNessy = true
+
+	var body: some View {
+		let setup = model.setup
+		Section {
+			LabeledContent("Хуки и скиллы") { Text(setup.nessyStatus).foregroundStyle(.secondary).multilineTextAlignment(.trailing) }
+			Toggle("Подключать к nessy автоматически (если он установлен)", isOn: $autoNessy)
+			HStack {
+				Button(setup.nessyLead.state() == .upToDate ? "Переустановить" : "Подключить") { setup.installNessy() }
+				Button("Отключить") { setup.removeNessy() }.disabled(setup.nessyLead.state() == .missing)
+			}
+		} header: {
+			Text("nessy как главный агент")
+		} footer: {
+			Text("Чтобы запускать nessy в проекте, укажите команду `nessy` во вкладке «Терминал». Хуки сессий добавляются в ваши настройки отдельными записями (с именем nessy-orch), остальное не меняется; копия исходного файла — settings.json.nessy-orch.bak.")
 				.foregroundStyle(DS.Palette.textSecondary)
 		}
 	}

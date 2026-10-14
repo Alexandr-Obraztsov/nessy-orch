@@ -304,6 +304,23 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		assert.equal(all.find(x => x.id === a.id)?.origin, 'term-2')
 	})
 
+	it('хуки nessy: контекст — JSON hookSpecificOutput.additionalContext, Stop возвращает к ожиданию, stop-failure освобождает', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		const s = await hh.api<SessionView>('POST', '/sessions', { title: 'nessy-хуки' })
+		const env = { NESSY_ORCH_LEAD: 'nessy' }
+		const start = await runHook(hh.port, s.body.id, 'start', '{}', env)
+		const j = JSON.parse(start.stdout) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } }
+		assert.equal(j.hookSpecificOutput.hookEventName, 'SessionStart')
+		assert.match(j.hookSpecificOutput.additionalContext, /~\/\.nessy\/skills/)
+		await hh.api('POST', '/agents', { space: 'main', name: 'nessy-work', session: s.body.id, prompt: '#slow' })
+		const stop = await runHook(hh.port, s.body.id, 'stop', JSON.stringify({ stop_hook_active: true }), env)
+		assert.equal(stop.code, 2)
+		assert.match(stop.stderr, /--wait 50/)
+		await runHook(hh.port, s.body.id, 'stop-failure', '{}', env)
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'idle')
+	})
+
 	it('хук не ломает Claude при недоступном оркестраторе', T, async () => {
 		const r = await runHook(1, 'any', 'prompt')
 		assert.deepEqual(r, { code: 0, stdout: '', stderr: '' })
