@@ -85,7 +85,15 @@ export class MessagingService {
 	// ---------- коллбэки агентов ----------
 	onTurnDone(agent: AgentIdentity, msg: Message, text: string, outcome: TurnOutcome): Message | null {
 		if (!expectsReply(msg)) return null // ответы на ответы не порождаем
-		const reply = this.ctx.feed.append(replyDraft(agent.id, msg, text, outcome))
+		const draft = replyDraft(agent.id, msg, text, outcome)
+		// отправителя-агента уже нет (удалён): ответ не должен пропасть — он уходит оператору с пометкой
+		const gone = isAgentSender(msg.from) && !this.ctx.registry.agents.has(msg.from)
+		if (gone) {
+			draft.to = YOU
+			draft.text = `(ответ на сообщение удалённого агента ${msg.from})\n${draft.text}`
+			delete draft.wait
+		}
+		const reply = this.ctx.feed.append(draft)
 		const back = this.ctx.registry.agents.get(msg.from)
 		if (back && !msg.wait) back.deliver(reply)
 		return reply

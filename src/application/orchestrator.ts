@@ -52,6 +52,7 @@ import { SourcesService } from './services/sources.service'
 const SNAPSHOT_MESSAGES = 300
 const DEFAULT_CANCEL_GRACE_MS = 3000
 const DEFAULT_IDLE_CLOSE_MS = 120_000
+const GC_INTERVAL_MS = 5 * 60_000
 
 export class Orchestrator implements AgentHost {
 	readonly hub = new Hub()
@@ -69,6 +70,7 @@ export class Orchestrator implements AgentHost {
 	private readonly sourcesSvc: SourcesService
 	private readonly ctx: ServiceContext
 	private shuttingDown = false
+	private gcTimer: NodeJS.Timeout | null = null
 
 	constructor(private readonly deps: OrchestratorDeps) {
 		const clock = deps.clock ?? { now: () => Date.now() }
@@ -155,6 +157,13 @@ export class Orchestrator implements AgentHost {
 		for (const a of this.registry.agents.values()) a.resumeQueue()
 		// пространства, где уже есть агенты, прогреваем сразу: serve и заготовки сессий будут готовы к первому spawn
 		for (const name of new Set([...this.registry.agents.values()].map(a => a.space))) this.pool.warm(name)
+		// завершённые агенты, которым давно не писали, убираются сами
+		this.gcTimer = setInterval(() => void this.agentsSvc.collectGarbage().catch(() => undefined), GC_INTERVAL_MS)
+		this.gcTimer.unref()
+	}
+
+	collectGarbage(now?: number): Promise<number> {
+		return this.agentsSvc.collectGarbage(now)
 	}
 
 	/** Синхронно погасить все свои nessy serve (обработчик process 'exit'). */
@@ -178,6 +187,7 @@ export class Orchestrator implements AgentHost {
 
 	async shutdown(): Promise<void> {
 		this.shuttingDown = true
+		if (this.gcTimer) clearInterval(this.gcTimer)
 		await this.pool.closeAll()
 		for (const a of this.registry.agents.values()) a.detach()
 		this.feed.close()

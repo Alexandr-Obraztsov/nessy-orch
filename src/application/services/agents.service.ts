@@ -39,6 +39,7 @@ export class AgentsService {
 		const session = req.session?.trim() ? this.sessions.resolve(req.session).id : (registry.agents.get(parent)?.session ?? null)
 		// без --space агент запускается в каталоге оркестратора — там, где идёт чат Claude (cwd сессии), отдельные каталоги не создаются
 		const space = this.spaces.resolve(req.space, (session ? this.sessions.cwdOf(session) : null) ?? req.cwd)
+		this.assertBudget(parent, session)
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)
 		while (registry.agents.has(id))
@@ -63,6 +64,46 @@ export class AgentsService {
 		if (res?.reply) out.reply = res.reply
 		if (res?.timedOut) out.timedOut = true
 		return out
+	}
+
+	/** Глубина порождения: 0 — запущен оператором (или главным агентом), 1 — агентом, запущенным оператором, и т. д. */
+	depthOf(parent: string): number {
+		let depth = 0
+		const seen = new Set<string>()
+		for (let p = this.ctx.registry.agents.get(parent); p && !seen.has(p.id); p = this.ctx.registry.agents.get(p.parent)) {
+			seen.add(p.id)
+			depth++
+		}
+		return depth
+	}
+
+	/** Бюджеты порождения: глубина, число одновременно работающих и общее число агентов сессии. 429 с подсказкой, что делать. */
+	private assertBudget(parent: string, session: string | null): void {
+		const s = this.ctx.settings
+		const maxDepth = s.maxDepth ?? 2
+		if (this.depthOf(parent) > maxDepth)
+			throw new AppError(429, 'depth_exceeded', `агент не может порождать агентов глубже ${maxDepth} уровней: выполни поручение сам или верни результат запустившему`)
+		if (!session) return
+		const mine = [...this.ctx.registry.agents.values()].filter(a => a.session === session)
+		const active = mine.filter(a => a.isBusy || a.queue.length > 0 || a.status === 'starting').length
+		const maxActive = s.maxActivePerSession ?? 12
+		if (active >= maxActive)
+			throw new AppError(429, 'too_many_active', `в сессии уже работают ${active} агентов (лимит ${maxActive}): дождись ответов (inbox) или останови лишних (cancel)`)
+		const maxAll = s.maxAgentsPerSession ?? 40
+		if (mine.length >= maxAll)
+			throw new AppError(429, 'too_many_agents', `в сессии уже ${mine.length} агентов (лимит ${maxAll}): удали завершённых (kill) или переиспользуй их — сообщение будит агента с прежним контекстом`)
+	}
+
+	/**
+	 * Автоудаление: завершённые (архивные) агенты, которым никто не писал дольше `agentTtlMs`, удаляются целиком (история уходит в архив
+	 * на диск, сессия nessy закрыта). Возвращает, сколько удалено.
+	 */
+	async collectGarbage(now = this.ctx.clock.now()): Promise<number> {
+		const ttl = this.ctx.settings.agentTtlMs ?? 6 * 3_600_000
+		if (ttl <= 0) return 0
+		const old = [...this.ctx.registry.agents.values()].filter(a => a.archived && !a.isBusy && a.queue.length === 0 && now - Date.parse(a.lastActivityAt) > ttl)
+		for (const a of old) await this.remove(a.id).catch(() => undefined)
+		return old.length
 	}
 
 	/**
