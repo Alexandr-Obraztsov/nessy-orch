@@ -113,6 +113,7 @@ struct NoProjectView: View {
 
 	var body: some View {
 		let sessions = model.recentSessions
+		GeometryReader { geo in
 		ScrollView {
 			VStack(spacing: DS.Metrics.s3) {
 				Image(systemName: "folder.badge.plus").font(.system(size: 34, weight: .light)).foregroundStyle(DS.Palette.textTertiary)
@@ -140,10 +141,12 @@ struct NoProjectView: View {
 					}
 				}
 			}
-			.frame(maxWidth: .infinity)
-			.padding(DS.Metrics.s6)
+			// по центру окна и по вертикали (под шапкой), а не прижато к верху
+			.frame(maxWidth: .infinity, minHeight: geo.size.height - DS.Metrics.s6)
+			.padding(.horizontal, DS.Metrics.s6).padding(.top, DS.Metrics.s6)
 		}
 		.scrollBounceBehavior(.basedOnSize)
+		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 	}
 

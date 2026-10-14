@@ -297,16 +297,16 @@ private struct ProjectSwitcher: View {
 				indicator
 				Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
 					.frame(maxWidth: 140)
-				if hover {
-					Button(action: close) {
-						Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).frame(width: 14, height: 14)
-							.background(DS.Palette.hover, in: Circle()).contentShape(Circle())
-					}
-					.buttonStyle(.plain).focusEffectDisabled().help("Закрыть проект")
-					.transition(.opacity)
+				// «×» всегда занимает место (меняется только прозрачность): иначе ширина вкладки скачет, а полоса прокрутки не успевает за ней
+				// и обрезает крестик наполовину
+				Button(action: close) {
+					Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).frame(width: 14, height: 14)
+						.background(DS.Palette.hover, in: Circle()).contentShape(Circle())
 				}
+				.buttonStyle(.plain).focusEffectDisabled().help("Закрыть проект")
+				.opacity(hover ? 1 : 0).allowsHitTesting(hover)
 			}
-			.padding(.leading, 12).padding(.trailing, hover ? 8 : 12).frame(height: 22)
+			.padding(.leading, 12).padding(.trailing, 8).frame(height: 22)
 			.foregroundStyle(plain || selected || hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 			.background {
 				if selected { Capsule().fill(DS.Palette.textPrimary.opacity(0.14)).matchedGeometryEffect(id: "seg", in: ns) }
