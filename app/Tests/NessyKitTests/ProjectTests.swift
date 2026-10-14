@@ -49,6 +49,26 @@ struct ProjectTests {
 	}
 }
 
+@Suite("Команда агента")
+struct LeadCommandTests {
+	@Test func resumeIsAddedForKnownAgents() {
+		#expect(LeadCommand.build(base: "claude", resumeChat: nil) == "claude")
+		#expect(LeadCommand.build(base: "  ", resumeChat: nil) == "claude", "пусто — значение по умолчанию")
+		#expect(LeadCommand.build(base: "claude --model opus", resumeChat: "abc-1") == "claude --model opus --resume 'abc-1'")
+		#expect(LeadCommand.build(base: "/usr/local/bin/nessy", resumeChat: "x") == "/usr/local/bin/nessy --resume 'x'")
+		#expect(LeadCommand.build(base: "claude --resume old", resumeChat: "new") == "claude --resume old", "свой resume пользователя не трогаем")
+		#expect(LeadCommand.build(base: "claude -c", resumeChat: "x") == "claude -c")
+		#expect(LeadCommand.build(base: "my-agent --fast", resumeChat: "x") == "my-agent --fast", "неизвестный агент не знает --resume")
+	}
+
+	@Test func terminalBecomesTheAgent() {
+		let url = URL(string: "http://127.0.0.1:4337")!
+		let t = TerminalLaunch.terminal(directory: "/w", sessionId: nil, terminalKey: "k", orchestrator: url, base: ["SHELL": "/bin/zsh", "PATH": "/usr/bin"], lead: "claude --resume 'a'", home: "/Users/me")
+		#expect(t.args == ["-l", "-i", "-c", "exec claude --resume 'a'"], "оболочки после агента нет: выход из агента = конец процесса")
+		#expect(t.env["NESSY_ORCH_TERMINAL"] == "k")
+	}
+}
+
 @Suite("Запуск терминала")
 struct TerminalLaunchTests {
 	let url = URL(string: "http://127.0.0.1:4337")!

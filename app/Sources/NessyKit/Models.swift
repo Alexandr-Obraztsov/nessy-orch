@@ -121,6 +121,8 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	/// чат главного агента, к которому привязана сессия, и окно (id первой сессии окна), в котором он ведётся
 	public var chatId: String?
 	public var origin: String?
+	/// папка чата главного агента (из хука); по ней сессию можно открыть снова
+	public var cwd: String?
 
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -135,6 +137,7 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 		lead = (try? c.decodeIfPresent(LeadState.self, forKey: .lead)) ?? nil
 		chatId = try c.decodeIfPresent(String.self, forKey: .chatId)
 		origin = try c.decodeIfPresent(String.self, forKey: .origin)
+		cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
 	}
 }
 

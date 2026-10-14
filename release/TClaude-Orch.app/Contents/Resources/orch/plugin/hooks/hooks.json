@@ -1,0 +1,49 @@
+{
+  "description": "Сессии оркестратора по чатам Claude: сводка агентов, доставка ответов, ожидание в фоне (работают только в терминале TClaude-Orch)",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"${NESSY_ORCH_TERMINAL}${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook start",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"${NESSY_ORCH_TERMINAL}${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook prompt",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"${NESSY_ORCH_TERMINAL}${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"${NESSY_ORCH_TERMINAL}${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook end",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}

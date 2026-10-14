@@ -41,26 +41,32 @@ extension AppModel {
 
 	// MARK: запуск
 
-	/// Запустить терминал окна: оболочка пользователя в папке, с `NESSY_ORCH_SESSION` и `NESSY_ORCH_DIR`.
+	/// Запустить терминал окна: сразу главный агент (команда из настроек; для повторно открытой сессии — с `--resume`), без оболочки.
+	/// Агент вышел — проект закрывается целиком; агент не стартовал за первые секунды — окно остаётся и показывает причину.
 	/// `-debug.terminalCommand "<команда>"` — выполнить команду и остаться в оболочке (для проверок).
 	func startTerminal(for win: SessionWindowModel) {
+		let debugCommand = UserDefaults.standard.string(forKey: "debug.terminalCommand")
+		let lead = debugCommand == nil ? LeadCommand.build(base: AppSettings.leadCommand, resumeChat: win.value.chat) : nil
 		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, terminalKey: win.key, orchestrator: AppSettings.serverURL,
-										   base: ProcessInfo.processInfo.environment, command: UserDefaults.standard.string(forKey: "debug.terminalCommand"))
-		// `nessy-orch` из приложения доступен и в самой оболочке терминала
+										   base: ProcessInfo.processInfo.environment, command: debugCommand, lead: lead)
+		// `nessy-orch` из приложения доступен и в терминале агента (его Bash-инструментах)
 		let bundledBin = Bundle.main.resourceURL.map { $0.appendingPathComponent("orch/bin").path }.flatMap { FileManager.default.fileExists(atPath: $0 + "/nessy-orch") ? $0 : nil }
 		let extra = [bundledBin].compactMap { $0 }
 		if !extra.isEmpty, let i = spec.environment.firstIndex(where: { $0.hasPrefix("PATH=") }) {
 			spec.environment[i] = "PATH=" + (extra + [String(spec.environment[i].dropFirst(5))]).joined(separator: ":")
 		}
 		let tab = terminals.add(spec, key: win.key)
-		// при открытии проекта сразу запускается Claude (команда из настроек; `claude` уже идёт с хуками оркестратора)
-		if AppSettings.autoStartLead, UserDefaults.standard.string(forKey: "debug.terminalCommand") == nil {
-			DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { tab.container.terminal.send(txt: AppSettings.leadCommand + "\r") }
-		}
-		// `exit` в оболочке закрывает окно, как в Terminal.app
-		tab.onExit = { [weak win] code in
-			guard code == 0, let win else { return }
-			win.closed()
+		tab.onExit = { [weak win, weak tab] code in
+			guard let win, let tab else { return }
+			guard let lead else {
+				if code == 0 { win.closed() } // отладочный режим: `exit` в оболочке закрывает окно
+				return
+			}
+			if (code ?? -1) != 0, Date().timeIntervalSince(tab.startedAt) < 3 {
+				win.launchFailure = LaunchFailure(command: lead, code: code)
+			} else {
+				win.closed()
+			}
 		}
 	}
 

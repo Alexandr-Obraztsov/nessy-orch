@@ -54,14 +54,16 @@ public enum TerminalLaunch {
 
 	/// Терминал окна: login-оболочка пользователя (`$SHELL`) в папке, с окружением терминала (хуки плагина nessy читают
 	/// `NESSY_ORCH_TERMINAL`). `command` — для проверок: выполнить и остаться в оболочке.
+	/// `lead` — главный агент: терминал сразу становится им (`exec`), оболочки пользователя в нём нет, а выход из агента завершает процесс.
 	public static func terminal(directory: String, sessionId: String?, terminalKey: String? = nil, orchestrator: URL, base: [String: String], command: String? = nil,
-								home: String = NSHomeDirectory(), fm: FileManager = .default) -> LaunchSpec {
+								lead: String? = nil, home: String = NSHomeDirectory(), fm: FileManager = .default) -> LaunchSpec {
 		let shell = userShell(env: base, fm: fm)
 		var env = environment(base: base, sessionId: sessionId, terminalKey: terminalKey, orchestrator: orchestrator, home: home)
 		env["NESSY_ORCH_DIR"] = directory
 		env["SHELL"] = shell
 		var args = ["-l"]
-		if let command { args = ["-l", "-i", "-c", "\(command); exec \(ShellQuote.quote(shell)) -l"] }
+		if let lead { args = ["-l", "-i", "-c", "exec \(lead)"] }
+		else if let command { args = ["-l", "-i", "-c", "\(command); exec \(ShellQuote.quote(shell)) -l"] }
 		return LaunchSpec(executable: shell, args: args, environment: pairs(env), directory: directory)
 	}
 

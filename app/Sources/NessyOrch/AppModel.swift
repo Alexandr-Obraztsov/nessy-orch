@@ -169,7 +169,16 @@ final class AppModel {
 	/// Открыть (или показать) проект сессии оркестратора.
 	func show(session id: String) {
 		if let w = tabs.first(where: { $0.owns(id) }) { raise(w); return }
-		add(.reopen(session: id, dir: projectPath(of: id) ?? NSHomeDirectory()))
+		let s = store.session(id)
+		let dir = s?.cwd.flatMap(Projects.normalize) ?? projectPath(of: id) ?? NSHomeDirectory()
+		add(.reopen(session: id, dir: dir, chat: s?.chatId))
+	}
+
+	/// Последние сессии главного агента, которые сейчас не открыты (их можно продолжить: `--resume`): свежие сверху.
+	var recentSessions: [SessionView] {
+		let open = tabs
+		let list = store.sessions.filter { s in s.chatId != nil && s.status == .active && !open.contains { $0.owns(s.id) } }
+		return Array(list.sorted { $0.updatedAt > $1.updatedAt }.prefix(8))
 	}
 
 	/// Перейти к агенту: окно его сессии и карточка агента в боковой панели.
@@ -290,7 +299,6 @@ enum AppSettings {
 		let c = (UserDefaults.standard.string(forKey: "claudeCommand") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
 		return c.isEmpty ? "claude" : c
 	}
-	static var autoStartLead: Bool { UserDefaults.standard.object(forKey: "autoStartClaude") as? Bool ?? true }
 	/// размер шрифта терминала (pt)
 	static var terminalFontSize: CGFloat {
 		let v = UserDefaults.standard.double(forKey: "terminal.fontSize")

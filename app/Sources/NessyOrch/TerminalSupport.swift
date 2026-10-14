@@ -46,9 +46,21 @@ enum TerminalTheme {
 
 /// Контейнер: фон по теме и постоянный внутренний отступ вокруг самого терминала. Шапка окна лежит над контейнером
 /// (терминал начинается под ней), поэтому высота терминала от панели не зависит: меняется только ширина.
+/// Терминал агента: сообщает о первом выводе процесса — до него окно показывает «Запуск агента…», а не пустой экран.
+final class AgentTerminalView: LocalProcessTerminalView {
+	var onFirstOutput: (() -> Void)?
+	override func dataReceived(slice: ArraySlice<UInt8>) {
+		if let cb = onFirstOutput {
+			onFirstOutput = nil
+			DispatchQueue.main.async(execute: cb)
+		}
+		super.dataReceived(slice: slice)
+	}
+}
+
 final class TerminalContainer: NSView {
 	static let inset: CGFloat = 12
-	let terminal: LocalProcessTerminalView
+	let terminal: AgentTerminalView
 	private var defaultsToken: NSObjectProtocol?
 	/// отступ сверху: высота шапки (постоянная, поэтому высота терминала от панели не зависит)
 	private var topInset: CGFloat = TerminalContainer.inset
@@ -56,7 +68,7 @@ final class TerminalContainer: NSView {
 	private var insetTimer: Timer?
 
 	override init(frame: NSRect) {
-		terminal = LocalProcessTerminalView(frame: .zero)
+		terminal = AgentTerminalView(frame: .zero)
 		super.init(frame: frame)
 		wantsLayer = true
 		applyFont()
@@ -139,6 +151,9 @@ final class TerminalTab: NSObject, Identifiable, LocalProcessTerminalViewDelegat
 	let spec: LaunchSpec
 	/// nil — процесс работает; иначе код выхода (−1 — неизвестен)
 	private(set) var exitCode: Int32?
+	/// процесс уже что-то вывел (агент запущен и нарисовал экран)
+	private(set) var hasOutput = false
+	private(set) var startedAt = Date()
 	/// оболочка завершилась сама (`exit`): окно можно закрыть
 	@ObservationIgnored var onExit: ((Int32?) -> Void)?
 	@ObservationIgnored let container = TerminalContainer(frame: .zero)
@@ -148,11 +163,13 @@ final class TerminalTab: NSObject, Identifiable, LocalProcessTerminalViewDelegat
 		self.spec = spec
 		super.init()
 		container.terminal.processDelegate = self
+		container.terminal.onFirstOutput = { [weak self] in self?.hasOutput = true }
 	}
 
 	var isAlive: Bool { exitCode == nil }
 
 	func start() {
+		startedAt = Date()
 		let dir = TerminalLaunch.isUsableDirectory(spec.directory) ? spec.directory : NSHomeDirectory()
 		container.terminal.startProcess(executable: spec.executable, args: spec.args, environment: spec.environment, currentDirectory: dir)
 	}
@@ -173,6 +190,8 @@ final class TerminalTab: NSObject, Identifiable, LocalProcessTerminalViewDelegat
 	func processTerminated(source: TerminalView, exitCode code: Int32?) {
 		DispatchQueue.main.async { [self] in
 			guard isAlive else { return }
+			// SwiftTerm отдаёт «сырой» статус waitpid: код выхода — во втором байте (127 → 32512), сигнал — в младших битах
+			let code = code.map { st -> Int32 in st > 255 || st & 0x7f == 0 ? (st >> 8) & 0xff : 128 + (st & 0x7f) }
 			exitCode = code ?? -1
 			let text = code.map { $0 == 0 ? "Процесс завершён" : "Процесс завершён · код \($0)" } ?? "Процесс завершён"
 			(source as? LocalProcessTerminalView)?.feed(text: "\r\n\u{1b}[2m[\(text)]\u{1b}[0m\r\n")

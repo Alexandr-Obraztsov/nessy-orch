@@ -1,0 +1,19 @@
+---
+description: Кто из агентов nessy чем занят — nessy-orch ls --all и короткая сводка
+allowed-tools: Bash(nessy-orch ls), Bash(nessy-orch ls *), Bash(nessy-orch session ls), Bash(nessy-orch session ls *)
+---
+
+Выполни `nessy-orch session ls` и `nessy-orch ls --all` (если команды нет в PATH — `~/Projects/nessy-orch/bin/nessy-orch …`).
+Если ты ведёшь задачу в этом разговоре — сначала покажи `nessy-orch session show <id>`.
+
+Сведи результат коротко:
+
+1. Одна строка итога: сколько активных задач, сколько агентов работает, ждёт, в архиве, с ошибкой.
+2. Таблица только по активным агентам и агентам с ошибкой: имя | задача | роль | статус | пространство.
+   Архивных перечисли одной строкой по именам (им можно писать через `send`, они проснутся).
+3. Если есть агенты с ошибкой — подскажи `nessy-orch show <агент>`.
+
+В конце дай ссылку на свою сессию в приложении: `nessy-orch://session/<id>`.
+
+Если команда падает с «оркестратор недоступен», сам его не запускай: попроси пользователя выполнить в обычном
+терминале `bin/nessy-orch install` или `node ~/Projects/nessy-orch/dist/src/main.js`.

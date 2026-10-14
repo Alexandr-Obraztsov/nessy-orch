@@ -9,9 +9,16 @@ struct TerminalWindowValue: Codable, Hashable {
 	var dir: String
 	/// уже существующая сессия оркестратора (nil — окно создаст свою)
 	var session: String?
+	/// чат главного агента, который нужно продолжить (`--resume`); nil — новый чат
+	var chat: String?
 
-	static func fresh(dir: String) -> Self { .init(key: UUID().uuidString, dir: dir, session: nil) }
-	static func reopen(session: String, dir: String) -> Self { .init(key: "s-" + session, dir: dir, session: session) }
+	static func fresh(dir: String) -> Self { .init(key: UUID().uuidString, dir: dir, session: nil, chat: nil) }
+	static func reopen(session: String, dir: String, chat: String?) -> Self { .init(key: "s-" + session, dir: dir, session: session, chat: chat) }
+}
+
+struct LaunchFailure: Equatable {
+	var command: String
+	var code: Int32?
 }
 
 /// Состояние окна-терминала: папка, сессия оркестратора, терминал, карточка агента в боковой панели.
@@ -43,6 +50,8 @@ final class SessionWindowModel {
 	/// терминал начинается под шапкой
 	var barHeight: CGFloat { 2 * Self.barCenter - 4 }
 	private var started = false
+	/// агент не запустился (команда не найдена, мгновенный выход с ошибкой): окно остаётся и показывает причину
+	var launchFailure: LaunchFailure?
 
 	init(app: AppModel, value: TerminalWindowValue) {
 		self.app = app
@@ -78,6 +87,12 @@ final class SessionWindowModel {
 	}
 
 	func toggleAgents() { app.toggleAgents() }
+
+	/// Запустить агента заново после сбоя запуска.
+	func retryLaunch() {
+		launchFailure = nil
+		app.startTerminal(for: self)
+	}
 
 	/// Первый показ: терминал в папке. Сессию оркестратора заранее не создаём — её заведёт хук SessionStart Claude по `session_id` чата.
 	func bootstrap() async {
@@ -243,9 +258,18 @@ private struct ProjectSwitcher: View {
 					Button("Новый терминал здесь") { model.newWindowHere() }
 				}
 				Button("Открыть папку…") { model.openFolderPanel() }
+				let sessions = Array(model.recentSessions.prefix(4))
+				if !sessions.isEmpty {
+					Divider()
+					Section("Продолжить сессию") {
+						ForEach(sessions) { s in Button(s.title) { model.show(session: s.id) } }
+					}
+				}
 				if !recent.isEmpty {
 					Divider()
-					ForEach(recent, id: \.self) { d in Button(Projects.name(ofPath: d)) { model.openTerminal(dir: d) }.help(d) }
+					Section("Папки") {
+						ForEach(recent, id: \.self) { d in Button(Projects.name(ofPath: d)) { model.openTerminal(dir: d) }.help(d) }
+					}
 				}
 			} label: {
 				Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).frame(width: 24, height: 22).contentShape(Rectangle())
