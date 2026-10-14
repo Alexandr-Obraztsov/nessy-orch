@@ -12,7 +12,6 @@ struct AgentPanel: View {
 	var agentId: String
 	var mode: PanelMode = .embedded
 	@State private var chat: ChatModel?
-	@State private var goalOpen = false
 	@State private var planOpen = false
 	private var agent: AgentView? { model.store.agents[agentId] }
 
@@ -35,7 +34,7 @@ struct AgentPanel: View {
 					.animation(DS.Motion.fade, value: a.isFinished)
 					.safeAreaBar(edge: .top, spacing: 0) {
 						VStack(spacing: DS.Metrics.s2) {
-							AgentHeaderCard(agent: a, mode: mode, goal: goal, expanded: $goalOpen, cap: geo.size.height * 0.3)
+							AgentTitleBar(agent: a, mode: mode)
 							PlanBlock(agent: a, expanded: $planOpen, cap: geo.size.height * 0.3)
 						}
 						.padding(.horizontal, DS.Metrics.s3).padding(.top, DS.Metrics.s2).padding(.bottom, DS.Metrics.s2)
@@ -56,8 +55,8 @@ struct AgentPanel: View {
 		.animation(DS.Motion.fade, value: agentId)
 		.modifier(PanelSurface(mode: mode))
 		.task(id: agentId) {
-			// для снимков: `-debug.goalOpen YES`, `-debug.planOpen YES` открывают карточки сразу
-			goalOpen = UserDefaults.standard.bool(forKey: "debug.goalOpen"); planOpen = UserDefaults.standard.bool(forKey: "debug.planOpen")
+			// для снимков: `-debug.planOpen YES` раскрывает план сразу
+			planOpen = UserDefaults.standard.bool(forKey: "debug.planOpen")
 			chat?.stop()
 			let c = ChatModel(ref: agentId)
 			c.start(client: model.store.client)
@@ -67,10 +66,10 @@ struct AgentPanel: View {
 		.onChange(of: agent?.lastReply?.msgId) { _, _ in if let a = agent { model.store.markSeen(agent: a) } }
 	}
 
-	/// Esc из поля ввода: сначала сворачивает раскрытые карточки; true — было что сворачивать.
+	/// Esc из поля ввода: сворачивает раскрытый план; true — было что сворачивать.
 	private func collapseCards() -> Bool {
-		guard goalOpen || planOpen else { return false }
-		withAnimation(dsAnimation(DS.Motion.disclosure)) { goalOpen = false; planOpen = false }
+		guard planOpen else { return false }
+		withAnimation(dsAnimation(DS.Motion.disclosure)) { planOpen = false }
 		return true
 	}
 
@@ -131,87 +130,53 @@ struct InfoCard<Trailing: View, Content: View>: View {
 	}
 }
 
-/// Верхний блок панели: шапка и «Агент» — одна карточка. Свёрнутая — глиф состояния, имя и справа чип роли, ниже «состояние · таймер».
-/// Нажатие раскрывает карточку: описание роли и вся цель целиком (длинная цель прокручивается внутри, не выше `cap`).
-/// Кнопка «назад» — в верхней строке панели (см. `AgentsPanel`), здесь кнопок нет.
-struct AgentHeaderCard: View {
+/// Шапка агента: состояние, имя и кнопки (остановить, открыть в окне, удалить). Ни цели, ни роли, ни статистики — под ней только план и чат.
+/// Кнопка «назад» — в верхней строке панели (см. `AgentsPanel`).
+struct AgentTitleBar: View {
 	@Environment(AppModel.self) private var model
+	@Environment(\.sessionWindow) private var win
 	var agent: AgentView
 	var mode: PanelMode
-	var goal: String
-	@Binding var expanded: Bool
-	var cap: CGFloat
-
-	private var text: String {
-		var t = goal
-		if t.lowercased().hasPrefix("цель:") { t = String(t.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines) }
-		return t
-	}
-	private var role: (name: String, icon: String?, hue: Double, description: String)? { model.roleInfo(of: agent) }
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-			VStack(alignment: .leading, spacing: 2) {
-				HStack(spacing: DS.Metrics.s3) {
-					DSStateGlyph(state: agent.ds, size: DS.Metrics.glyphHeader)
-					Text(agent.name).font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary).lineLimit(1).layoutPriority(1)
-					Spacer(minLength: DS.Metrics.s2)
-					// чип роли — у правого края; длинное название роли усекается, имя агента важнее
-					if let r = role { RoleChip(name: r.name, icon: r.icon, hue: r.hue).frame(maxWidth: 150, alignment: .trailing).help(r.name) }
-				}
-				HStack(spacing: DS.Metrics.s1) {
-					subtitle
-					Spacer(minLength: 0)
-					Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold))
-						.foregroundStyle(DS.Palette.textTertiary).rotationEffect(.degrees(expanded ? 90 : 0))
-				}
-				.padding(.leading, DS.Metrics.glyphHeader + DS.Metrics.s3)
+		HStack(spacing: DS.Metrics.s2) {
+			DSStateGlyph(state: agent.ds, size: DS.Metrics.glyphHeader)
+			Text(agent.name).font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary).lineLimit(1).truncationMode(.tail)
+				.layoutPriority(1)
+			Spacer(minLength: DS.Metrics.s2)
+			if agent.canStop {
+				TitleButton(symbol: "stop.fill", help: "Остановить ход") { model.stop(agent) }.disabled(model.isOffline)
 			}
-
-			if expanded {
-				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-					// сразу цель целиком (описание роли не пишем); очень длинная прокручивается внутри
-					if !text.isEmpty {
-						ScrollView { goalText }
-							.scrollBounceBehavior(.basedOnSize)
-							.frame(maxHeight: cap)
-							.fixedSize(horizontal: false, vertical: true)
-					}
-					AgentStatsGrid(agent: agent)
+			if mode == .embedded {
+				TitleButton(symbol: "arrow.up.forward.square", help: "Открыть в отдельном окне") {
+					model.openAgentWindow?(agent.id)
+					win?.open(agent: nil)
 				}
-				.padding(.top, DS.Metrics.s1)
-				.transition(.opacity)
-			} else if !text.isEmpty {
-				// свёрнуто: видны первые 2–3 строки цели
-				goalText.lineLimit(3).padding(.top, DS.Metrics.s1)
 			}
+			TitleButton(symbol: "trash", help: "Удалить агента") { model.remove(agent: agent) }.disabled(model.isOffline)
 		}
-		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
+		.padding(.horizontal, DS.Metrics.s3).frame(height: 40)
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.dsFloatingCard()
-		// нажатие по карточке раскрывает цель целиком и статистику
-		.contentShape(RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous))
-		.onTapGesture { withAnimation(dsAnimation(DS.Motion.disclosure)) { expanded.toggle() } }
 	}
+}
 
-	private var goalText: some View {
-		Text(text).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
-			.textSelection(.enabled)
-			.frame(maxWidth: .infinity, alignment: .leading)
-	}
-
-	/// «Работает · 1:14»
-	private var subtitle: some View {
-		HStack(spacing: DS.Metrics.s1) {
-			Text(agent.stateWord)
-			if agent.canStop || (agent.lastTurnMs ?? 0) >= 1000 {
-				Text("·")
-				DSTimer(agent: agent, frozenAt: model.frozenAt)
-			}
+private struct TitleButton: View {
+	var symbol: String
+	var help: String
+	var action: () -> Void
+	@State private var hover = false
+	var body: some View {
+		Button(action: action) {
+			Image(systemName: symbol).font(.system(size: 12, weight: .medium))
+				.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+				.frame(width: 26, height: 26)
+				.background(hover ? DS.Palette.hover : .clear, in: Circle())
+				.contentShape(Circle())
 		}
-		.font(DS.Typography.caption)
-		.foregroundStyle(DS.Palette.textSecondary)
-		.lineLimit(1)
+		.buttonStyle(.plain).focusEffectDisabled()
+		.onHover { hover = $0 }
+		.help(help)
 	}
 }
 
@@ -461,46 +426,5 @@ struct AgentWindowView: View {
 		AgentPanel(agentId: agentId, mode: .window)
 			.frame(minWidth: 400, minHeight: 480)
 			.navigationTitle(model.store.agents[agentId]?.name ?? "Агент")
-	}
-}
-
-
-/// Вся нужная статистика агента (в раскрытой карточке): ходы, вызовы, время, токены, пространство, возраст, план, очередь, статус ответа.
-struct AgentStatsGrid: View {
-	var agent: AgentView
-
-	private var rows: [(String, String)] {
-		var r: [(String, String)] = []
-		let s = agent.stats
-		r.append(("Ходов", "\(s.turns)"))
-		r.append(("Вызовов инструментов", "\(s.toolCalls)"))
-		if s.workMs >= 1000 { r.append(("Время работы", Durations.clock(s.workMs))) }
-		if let t = s.tokens {
-			var parts = ["вход \(Numbers.compact(t.input))", "выход \(Numbers.compact(t.output))"]
-			if t.cached > 0 { parts.append("кэш \(Numbers.compact(t.cached))") }
-			r.append(("Токены", "\(Numbers.compact(t.total)) (\(parts.joined(separator: " · ")))"))
-		}
-		if let p = agent.plan, !p.entries.isEmpty {
-			r.append(("План", "\(p.entries.filter { $0.status == .completed }.count) из \(p.entries.count)"))
-		}
-		if agent.queued > 0 { r.append(("В очереди", "\(agent.queued)")) }
-		if let st = agent.lastReply?.status { r.append(("Статус ответа", st)) }
-		r.append(("Пространство", agent.space))
-		if let d = ISO.parse(agent.createdAt) { r.append(("Создан", Durations.ago(d))) }
-		if let d = ISO.parse(agent.lastActivityAt) { r.append(("Активность", Durations.ago(d))) }
-		return r
-	}
-
-	var body: some View {
-		Grid(alignment: .topLeading, horizontalSpacing: DS.Metrics.s3, verticalSpacing: 3) {
-			ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-				GridRow {
-					Text(row.0).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).gridColumnAlignment(.leading)
-					Text(row.1).font(DS.Typography.caption).foregroundStyle(DS.Palette.textPrimary).monospacedDigit()
-						.frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
-				}
-			}
-		}
-		.padding(.top, DS.Metrics.s1)
 	}
 }
