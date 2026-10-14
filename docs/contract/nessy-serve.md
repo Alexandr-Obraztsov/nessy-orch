@@ -25,7 +25,7 @@
 ### Версия и модель
 
 - Пакет `@nestor/nessy-cli` версии `0.13.16-beta.0`, репозиторий `gitlab.tcsbank.ru/nestor/nessy-cli` `[код]` `nessy-cli/package.json:2-3,38-41`. В рантайме отдаёт `nessyCodeVersion: "0.13.16"` `[опыт]` `GET /capabilities`.
-- Модель. По исходникам дефолтная модель — `qwen3-coder-plus` (контекст 1M), код форка `QwenCode` `[код]` `packages/core/src/providers/presets/alibaba-coding-plan.ts:44-45`, `packages/core/src/config/config.ts:611`. **В живом эксперименте** дефолтная модель сессии оказалась `tgpt/deepseek-v4-flash-0731(dp-auth)` (DeepSeek V4 Flash), а Qwen 3.5 397B доступен в списке моделей как опция `tgpt/qwen35-397b-a17b-fp8(openai)` `[опыт]` (exp 3, поле `state.models`). Расхождение зафиксировано в «Не проверено / риски».
+- Модель. По исходникам дефолтная модель — `qwen3-coder-plus` (контекст 1M), код форка `QwenCode` `[код]` `packages/core/src/providers/presets/alibaba-coding-plan.ts:44-45`, `packages/core/src/config/config.ts:611`. **В живом эксперименте** дефолтная модель сессии оказалась `tgpt/deepseek-v4-flash-0731(dp-auth)` (DeepSeek V4 Flash), а Qwen 3.5 397B доступен в списке моделей как опция `tgpt/qwen35-397b-a17b-fp8(openai)` `[опыт]` (exp 3, поле `state.models`). Оба факта фиксируем без выбора одной версии: вероятная причина расхождения — жёсткий дефолт в коде (`qwen3-coder-plus`) против выбора модели-сервисом/конфигом окружения на стороне `dp-auth`-провайдера (`deepseek-v4-flash`), т.е. что реально подставлено в сессию зависит от окружения, а не от исходника. Подробнее — «Не проверено / риски».
 - HTTP-слой — Express в `packages/cli/src/serve/server.ts` (~6040 строк); ACP-мост — `packages/acp-bridge/src/bridge.ts` (`createAcpSessionBridge`); мост общается с ACP-ребёнком `nessy --acp` через канал `[код]` `server.ts:1934`, `acp-session-bridge.ts:11-13`, `packages/acp-bridge/src/spawnChannel.ts:131-140`.
 - Архитектура: один демон = один workspace, один ACP-ребёнок (`--http-bridge`), N сессий мультиплексируются через `newSession()` `[код]` `packages/cli/src/commands/serve.ts:209-214`, `packages/acp-bridge/src/bridge.ts:1008-1014`.
 
@@ -391,7 +391,9 @@ data: {"requestId":"66abbc09-...","sessionId":"...","toolCall":{... "toolName":"
 
 ACP-ребёнок (`nessy --acp`) наследует **весь `process.env` демона**, кроме `SCRUBBED_CHILD_ENV_KEYS` (`NESSY_SERVER_TOKEN` — токен демона, `NESSY_CLI_SIMPLE`), и получает `NESSY_CLI_NO_RELAUNCH='true'` `[код]` `spawnChannel.ts:119-127,263-264`. cwd ребёнка — `workspaceCwd` `[код]` `spawnChannel.ts:130`. Задать env **на сессию** — в коде не найдено (`POST /session` не читает env). env-снимок виден в `GET /workspace/env` `[код]` `env-snapshot.ts`.
 
-Опыт `[опыт]` (exp 10): промпт «выполни `env | sort`» вернул полное окружение демона (`HOME=/Users/a.s.obraztsov`, `PWD=/private/tmp/nessy-lab-4200`, `NESSY_CLI_SESSION_ID=<sid>`, `NESSY_SERVE_MCP_BUDGET_MODE=off`, `NODE_EXTRA_CA_CERTS=...tinkoff-bundle.crt`). Сравнение 35 ключей env из сессии с env процесса serve (`ps eww`) — совпадение 100% (разница только `_`). **В окружении агента доступен живой секрет `LLM_PROXY_API_KEY` (JWT)** — значение намеренно не приведено в отчёте.
+Опыт `[опыт]` (exp 10): промпт «выполни `env | sort`» вернул полное окружение демона (`HOME=/Users/a.s.obraztsov`, `PWD=/private/tmp/nessy-lab-4200`, `NESSY_CLI_SESSION_ID=<sid>`, `NESSY_SERVE_MCP_BUDGET_MODE=off`, `NODE_EXTRA_CA_CERTS=...tinkoff-bundle.crt`). Сравнение 35 ключей env из сессии с env процесса serve (`ps eww`) — совпадение 100% (разница только `_`).
+
+> ⚠️ **Находка безопасности.** Агент из сессии видит **полный env процесса демона**, включая живой секрет `LLM_PROXY_API_KEY` (JWT) `[опыт]` (exp 10). Значение секрета намеренно не приведено в отчёте и в этом документе. Это следствие того, что ACP-ребёнок наследует весь `process.env` демона (см. выше). Практический вывод: демон `nessy serve` следует запускать без секретов, которые не должны попадать в контекст модели, либо держать критичные ключи вне окружения демона.
 
 ### Песочница инструментов
 
@@ -407,7 +409,7 @@ approval modes см. §4 (`plan|default|auto-edit|auto|yolo`, по коду defa
 
 ## Не проверено / риски
 
-- **Модель по умолчанию**: по коду `qwen3-coder-plus` `[код]`, по опыту дефолт сессии `tgpt/deepseek-v4-flash-0731(dp-auth)` `[опыт]`. Причина расхождения не выяснена (возможно, конфиг/пресеты конкретного демона или рантайм-выбор).
+- **Модель по умолчанию**: по коду дефолт `qwen3-coder-plus` `[код]`, по опыту дефолт сессии `tgpt/deepseek-v4-flash-0731(dp-auth)` `[опыт]`. Обе версии зафиксированы, ни одна не выбрана «молча». Вероятная причина — жёсткий дефолт в коде vs конфиг/модель-сервис окружения: в эксперименте провайдер `dp-auth` реально подставил DeepSeek V4 Flash (в коде этого провайдера/пресетов дефолт Qwen, но runtime выбирает модель по конфигу/сервису). Требует подтверждения на чистом демоне без кастомного окружения.
 - **Дефолтный approval mode**: по коду `default` `[код] bridge.ts:1240`, в опыте на сессии наблюдался `auto-edit` `[опыт]`. Требует проверки на чистом демоне.
 - «load + prompt сразу» на холодном restore — гонки не проверяли; вероятен 404 `[догадка]`.
 - Точное поведение `/acp` WebSocket-транспорта детально не разбиралось (отдельный транспорт).
