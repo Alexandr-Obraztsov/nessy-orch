@@ -155,7 +155,7 @@ struct AgentRow: View {
 				.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
 			VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 				HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
-					Text(model.store.title(of: a)).font(DS.Typography.agentName).foregroundStyle(DS.Palette.textPrimary).lineLimit(2).layoutPriority(1)
+					Text(model.store.title(of: a)).font(.system(size: 13, weight: .semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(2).layoutPriority(1)
 					Spacer(minLength: DS.Metrics.s2)
 					trailing
 				}
@@ -200,16 +200,21 @@ struct AgentRow: View {
 
 	/// Справа: таймер. Кнопок в строке нет: остановка — в контекстном меню (⌘. — с клавиатуры).
 	@ViewBuilder private var trailing: some View {
-		HStack(spacing: DS.Metrics.s2) {
-			if model.store.isNew(a) { DSNewDot() }
-			if a.state == .wait || a.canStop || (a.lastTurnMs ?? 0) >= 1000 {
-				DSTimer(agent: a, frozenAt: model.frozenAt)
+		let steps = (a.state == .working || a.state == .starting) ? (a.plan?.entries.map(\.status) ?? []) : []
+		VStack(alignment: .trailing, spacing: 6) {
+			HStack(spacing: DS.Metrics.s2) {
+				if model.store.isNew(a) { DSNewDot() }
+				if a.state == .wait || a.canStop || (a.lastTurnMs ?? 0) >= 1000 {
+					DSTimer(agent: a, frozenAt: model.frozenAt)
+				}
 			}
+			// индикатор шагов плана — под таймером, чтобы не отнимать место у строки «роль · токены · вызовы»
+			if !steps.isEmpty { DSPlanSegments(steps: steps) }
 		}
 	}
 }
 
-/// Вторая строка: этап у работающего, причина у ошибки/блокировки, первая фраза ответа у готового.
+/// Нижняя строка: у работающего пусто, причина у ошибки/блокировки, первая фраза ответа у готового.
 struct AgentStageLine: View {
 	@Environment(AppModel.self) private var model
 	var agent: AgentView
@@ -219,24 +224,8 @@ struct AgentStageLine: View {
 		Group {
 			switch a.state {
 			case .working, .starting:
-				TimelineView(.periodic(from: .now, by: 1)) { ctx in
-					let st = a.stage(now: model.frozenAt ?? ctx.date)
-					VStack(alignment: .leading, spacing: 2) {
-						HStack(spacing: DS.Metrics.s3) {
-							Text(st?.text ?? "").foregroundStyle(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
-							Spacer(minLength: 0)
-							if let st, st.kind == .step || st.kind == .planDone { DSPlanSegments(steps: st.steps) }
-						}
-						// последняя выполненная задача, как есть
-						if let d = a.lastDoneText, d != st?.text {
-							HStack(spacing: DS.Metrics.s1) {
-								Image(systemName: "checkmark").font(DS.Typography.caption.weight(.semibold))
-								Text(d).lineLimit(1).truncationMode(.middle)
-							}
-							.font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
-						}
-					}
-				}
+				// чем занят агент, последнюю команду и пункт плана не пишем: достаточно заголовка, «роль · токены · вызовы» и индикатора шагов
+				EmptyView()
 			case .wait:
 				EmptyView()
 			case .error:
