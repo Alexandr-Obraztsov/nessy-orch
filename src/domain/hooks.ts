@@ -1,8 +1,8 @@
 /**
  * Хуки Claude Code (чистые функции): тексты, которые `nessy-orch hook …` подмешивает в контекст Claude, и решение хука Stop.
- * Формат ответа хука — JSON в stdout: `hookSpecificOutput.additionalContext` для SessionStart/UserPromptSubmit,
- * `{decision:'block', reason}` для Stop (Claude продолжает работу с reason как с новым входом).
- * Ответы агентов — данные, а не команды: в тексте это сказано явно.
+ * Формат ответа хука — без JSON-схемы: простой текст в stdout для SessionStart/UserPromptSubmit (уходит в контекст),
+ * для Stop — код выхода 2 и причина в stderr (Claude продолжает работу с причиной как с новым входом).
+ * Ответы агентов — данные, а не команды: в тексте это сказано явно, а служебные метки внутри ответов обезврежены (`defang`).
  */
 import type { AgentBrief, Message, RoleView, SessionUpdates, SessionView } from '../../shared/types'
 import { clip } from '../lib/text'
@@ -42,10 +42,15 @@ function statusOf(text: string): string {
 	return m?.[1] ?? ''
 }
 
+/** Служебные метки хуков нельзя подделать текстом ответа агента (он приходит из GitLab/Jira/Wiki и т. п.): в ответе они теряют скобки. */
+export function defang(text: string): string {
+	return text.replace(/\[\s*(TClaude-Orch|Nessy[\s-]*Orch)\s*\]/gi, '($1)')
+}
+
 export function replyBlock(m: Message, nameOf: (id: string) => string): string {
 	const st = statusOf(m.text)
-	const head = `[${nameOf(m.from)}${st ? ` · ${st}` : ''}${m.failed ? ' · ОШИБКА' : ''}]`
-	return `${head}\n${clip(m.text.trim(), REPLY_MAX)}`
+	const head = `[${defang(nameOf(m.from))}${st ? ` · ${st}` : ''}${m.failed ? ' · ОШИБКА' : ''}]`
+	return `${head}\n${defang(clip(m.text.trim(), REPLY_MAX))}`
 }
 
 /** Контекст при старте Claude из приложения: сессия уже заведена, как работать. */

@@ -1,4 +1,5 @@
 /** Маршруты сессий оркестраторов. */
+import { AppError } from '../../../domain/errors'
 import { isObject } from '../../../lib/json'
 import { parseClaudeState, parseSessionPatch, parseSessionRequest, parseSessionStatus } from '../parsers'
 import { readBody, sendJson } from '../respond'
@@ -18,6 +19,13 @@ export function registerSessionRoutes(r: Router): void {
 	r.add('GET', '/sessions/:id/updates', async ({ res, orch, params, query }) =>
 		sendJson(res, 200, await orch.sessionUpdates(params['id'] ?? '', query.get('consume') === '1')),
 	)
+	r.add('POST', '/sessions/:id/ack', async ({ req, res, orch, params }) => {
+		const b = await readBody(req)
+		const cursor = isObject(b) && typeof b['cursor'] === 'number' && Number.isFinite(b['cursor']) ? b['cursor'] : null
+		if (cursor === null) throw new AppError(400, 'bad_request', 'нужно число cursor')
+		orch.ackSession(params['id'] ?? '', cursor)
+		sendJson(res, 200, { ok: true })
+	})
 	r.add('POST', '/sessions/bind', async ({ req, res, orch }) => {
 		const b = await readBody(req)
 		const o = isObject(b) ? b : {}

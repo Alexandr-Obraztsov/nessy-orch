@@ -7,7 +7,7 @@ import * as fs from 'node:fs'
 import type { ClaudeState, RoleView, SessionUpdates, SessionView } from '../../../../shared/types'
 import { startContext, stopDecision, updatesContext } from '../../../domain/hooks'
 import { isObject, parseJson } from '../../../lib/json'
-import { enc, get, out, post } from '../io'
+import { enc, get, post } from '../io'
 import type { CommandTable } from './command.types'
 
 /** Хук не должен задерживать Claude дольше этого (мс). */
@@ -24,6 +24,19 @@ function readInput(): Record<string, unknown> {
 		return {}
 	}
 }
+
+/** Записать в поток и дождаться, пока данные приняты: подтверждать доставку можно только после этого. */
+const write = (stream: NodeJS.WriteStream, text: string): Promise<boolean> =>
+	new Promise(resolve => {
+		try {
+			stream.write(text, err => resolve(!err))
+		} catch {
+			resolve(false)
+		}
+	})
+
+/** Ответы реально выведены хуком — сдвинуть курсор сессии. Не дошло (таймаут, обрыв) — ответы придут при следующем хуке или inbox. */
+const ack = (session: string, u: SessionUpdates): Promise<unknown> => (u.replies.length ? post(`/sessions/${enc(session)}/ack`, { cursor: u.cursor }).catch(() => undefined) : Promise.resolve())
 
 const ping = (session: string, state: ClaudeState): Promise<unknown> => post<SessionView>(`/sessions/${enc(session)}/ping`, { state }).catch(() => undefined)
 
@@ -59,7 +72,7 @@ async function run(event: string, windowSession: string, terminal: string, input
 	if (!session) return
 	if (event === 'start') exportSession(session)
 	const roles = (): Promise<RoleView[]> => get<RoleView[]>('/roles').catch(() => [])
-	const updates = (): Promise<SessionUpdates> => get<SessionUpdates>(`/sessions/${enc(session)}/updates?consume=1`)
+	const updates = (): Promise<SessionUpdates> => get<SessionUpdates>(`/sessions/${enc(session)}/updates`)
 	const names = (u: SessionUpdates, rs: readonly RoleView[]): { roleName: (id: string | null) => string | null; nameOf: (id: string) => string } => ({
 		roleName: id => (id ? (rs.find(r => r.id === id)?.name ?? id) : null),
 		nameOf: id => u.agents.find(a => a.id === id)?.name ?? id,
@@ -70,20 +83,24 @@ async function run(event: string, windowSession: string, terminal: string, input
 		// /resume: у возобновлённого чата уже есть агенты и, возможно, непрочитанные ответы — сразу в контекст
 		const n = names(u, rs)
 		const state = updatesContext(u, n.roleName, n.nameOf, session)
-		out([startContext(s, rs), state].filter(Boolean).join('\n\n')) // простой текст в stdout SessionStart уходит в контекст Claude
+		// простой текст в stdout SessionStart уходит в контекст Claude
+		if (await write(process.stdout, [startContext(s, rs), state].filter(Boolean).join('\n\n') + '\n')) await ack(session, u)
 	} else if (event === 'prompt') {
 		const [u, rs] = await Promise.all([updates(), roles(), ping(session, 'working')])
 		const n = names(u, rs)
 		const text = updatesContext(u, n.roleName, n.nameOf, session)
-		if (text) out(text) // простой текст в stdout UserPromptSubmit уходит в контекст Claude
+		// простой текст в stdout UserPromptSubmit уходит в контекст Claude; ответы считаются доставленными только после записи
+		if (text && (await write(process.stdout, text + '\n'))) await ack(session, u)
 	} else if (event === 'stop') {
 		const [u, rs] = await Promise.all([updates(), roles()])
 		const decision = stopDecision(u, names(u, rs).nameOf, { session, stopHookActive: input['stop_hook_active'] === true })
 		if (decision) {
-			await ping(session, 'working') // Claude продолжает работу с ответами агентов
 			// код 2 + причина в stderr — «не останавливаться» без JSON-схемы (она у Stop строгая и менялась): так хук не может сломаться на валидации
-			process.stderr.write(decision.reason + '\n')
-			process.exitCode = 2
+			if (await write(process.stderr, decision.reason + '\n')) {
+				process.exitCode = 2
+				await ack(session, u)
+				await ping(session, 'working') // Claude продолжает работу с ответами агентов
+			}
 		} else await ping(session, 'idle')
 	} else if (event === 'end') {
 		await ping(session, 'ended')

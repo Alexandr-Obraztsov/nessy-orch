@@ -137,6 +137,8 @@ export interface AgentBrief {
 export interface SessionUpdates {
 	agents: AgentBrief[]
 	replies: Message[]
+	/** курсор после последнего из `replies`: его подтверждают `POST /sessions/:id/ack` после того, как ответы реально выведены */
+	cursor: number
 	/** у сессии сейчас висит фоновое ожидание ответов (`inbox --session … --wait`) */
 	watching: boolean
 }

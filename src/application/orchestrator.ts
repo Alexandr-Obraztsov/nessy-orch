@@ -378,8 +378,13 @@ export class Orchestrator implements AgentHost {
 					plan: entries.length ? { done: entries.filter(e => e.status === 'completed').length, total: entries.length } : null,
 				}
 			})
-		const { messages } = await this.feed.inbox({ session, peek: !consume })
-		return { agents, replies: messages, watching: this.feed.isWatching(session) }
+		const { messages, cursor } = await this.feed.inbox({ session, peek: !consume })
+		return { agents, replies: messages, cursor, watching: this.feed.isWatching(session) }
+	}
+
+	/** Хук вывел ответы Claude — сдвинуть курсор сессии (до этого ответы считаются недоставленными и придут снова). */
+	ackSession(id: string, cursor: number): void {
+		this.feed.ack(this.sessionsSvc.resolve(id).id, cursor)
 	}
 
 	async inbox(opts: InboxQuery = {}): Promise<InboxResponse> {

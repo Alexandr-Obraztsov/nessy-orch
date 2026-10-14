@@ -182,12 +182,17 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		assert.equal((await h.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.claude?.state, 'working')
 
 		await h.api('POST', '/agents', { space: 'main', name: 'worker', session: s.body.id, prompt: 'сделай', wait: true, waitTimeoutSec: 8 })
-		const peek = await h.api<{ agents: Array<{ name: string }>; replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates`)
+		const peek = await h.api<{ agents: Array<{ name: string }>; replies: unknown[]; cursor: number }>('GET', `/sessions/${s.body.id}/updates`)
 		assert.equal(peek.body.agents[0]?.name, 'worker')
-		assert.equal(peek.body.replies.length, 1, 'без consume ответ виден, но не потреблён')
-		const take = await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates?consume=1`)
-		assert.equal(take.body.replies.length, 1)
-		assert.equal((await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates?consume=1`)).body.replies.length, 0, 'второй раз — пусто')
+		assert.equal(peek.body.replies.length, 1, 'просмотр ответ не потребляет')
+		assert.ok(peek.body.cursor > 0, 'в ответе есть курсор для подтверждения')
+		// двухфазная доставка: пока не подтверждено, ответ приходит снова; подтверждение идемпотентно и не откатывает курсор
+		assert.equal((await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates`)).body.replies.length, 1)
+		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, {})).status, 400)
+		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, { cursor: peek.body.cursor })).status, 200)
+		assert.equal((await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates`)).body.replies.length, 0, 'после ack пусто')
+		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, { cursor: 0 })).status, 200)
+		assert.equal((await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates`)).body.replies.length, 0, 'ack назад курсор не двигает')
 		assert.equal((await h.api<InboxResponse>('GET', `/inbox?session=${s.body.id}&peek=1`)).body.messages.length, 0, 'курсор общий с inbox сессии')
 	})
 

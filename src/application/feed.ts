@@ -49,6 +49,13 @@ export class Feed {
 		if (this.sessionCursors.delete(session)) this.deps.onChange()
 	}
 
+	/** Подтвердить доставку: курсор сессии двигается вперёд до `cursor` (назад — никогда: повтор подтверждения безопасен). */
+	ack(session: string, cursor: number): void {
+		if (cursor <= (this.sessionCursors.get(session) ?? 0)) return
+		this.sessionCursors.set(session, cursor)
+		this.deps.onChange()
+	}
+
 	/** У сессии открыто фоновое ожидание ответов. */
 	isWatching(session: string): boolean {
 		return (this.watchers.get(session) ?? 0) > 0
