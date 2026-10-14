@@ -294,7 +294,8 @@ private struct ProjectSwitcher: View {
 
 		var body: some View {
 			HStack(spacing: 5) {
-				indicator
+				// слева слот той же ширины, что у «×» справа: название по центру вкладки; индикатор состояния лежит в этом слоте
+				indicator.frame(minWidth: 14, minHeight: 14)
 				Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
 					.frame(maxWidth: 140)
 				// «×» всегда занимает место (меняется только прозрачность): иначе ширина вкладки скачет, а полоса прокрутки не успевает за ней
@@ -306,7 +307,7 @@ private struct ProjectSwitcher: View {
 				.buttonStyle(.plain).focusEffectDisabled().help("Закрыть проект")
 				.opacity(hover ? 1 : 0).allowsHitTesting(hover)
 			}
-			.padding(.leading, 12).padding(.trailing, 8).frame(height: 22)
+			.padding(.horizontal, 8).frame(height: 22)
 			.foregroundStyle(plain || selected || hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 			.background {
 				if selected { Capsule().fill(DS.Palette.textPrimary.opacity(0.14)).matchedGeometryEffect(id: "seg", in: ns) }
