@@ -13,7 +13,7 @@ import * as path from 'node:path'
 import type { AgentEvent, Message, RoleView, SessionView, SourceView } from '../../../shared/types'
 import type { PersistedAgent, PersistedSpace, PersistedState } from '../../application/persisted.types'
 import type { StorePort } from '../../application/ports'
-import { arr, isObject, parseJson } from '../../lib/json'
+import { arr, errMsg, isObject, parseJson } from '../../lib/json'
 import { appendJsonl, readJsonl, readText, writeAtomic } from './jsonl'
 
 const SAVE_DELAY_MS = 200
@@ -72,7 +72,8 @@ export class FileStore implements StorePort {
 			this.saveTimer = null
 		}
 		if (!this.getState) return
-		writeAtomic(this.statePath, JSON.stringify(this.getState(), null, 2))
+		const getState = this.getState
+		this.safe('состояние', () => writeAtomic(this.statePath, JSON.stringify(getState(), null, 2))) // диск полон или нет прав: работаем дальше, повторим при следующем изменении
 	}
 
 	close(): void {
@@ -92,7 +93,7 @@ export class FileStore implements StorePort {
 	}
 
 	saveRoles(roles: readonly RoleView[]): void {
-		if (!this.closed) writeAtomic(this.rolesPath, JSON.stringify({ roles }, null, 2))
+		if (!this.closed) this.safe('роли', () => writeAtomic(this.rolesPath, JSON.stringify({ roles }, null, 2)))
 	}
 
 	loadSessions(): SessionView[] {
@@ -110,11 +111,11 @@ export class FileStore implements StorePort {
 	}
 
 	saveSessions(sessions: readonly SessionView[]): void {
-		if (!this.closed) writeAtomic(this.sessionsPath, JSON.stringify({ sessions }, null, 2))
+		if (!this.closed) this.safe('сессии', () => writeAtomic(this.sessionsPath, JSON.stringify({ sessions }, null, 2)))
 	}
 
 	appendSource(sessionId: string, source: SourceView): void {
-		if (!this.closed) appendJsonl(path.join(this.sourcesDir, `${sessionId}.jsonl`), source)
+		if (!this.closed) this.safe('источник', () => appendJsonl(path.join(this.sourcesDir, `${sessionId}.jsonl`), source))
 	}
 
 	loadSources(sessionId: string): SourceView[] {
@@ -122,7 +123,7 @@ export class FileStore implements StorePort {
 	}
 
 	appendMessage(m: Message): void {
-		if (!this.closed) appendJsonl(this.msgPath, m)
+		if (!this.closed) this.safe('сообщение', () => appendJsonl(this.msgPath, m))
 	}
 
 	loadMessages(limit = 5000): Message[] {
@@ -130,11 +131,26 @@ export class FileStore implements StorePort {
 	}
 
 	appendEvent(agentId: string, ev: AgentEvent): void {
-		if (!this.closed) appendJsonl(this.eventsPath(agentId), ev)
+		if (!this.closed) this.safe('событие агента', () => appendJsonl(this.eventsPath(agentId), ev))
 	}
 
 	readEvents(agentId: string, limit = 500): AgentEvent[] {
 		return readJsonl<AgentEvent>(this.eventsPath(agentId), limit)
+	}
+
+	private lastWarn = 0
+
+	/** Сбой записи на диск (диск полон, нет прав) не должен ронять оркестратор и гасить всех агентов: пишем в stderr не чаще раза в минуту. */
+	private safe(what: string, fn: () => void): void {
+		try {
+			fn()
+		} catch (e) {
+			const now = Date.now()
+			if (now - this.lastWarn > 60_000) {
+				this.lastWarn = now
+				console.error(`[nessy-orch] не удалось записать (${what}): ${errMsg(e)}`)
+			}
+		}
 	}
 
 	archiveAgent(agentId: string): void {

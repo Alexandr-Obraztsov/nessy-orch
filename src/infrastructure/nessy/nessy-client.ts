@@ -172,10 +172,12 @@ export class NessyClient implements NessyGateway {
 		let req: http.ClientRequest | null = null
 		let lastId = opts.lastEventId
 		let retry: NodeJS.Timeout | null = null
+		/** поколение соединения: запоздалые обработчики старого соединения не запускают переподключение и не плодят подписки */
+		let gen = 0
 		const mapper = new NessyEventMapper()
 
-		const again = (): void => {
-			if (closed || retry) return
+		const again = (my: number): void => {
+			if (closed || retry || my !== gen) return
 			retry = setTimeout(() => {
 				retry = null
 				connect()
@@ -184,6 +186,8 @@ export class NessyClient implements NessyGateway {
 
 		const connect = (): void => {
 			if (closed) return
+			const my = ++gen
+			req?.destroy()
 			const headers: Record<string, string> = { Accept: 'text/event-stream' }
 			if (lastId !== null) headers['Last-Event-ID'] = String(lastId)
 			req = http.request({ host: this.host, port: this.port, method: 'GET', path: `/session/${sessionId}/events`, headers }, res => {
@@ -194,21 +198,21 @@ export class NessyClient implements NessyGateway {
 						opts.onEvent({ kind: 'died', reason: 'сессия не найдена в nessy' }, lastId)
 						return
 					}
-					again()
+					again(my)
 					return
 				}
 				res.setEncoding('utf8')
 				const parser = new SseParser(f => {
-					if (closed) return
+					if (closed || my !== gen) return
 					if (f.id !== null && /^\d+$/.test(f.id)) lastId = parseInt(f.id, 10)
 					const ev = mapper.map(f.event, parseJson(f.data))
 					if (ev) opts.onEvent(ev, lastId)
 				})
 				res.on('data', (c: string) => parser.push(c))
-				res.on('end', again)
-				res.on('error', again)
+				res.on('end', () => again(my))
+				res.on('error', () => again(my))
 			})
-			req.on('error', again)
+			req.on('error', () => again(my))
 			req.end()
 		}
 

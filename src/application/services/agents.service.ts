@@ -57,7 +57,13 @@ export class AgentsService {
 
 		let res: SendResponse | undefined
 		if (req.prompt?.trim()) {
-			res = await this.messaging.send(id, { from, text: req.prompt, interrupt: false, wait: req.wait, waitTimeoutSec: req.waitTimeoutSec })
+			try {
+				res = await this.messaging.send(id, { from, text: req.prompt, interrupt: false, wait: req.wait, waitTimeoutSec: req.waitTimeoutSec })
+			} catch (e) {
+				// отправка поручения отклонена (лимит цепочек, частоты, взаимное ожидание): агент без поручения не оставляем — повтор создал бы дубль
+				await this.remove(id).catch(() => undefined)
+				throw e
+			}
 		} else {
 			void agent.ensureAttached().catch(() => undefined)
 		}
@@ -136,6 +142,7 @@ export class AgentsService {
 		const { registry } = this.ctx
 		const agent = registry.resolveAgent(ref)
 		await agent.cancel().catch(() => undefined)
+		agent.forceFinish()
 		await agent.close().catch(() => undefined)
 		registry.agents.delete(agent.id)
 		this.messaging.forget(agent.id)

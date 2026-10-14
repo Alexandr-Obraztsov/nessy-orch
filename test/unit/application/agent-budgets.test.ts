@@ -102,3 +102,47 @@ describe('сообщения человека из приложения (отп�
 		assert.equal(orch.listMessages().filter(m => m.to === 'user').length, 1)
 	})
 })
+
+describe('ядро: удаление, откат и потерянные пространства', () => {
+	it('удаление работающего агента: ждавший его ответа получает «(ход прерван)», а не таймаут', async () => {
+		const { orch, gw } = setup()
+		const id = (await orch.spawn({ space: 'main', name: 'doomed', prompt: 'работай' })).agent.id
+		await until(() => gw.prompts.length === 1, 2000, 'работает')
+		const waiting = orch.send(id, { text: 'жду ответ', wait: true, waitTimeoutSec: 30, from: 'you' })
+		await until(() => orch.getAgent(id).queued === 1, 1000, 'сообщение ждёт в очереди')
+		await orch.removeAgent(id)
+		const r = await waiting
+		assert.ok(r.reply, 'ответ получен сразу, без таймаута')
+		assert.match(r.reply.text, /\(ход прерван\)$/)
+		assert.equal(r.reply.failed, undefined)
+	})
+
+	it('spawn: поручение отклонено (лимит цепочки) — агент без поручения не остаётся', async () => {
+		const { orch, session } = setup({ maxHops: 0 })
+		const parent = (await orch.spawn({ space: 'main', name: 'parent', session: session.id })).agent.id
+		assert.equal(await code(() => orch.spawn({ space: 'main', name: 'child', session: session.id, from: parent, prompt: 'сделай' })), '429 hop_limit')
+		assert.equal(orch.listAgents().some(a => a.name === 'child'), false)
+	})
+
+	it('рестарт: агент, чьё пространство пропало из состояния, не теряется — остаётся с ошибкой и причиной', async () => {
+		const store = new MemoryStore()
+		const gw = new FakeGateway()
+		const make = () =>
+			new Orchestrator({
+				settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0 },
+				store,
+				spaceFactory: init => new FakeSpace(init.name, init.path, gw),
+			})
+		const first = make()
+		first.addSpace({ path: os.tmpdir(), name: 'main' })
+		await first.spawn({ space: 'main', name: 'keeper' })
+		await first.shutdown()
+		store.state.spaces = []
+		const next = make()
+		next.load()
+		const a = next.getAgent('keeper')
+		assert.equal(a.status, 'error')
+		assert.match(a.error ?? '', /не найдено/)
+		await next.shutdown()
+	})
+})

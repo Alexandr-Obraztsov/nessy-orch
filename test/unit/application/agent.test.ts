@@ -304,6 +304,7 @@ describe('агент: архив и прерывание', () => {
 		ctx.gw.emit({ kind: 'text', text: 'новый ответ', messageId: 'new' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-2' })
 		assert.equal(replies(ctx)[1]?.text, 'новый ответ')
 		assert.ok(!history(ctx, id).some(e => e.kind === 'text' && /хвост старого/.test(e.text)))
+		assert.ok(ctx.gw.cancels >= 1, 'промпт, принятый после закрытия хода, отменяется в nessy')
 	})
 
 	it('прерывание, пока промпт ещё летит в nessy: отмена уходит после его принятия', async () => {

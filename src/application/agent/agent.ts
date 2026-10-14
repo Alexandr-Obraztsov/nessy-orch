@@ -93,6 +93,8 @@ export class Agent implements AgentIdentity {
 	private urgent = 0
 	private cancelTimer: NodeJS.Timeout | null = null
 	private idleTimer: NodeJS.Timeout | null = null
+	/** агент удаляется или удалён: новые сообщения отклоняются с ответом, очередь не обрабатывается */
+	private removed = false
 	/** идёт закрытие сессии nessy: поднимать её (/load) можно только после него */
 	private closing: Promise<void> | null = null
 	/** отмена не подтверждена — события старого промпта игнорируем до ответа на следующий */
@@ -221,6 +223,19 @@ export class Agent implements AgentIdentity {
 	/** Незавершённый блок текста (для снапшота при подключении UI). */
 	liveRun(): LiveRun | null {
 		return this.journal.liveRun()
+	}
+
+	/** Агент недоступен (его пространство пропало): остаётся в списке с причиной, чат и ответы не теряются. */
+	markLost(reason: string): void {
+		this.setStatus('error', reason)
+		this.addSystem(reason, 'error')
+	}
+
+	/** Агент удаляется посреди хода: ход закрывается как прерванный, чтобы ждавшие его ответа получили «(ход прерван)», а не таймаут. */
+	forceFinish(): void {
+		this.removed = true
+		this.clearCancelTimer()
+		if (this.current) this.finishTurn({ stopReason: 'cancelled' })
 	}
 
 	/** nessy serve пространства упал: отцепиться и завершить ход с ошибкой; сессия поднимется при следующем сообщении. */
@@ -404,6 +419,10 @@ export class Agent implements AgentIdentity {
 	 * (после других срочных) и прервать текущий ход.
 	 */
 	deliver(msg: Message, interrupt = false): void {
+		if (this.removed) {
+			this.noteReply(this.deps.host.onTurnDone(this, msg, '', { error: 'агент удалён' }))
+			return
+		}
 		this.archived = false
 		this.clearIdleTimer()
 		// работающему агенту сообщение не мешает: уходит в идущий ход (mid-turn-message); не приняли — встанет в очередь
@@ -463,7 +482,7 @@ export class Agent implements AgentIdentity {
 	}
 
 	private async pump(): Promise<void> {
-		if (this.current || this.pumping) return
+		if (this.current || this.pumping || this.removed) return
 		if (!this.queue.length) return
 		this.pumping = true
 		try {
@@ -509,12 +528,16 @@ export class Agent implements AgentIdentity {
 			const { promptId } = await this.promptWithRetry(client, this.nessyId, msg)
 			this.introduced = true
 			const turn = this.turnFor(msg)
-			if (turn) {
-				this.staleEvents = false // nessy принял новый промпт — дальше события его
-				turn.promptId = promptId
-				turn.sent = true
-				if (turn.cancelRequested) await this.sendCancel() // прервали, пока промпт летел в nessy
+			if (!turn) {
+				// ход закрыли (отмена без подтверждения, удаление), пока промпт летел: nessy его всё же принял — его события игнорируем, а сам он отменяется
+				if (promptId) this.rememberDone(promptId)
+				void this.sendCancel()
+				return
 			}
+			this.staleEvents = false // nessy принял новый промпт — дальше события его
+			turn.promptId = promptId
+			turn.sent = true
+			if (turn.cancelRequested) await this.sendCancel() // прервали, пока промпт летел в nessy
 		} catch (e) {
 			if (this.turnFor(msg)) this.finishTurn({ error: errMsg(e) })
 		}
@@ -553,9 +576,12 @@ export class Agent implements AgentIdentity {
 
 	/** Прервать ход и очистить очередь. */
 	async cancel(): Promise<void> {
+		// сброшенные сообщения (очередь и не забранные моделью mid-turn): отправителей, которые ждут ответа (--wait), не оставляем до таймаута
+		const dropped = [...this.queue, ...(this.current?.injected.filter(i => !i.confirmed).map(i => i.msg) ?? [])]
 		this.queue = []
 		this.urgent = 0
-		if (this.current) this.current.injected = this.current.injected.filter(i => i.confirmed) // не забранные моделью — как очередь: сбрасываются
+		if (this.current) this.current.injected = this.current.injected.filter(i => i.confirmed)
+		for (const m of dropped) if (m.wait) this.noteReply(this.deps.host.onTurnDone(this, m, '', { stopReason: 'cancelled' }))
 		this.publishNode()
 		await this.requestCancel()
 	}
@@ -587,6 +613,11 @@ export class Agent implements AgentIdentity {
 	private clearCancelTimer(): void {
 		if (this.cancelTimer) clearTimeout(this.cancelTimer)
 		this.cancelTimer = null
+	}
+
+	private rememberDone(promptId: string): void {
+		this.donePrompts.push(promptId)
+		if (this.donePrompts.length > 20) this.donePrompts.shift()
 	}
 
 	/** Это событие завершения относится к уже закрытому ходу (поздний кадр). */
@@ -768,10 +799,7 @@ export class Agent implements AgentIdentity {
 		}
 		this.turnUsage = null
 		this.clearCancelTimer()
-		if (cur.promptId) {
-			this.donePrompts.push(cur.promptId)
-			if (this.donePrompts.length > 20) this.donePrompts.shift()
-		}
+		if (cur.promptId) this.rememberDone(cur.promptId)
 		this.journal.flushRun()
 		const info: TurnOutcome = { ...outcome }
 		if (!info.error && cur.error) info.error = cur.error

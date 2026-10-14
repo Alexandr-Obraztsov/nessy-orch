@@ -146,10 +146,13 @@ export class Orchestrator implements AgentHost {
 		this.feed.load(st.msgSeq, st.inboxCursor, cursors)
 		for (const s of st.spaces) this.registry.spaces.set(s.name, this.spacesSvc.make(s))
 		for (const p of st.agents) {
-			if (!this.registry.spaces.has(p.space)) continue
+			// пространство пропало из состояния: агент остаётся (его чат и ответы не теряем), а статус — ошибка с причиной
+			const lost = !this.registry.spaces.has(p.space)
 			// старые состояния без сессии и ссылки на пропавшую сессию → вне сессий
 			const session = p.session && this.sessionsSvc.has(p.session) ? p.session : null
-			this.registry.agents.set(p.id, Agent.restore({ ...p, session }, this.ctx.agentDeps))
+			const agent = Agent.restore({ ...p, session }, this.ctx.agentDeps)
+			if (lost) agent.markLost(`пространство «${p.space}» не найдено — агент недоступен, пока оно не добавлено снова`)
+			this.registry.agents.set(p.id, agent)
 		}
 	}
 

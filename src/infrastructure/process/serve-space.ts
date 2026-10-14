@@ -149,7 +149,8 @@ export class ServeSpace implements SpaceRuntime {
 			const wasReady = this.status === 'ready'
 			const intended = this.stopping
 			this.client = null
-			if (intended) this.setStatus('stopped')
+			// запуск не удался (статус failed с причиной): остановка при очистке не должна её стирать
+			if (intended && this.status !== 'failed') this.setStatus('stopped')
 			else if (wasReady) this.setStatus('failed', `nessy serve завершился (code=${code}, signal=${signal})`)
 			this.listener.onExit(this, { intended, code, signal })
 		})
