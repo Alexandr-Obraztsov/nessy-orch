@@ -14,7 +14,7 @@
   (managed), либо уже запущенный демон по URL (external). Порты выделяются автоматически.
 - **Агенты.** Каждый агент — независимая сессия nessy (`sessionScope: thread`). Статусы простые: `starting`,
   `working`, `idle`, `error`. У агента есть очередь сообщений: сообщения агентов друг другу ждут своей очереди,
-  а ваше сообщение работающему агенту прерывает текущий ход и доставляется первым (`send --queue` — в очередь).
+  а сообщение работающему агенту его не прерывает: оно уходит в идущий ход (агент увидит его между шагами), не приняли — встаёт в очередь (`send --interrupt` — прервать и доставить первым).
   Очередь переживает рестарт.
 - **Архив.** Агент, успешно закончивший задачу, уходит в архив: он скрыт из рабочего списка, но сессия и контекст
   сохранены. Любое сообщение будит его, поэтому к агенту по имени можно вернуться в любой момент. Ход с ошибкой
@@ -135,7 +135,7 @@ nessy-orch session ls [--all] | session show <id> | session sources <id> | sessi
 nessy-orch session done <id> [--summary "…" | --summary-file F]
 nessy-orch spawn-many [--session S] "имя|роль|поручение" …   # несколько агентов одним вызовом (без heredoc); --file F | --stdin — из файла/потока
 nessy-orch spawn [--session S] [--space S] [--name N] [--role R] [--wait] [--timeout СЕК] ["задача"]
-nessy-orch send <агент|you> "текст" [--wait] [--queue] [--timeout СЕК] [--from ID]
+nessy-orch send <агент|you> "текст" [--wait] [--interrupt] [--timeout СЕК] [--from ID]
 nessy-orch ask <путь|space> "задача" [--session S]   # = spawn --wait
 nessy-orch ls [--all] [--session S] | show <агент> | watch <агент> | cancel <агент> | kill <агент>
 nessy-orch archive <агент> | restore <агент>
@@ -151,7 +151,7 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 ```
 
 Полезный результат (ответ агента, JSON) выводится в stdout, служебные сообщения — в stderr. Флаг `--json` есть у всех
-команд. `send` работающему агенту прерывает его ход (`--queue` — дождаться очереди). `ls` скрывает агентов в архиве,
+команд. `send` работающему агенту его не прерывает (`--interrupt` — прервать). `ls` скрывает агентов в архиве,
 `ls --all` показывает всех. `--session` у `spawn`, `ask`, `ls`, `inbox` по умолчанию берётся из `NESSY_ORCH_SESSION`.
 `session rm` отказывает (`409 session_busy`), пока в сессии работают агенты; агенты удалённой сессии остаются вне сессий.
 
@@ -245,7 +245,8 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 | `NESSY_BIN` | `~/.local/bin/nessy` | Исполняемый файл nessy |
 | `NESSY_SERVE_ARGS` | — | Дополнительные аргументы `nessy serve` |
 | `SERVE_BASE_PORT` | `4360` | Начало пула портов для `nessy serve` |
-| `MAX_SESSIONS` | `20` | Сессий на пространство |
+| `MAX_SESSIONS` | `32` | `--max-sessions` демона пространства (живых сессий; закрытые по простою не считаются) |
+| `ORCH_IDLE_CLOSE_SEC` | `120` | Через сколько секунд простоя закрывать сессию nessy агента (контекст сохраняется, сообщение поднимает её; `0` — не закрывать) |
 | `ORCH_AUTO_APPROVE` | `1` | Автоподтверждение прав агентов |
 | `ORCH_MAX_HOPS` | `8` | Максимальная длина цепочки агент → агент |
 | `ORCH_RATE_LIMIT` | `30` | Сообщений на пару в минуту |

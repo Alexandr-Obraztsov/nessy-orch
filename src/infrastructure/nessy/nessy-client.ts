@@ -117,10 +117,22 @@ export class NessyClient implements NessyGateway {
 		return { sessionId }
 	}
 
-	async resumeSession(sessionId: string, cwd: string): Promise<boolean> {
+	async restoreSession(sessionId: string, cwd: string): Promise<{ lastEventId: number | null } | null> {
+		const r = await this.request('POST', `/session/${sessionId}/load`, { cwd }, 60000)
+		if (r.status === 404) return null
+		if (r.status >= 400) {
+			const reason = busyReason(r.status, str(r.json['code']) || str(r.json['error']))
+			if (reason) throw new NessyBusyError(reason, `nessy POST /session/${sessionId}/load → ${r.status}`, r.retryAfterMs)
+			return null
+		}
+		const id = r.json['lastEventId']
+		return { lastEventId: typeof id === 'number' && Number.isFinite(id) ? id : null }
+	}
+
+	async midTurn(sessionId: string, message: string): Promise<boolean> {
 		try {
-			const r = await this.request('POST', `/session/${sessionId}/load`, { cwd })
-			return r.status < 300
+			const r = await this.request('POST', `/session/${sessionId}/mid-turn-message`, { message }, 10000)
+			return r.status < 300 && r.json['accepted'] === true
 		} catch {
 			return false
 		}

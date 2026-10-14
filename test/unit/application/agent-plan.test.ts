@@ -134,7 +134,7 @@ describe('план агента', () => {
 	it('уточнение при недоделанном плане — план сохраняется', async () => {
 		const id = await spawn(ctx)
 		ctx.orch.setPlan(id, { from: id, entries: entries('completed', 'in_progress') })
-		await ctx.orch.send(id, { text: 'уточнение' }) // прерывает ход
+		await ctx.orch.send(id, { text: 'уточнение', interrupt: true }) // прерывает ход
 		ctx.gw.emit({ kind: 'cancelled', promptId: 'p-1' })
 		await turnStarted(ctx, 2)
 		assert.equal(ctx.orch.getAgent(id).plan?.entries.length, 2)

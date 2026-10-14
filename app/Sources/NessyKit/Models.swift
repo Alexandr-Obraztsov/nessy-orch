@@ -166,6 +166,8 @@ public struct AgentView: Codable, Hashable, Identifiable, Sendable {
 	public var role: String?
 	public var status: AgentStatus
 	public var archived: Bool
+	/// сессия nessy закрыта по простою (контекст на диске); поднимется при следующем сообщении
+	public var parked: Bool
 	public var error: String?
 	public var displayName: String?
 	public var createdAt: String
@@ -191,6 +193,7 @@ public struct AgentView: Codable, Hashable, Identifiable, Sendable {
 		role = try c.decodeIfPresent(String.self, forKey: .role)
 		status = try c.decode(AgentStatus.self, forKey: .status)
 		archived = try c.decode(Bool.self, forKey: .archived)
+		parked = try c.decodeIfPresent(Bool.self, forKey: .parked) ?? false
 		error = try c.decodeIfPresent(String.self, forKey: .error)
 		displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
 		createdAt = try c.decode(String.self, forKey: .createdAt)

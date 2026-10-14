@@ -32,6 +32,8 @@ export type SessionEvent =
 	| { kind: 'plan'; entries: PlanEntry[] }
 	| { kind: 'died'; reason: string }
 	| { kind: 'evicted' }
+	/** nessy забрал сообщения из очереди mid-turn в ход: модель их увидела */
+	| { kind: 'injected'; count: number }
 
 export interface SessionSubscription {
 	close(): void
@@ -46,8 +48,14 @@ export interface SubscribeOptions {
 export interface NessyGateway {
 	health(): Promise<boolean>
 	createSession(cwd: string): Promise<{ sessionId: string }>
-	/** Поднять сессию после рестарта. true — если получилось. */
-	resumeSession(sessionId: string, cwd: string): Promise<boolean>
+	/**
+	 * Поднять закрытую (или пережившую рестарт демона) сессию вместе с контекстом модели: POST /session/:id/load.
+	 * null — сессии нет (404 и т. п.). lastEventId — с него подписываться, чтобы не получить повтор истории.
+	 * Пока ответ не пришёл, промпт слать нельзя (404): ждём этот вызов.
+	 */
+	restoreSession(sessionId: string, cwd: string): Promise<{ lastEventId: number | null } | null>
+	/** Доставить сообщение в идущий ход без прерывания (POST …/mid-turn-message). false — сессия простаивает или очередь полна. */
+	midTurn(sessionId: string, message: string): Promise<boolean>
 	prompt(sessionId: string, text: string): Promise<{ promptId: string | null }>
 	/** Токены сессии нарастающим итогом (GET /session/:id/stats); null — nessy не сообщает. */
 	usage(sessionId: string): Promise<TokenUsage | null>

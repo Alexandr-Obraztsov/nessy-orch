@@ -10,6 +10,11 @@
  *
  * Успешно закончив ход с пустой очередью, агент уходит в архив (archived): сессия и подписка сохраняются,
  * любое новое сообщение возвращает его в работу с прежним контекстом.
+ *
+ * Простаивающего агента (после хода, без очереди и запросов разрешений) через idleCloseMs «паркуем»: подписка закрывается, сессия nessy
+ * закрывается (DELETE — слот демона свободен, контекст остаётся на диске). Следующее сообщение поднимает её через /load и подписывается
+ * с lastEventId из ответа (без повтора истории). Сообщение работающему агенту по умолчанию не прерывает его, а доставляется в идущий ход
+ * (mid-turn-message); не приняли — встаёт в очередь.
  */
 import type { AgentPlan, AgentStats, AgentStatus, AgentView, Message, PlanEntry, ReplyBrief, TokenUsage, ToolBrief } from '../../../shared/types'
 import { archiveAfterTurn, restoredStatus, statusAfterAttach, statusAfterTurn } from '../../domain/agent-status'
@@ -34,6 +39,8 @@ import type { AgentDeps, AgentInit, CurrentTurn, LiveRun, PendingPermission } fr
 const PROMPT_RETRY_MAX = 5
 const PROMPT_RETRY_BASE_MS = 1000
 const PROMPT_RETRY_MAX_DELAY_MS = 30000
+/** повторы создания/подъёма сессии, пока у демона нет места (лимит сессий) */
+const SESSION_RETRY_MAX = 12
 
 export class Agent implements AgentIdentity {
 	readonly id: string
@@ -66,6 +73,8 @@ export class Agent implements AgentIdentity {
 	replyBrief: ReplyBrief | null = null
 	/** скрыт из рабочего списка: сессия выполнена, сессия сохранена */
 	archived = false
+	/** сессия nessy закрыта по простою (контекст на диске); поднимается при следующем сообщении */
+	parked = false
 	/** счётчики работы агента (ходы, инструменты, время, токены) */
 	stats: AgentStats = { turns: 0, toolCalls: 0, workMs: 0, tokens: null }
 
@@ -81,6 +90,9 @@ export class Agent implements AgentIdentity {
 	/** сколько сообщений в начале очереди — срочные (доставляются раньше остальных, по порядку) */
 	private urgent = 0
 	private cancelTimer: NodeJS.Timeout | null = null
+	private idleTimer: NodeJS.Timeout | null = null
+	/** идёт закрытие сессии nessy: поднимать её (/load) можно только после него */
+	private closing: Promise<void> | null = null
 	/** отмена не подтверждена — события старого промпта игнорируем до ответа на следующий */
 	private staleEvents = false
 	/** ход, который шёл в момент остановки оркестратора: ответа не будет (разбирается в resumeQueue) */
@@ -124,6 +136,7 @@ export class Agent implements AgentIdentity {
 		a.lastTurnMs = p.lastTurnMs ?? null
 		a.replyBrief = p.replyBrief ?? null
 		a.archived = p.archived === true
+		a.parked = p.parked === true
 		if (p.stats) a.stats = { ...p.stats }
 		a.lostTurn = p.inflight ?? null
 		a.resume = p.sessionId !== null // сессия поднимется лениво, при первом сообщении
@@ -141,6 +154,7 @@ export class Agent implements AgentIdentity {
 			role: this.role,
 			status: this.status,
 			archived: this.archived,
+			parked: this.parked,
 			error: this.error,
 			displayName: this.displayName,
 			createdAt: this.createdAt,
@@ -167,6 +181,7 @@ export class Agent implements AgentIdentity {
 			session: this.session,
 			role: this.role,
 			archived: this.archived,
+			parked: this.parked,
 			createdAt: this.createdAt,
 			sessionId: this.nessyId,
 			displayName: this.displayName,
@@ -174,7 +189,8 @@ export class Agent implements AgentIdentity {
 			introduced: this.introduced,
 			status: this.status,
 			error: this.error,
-			queue: this.queue,
+			// не забранные моделью сообщения mid-turn при рестарте не теряются: после потерянного хода они уйдут обычными промптами
+			queue: [...(this.current?.injected.filter(i => !i.confirmed).map(i => i.msg) ?? []), ...this.queue],
 			evSeq: this.journal.evSeq,
 			lastActivityAt: this.lastActivityAt,
 			lastReply: this.lastReply,
@@ -269,24 +285,34 @@ export class Agent implements AgentIdentity {
 		const space = this.deps.host.getSpace(this.space)
 		if (!space) throw new Error(`пространство «${this.space}» не найдено`)
 		const client = await space.ensureReady()
+		await this.closing // сессию закрывали по простою: поднимать её можно только после закрытия
 		const prev = this.resume ? this.nessyId : null
-		const tryResume = prev !== null
-		const resumed = prev !== null && (await client.resumeSession(prev, space.path))
+		// с какого события подписываться: у поднятой сессии — с lastEventId из ответа /load (повтор истории не нужен), у новой — с начала
+		let cursor = this.lastEventId
+		let resumed = false
+		if (prev !== null) {
+			const r = await this.whenNessyFree(() => client.restoreSession(prev, space.path))
+			if (r) {
+				resumed = true
+				cursor = r.lastEventId ?? cursor
+			}
+		}
 		if (!resumed) {
 			const hadSession = this.nessyId !== null
 			// сначала заготовка из пула: создание сессии nessy — самая долгая часть запуска агента
-			const sessionId = this.deps.host.takeWarmSession(this.space) ?? (await client.createSession(space.path)).sessionId
+			const warm = this.deps.host.takeWarmSession(this.space)
+			const sessionId = warm ?? (await this.whenNessyFree(() => client.createSession(space.path))).sessionId
 			this.nessyId = sessionId
+			cursor = null
 			this.lastEventId = null
 			this.introduced = false // новый контекст — снова представиться
 			if (hadSession)
-				this.addSystem(
-					tryResume ? 'сессию nessy не удалось восстановить — создана новая, контекст сброшен' : 'сессия nessy пересоздана, контекст сброшен',
-				)
+				this.addSystem(prev !== null ? 'сессию nessy не удалось восстановить — создана новая, контекст сброшен' : 'сессия nessy пересоздана, контекст сброшен')
 		}
 		this.resume = false
+		this.parked = false
 		this.sub = client.subscribe(this.nessyId ?? '', {
-			lastEventId: this.lastEventId,
+			lastEventId: cursor,
 			onEvent: (ev, id) => this.onSessionEvent(ev, id),
 		})
 		const next = statusAfterAttach(this.status)
@@ -294,10 +320,68 @@ export class Agent implements AgentIdentity {
 		else this.publishNode()
 	}
 
+	/**
+	 * Вызов nessy, который при нехватке места (лимит сессий демона, 503) или гонке restore (409) стоит переждать:
+	 * ждём Retry-After и повторяем несколько раз, агент остаётся «запускается».
+	 */
+	private async whenNessyFree<T>(fn: () => Promise<T>): Promise<T> {
+		const base = this.deps.promptRetryBaseMs ?? PROMPT_RETRY_BASE_MS
+		for (let attempt = 0; ; attempt++) {
+			try {
+				return await fn()
+			} catch (e) {
+				if (!(e instanceof NessyBusyError) || attempt >= SESSION_RETRY_MAX) throw e
+				if (attempt === 0) this.addSystem(`nessy занят (${e.reason}) — жду свободное место`)
+				await new Promise<void>(resolve => setTimeout(resolve, Math.min(e.retryAfterMs ?? base * 2 ** attempt, PROMPT_RETRY_MAX_DELAY_MS)).unref())
+			}
+		}
+	}
+
 	detach(): void {
 		this.sub?.close()
 		this.sub = null
 		this.clearCancelTimer()
+		this.clearIdleTimer()
+	}
+
+	// ---------- парковка по простою ----------
+	private clearIdleTimer(): void {
+		if (this.idleTimer) clearTimeout(this.idleTimer)
+		this.idleTimer = null
+	}
+
+	/** Свободного агента закроем через idleCloseMs. */
+	private scheduleIdleClose(): void {
+		this.clearIdleTimer()
+		const ms = this.deps.idleCloseMs
+		if (ms <= 0 || !this.sub || this.current || this.queue.length || this.pumping) return
+		this.idleTimer = setTimeout(() => {
+			this.idleTimer = null
+			void this.park()
+		}, ms)
+		this.idleTimer.unref()
+	}
+
+	/**
+	 * Закрыть сессию nessy у свободного агента: подписка закрывается, DELETE освобождает слот демона, контекст остаётся на диске.
+	 * Не трогаем агента, у которого есть ход, очередь или нерешённые запросы разрешений.
+	 */
+	async park(): Promise<void> {
+		if (this.current || this.queue.length || this.pumping || this.pending.size || !this.sub || !this.nessyId) return
+		const id = this.nessyId
+		const client = this.deps.host.getSpace(this.space)?.client
+		this.detach()
+		this.resume = true
+		this.parked = true
+		this.publishNode()
+		if (!client) return
+		this.closing = client
+			.closeSession(id)
+			.catch(() => undefined)
+			.finally(() => {
+				this.closing = null
+			})
+		await this.closing
 	}
 
 	// ---------- архив ----------
@@ -315,6 +399,12 @@ export class Agent implements AgentIdentity {
 	 */
 	deliver(msg: Message, interrupt = false): void {
 		this.archived = false
+		this.clearIdleTimer()
+		// работающему агенту сообщение не мешает: уходит в идущий ход (mid-turn-message); не приняли — встанет в очередь
+		if (!interrupt && this.canInject()) {
+			void this.inject(msg)
+			return
+		}
 		if (interrupt) {
 			this.queue.splice(this.urgent, 0, msg)
 			this.urgent++
@@ -326,6 +416,28 @@ export class Agent implements AgentIdentity {
 			void this.requestCancel()
 			return
 		}
+		void this.pump()
+	}
+
+	private canInject(): boolean {
+		const cur = this.current
+		return cur !== null && cur.sent && !cur.cancelRequested && this.nessyId !== null && this.queue.length === 0
+	}
+
+	private async inject(msg: Message): Promise<void> {
+		const turn = this.current
+		const client = this.deps.host.getSpace(this.space)?.client
+		let ok = false
+		if (turn && client && this.nessyId) ok = await client.midTurn(this.nessyId, framePrompt(msg, this.deps.host.labelOf(msg.from))).catch(() => false)
+		if (ok && this.current === turn && turn) {
+			turn.injected.push({ msg, confirmed: false })
+			this.touch()
+			this.publishNode()
+			return
+		}
+		// ход уже закончился или nessy не принял сообщение — обычная очередь
+		this.queue.push(msg)
+		this.publishNode()
 		void this.pump()
 	}
 
@@ -377,6 +489,7 @@ export class Agent implements AgentIdentity {
 			error: null,
 			cancelRequested: false,
 			sent: false,
+			injected: [],
 		}
 		this.journal.resetTools()
 		this.turnSteps = 0
@@ -436,6 +549,7 @@ export class Agent implements AgentIdentity {
 	async cancel(): Promise<void> {
 		this.queue = []
 		this.urgent = 0
+		if (this.current) this.current.injected = this.current.injected.filter(i => i.confirmed) // не забранные моделью — как очередь: сбрасываются
 		this.publishNode()
 		await this.requestCancel()
 	}
@@ -531,6 +645,20 @@ export class Agent implements AgentIdentity {
 				return
 			case 'followup':
 				return // подсказки следующего вопроса оркестратору не нужны
+			case 'injected': {
+				// nessy забрал сообщения mid-turn: модель их увидела (подтверждаем по порядку)
+				let n = ev.count
+				for (const i of this.current?.injected ?? []) {
+					if (n > 0 && !i.confirmed) {
+						i.confirmed = true
+						n--
+						// в чат — когда модель сообщение действительно увидела
+						this.journal.add({ kind: 'user', from: i.msg.from, msgId: i.msg.id, text: i.msg.text })
+						this.touch()
+					}
+				}
+				return
+			}
 			case 'died':
 				// сессии больше нет: следующее сообщение создаст новую (контекст сброшен)
 				this.detach()
@@ -644,7 +772,18 @@ export class Agent implements AgentIdentity {
 		if (archiveAfterTurn(info, queued)) this.archived = true
 		this.setStatus(statusAfterTurn(info, queued), info.error ?? null)
 		if (this.noteReply(this.deps.host.onTurnDone(this, cur.msg, text, info))) this.publishNode()
+		// сообщения, доставленные в ход без прерывания: тому же отправителю отдельный ответ не нужен, остальным (и ждущим --wait) — нужен
+		const unseen: Message[] = []
+		for (const { msg: m, confirmed } of cur.injected) {
+			if (!confirmed) unseen.push(m) // ход закончился раньше, чем nessy забрал сообщение: модель его не видела
+			else if (m.from !== cur.msg.from || m.wait) this.noteReply(this.deps.host.onTurnDone(this, m, text, info))
+		}
+		if (unseen.length) {
+			this.queue.splice(this.urgent, 0, ...unseen) // после срочных, но раньше обычной очереди
+			this.publishNode()
+		}
 		void this.pump()
+		this.scheduleIdleClose()
 		void this.refreshUsage()
 	}
 

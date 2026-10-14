@@ -256,7 +256,8 @@ id роли (`reviewer`, `reviewer-2`, …), а `preambleFor` добавляет
 | `NESSY_BIN` | `~/.local/bin/nessy` | бинарь nessy |
 | `NESSY_SERVE_ARGS` | — | доп. аргументы `nessy serve` |
 | `SERVE_BASE_PORT` | 4360 | начало пула портов для serve |
-| `MAX_SESSIONS` | 20 | `--max-sessions` для serve |
+| `MAX_SESSIONS` | 32 | `--max-sessions` для serve (считаются живые сессии) |
+| `ORCH_IDLE_CLOSE_SEC` | 120 | закрытие сессии nessy у простаивающего агента (`0` — выкл.) |
 | `ORCH_AUTO_APPROVE` | 1 | автоподтверждение прав агентов |
 | `ORCH_MAX_HOPS` | 8 | максимальная длина цепочки |
 | `ORCH_RATE_LIMIT` | 30 | сообщений в минуту на пару |

@@ -81,26 +81,22 @@ describe('сообщения и маршрутизация', () => {
 		await until(() => h.orch.getAgent('beta').status !== 'working', 8000, 'beta done')
 	})
 
-	it('очередь (interrupt:false): пока агент работает, сообщения ждут и обрабатываются по порядку', T, async () => {
+	it('сообщения работающему агенту доходят в идущий ход по порядку, ход не прерывается, в очередь они не встают', T, async () => {
 		await h.api('POST', '/agents/beta/send', { text: '#slow' })
 		await until(() => h.orch.getAgent('beta').status === 'working', 4000, 'beta working')
-		for (const t of ['один', 'два', 'три']) await h.api('POST', '/agents/beta/send', { text: t, interrupt: false })
-		assert.equal(h.orch.getAgent('beta').queued, 3)
+		for (const t of ['один', 'два', 'три']) await h.api('POST', '/agents/beta/send', { text: t })
+		assert.equal(h.orch.getAgent('beta').queued, 0)
 		const isOurs = (m: Message): boolean => m.kind === 'reply' && m.from === beta && /^(ответ: (один|два|три)|медленный ответ)$/.test(m.text)
-		await until(() => msgs().filter(isOurs).length === 4, 10000, 'четыре ответа')
-		assert.deepEqual(
-			msgs()
-				.filter(isOurs)
-				.map(m => m.text),
-			['медленный ответ', 'ответ: один', 'ответ: два', 'ответ: три'],
-		)
+		await until(() => msgs().filter(isOurs).length === 1, 10000, 'ответ хода')
+		assert.equal(msgs().filter(isOurs)[0]?.text, 'медленный ответ', 'ход не прерван')
 		const users = h.orch
 			.agentHistory(beta)
 			.filter((e): e is UserEvent => e.kind === 'user')
 			.map(e => e.text)
 			.slice(-4)
 		assert.deepEqual(users, ['#slow', 'один', 'два', 'три'])
-		assert.equal(h.orch.getAgent('beta').queued, 0)
+		await until(() => h.orch.getAgent('beta').status === 'idle', 6000, 'idle')
+		assert.equal(msgs().filter(isOurs).length, 1, 'отдельных ответов на вставленные сообщения того же отправителя нет')
 	})
 
 	it('/messages фильтрует по агенту и since', T, async () => {

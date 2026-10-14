@@ -124,6 +124,8 @@ export interface AgentView {
 	 * (или POST /agents/:ref/restore) возвращает его в работу с прежним контекстом.
 	 */
 	archived: boolean
+	/** сессия nessy закрыта по простою (контекст на диске): следующее сообщение поднимет её; на работу агента не влияет */
+	parked: boolean
 	error: string | null
 	displayName: string | null
 	createdAt: string

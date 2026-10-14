@@ -52,7 +52,7 @@ nessy-orch inbox --session <id> --wait 1500   # в фоне (run_in_background)
 ```
 
 Пришёл контекст от wiki или jira — передай важное отладчику, не прерывая:
-`nessy-orch send inc-<тема> --queue "Из Wiki/Jira: <факты со ссылками>. Учти в гипотезах."`
+`nessy-orch send inc-<тема>  "Из Wiki/Jira: <факты со ссылками>. Учти в гипотезах."`
 Ход расследования смотри по плану: `nessy-orch plan inc-<тема>`.
 
 ## Сводка пользователю

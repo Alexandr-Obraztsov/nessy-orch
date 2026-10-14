@@ -82,15 +82,32 @@ export class FakeGateway implements NessyGateway {
 	/** сколько сессий создано (в том числе заготовок пула) и задержка создания, мс */
 	created = 0
 	sessionDelayMs = 0
+	/** сколько ближайших созданий сессии отклонить лимитом сессий демона (503 session_limit_exceeded) */
+	busySessions = 0
 	async createSession(): Promise<{ sessionId: string }> {
+		if (this.busySessions > 0) {
+			this.busySessions--
+			throw new NessyBusyError('unavailable', 'nessy POST /session → 503: session_limit_exceeded', 5)
+		}
 		this.created++
 		const id = `s-${++this.n}`
 		if (this.sessionDelayMs > 0) await new Promise(r => setTimeout(r, this.sessionDelayMs))
 		return { sessionId: id }
 	}
 	closed: string[] = []
-	resumeSession(): Promise<boolean> {
-		return Promise.resolve(true)
+	restored: string[] = []
+	/** false — сессия «потеряна» (restoreSession → null) */
+	canRestore = true
+	restoreSession(sessionId: string): Promise<{ lastEventId: number | null } | null> {
+		this.restored.push(sessionId)
+		return Promise.resolve(this.canRestore ? { lastEventId: 7 } : null)
+	}
+	midTurns: string[] = []
+	/** принимает ли nessy сообщение в идущий ход */
+	acceptMidTurn = false
+	midTurn(_sessionId: string, message: string): Promise<boolean> {
+		if (this.acceptMidTurn) this.midTurns.push(message)
+		return Promise.resolve(this.acceptMidTurn)
 	}
 	/** пока задан — ответ на prompt задерживается (промпт «летит» в nessy) */
 	promptGate: Promise<void> | null = null
@@ -123,7 +140,10 @@ export class FakeGateway implements NessyGateway {
 		this.votes.push({ requestId, optionId })
 		return Promise.resolve()
 	}
+	/** с какого события подписывались (по порядку подписок) */
+	subscribedFrom: Array<{ sessionId: string; lastEventId: number | null }> = []
 	subscribe(sessionId: string, opts: SubscribeOptions): SessionSubscription {
+		this.subscribedFrom.push({ sessionId, lastEventId: opts.lastEventId })
 		this.subs.set(sessionId, opts)
 		return {
 			close: () => {

@@ -6,8 +6,8 @@ export const WAIT_FLAGS: FlagSpec = {
 	value: ['timeout', 'from', 'space', 'name'],
 	short: { w: 'wait' },
 }
-/** send: --queue — не прерывать текущий ход, встать в очередь */
-export const SEND_FLAGS: FlagSpec = { bool: ['json', 'help', 'wait', 'queue'], value: ['timeout', 'from'], short: { w: 'wait' } }
+/** send: --interrupt — прервать текущий ход адресата и доставить сообщение первым (по умолчанию работающего не прерываем) */
+export const SEND_FLAGS: FlagSpec = { bool: ['json', 'help', 'wait', 'interrupt'], value: ['timeout', 'from'], short: { w: 'wait' } }
 /** spawn: --role — роль из `nessy-orch role ls`, --session — сессия (по умолчанию NESSY_ORCH_SESSION) */
 export const SPAWN_FLAGS: FlagSpec = { ...WAIT_FLAGS, value: [...(WAIT_FLAGS.value ?? []), 'role', 'session'] }
 /** spawn-many: пакет агентов из stdin или --file; --session/--space/--from — общие для всех */

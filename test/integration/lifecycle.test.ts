@@ -80,7 +80,7 @@ describe('ход агента (автоподтверждение)', () => {
 	it('cancel прерывает ход: «ход прерван», очередь очищена, агент idle', T, async () => {
 		await h.api('POST', '/agents/worker/send', { text: '#slow' })
 		await until(() => h.orch.getAgent('worker').status === 'working', 4000, 'working')
-		await h.api('POST', '/agents/worker/send', { text: 'в очереди', interrupt: false })
+		await h.api('POST', '/agents/worker/send', { text: 'в очереди' })
 		const c = await h.api<AgentView>('POST', '/agents/worker/cancel', {})
 		assert.equal(c.status, 200)
 		assert.equal(c.body.queued, 0)
@@ -88,7 +88,7 @@ describe('ход агента (автоподтверждение)', () => {
 		const ev = h.orch.agentHistory('worker')
 		assert.ok(ev.some(e => e.kind === 'system' && e.text === 'ход прерван'))
 		await new Promise(r => setTimeout(r, 300))
-		assert.ok(!ev.some(e => e.kind === 'user' && e.text === 'в очереди'), 'очередь не доставлена')
+		assert.ok(!msgs().some(m => m.kind === 'reply' && m.text === 'ответ: в очереди'), 'сброшенное сообщение отдельным ходом не выполнено')
 		assert.equal(msgs().filter(m => m.kind === 'reply' && /\(ход прерван\)$/.test(m.text)).length, 1)
 		assert.equal(h.orch.getAgent('worker').archived, false, 'прерванный ход не уводит в архив')
 	})

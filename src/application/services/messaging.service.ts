@@ -42,7 +42,7 @@ export class MessagingService {
 
 	/**
 	 * Отправить сообщение агенту (или `you`) от `you` или от другого агента; опционально дождаться ответа.
-	 * Сообщение от you по умолчанию прерывает текущий ход адресата, от агента — встаёт в очередь.
+	 * Работающего адресата сообщение не прерывает (доставляется в идущий ход или встаёт в очередь); прервать — `interrupt: true`.
 	 */
 	async send(ref: string, req: SendRequest): Promise<SendResponse> {
 		const { registry } = this.ctx
@@ -57,7 +57,7 @@ export class MessagingService {
 		const sender = from === YOU ? null : (registry.agents.get(from) ?? null)
 		const hops = nextHops(sender?.currentMessage ?? null, sender !== null)
 
-		const interrupt = req.interrupt ?? from === YOU
+		const interrupt = req.interrupt === true
 		// что произойдёт с адресатом: свободного сообщение запускает в работу, работающего прерывает или ставит в очередь
 		const target = to === YOU ? undefined : registry.agents.get(to)
 		const wasBusy = !!target && (target.isBusy || target.queue.length > 0)

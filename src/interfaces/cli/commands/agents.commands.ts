@@ -33,8 +33,8 @@ function printSendResult(p: Parsed, agent: AgentView | null, r: SendResponse): v
 	} else {
 		const session = agent?.session ? ` --session ${agent.session}` : ''
 		if (r.started && !agent) info(dim('агент был свободен — сообщение запустило его в работу'))
-		else if (r.interrupted) info(dim('агент работал — его ход прерван этим сообщением (чтобы не прерывать: --queue)'))
-		else if (r.queued) info(dim('агент работает — сообщение встало в очередь и будет обработано после текущего хода'))
+		else if (r.interrupted) info(dim('агент работал — его ход прерван этим сообщением (--interrupt)'))
+		else if (r.queued) info(dim('агент работает — сообщение доставлено в идущий ход (или встанет в очередь), ход не прерван'))
 		info(dim(`отправлено ${r.message.id} → ${r.message.to}. Ответ придёт в inbox: nessy-orch inbox${session} --wait 1500 (в фоне)`))
 	}
 }
@@ -104,12 +104,12 @@ async function cmdSpawnMany(p: Parsed): Promise<void> {
 async function cmdSend(p: Parsed): Promise<void> {
 	const [to, ...rest] = p.positionals
 	const text = rest.join(' ').trim()
-	if (!to || !text) throw new CliError('использование: nessy-orch send <агент|you> "текст" [--wait] [--queue] [--from ID]', 2)
+	if (!to || !text) throw new CliError('использование: nessy-orch send <агент|you> "текст" [--wait] [--interrupt] [--from ID]', 2)
 	const r = await post<SendResponse>(`/agents/${enc(to)}/send`, {
 		text,
 		from: flagStr(p, 'from'),
-		// по умолчанию сообщение от you прерывает текущий ход; --queue — встать в очередь
-		interrupt: flagBool(p, 'queue') ? false : undefined,
+		// работающего агента сообщение не прерывает (доставляется в идущий ход); --interrupt — прервать и доставить первым
+		interrupt: flagBool(p, 'interrupt') ? true : undefined,
 		wait: flagBool(p, 'wait'),
 		waitTimeoutSec: flagNum(p, 'timeout'),
 	})

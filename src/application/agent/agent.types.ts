@@ -26,6 +26,8 @@ export interface AgentDeps {
 	autoApprove: boolean
 	/** ожидание подтверждения отмены от nessy (мс) */
 	cancelGraceMs: number
+	/** простой агента до закрытия его сессии nessy, мс (0 — не закрывать) */
+	idleCloseMs: number
 	/** базовая пауза повтора промпта при временном отказе nessy (мс, растёт вдвое); по умолчанию 1000 */
 	promptRetryBaseMs?: number
 	/** команда CLI оркестратора (для напоминания о плане в промпте) */
@@ -77,6 +79,8 @@ export interface CurrentTurn {
 	cancelRequested: boolean
 	/** промпт принят nessy (отмену можно отправлять) */
 	sent: boolean
+	/** сообщения, отправленные в ход без прерывания (`mid-turn-message`); confirmed — nessy подтвердил, что модель их увидела (иначе вернём в очередь) */
+	injected: { msg: Message; confirmed: boolean }[]
 }
 
 export interface PendingPermission {

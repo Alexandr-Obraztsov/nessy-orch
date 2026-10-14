@@ -1,4 +1,4 @@
-/** Архив и прерывание: авто-архив после хода, пробуждение сообщением, ручной archive/restore, interrupt и --queue. */
+/** Архив и прерывание: авто-архив после хода, пробуждение сообщением, ручной archive/restore, interrupt и доставка без прерывания. */
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import * as path from 'node:path'
@@ -81,11 +81,11 @@ describe('архив и прерывание', () => {
 		await until(() => h.orch.getAgent('done').archived, 6000, 'архив после хода')
 	})
 
-	it('сообщение от you прерывает ход: ожидавший получает «(ход прерван)», срочное идёт раньше очереди', T, async () => {
+	it('interrupt: ожидавший получает «(ход прерван)», срочное идёт раньше принятого в ход, но не забранного сообщения', T, async () => {
 		const slow = h.api<SendResponse>('POST', '/agents/done/send', { text: '#slow', wait: true, waitTimeoutSec: 10 })
 		await until(() => h.orch.getAgent('done').status === 'working', 4000, 'working')
-		await h.api('POST', '/agents/done/send', { text: 'потом', interrupt: false })
-		const urgent = await h.api<SendResponse>('POST', '/agents/done/send', { text: 'срочно', wait: true, waitTimeoutSec: 10 })
+		await h.api('POST', '/agents/done/send', { text: 'потом' }) // в идущий ход, но nessy забрать не успеет
+		const urgent = await h.api<SendResponse>('POST', '/agents/done/send', { text: 'срочно', interrupt: true, wait: true, waitTimeoutSec: 10 })
 		assert.equal(urgent.body.reply?.text, 'ответ: срочно')
 		const old = await slow
 		assert.match(old.body.reply?.text ?? '', /\(ход прерван\)$/)
@@ -94,30 +94,29 @@ describe('архив и прерывание', () => {
 		assert.ok(h.orch.agentHistory('done').some(e => e.kind === 'system' && e.text === 'ход прерван'))
 	})
 
-	it('сообщение агента агенту не прерывает ход', T, async () => {
+	it('сообщение агента агенту не прерывает ход: уходит в идущий ход, ответ получает и он', T, async () => {
 		const spare = h.orch.resolveAgent('spare').id
 		const slow = h.api<SendResponse>('POST', '/agents/done/send', { text: '#slow', wait: true, waitTimeoutSec: 10 })
 		await until(() => h.orch.getAgent('done').status === 'working', 4000, 'working')
 		await h.api('POST', '/agents/done/send', { from: spare, text: 'от коллеги' })
-		assert.equal(h.orch.getAgent('done').queued, 1)
-		assert.equal((await slow).body.reply?.text, 'медленный ответ')
-		await until(() => users('done').at(-1) === 'от коллеги', 8000, 'доставлено после хода')
-		// ответ done уходит spare промптом — spare просыпается, отрабатывает и снова уходит в архив
-		await until(() => users('spare').some(t => t === 'ответ: от коллеги'), 8000, 'ответ коллеге')
+		assert.equal((await slow).body.reply?.text, 'медленный ответ', 'ход не прерван')
+		// сообщение доставлено в ход (забрано моделью), ответ хода уходит и коллеге — он просыпается и отрабатывает
+		await until(() => users('spare').some(t => t === 'медленный ответ'), 8000, 'ответ коллеге')
+		assert.equal(h.orch.getAgent('done').queued, 0, 'в очередь сообщение не вставало')
 	})
 
-	it('CLI send --queue не прерывает, без флага — прерывает', T, async () => {
+	it('CLI send: без флага работающего не прерывает, с --interrupt — прерывает', T, async () => {
 		await until(() => h.orch.getAgent('done').status === 'idle', 8000, 'idle')
 		const slow = h.api<SendResponse>('POST', '/agents/done/send', { text: '#slow', wait: true, waitTimeoutSec: 10 })
 		await until(() => h.orch.getAgent('done').status === 'working', 4000, 'working')
-		await cli('send', 'done', '--queue', 'в очередь из cli')
-		assert.equal(h.orch.getAgent('done').queued, 1)
+		await cli('send', 'done', 'в ход из cli')
 		assert.equal((await slow).body.reply?.text, 'медленный ответ', 'ход не прерван')
-		await until(() => h.orch.getAgent('done').status === 'idle', 8000, 'очередь отработана')
+		await until(() => users('done').includes('в ход из cli'), 4000, 'сообщение доставлено агенту')
+		await until(() => h.orch.getAgent('done').status === 'idle', 8000, 'idle')
 
 		const slow2 = h.api<SendResponse>('POST', '/agents/done/send', { text: '#slow', wait: true, waitTimeoutSec: 10 })
 		await until(() => h.orch.getAgent('done').status === 'working', 4000, 'working')
-		await cli('send', 'done', 'срочно из cli')
+		await cli('send', 'done', '--interrupt', 'срочно из cli')
 		assert.match((await slow2).body.reply?.text ?? '', /\(ход прерван\)$/)
 		await until(() => msgs().some(m => m.kind === 'reply' && m.text === 'ответ: срочно из cli'), 8000, 'ответ на срочное')
 	})

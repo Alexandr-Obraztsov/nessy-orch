@@ -2,7 +2,9 @@
 /**
  * fake-nessy — имитация `nessy serve` для тестов и демо UI (без модели и без сети).
  * Повторяет контракт docs/contract/README.md: /health, POST /session (независимые сессии), POST /prompt,
- * GET /events (SSE с Last-Event-ID), cancel (→ prompt_cancelled), permission, load, DELETE.
+ * GET /events (SSE с Last-Event-ID), cancel (→ prompt_cancelled), permission, DELETE (сессия «закрывается», но остаётся на диске),
+ * load (поднимает закрытую сессию, ответ {attached, lastEventId}), mid-turn-message (в ход принимается, в простое — accepted:false;
+ * после принятия через ~10 шагов приходит mid_turn_message_injected, если ход ещё идёт).
  *
  * События как у настоящего serve: чанки с messageId, мысли, tool_call (title/rawInput) →
  * tool_call_update (in_progress) → tool_call_update (completed, rawOutput "" + content[]).
@@ -60,6 +62,8 @@ interface Session {
 	named: boolean
 	/** токены нарастающим итогом (GET /session/:id/stats) */
 	tokens: { input: number; output: number; cached: number }
+	/** сообщения, принятые в идущий ход и ещё не забранные моделью */
+	mid: string[]
 }
 type Json = Record<string, unknown>
 
@@ -75,6 +79,8 @@ if (argv[0] !== 'serve') {
 const port = parseInt(flag('--port') ?? '0', 10)
 const workspace = flag('--workspace') ?? process.cwd()
 const sessions = new Map<string, Session>()
+/** закрытые (DELETE) сессии: на диске остаются, поднимаются через /load */
+const closed = new Map<string, Session>()
 const STEP = parseInt(process.env['FAKE_NESSY_DELAY_MS'] ?? '20', 10)
 const WORK_STEP = parseInt(process.env['FAKE_NESSY_WORK_MS'] ?? '2500', 10)
 
@@ -518,9 +524,20 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 		if (typeof b['cwd'] === 'string' && b['cwd'] !== workspace) return json(res, 400, { code: 'workspace_mismatch', error: 'workspace mismatch' })
 		const delay = Number(process.env['FAKE_NESSY_SESSION_DELAY_MS'] ?? 0)
 		if (delay > 0) await new Promise(r => setTimeout(r, delay)) // имитация долгого создания сессии (загрузка MCP)
-		const s: Session = { id: randomUUID(), seq: 0, ring: [], subs: new Set(), turn: null, named: false, tokens: { input: 0, output: 0, cached: 0 } }
+		const s: Session = { id: randomUUID(), seq: 0, ring: [], subs: new Set(), turn: null, named: false, tokens: { input: 0, output: 0, cached: 0 }, mid: [] }
 		sessions.set(s.id, s)
 		return json(res, 200, { sessionId: s.id, workspaceCwd: workspace, attached: false, clientId: randomUUID(), createdAt: new Date().toISOString() })
+	}
+	if (req.method === 'POST' && seg[0] === 'session' && seg[1] && seg[2] === 'load') {
+		const live = sessions.get(seg[1])
+		if (live) return json(res, 200, { sessionId: live.id, workspaceCwd: workspace, attached: true, lastEventId: live.seq })
+		const old = closed.get(seg[1])
+		if (!old) return json(res, 404, { error: 'session not found', code: 'session_not_found' })
+		closed.delete(old.id)
+		old.turn = null
+		old.mid = []
+		sessions.set(old.id, old) // история (ring) и счётчик событий сохранены
+		return json(res, 200, { sessionId: old.id, workspaceCwd: workspace, attached: false, lastEventId: old.seq })
 	}
 	const s = seg[0] === 'session' && seg[1] ? sessions.get(seg[1]) : undefined
 	if (seg[0] === 'session' && !s) return json(res, 404, { error: 'session not found' })
@@ -563,14 +580,27 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 		cont(approved)
 		return json(res, 200, { ok: true })
 	}
-	if (req.method === 'POST' && action === 'load') return json(res, 200, {})
+	if (req.method === 'POST' && action === 'mid-turn-message') {
+		const b = await readJson(req)
+		const message = typeof b['message'] === 'string' ? b['message'] : ''
+		if (!s.turn || s.turn.done || !message) return json(res, 200, { accepted: false })
+		s.mid.push(message)
+		const turn = s.turn
+		setTimeout(() => {
+			if (turn.done || s.turn !== turn || !s.mid.length) return
+			emit(s, 'mid_turn_message_injected', { messages: s.mid.splice(0) })
+		}, STEP * 10)
+		return json(res, 200, { accepted: true })
+	}
 	if (req.method === 'DELETE' && action === undefined) {
 		if (s.turn) {
 			for (const t of s.turn.timers) clearTimeout(t)
 			s.turn.done = true
 		}
 		for (const r of s.subs) r.end()
+		s.subs.clear()
 		sessions.delete(s.id)
+		closed.set(s.id, s)
 		return json(res, 204)
 	}
 	json(res, 404, { error: 'not found' })

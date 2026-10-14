@@ -67,10 +67,10 @@ public final class OrchClient: @unchecked Sendable {
 
 	// MARK: действия человека (приложение только наблюдает; запускает агентов Claude)
 	public func cancel(_ ref: String) async throws { try await raw("POST", "/agents/\(ref)/cancel") }
-	/// Написать агенту от имени человека: по умолчанию прерывает текущий ход, агент продолжает с нового сообщения (docs/api.md, SendRequest).
+	/// Написать агенту от имени человека: по умолчанию не прерывает: сообщение доходит до агента в идущем ходе или встаёт в очередь (docs/api.md, SendRequest).
 	/// Возвращает сохранённое сообщение; тело ответа не критично, поэтому его разбор не роняет вызов.
 	@discardableResult
-	public func sendMessage(to ref: String, text: String, interrupt: Bool = true) async throws -> Message? {
+	public func sendMessage(to ref: String, text: String, interrupt: Bool = false) async throws -> Message? {
 		struct Ack: Decodable { var message: Message? }
 		let data = try await raw("POST", "/agents/\(ref)/send", body: SendBody(text: text, interrupt: interrupt))
 		return (try? JSONDecoder().decode(Ack.self, from: data))?.message

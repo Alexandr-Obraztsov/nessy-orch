@@ -51,6 +51,7 @@ import { SourcesService } from './services/sources.service'
 
 const SNAPSHOT_MESSAGES = 300
 const DEFAULT_CANCEL_GRACE_MS = 3000
+const DEFAULT_IDLE_CLOSE_MS = 120_000
 
 export class Orchestrator implements AgentHost {
 	readonly hub = new Hub()
@@ -110,6 +111,7 @@ export class Orchestrator implements AgentHost {
 				clock,
 				autoApprove: deps.settings.autoApprove,
 				cancelGraceMs: deps.settings.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS,
+				idleCloseMs: deps.settings.idleCloseMs ?? DEFAULT_IDLE_CLOSE_MS,
 				cliPath: deps.settings.cliPath,
 			},
 			saveSoon: () => this.saveSoon(),

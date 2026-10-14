@@ -241,7 +241,7 @@ struct AgentComposer: View {
 				.frame(height: max(fieldH, 17))
 				.overlay(alignment: .topLeading) {
 					if draft.wrappedValue.isEmpty {
-						Text(agent.canStop ? "Написать агенту — ход прервётся…" : "Написать агенту…").font(.system(size: 13)).foregroundStyle(DS.Palette.textTertiary).allowsHitTesting(false)
+						Text("Написать агенту…").font(.system(size: 13)).foregroundStyle(DS.Palette.textTertiary).allowsHitTesting(false)
 					}
 				}
 				.padding(.vertical, DS.Metrics.s1)

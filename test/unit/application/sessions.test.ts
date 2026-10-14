@@ -211,14 +211,14 @@ describe('сессии: сервис', () => {
 		assert.equal(ctx.orch.bindChat('chat-cwd', null, 'proj', 'term-1', dir2).cwd, dir2)
 	})
 
-	it('send: свободного агента запускает (started), работающего прерывает или ставит в очередь', async () => {
+	it('send: свободного агента запускает (started), работающего прерывает (--interrupt) или ставит в очередь', async () => {
 		const a = (await ctx.orch.spawn({ space: 'main', name: 'sendee' })).agent.id
 		const idle = await ctx.orch.send(a, { text: 'начни', from: 'you' })
 		assert.equal(idle.started, true)
 		markBusy(a)
-		const interrupted = await ctx.orch.send(a, { text: 'срочно', from: 'you' })
+		const interrupted = await ctx.orch.send(a, { text: 'срочно', from: 'you', interrupt: true })
 		assert.equal(interrupted.interrupted, true)
-		const queued = await ctx.orch.send(a, { text: 'потом', from: 'you', interrupt: false })
+		const queued = await ctx.orch.send(a, { text: 'потом', from: 'you' })
 		assert.equal(queued.queued, true)
 	})
 

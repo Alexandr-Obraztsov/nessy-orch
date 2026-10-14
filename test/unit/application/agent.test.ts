@@ -270,8 +270,8 @@ describe('агент: архив и прерывание', () => {
 		const ctx = setup()
 		const id = await startTurn(ctx)
 		await ctx.orch.send(id, { text: 'в очередь', interrupt: false })
-		await ctx.orch.send(id, { text: 'срочно-1' })
-		await ctx.orch.send(id, { text: 'срочно-2' })
+		await ctx.orch.send(id, { text: 'срочно-1', interrupt: true })
+		await ctx.orch.send(id, { text: 'срочно-2', interrupt: true })
 		assert.equal(ctx.gw.cancels, 1, 'отмена отправлена один раз')
 		assert.equal(ctx.gw.prompts.length, 1, 'до подтверждения новый промпт не отправлен')
 		ctx.gw.emit({ kind: 'cancelled', promptId: 'p-1' })
@@ -292,7 +292,7 @@ describe('агент: архив и прерывание', () => {
 		const id = await startTurn(ctx)
 		let release = (): void => undefined
 		ctx.gw.promptGate = new Promise<void>(r => (release = r))
-		await ctx.orch.send(id, { text: 'срочно' })
+		await ctx.orch.send(id, { text: 'срочно', interrupt: true })
 		await until(() => ctx.gw.prompts.length === 2, 1000, 'промпт после таймаута')
 		assert.equal(replies(ctx)[0]?.text, '(ход прерван)')
 		assert.ok(history(ctx, id).some(e => e.kind === 'system' && /не подтвердил отмену/.test(e.text)))
@@ -312,20 +312,20 @@ describe('агент: архив и прерывание', () => {
 		ctx.gw.promptGate = new Promise<void>(r => (release = r))
 		const r = await ctx.orch.spawn({ space: 'main', name: 'alpha', prompt: 'сессия' })
 		await until(() => ctx.gw.prompts.length === 1, 1000, 'промпт отправлен')
-		await ctx.orch.send(r.agent.id, { text: 'срочно' })
+		await ctx.orch.send(r.agent.id, { text: 'срочно', interrupt: true })
 		assert.equal(ctx.gw.cancels, 0)
 		ctx.gw.promptGate = null
 		release()
 		await until(() => ctx.gw.cancels === 1, 1000, 'отмена после принятия промпта')
 	})
 
-	it('сообщение агента не прерывает ход (interrupt по умолчанию только у you)', async () => {
+	it('сообщение не прерывает ход ни от агента, ни от you (прерывание — только interrupt: true)', async () => {
 		const ctx = setup()
 		const id = await startTurn(ctx)
 		const other = await ctx.orch.spawn({ space: 'main', name: 'beta' })
 		await ctx.orch.send(id, { from: other.agent.id, text: 'вопрос' })
+		await until(() => ctx.orch.getAgent(id).queued === 1, 1000, 'nessy не принял mid-turn — сообщение в очереди')
 		assert.equal(ctx.gw.cancels, 0)
-		assert.equal(ctx.orch.getAgent(id).queued, 1)
 	})
 })
 
