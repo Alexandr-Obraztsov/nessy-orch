@@ -80,7 +80,7 @@ public enum Brief {
 		var any: [String: Message] = [:]
 		for m in messages where m.kind == .msg {
 			if any[m.to] == nil { any[m.to] = m }
-			if m.from == "you", fromYou[m.to] == nil { fromYou[m.to] = m }
+			if m.from == "you" || m.from == "user", fromYou[m.to] == nil { fromYou[m.to] = m }
 		}
 		for (id, m) in any where fromYou[id] == nil { fromYou[id] = m }
 		return fromYou

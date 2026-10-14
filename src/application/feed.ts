@@ -77,7 +77,7 @@ export class Feed {
 		if (draft.wait) msg.wait = true
 		if (draft.failed) msg.failed = draft.failed
 		if (draft.to === YOU) {
-			const session = this.deps.sessionOf(draft.from)
+			const session = draft.session ?? this.deps.sessionOf(draft.from)
 			if (session) msg.session = session
 		}
 		this.messages.push(msg)

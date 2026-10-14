@@ -209,7 +209,7 @@ public final class OrchStore {
 
 	private func noteGoal(_ m: Message) {
 		guard m.kind == .msg else { return }
-		let fromYou = m.from == "you"
+		let fromYou = m.from == "you" || m.from == "user"
 		guard goals[m.to] == nil || (fromYou && !goalFromYou.contains(m.to)) else { return }
 		let g = Brief.plain(m.text)
 		guard !g.isEmpty else { return }

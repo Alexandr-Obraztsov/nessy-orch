@@ -1,6 +1,6 @@
 /** Отправка и маршрутизация сообщений (правила — domain/routing.ts). */
 import type { Message, SendRequest, SendResponse } from '../../../shared/types'
-import { SYSTEM, YOU } from '../../domain/constants'
+import { SYSTEM, USER, YOU } from '../../domain/constants'
 import { AppError } from '../../domain/errors'
 import { RateLimiter } from '../../domain/rate-limiter'
 import { assertHops, expectsReply, isAgentSender, nextHops, replyDraft, shouldDeliver } from '../../domain/routing'
@@ -53,8 +53,9 @@ export class MessagingService {
 		if (from === to) throw new AppError(400, 'self_send', 'нельзя отправить сообщение самому себе')
 
 		const wait = !!req.wait
-		if (wait && from !== YOU && to !== YOU) this.waitGraph.assertNoDeadlock(from, to)
-		const sender = from === YOU ? null : (registry.agents.get(from) ?? null)
+		const human = from === YOU || from === USER
+		if (wait && !human && to !== YOU) this.waitGraph.assertNoDeadlock(from, to)
+		const sender = human ? null : (registry.agents.get(from) ?? null)
 		const hops = nextHops(sender?.currentMessage ?? null, sender !== null)
 
 		const interrupt = req.interrupt === true
@@ -63,19 +64,26 @@ export class MessagingService {
 		const wasBusy = !!target && (target.isBusy || target.queue.length > 0)
 		const state: Pick<SendResponse, 'started' | 'interrupted' | 'queued'> = target ? (wasBusy ? (interrupt ? { interrupted: true } : { queued: true }) : { started: true }) : {}
 		const message = this.post({ from, to, kind: 'msg', text, hops, wait }, interrupt)
+		if (from === USER && target) this.noteUserMessage(target.id, text, target.session)
 		if (!wait) return { message, ...state }
 		return { ...(await this.waitReply(message, from, to, req.waitTimeoutSec)), ...state }
 	}
 
 	private async waitReply(message: Message, from: string, to: string, timeoutSec?: number): Promise<SendResponse> {
 		const timeoutMs = Math.max(1, timeoutSec ?? DEFAULT_WAIT_SEC) * 1000
-		if (from !== YOU) this.waitGraph.add(from, to)
+		if (from !== YOU && from !== USER) this.waitGraph.add(from, to)
 		try {
 			const reply = await this.ctx.feed.waitReply(message.id, timeoutMs)
 			return reply ? { message, reply } : { message, timedOut: true }
 		} finally {
 			this.waitGraph.remove(from, to)
 		}
+	}
+
+	/** Человек написал агенту из приложения: главный агент сессии узнает об этом (служебная запись в его inbox) и ничего не потеряет из виду. */
+	private noteUserMessage(agentId: string, text: string, session: string | null): void {
+		const label = this.ctx.registry.labelOf(agentId)
+		this.ctx.feed.append({ from: SYSTEM, to: YOU, kind: 'reply', text: `[пользователь написал агенту ${label} из приложения]\n${text}`, ...(session ? { session } : {}) })
 	}
 
 	forget(agentId: string): void {
@@ -94,6 +102,11 @@ export class MessagingService {
 			delete draft.wait
 		}
 		const reply = this.ctx.feed.append(draft)
+		// ответ человеку (не главному агенту): главный агент получает копию — он ведёт разговор и должен знать, что ответил его агент
+		if (msg.from === USER) {
+			const session = this.ctx.registry.agents.get(agent.id)?.session ?? null
+			this.ctx.feed.append({ from: agent.id, to: YOU, kind: 'reply', text: `(ответ пользователю на его сообщение)\n${reply.text}`, ...(session ? { session } : {}) })
+		}
 		const back = this.ctx.registry.agents.get(msg.from)
 		if (back && !msg.wait) back.deliver(reply)
 		return reply

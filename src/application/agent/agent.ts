@@ -18,7 +18,7 @@
  */
 import type { AgentPlan, AgentStats, AgentStatus, AgentView, Message, PlanEntry, ReplyBrief, TokenUsage, ToolBrief } from '../../../shared/types'
 import { archiveAfterTurn, restoredStatus, statusAfterAttach, statusAfterTurn } from '../../domain/agent-status'
-import { YOU } from '../../domain/constants'
+import { USER, YOU } from '../../domain/constants'
 import { NessyBusyError } from '../../domain/errors'
 import { pickPermissionOption } from '../../domain/permission'
 import { coercePlanEntries, planOnTurnStart } from '../../domain/plan'
@@ -494,7 +494,7 @@ export class Agent implements AgentIdentity {
 		this.journal.resetTools()
 		this.turnSteps = 0
 		// новая сессия от оператора после выполненного плана — план сбрасывается (уточнения его сохраняют)
-		this.plan = planOnTurnStart(this.plan, msg.from === YOU, this.queue.length)
+		this.plan = planOnTurnStart(this.plan, msg.from === YOU || msg.from === USER, this.queue.length)
 		this.setStatus('working')
 		this.journal.add({ kind: 'user', from: msg.from, msgId: msg.id, text: msg.text })
 		try {
@@ -809,7 +809,7 @@ export class Agent implements AgentIdentity {
 
 	/** Запомнить ответ оператору (you) для карточки агента. true — запомнили. */
 	private noteReply(reply: Message | null): boolean {
-		if (!reply || reply.to !== YOU) return false
+		if (!reply || (reply.to !== YOU && reply.to !== USER)) return false
 		this.replyBrief = { msgId: reply.id, ts: reply.ts, preview: clip(plainText(reply.text), 200) }
 		const status = reply.failed ? null : parseReply(reply.text).status
 		if (status) {

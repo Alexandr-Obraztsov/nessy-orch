@@ -153,7 +153,7 @@ enum ChatEntries {
 				case .user(let u):
 					let p = Brief.plain(u.text)
 					if !skippedGoal { skippedGoal = true; if p == goal { continue } }
-					out.append(LogEntry(id: row.id, label: u.from == "you" ? "" : "Сообщение от \(u.from)", body: u.from == "you" ? .mine(p) : .other(p)))
+					out.append(LogEntry(id: row.id, label: (u.from == "you" || u.from == "user") ? "" : "Сообщение от \(u.from)", body: u.from == "you" ? .mine(p) : .other(p)))
 				case .text(let t):
 					let s = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
 					if !s.isEmpty { out.append(LogEntry(id: row.id, label: "", body: .answer(s))) }

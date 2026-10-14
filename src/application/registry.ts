@@ -1,4 +1,4 @@
-import { YOU } from '../domain/constants'
+import { USER, YOU } from '../domain/constants'
 import { AppError } from '../domain/errors'
 import type { Agent } from './agent/agent'
 import type { SpaceRuntime } from './ports'
@@ -25,6 +25,7 @@ export class Registry {
 	/** Отправитель: `you` или агент по id/имени; неизвестный → 400 bad_from. */
 	resolveSender(ref: string | undefined): string {
 		if (!ref || ref === YOU) return YOU
+		if (ref === USER) return USER
 		try {
 			return this.resolveAgent(ref).id
 		} catch {
@@ -39,6 +40,7 @@ export class Registry {
 
 	labelOf(id: string): string {
 		if (id === YOU) return 'you (главный оператор)'
+		if (id === USER) return 'user (человек, пишет из приложения)'
 		const a = this.agents.get(id)
 		return a ? (a.name === a.id ? a.id : `${a.name} (${a.id})`) : id
 	}

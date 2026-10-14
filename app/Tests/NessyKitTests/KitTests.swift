@@ -395,7 +395,7 @@ struct SessionLogicTests {
 struct DialogTests {
 	@Test func sendAndRoleBodies() throws {
 		let b = try JSONSerialization.jsonObject(with: JSONEncoder().encode(SendBody(text: "привет", interrupt: true))) as? [String: Any]
-		#expect(b?["from"] as? String == "you")
+		#expect(b?["from"] as? String == "user")
 		#expect(b?["interrupt"] as? Bool == true)
 		let r = try JSONSerialization.jsonObject(with: JSONEncoder().encode(RoleBody(name: "A", description: "", instructions: "x"))) as? [String: Any]
 		#expect(r?["color"] == nil && r?["icon"] == nil, "не переданные поля остаются прежними")

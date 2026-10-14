@@ -107,7 +107,8 @@ struct RoleBody: Encodable {
 /// Тело `POST /agents/:ref/send`: отправитель всегда you.
 struct SendBody: Encodable {
 	var text: String
-	var from = "you"
+	/// человек из приложения: ответ агента идёт ему, а главный агент сессии получает служебную копию
+	var from = "user"
 	var interrupt: Bool
 }
 

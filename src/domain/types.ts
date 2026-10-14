@@ -17,6 +17,8 @@ export interface MessageDraft {
 	replyTo?: string
 	wait?: boolean
 	failed?: string
+	/** сессия, в inbox которой попадает сообщение для `you` (если не задана — сессия агента-отправителя) */
+	session?: string
 }
 
 /** Итог хода агента. */

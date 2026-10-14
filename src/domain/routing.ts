@@ -7,13 +7,13 @@
  *  4. Защиты: лимит длины цепочки (hops), лимит сообщений в минуту на пару, детектор дедлоков для wait.
  */
 import type { Message } from '../../shared/types'
-import { SYSTEM, YOU } from './constants'
+import { SYSTEM, USER, YOU } from './constants'
 import { AppError } from './errors'
 import type { MessageDraft, RoutingLimits, TurnOutcome } from './types'
 
 /** Отправитель — агент (а не оператор или система): к нему применяются защиты. */
 export function isAgentSender(from: string): boolean {
-	return from !== YOU && from !== SYSTEM
+	return from !== YOU && from !== SYSTEM && from !== USER
 }
 
 /** Проверить длину цепочки агент→агент. */
@@ -66,7 +66,7 @@ export function replyDraft(agentId: string, msg: Message, text: string, outcome:
 
 /** Оформить входящее сообщение как текст промпта (с указанием отправителя-агента). */
 export function framePrompt(msg: Message, senderLabel: string): string {
-	if (msg.from === YOU) return msg.text
+	if (msg.from === YOU || msg.from === USER) return msg.text
 	return msg.kind === 'reply'
 		? `[ответ агента ${senderLabel} на твоё сообщение]\n${msg.text}`
 		: `[сообщение от агента ${senderLabel}]\n${msg.text}`
