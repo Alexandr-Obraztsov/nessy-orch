@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
  * Пробы живого `nessy serve`: снимает то, чего нет в документации (формат tool_call/plan, stats, mid-turn-message, detach, гонки
- * restore, reaper, лимит сессий). Сам поднимает демоны на 127.0.0.1:4391–4393 во временных каталогах и гасит их в конце.
+ * restore, reaper, лимит сессий). Сам поднимает демоны на свободных портах 127.0.0.1 во временных каталогах и гасит их в конце.
+ * Порты выбираются свободные, каждый демон проверяется (workspace совпадает с временным каталогом), каталоги удаляются.
  * Запуск:  NESSY_BIN=/путь/к/nessy node scripts/probe-nessy-serve.mjs        (по умолчанию `nessy` из PATH)
  * Результат: nessy-probe-report.md в текущем каталоге — его и присылайте. Делает ~10 коротких запросов к модели.
  */
 import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
+import * as net from 'node:net'
 import * as path from 'node:path'
 
 const BIN = process.env.NESSY_BIN || 'nessy'
@@ -15,6 +17,12 @@ const REPORT = path.resolve('nessy-probe-report.md')
 const out = ['# Пробы nessy serve\n', `Дата: ${new Date().toISOString()}\n`]
 const daemons = []
 
+/** sessionUpdate и содержимое из любой формы кадра (с обёрткой update или без). */
+const upd = j => {
+	const d = j?.data ?? j ?? {}
+	const u = d.update ?? d
+	return { kind: u.sessionUpdate ?? d.sessionUpdate, content: u.content ?? d.content, raw: u }
+}
 const clip = (s, n = 2500) => (s.length > n ? s.slice(0, n) + `… (+${s.length - n} знаков)` : s)
 const show = v => (typeof v === 'string' ? v : JSON.stringify(v, null, 2))
 const log = (title, data) => {
@@ -23,7 +31,19 @@ const log = (title, data) => {
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-async function startDaemon(port, extra = []) {
+/** Свободный порт: захардкоженные порты занимали чужие демоны, и проба молча шла в них. */
+const freePort = () =>
+	new Promise((resolve, reject) => {
+		const srv = net.createServer()
+		srv.once('error', reject)
+		srv.listen(0, '127.0.0.1', () => {
+			const { port } = srv.address()
+			srv.close(() => resolve(port))
+		})
+	})
+
+async function startDaemon(_unused, extra = []) {
+	const port = await freePort()
 	const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'nessy-probe-'))
 	const proc = spawn(BIN, ['serve', '--port', String(port), '--hostname', '127.0.0.1', '--workspace', ws, '--no-web', ...extra], { stdio: ['ignore', 'pipe', 'pipe'] })
 	let logText = ''
@@ -33,7 +53,13 @@ async function startDaemon(port, extra = []) {
 	daemons.push(d)
 	for (let i = 0; i < 60; i++) {
 		try {
-			if ((await fetch(d.base + '/health')).ok) return d
+			if ((await fetch(d.base + '/health')).ok) {
+				// это наш демон, а не чужой: рабочая папка из capabilities совпадает с временной
+				const cap = await (await fetch(d.base + '/capabilities')).json().catch(() => ({}))
+				const got = fs.realpathSync(cap.workspaceCwd ?? '/nonexistent')
+				if (got !== fs.realpathSync(ws)) throw new Error(`на порту ${port} чужой демон (workspace ${cap.workspaceCwd})`)
+				return d
+			}
 		} catch { /* ещё не поднялся */ }
 		await sleep(500)
 	}
@@ -109,8 +135,8 @@ function autoVote(d, sid, sub) {
 }
 
 const textOf = (events, from = 0) =>
-	events.slice(from).filter(e => e.event === 'session_update' && (e.json?.data?.sessionUpdate ?? e.json?.sessionUpdate) === 'agent_message_chunk')
-		.map(e => (e.json?.data ?? e.json)?.content?.text ?? '').join('')
+	events.slice(from).filter(e => e.event === 'session_update' && upd(e.json).kind === 'agent_message_chunk')
+		.map(e => upd(e.json).content?.text ?? '').join('')
 
 const prompt = (d, sid, text) => call(d, 'POST', `/session/${sid}/prompt`, { prompt: [{ type: 'text', text }] })
 const types = events => events.map(e => e.event + (e.id !== undefined ? `#${e.id}` : '')).join(' ')
@@ -121,7 +147,7 @@ async function probe(name, fn) {
 
 async function main() {
 	log('Окружение', { bin: BIN, node: process.version })
-	const d = await startDaemon(4391)
+	const d = await startDaemon()
 	log('Запуск демона (вывод)', d.log())
 
 	await probe('capabilities', async () => {
@@ -145,10 +171,18 @@ async function main() {
 		log('POST /prompt (статус и тело)', t)
 		await waitTerminal(sub, 0)
 		log('Последовательность событий хода', types(sub.events))
+		log('Сырые кадры (первые 2 каждого вида)', (() => {
+			const by = {}
+			for (const e of sub.events) {
+				const k = e.event === 'session_update' ? 'session_update/' + upd(e.json).kind : e.event
+				;(by[k] ??= []).length < 2 && by[k].push(e.data)
+			}
+			return by
+		})())
 		log('Первый кадр каждого вида session_update', (() => {
 			const seen = new Map()
 			for (const e of sub.events) {
-				const k = e.event === 'session_update' ? (e.json?.data?.sessionUpdate ?? e.json?.sessionUpdate) : e.event
+				const k = e.event === 'session_update' ? upd(e.json).kind : e.event
 				if (!seen.has(k)) seen.set(k, e.data)
 			}
 			return Object.fromEntries(seen)
@@ -167,7 +201,7 @@ async function main() {
 		stopVote()
 		const slice = sub.events.slice(from)
 		log('События (виды)', types(slice))
-		const pick = k => slice.find(e => e.event === 'session_update' && (e.json?.data?.sessionUpdate ?? e.json?.sessionUpdate) === k)?.data
+		const pick = k => slice.find(e => e.event === 'session_update' && upd(e.json).kind === k)?.data
 		log('Образцы кадров', { tool_call: pick('tool_call'), tool_call_update: pick('tool_call_update'), plan: pick('plan'), permission_request: slice.find(e => e.event === 'permission_request')?.data })
 	})
 
@@ -205,25 +239,43 @@ async function main() {
 		log('POST /session/:id/detach', await call(d, 'POST', `/session/${sid}/detach`, {}))
 	})
 
-	await probe('DELETE → resume', async () => {
+	/** Закрыть сессию, поднять заданным способом и спросить секретное число: восстанавливается ли контекст модели. */
+	async function wakeProbe(how, secret) {
+		const c = await call(d, 'POST', '/session', { cwd: d.ws, sessionScope: 'thread' })
+		const id = c.body.sessionId
+		const s0 = subscribe(d, id, 0)
+		const v0 = autoVote(d, id, s0)
+		await prompt(d, id, `Запомни число ${secret}. Ответь одним словом: ok`)
+		await waitTerminal(s0, 0)
+		v0()
+		s0.stop()
+		await call(d, 'DELETE', `/session/${id}`)
+		const r = await call(d, 'POST', `/session/${id}/${how}`, {})
+		const s1 = subscribe(d, id, r.body?.lastEventId ?? null)
+		await sleep(1500)
+		const before = s1.events.length
+		const v1 = autoVote(d, id, s1)
+		const q = await prompt(d, id, 'Какое число я просил запомнить? Ответь только числом.')
+		await waitTerminal(s1, before)
+		v1()
+		log(`DELETE → ${how}: помнит ли модель ${secret}`, {
+			ответ_на_восстановление: { status: r.status, ключи: r.body && typeof r.body === 'object' ? Object.keys(r.body) : r.body, lastEventId: r.body?.lastEventId, attached: r.body?.attached },
+			кадры_до_промпта_при_подписке_с_lastEventId: types(s1.events.slice(0, before)),
+			prompt: q.status,
+			ответ_модели: textOf(s1.events, before),
+		})
+		s1.stop()
+	}
+	await probe('DELETE → resume', () => wakeProbe('resume', 4217))
+	await probe('DELETE → load', () => wakeProbe('load', 7351))
+
+	await probe('DELETE: повтор и prompt в закрытую', async () => {
 		if (!sid) return
 		sub.stop()
 		log('DELETE', await call(d, 'DELETE', `/session/${sid}`))
 		log('повторный DELETE', await call(d, 'DELETE', `/session/${sid}`))
-		log('список сессий после DELETE', await call(d, 'GET', `/workspace/${encodeURIComponent(d.ws)}/sessions`))
 		log('prompt в закрытую сессию без восстановления', await prompt(d, sid, 'ping'))
-		const r = await call(d, 'POST', `/session/${sid}/resume`, {})
-		log('POST /resume (ключи ответа и lastEventId)', { status: r.status, keys: r.body && typeof r.body === 'object' ? Object.keys(r.body) : null, lastEventId: r.body?.lastEventId, attached: r.body?.attached, state: r.body?.state?.modes })
-		const s2 = subscribe(d, sid, r.body?.lastEventId ?? null)
-		await sleep(1500)
-		log('после resume с Last-Event-ID=lastEventId (повтор истории?)', types(s2.events))
-		const stopVote = autoVote(d, sid, s2)
-		await prompt(d, sid, 'Какое число я просил запомнить? Ответь только числом.')
-		await waitTerminal(s2, 0)
-		stopVote()
-		log('Помнит ли модель число (ждём 4217)', textOf(s2.events))
-		log('кадры хода после resume', types(s2.events))
-		s2.stop()
+		log('список сессий', await call(d, 'GET', `/workspace/${encodeURIComponent(d.ws)}/sessions`))
 	})
 
 	await probe('DELETE → load, гонка load + prompt', async () => {
@@ -240,7 +292,7 @@ async function main() {
 	d.proc.kill('SIGTERM')
 
 	await probe('лимит сессий', async () => {
-		const d2 = await startDaemon(4392, ['--max-sessions', '2'])
+		const d2 = await startDaemon(0, ['--max-sessions', '2'])
 		const a = await call(d2, 'POST', '/session', { cwd: d2.ws, sessionScope: 'thread' })
 		const b = await call(d2, 'POST', '/session', { cwd: d2.ws, sessionScope: 'thread' })
 		const c = await call(d2, 'POST', '/session', { cwd: d2.ws, sessionScope: 'thread' })
@@ -253,7 +305,7 @@ async function main() {
 	})
 
 	await probe('reaper', async () => {
-		const d3 = await startDaemon(4393, ['--session-idle-timeout-ms', '15000', '--session-reap-interval-ms', '3000'])
+		const d3 = await startDaemon(0, ['--session-idle-timeout-ms', '15000', '--session-reap-interval-ms', '3000'])
 		const free = (await call(d3, 'POST', '/session', { cwd: d3.ws, sessionScope: 'thread' })).body.sessionId
 		const watched = (await call(d3, 'POST', '/session', { cwd: d3.ws, sessionScope: 'thread' })).body.sessionId
 		const s = subscribe(d3, watched, 0)
@@ -273,7 +325,10 @@ try {
 } catch (e) {
 	log('Фатальная ошибка', String(e?.stack ?? e))
 } finally {
-	for (const d of daemons) d.proc.kill('SIGTERM')
+	for (const d of daemons) {
+		d.proc.kill('SIGTERM')
+		fs.rmSync(d.ws, { recursive: true, force: true })
+	}
 	fs.writeFileSync(REPORT, out.join(''))
 	console.log('\nОтчёт:', REPORT)
 	setTimeout(() => process.exit(0), 500)
