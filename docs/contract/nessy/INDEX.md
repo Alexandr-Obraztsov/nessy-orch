@@ -1,0 +1,593 @@
+# INDEX — документация nessy-cli
+
+Полная копия документации репозитория **nessy-cli** (GitLab: `nestor/nessy-cli`, ветка `master`), собранная в этот каталог, чтобы агенты могли работать по ней без доступа к исходникам.
+
+## Структура
+
+- **`(root)`** — корневые файлы: README, CHANGELOG, CONTRIBUTING, AGENTS, CLAUDE, SECURITY, LICENSE, `openapi.yaml` (схема API/serve), `auto-doc.json`, `policy.yml`.
+- **`docs/`** — основная документация (english): users (руководство пользователя), developers (архитектура, daemon, serve-протокол, SDK, инструменты), design (ADR/дизайн-доки), fork-patches (патчи форка), e2e-tests, plans, superpowers, verification.
+- **`docs-ru/`** — то же на русском (users, developers, design).
+- **`packages/`** — README и доки пакетов: acp-bridge, channels, cli, core, desktop, sdk-java/python/typescript, vscode-ide-companion, web-shell, webui, zed-extension и др.
+- **`.nessy/`** — роли агентов, команды (`nc/…`) и скиллы — инструкции по установке и ролям.
+- **`scripts/`, `integration-tests/`, `deploy/`, `fastlane/`, `docs-site/`, `docs-autodoc/`, `.gitlab/`** — служебные README и доки.
+
+> Не-`.md` ассеты (картинки, схемы `_meta.ts`, `_category_.yml`) скопированы вместе с деревьями `docs/` и `docs-ru/` и в индекс не включены; `openapi.yaml` — см. раздел `(root)`.
+
+## (root)
+
+- `AGENTS.md` — AGENTS.md
+- `CHANGELOG.md` — Changelog
+- `CLAUDE.md` — CLAUDE.md
+- `CONTRIBUTING.md` — How to Contribute
+- `README.md` — Why Nessy CLI?
+- `SECURITY.md` — Security Policy
+
+## docs
+
+- `docs/declarative-agents-port.md` — Declarative Agent Definitions — Port from Claude Code 2.1.168
+- `docs/design/2026-05-15-async-memory-recall-design.md` — Async Memory Recall — Design Spec
+- `docs/design/adaptive-output-token-escalation/adaptive-output-token-escalation-design.md` — Adaptive Output Token Escalation Design
+- `docs/design/auth/motivation.md` — Auth Provider Registry Motivation
+- `docs/design/auto-compaction-threshold-redesign.md` — Auto-Compaction Threshold Redesign
+- `docs/design/auto-memory/memory-system.md` — Memory 记忆管理系统
+- `docs/design/channels/channels-design.md` — Channels Design
+- `docs/design/compact-mode/compact-mode-design.md` — Compact Mode Design: Competitive Analysis & Optimization
+- `docs/design/compaction-image-stripping/compaction-image-stripping-design.md` — Compaction Image Stripping + Token Estimation Fix
+- `docs/design/custom-api-key-auth-wizard-prd.md` — Custom API Key Auth Wizard PRD
+- `docs/design/customize-banner-area/customize-banner-area.md` — Customize Banner Area Design
+- `docs/design/customize-banner-area/customize-banner-area.zh-CN.md` — Banner 自定义区域设计方案
+- `docs/design/daemon-acp-http/README.md` — Daemon ACP-over-HTTP → Official ACP Streamable HTTP Transport
+- `docs/design/daemon-idle-detection-api.md` — Daemon 闲置检测接口设计
+- `docs/design/daemon-transport-abstraction/README.md` — DaemonTransport Abstraction Layer
+- `docs/design/f2-mcp-transport-pool.md` — F2: Shared MCP Transport Pool — Design v2.2
+- `docs/design/fork-subagent/fork-subagent-design.md` — Fork Subagent Design
+- `docs/design/hot-reload/settings-change-detection.md` — Settings File Change Detection (Issue #3696 Sub-task 1)
+- `docs/design/issue-4479-token-usage-stats-coordination.md` — Issue #4479 token usage stats coordination
+- `docs/design/markdown-syntax-extension.md` — Markdown Syntax Extension Design
+- `docs/design/openrouter-auth-and-models.md` — OpenRouter Auth and Model Management Design
+- `docs/design/prompt-suggestion/prompt-suggestion-design.md` — Prompt Suggestion (NES) Design
+- `docs/design/prompt-suggestion/prompt-suggestion-implementation.md` — Prompt Suggestion Implementation Status
+- `docs/design/prompt-suggestion/speculation-design.md` — Speculation Engine Design
+- `docs/design/rt-optimization/reduce-rounds-via-skill-design.md` — Agent Loop 减轮方案：从 Skill 设计入手
+- `docs/design/rt-optimization/rt-optimization-design.md` — Nessy CLI Agent Loop RT 优化技术方案
+- `docs/design/session-idle-reaper/README.md` — Session Idle Reaper — Design Document
+- `docs/design/session-recap/session-recap-design.md` — Session Recap Design
+- `docs/design/session-title/session-title-design.md` — Session Title Design
+- `docs/design/skill-nudge/skill-nudge.md` — AutoSkill：自动技能提炼系统设计文档
+- `docs/design/slash-command/compare.md` — Nessy CLI Command 模块重构方案
+- `docs/design/slash-command/phase1-technical-design.md` — Phase 1 技术设计文档：基础设施重建
+- `docs/design/slash-command/phase2-technical-design.md` — Phase 2 技术设计文档：能力扩展
+- `docs/design/slash-command/phase3-technical-design.md` — Phase 3 技术设计文档：体验对齐
+- `docs/design/slash-command/roadmap.md` — Slash Command 重构路线图
+- `docs/design/structured-output/structured-output.md` — Structured Output (`--json-schema`) — Design
+- `docs/design/telemetry-llm-request-timing-design.md` — LLM Request Timing Decomposition Design (P3 Phase 4)
+- `docs/design/telemetry-outbound-propagation-design.md` — Telemetry: Outbound Trace Context & Session ID Header Propagation
+- `docs/design/telemetry-resource-attributes-design.md` — Telemetry: Custom Resource Attributes + Metric Cardinality Controls
+- `docs/design/telemetry-subagent-spans-design.md` — Subagent Trace Tree Design (P3 Phase 3)
+- `docs/design/tool-use-summary/tool-use-summary-design.md` — Tool-Use Summary Design
+- `docs/design/virtual-viewport/README.md` — Virtual viewport for long conversations on ink 7
+- `docs/design/workflow-tracing-gaps.md` — Workflow 级 Span 粒度不足分析 (P1)
+- `docs/design/worktree.md` — Worktree 通用能力设计
+- `docs/developers/architecture.md` — Nessy CLI Architecture Overview
+- `docs/developers/channel-plugins.md` — Channel Plugin Developer Guide
+- `docs/developers/contributing.md` — How to Contribute
+- `docs/developers/daemon-client-adapters/channel-web.md` — Channel And Web Backend Daemon Adapter Draft
+- `docs/developers/daemon-client-adapters/ide.md` — IDE Daemon Adapter Draft
+- `docs/developers/daemon-client-adapters/tui.md` — TUI Daemon Adapter Draft
+- `docs/developers/daemon-client-adapters/web-ui.md` — Daemon Web UI Adapter
+- `docs/developers/daemon-ui/MIGRATION.md` — Migrating to `@nestor/nessy-cli-sdk/daemon` v2
+- `docs/developers/daemon-ui/README.md` — Daemon UI SDK — Developer Guide
+- `docs/developers/daemon/00-index.md` — Daemon Developer Documentation
+- `docs/developers/daemon/01-architecture.md` — Daemon Architecture
+- `docs/developers/daemon/02-serve-runtime.md` — Serve Runtime
+- `docs/developers/daemon/03-acp-bridge.md` — ACP Bridge
+- `docs/developers/daemon/04-permission-mediation.md` — Multi-Client Permission Mediation
+- `docs/developers/daemon/05-mcp-transport-pool.md` — Workspace MCP Transport Pool
+- `docs/developers/daemon/06-mcp-budget-guardrails.md` — MCP Workspace Budget Guardrails
+- `docs/developers/daemon/07-workspace-filesystem.md` — Workspace File System Boundary
+- `docs/developers/daemon/08-session-lifecycle.md` — Session Lifecycle & Identity
+- `docs/developers/daemon/09-event-schema.md` — Typed Daemon Event Schema v1
+- `docs/developers/daemon/10-event-bus.md` — SSE Event Bus & Backpressure
+- `docs/developers/daemon/11-capabilities-versioning.md` — Capabilities & Protocol Versioning
+- `docs/developers/daemon/12-auth-security.md` — Auth & Security Model
+- `docs/developers/daemon/13-sdk-daemon-client.md` — TypeScript SDK Daemon Client
+- `docs/developers/daemon/14-cli-tui-adapter.md` — Shared UI Transcript Layer
+- `docs/developers/daemon/15-channel-adapters.md` — Channel Adapters
+- `docs/developers/daemon/16-vscode-ide-adapter.md` — VS Code IDE Daemon Adapter
+- `docs/developers/daemon/17-configuration.md` — Configuration Reference
+- `docs/developers/daemon/18-error-taxonomy.md` — Error Taxonomy & Remediation
+- `docs/developers/daemon/19-observability.md` — Observability & Debugging
+- `docs/developers/daemon/20-quickstart-operations.md` — Quickstart & Operations
+- `docs/developers/development/deployment.md` — Nessy CLI Execution and Deployment
+- `docs/developers/development/integration-tests.md` — Integration Tests
+- `docs/developers/development/issue-and-pr-automation.md` — Automation and Triage Processes
+- `docs/developers/development/npm.md` — Package Overview
+- `docs/developers/development/telemetry.md` — Observability with OpenTelemetry
+- `docs/developers/examples/daemon-client-quickstart.md` — DaemonClient quickstart (TypeScript)
+- `docs/developers/examples/proxy-script.md` — Example Proxy Script
+- `docs/developers/nessy-serve-protocol.md` — `nessy serve` HTTP protocol reference
+- `docs/developers/roadmap.md` — Nessy CLI RoadMap
+- `docs/developers/sdk-java.md` — Nessy CLI Java SDK
+- `docs/developers/sdk-publishing.md` — Настройка публикации SDK
+- `docs/developers/sdk-python.md` — Python SDK
+- `docs/developers/sdk-typescript.md` — Typescript SDK
+- `docs/developers/tools/exit-plan-mode.md` — Exit Plan Mode Tool (`exit_plan_mode`)
+- `docs/developers/tools/file-system.md` — Nessy CLI file system tools
+- `docs/developers/tools/introduction.md` — Nessy CLI tools
+- `docs/developers/tools/mcp-server.md` — MCP servers with Nessy CLI
+- `docs/developers/tools/monitor.md` — Monitor Tool (`monitor`)
+- `docs/developers/tools/multi-file.md` — Multi-File Read (`read_many_files`)
+- `docs/developers/tools/nestor-web-search.md` — Managed Nestor Web Search
+- `docs/developers/tools/sandbox.md` — Customizing the sandbox environment (Docker/Podman)
+- `docs/developers/tools/shell.md` — Shell Tool (`run_shell_command`)
+- `docs/developers/tools/task.md` — Agent Tool (`agent`)
+- `docs/developers/tools/todo-write.md` — Todo Write Tool (`todo_write`)
+- `docs/developers/tools/web-fetch.md` — Web Fetch Tool (`web_fetch`)
+- `docs/developers/tools/web-search.md` — Web Search
+- `docs/e2e-tests/2026-05-18-qwen-memory-benchmark-report.md` — Nessy CLI Runtime Memory Benchmark Report
+- `docs/e2e-tests/2026-05-19-oom-reproduction-report.md` — OOM 压力测试与长任务 Replay 报告
+- `docs/e2e-tests/2026-05-19-qwen-runtime-diagnostics-benchmark-report.md` — Nessy CLI Runtime Diagnostics Benchmark Report
+- `docs/e2e-tests/2026-05-21-qwen-0.15.11-default-heap-oom-stress-report.md` — Nessy CLI 0.15.11 默认 Heap OOM 压测报告
+- `docs/e2e-tests/worktree-phase-c.md` — Worktree Phase C E2E Test Plan
+- `docs/e2e-tests/worktree-phase-d.md` — Worktree Phase D E2E Test Plan
+- `docs/e2e-tests/worktree.md` — Worktree Feature E2E Test Plan (Phase A + B)
+- `docs/fork-patches/MERGE-REVISION.md` — Ревизия fork-патчей под мердж upstream
+- `docs/fork-patches/README.md` — Fork-патчи
+- `docs/fork-patches/acp-elicitation-ask-user-question.md` — acp-elicitation-ask-user-question
+- `docs/fork-patches/acp-sdk-session-methods.md` — acp-sdk-session-methods
+- `docs/fork-patches/agent-read-image-vision-bridge.md` — agent-read-image-vision-bridge
+- `docs/fork-patches/auto-update-migration.md` — auto-update-migration
+- `docs/fork-patches/bundled-bun-version-bump.md` — bundled-bun-version-bump
+- `docs/fork-patches/computer-use-disabled-by-default.md` — computer-use-disabled-by-default
+- `docs/fork-patches/context-rules-display-and-memory-command.md` — context-rules-display-and-memory-command
+- `docs/fork-patches/deferred-tool-call-redirect.md` — deferred-tool-call-redirect
+- `docs/fork-patches/deferred-tools-reminder-enhance.md` — deferred-tools-reminder-enhance
+- `docs/fork-patches/delegated-token-auth.md` — delegated-token-auth
+- `docs/fork-patches/desktop-assistant-ui-naming.md` — desktop-assistant-ui-naming
+- `docs/fork-patches/desktop-bundled-runtime-packaging.md` — desktop-bundled-runtime-packaging
+- `docs/fork-patches/desktop-clipboard-path-paste.md` — desktop-clipboard-path-paste
+- `docs/fork-patches/desktop-extension-auto-update.md` — desktop-extension-auto-update
+- `docs/fork-patches/desktop-first-run-setup.md` — desktop-first-run-setup
+- `docs/fork-patches/desktop-installer-cyrillic-temp.md` — desktop-installer-cyrillic-temp
+- `docs/fork-patches/desktop-internal-extension-marketplace.md` — desktop-internal-extension-marketplace
+- `docs/fork-patches/desktop-linux-update-signing.md` — desktop-linux-update-signing
+- `docs/fork-patches/desktop-mcp-management.md` — desktop-mcp-management
+- `docs/fork-patches/desktop-mcp-permission-args-preview.md` — desktop-mcp-permission-args-preview
+- `docs/fork-patches/desktop-permission-request-ui.md` — desktop-permission-request-ui
+- `docs/fork-patches/desktop-pet-alpha-hit-test.md` — desktop-pet-alpha-hit-test
+- `docs/fork-patches/desktop-pet-click-activation.md` — desktop-pet-click-activation
+- `docs/fork-patches/desktop-pet-dock-activation.md` — desktop-pet-dock-activation
+- `docs/fork-patches/desktop-plan-permission-flow.md` — desktop-plan-permission-flow
+- `docs/fork-patches/desktop-session-content-search.md` — desktop-session-content-search
+- `docs/fork-patches/desktop-session-scoped-settings.md` — desktop-session-scoped-settings
+- `docs/fork-patches/desktop-skill-logging.md` — desktop-skill-logging
+- `docs/fork-patches/desktop-skill-marketplace-install-state.md` — desktop-skill-marketplace-install-state
+- `docs/fork-patches/desktop-skill-marketplace-pagination.md` — desktop-skill-marketplace-pagination
+- `docs/fork-patches/desktop-skill-parse-error-display.md` — desktop-skill-parse-error-display
+- `docs/fork-patches/desktop-skill-scope-management.md` — desktop-skill-scope-management
+- `docs/fork-patches/desktop-skill-scope-resolution.md` — desktop-skill-scope-resolution
+- `docs/fork-patches/desktop-stable-update-channel.md` — desktop-stable-update-channel
+- `docs/fork-patches/desktop-terminal-command-preview.md` — desktop-terminal-command-preview
+- `docs/fork-patches/desktop-update-notification.md` — desktop-update-notification
+- `docs/fork-patches/desktop-windows-signing.md` — desktop-windows-signing
+- `docs/fork-patches/desktop-workspace-file-control.md` — desktop-workspace-file-control
+- `docs/fork-patches/dlh-cli-config-snapshot.md` — dlh-cli-config-snapshot
+- `docs/fork-patches/dlh-launch-metadata.md` — dlh-launch-metadata
+- `docs/fork-patches/dlh-non-dp-auth-telemetry.md` — dlh-non-dp-auth-telemetry
+- `docs/fork-patches/dlh-telemetry.md` — dlh-telemetry
+- `docs/fork-patches/dp-auth-anthropic-generator.md` — dp-auth-anthropic-generator
+- `docs/fork-patches/dp-auth-coder-model-default.md` — dp-auth-coder-model-default
+- `docs/fork-patches/dp-auth-runtime-model-catalog.md` — dp-auth-runtime-model-catalog
+- `docs/fork-patches/dp-auth-single-startup-auth.md` — dp-auth-single-startup-auth
+- `docs/fork-patches/dp-auth.md` — dp-auth
+- `docs/fork-patches/dp-binary-lifecycle.md` — dp-binary-lifecycle
+- `docs/fork-patches/dp-byok-model-picker.md` — dp-byok-model-picker
+- `docs/fork-patches/dp-generation-config-logging.md` — dp-generation-config-logging
+- `docs/fork-patches/dp-models-backend-generation-config.md` — dp-models-backend-generation-config
+- `docs/fork-patches/error-client.md` — error-client
+- `docs/fork-patches/extensions-install-options.md` — extensions-install-options
+- `docs/fork-patches/extensions-list-json.md` — extensions-list-json
+- `docs/fork-patches/external-model-mcp-whitelist.md` — external-model-mcp-whitelist
+- `docs/fork-patches/fast-without-reasoning.md` — fast-without-reasoning
+- `docs/fork-patches/glob-ignore-pruning.md` — glob-ignore-pruning
+- `docs/fork-patches/headless-auto-classifier.md` — headless-auto-classifier
+- `docs/fork-patches/ide-undici-agent.md` — ide-undici-agent
+- `docs/fork-patches/ide-undici-fetch-interop.md` — ide-undici-fetch-interop
+- `docs/fork-patches/installer-manifest-grep-only.md` — installer-manifest-grep-only
+- `docs/fork-patches/internal-deepseek-64k-escalation.md` — internal-deepseek-64k-escalation
+- `docs/fork-patches/internal-deepseek-tool-search.md` — internal-deepseek-tool-search
+- `docs/fork-patches/loop-detection-adaptive-cap-port.md` — loop-detection-adaptive-cap-port
+- `docs/fork-patches/macos-internal-seatbelt-profile.md` — macos-internal-seatbelt-profile
+- `docs/fork-patches/markdown-short-table-delimiter.md` — markdown-short-table-delimiter
+- `docs/fork-patches/mcp-managed-dp-placeholder.md` — mcp-managed-dp-placeholder
+- `docs/fork-patches/mcp-managed-home-placeholder.md` — mcp-managed-home-placeholder
+- `docs/fork-patches/mcp-serverlist-scrolling.md` — mcp-serverlist-scrolling
+- `docs/fork-patches/mcp-tilde-expansion.md` — mcp-tilde-expansion
+- `docs/fork-patches/model-alias-fast.md` — model-alias-fast
+- `docs/fork-patches/model-alias-visual.md` — model-alias-visual
+- `docs/fork-patches/model-baseurl-disambiguation.md` — model-baseurl-disambiguation
+- `docs/fork-patches/model-switch-generation-fields.md` — model-switch-generation-fields
+- `docs/fork-patches/reasoning-effort-wire-translation.md` — reasoning-effort-wire-translation
+- `docs/fork-patches/standalone-bundled-npm-update.md` — standalone-bundled-npm-update
+- `docs/fork-patches/standalone-update-s3-only.md` — standalone-update-s3-only
+- `docs/fork-patches/statist-plugin-install.md` — statist-plugin-install
+- `docs/fork-patches/statist-trusted-ca.md` — statist-trusted-ca
+- `docs/fork-patches/streaming-dedup-and-parser-fixes.md` — streaming-dedup-and-parser-fixes
+- `docs/fork-patches/streaming-mode-passthrough.md` — streaming-mode-passthrough
+- `docs/fork-patches/tool-arg-simple-type-coercion.md` — tool-arg-simple-type-coercion
+- `docs/fork-patches/tool-search-first-schema.md` — tool-search-first-schema
+- `docs/fork-patches/tui-image-preparation-progress.md` — tui-image-preparation-progress
+- `docs/fork-patches/usage-statistics-disabled-by-default.md` — usage-statistics-disabled-by-default
+- `docs/fork-patches/user-quota-display.md` — user-quota-display
+- `docs/fork-patches/vision-bridge-dlh-event.md` — vision-bridge-dlh-event
+- `docs/fork-patches/vscode-internal-companion.md` — vscode-internal-companion
+- `docs/index.md` — Nessy CLI Documentation
+- `docs/plans/2026-03-22-agent-tool-display-design.md` — Agent Tool Display Implementation Plan
+- `docs/plans/2026-05-14-auto-compaction-threshold-redesign.md` — Auto-Compaction Threshold Redesign Implementation Plan
+- `docs/plans/2026-05-18-qwen-runtime-memory-investigation.md` — Nessy CLI Runtime Memory Investigation Plan
+- `docs/plans/memory-diagnostics-reference-design.md` — Memory Diagnostics Reference Design
+- `docs/superpowers/plans/2026-05-15-worktree-phase-c.md` — Worktree Phase C Implementation Plan
+- `docs/superpowers/plans/2026-05-26-daemon-logger.md` — `nessy serve` Daemon File Logger — Implementation Plan
+- `docs/superpowers/plans/2026-05-27-daemon-workspace-service.md` — DaemonWorkspaceService Implementation Plan
+- `docs/superpowers/plans/2026-05-28-computer-use-built-in.md` — Computer Use Built-In Implementation Plan
+- `docs/superpowers/specs/2026-05-26-daemon-logger-design.md` — `nessy serve` Daemon File Logger — Design
+- `docs/superpowers/specs/2026-05-27-daemon-workspace-service-design.md` — DaemonWorkspaceService 实施设计（方案 C）
+- `docs/users/common-workflow.md` — Common workflows
+- `docs/users/configuration/auth.md` — Authentication
+- `docs/users/configuration/model-providers.md` — Model Providers
+- `docs/users/configuration/nessy-ignore.md` — Ignoring Files
+- `docs/users/configuration/settings.md` — Nessy CLI Configuration
+- `docs/users/configuration/themes.md` — Themes
+- `docs/users/configuration/trusted-folders.md` — Trusted Folders
+- `docs/users/extension/extension-releasing.md` — Extension Releasing
+- `docs/users/extension/getting-started-extensions.md` — Getting Started with Nessy CLI Extensions
+- `docs/users/extension/introduction.md` — Nessy CLI Extensions
+- `docs/users/features/approval-mode.md` — Approval Mode
+- `docs/users/features/arena.md` — Agent Arena
+- `docs/users/features/auto-mode.md` — Auto Mode
+- `docs/users/features/channels/channel-time.md` — Channel Time
+- `docs/users/features/channels/dingtalk.md` — DingTalk (Dingtalk)
+- `docs/users/features/channels/feishu.md` — Feishu (Lark)
+- `docs/users/features/channels/overview.md` — Channels
+- `docs/users/features/channels/plugins.md` — Custom Channel Plugins
+- `docs/users/features/channels/qqbot.md` — QQ Bot (QQ机器人)
+- `docs/users/features/channels/telegram.md` — Telegram
+- `docs/users/features/channels/weixin.md` — WeChat (Weixin)
+- `docs/users/features/code-review.md` — Code Review
+- `docs/users/features/commands.md` — Commands
+- `docs/users/features/context-rules.md` — Context Rules (.nessy/rules/)
+- `docs/users/features/dual-output.md` — Dual Output
+- `docs/users/features/followup-suggestions.md` — Followup Suggestions
+- `docs/users/features/headless.md` — Headless Mode
+- `docs/users/features/hooks.md` — Nessy CLI Hooks
+- `docs/users/features/language.md` — Internationalization (i18n) & Language
+- `docs/users/features/lsp.md` — Language Server Protocol (LSP) Support
+- `docs/users/features/markdown-rendering.md` — Markdown Rendering
+- `docs/users/features/mcp.md` — Connect Nessy CLI to tools via MCP
+- `docs/users/features/memory.md` — Memory
+- `docs/users/features/sandbox.md` — Sandbox
+- `docs/users/features/scheduled-tasks.md` — Run Prompts on a Schedule
+- `docs/users/features/skills.md` — Agent Skills
+- `docs/users/features/status-line.md` — Status Line
+- `docs/users/features/structured-output.md` — Structured Output (`--json-schema`)
+- `docs/users/features/sub-agents.md` — Subagents
+- `docs/users/features/tips.md` — Contextual Tips
+- `docs/users/features/token-caching.md` — Token Caching and Cost Optimization
+- `docs/users/features/tool-use-summaries.md` — Tool-Use Summaries
+- `docs/users/features/web-search.md` — Web Search
+- `docs/users/features/worktree.md` — Worktrees
+- `docs/users/ide-integration/ide-companion-spec.md` — Nessy CLI Companion Plugin: Interface Specification
+- `docs/users/ide-integration/ide-integration.md` — IDE Integration
+- `docs/users/integration-github-action.md` — Github Actions：nessy-cli-action
+- `docs/users/integration-jetbrains-alt.md` — JetBrains IDEs Альтернатива нативногого подключения
+- `docs/users/integration-jetbrains.md` — JetBrains IDEs
+- `docs/users/integration-vscode.md` — Visual Studio Code
+- `docs/users/integration-zed.md` — Zed Editor
+- `docs/users/nessy-serve-deploy-local.md` — Local launch templates for `nessy serve` (v0.16-alpha)
+- `docs/users/nessy-serve.md` — Daemon mode (`nessy serve`)
+- `docs/users/overview.md` — Nessy CLI overview
+- `docs/users/quickstart.md` — Quickstart
+- `docs/users/reference/keyboard-shortcuts.md` — Nessy CLI Keyboard Shortcuts
+- `docs/users/support/Uninstall.md` — Uninstall
+- `docs/users/support/tos-privacy.md` — Nessy CLI: Terms of Service and Privacy Notice
+- `docs/users/support/troubleshooting.md` — Troubleshooting
+- `docs/verification/abort-controller-refactor/README.md` — AbortController refactor — verification plan
+- `docs/verification/abort-controller-refactor/automated-results.md` — Automated verification results
+- `docs/yaml-parser-replacement.md` — YAML parser replacement — research findings
+
+## docs-ru
+
+- `docs-ru/design/2026-05-15-async-memory-recall-design.md` — Асинхронное припоминание памяти — спецификация дизайна
+- `docs-ru/design/adaptive-output-token-escalation-design.md` — Проектирование адаптивного увеличения выходных токенов
+- `docs-ru/design/auto-compaction-threshold-redesign.md` — Реконструкция порога автоматической компрессии
+- `docs-ru/design/channels-design.md` — Дизайн каналов
+- `docs-ru/design/compact-mode-design.md` — Compact Mode Design: Конкурентный анализ и оптимизация
+- `docs-ru/design/compaction-image-stripping-design.md` — Удаление изображений при компрессии + Исправление оценки токенов
+- `docs-ru/design/customize-banner-area.md` — Дизайн: Кастомизация области баннера
+- `docs-ru/design/daemon-idle-detection-api.md` — Интерфейс обнаружения простоя Daemon
+- `docs-ru/design/f2-mcp-transport-pool.md` — F2: Общий пул транспортов MCP — Дизайн v2.2
+- `docs-ru/design/fork-subagent-design.md` — Fork Subagent Design (Дизайн форк-субагента)
+- `docs-ru/design/hot-reload/settings-change-detection.md` — Обнаружение изменений файла настроек (Подзадача #3696 1)
+- `docs-ru/design/issue-4479-token-usage-stats-coordination.md` — Координация статистики использования токенов (Issue #4479)
+- `docs-ru/design/markdown-syntax-extension.md` — Расширение синтаксиса Markdown — Дизайн
+- `docs-ru/design/memory-system.md` — Memory (Память) — Система управления
+- `docs-ru/design/prompt-suggestion/prompt-suggestion-design.md` — Дизайн подсказок промптов (NES)
+- `docs-ru/design/prompt-suggestion/prompt-suggestion-implementation.md` — Статус реализации подсказок промптов (NES)
+- `docs-ru/design/prompt-suggestion/speculation-design.md` — Дизайн движка спекуляции
+- `docs-ru/design/rt-optimization/reduce-rounds-via-skill-design.md` — Сокращение раундов Agent Loop: через проектирование навыков
+- `docs-ru/design/rt-optimization/rt-optimization-design.md` — Техническое решение по оптимизации RT агентского цикла Nessy CLI
+- `docs-ru/design/session-recap-design.md` — Session Recap Design (Дизайн резюме сессии)
+- `docs-ru/design/session-title-design.md` — Дизайн системы заголовков сессий
+- `docs-ru/design/skill-nudge.md` — AutoSkill: Автоматическое извлечение навыков — Системный дизайн
+- `docs-ru/design/slash-command/compare.md` — Nessy CLI Command Module Refactoring Plan (План рефакторинга модуля команд)
+- `docs-ru/design/slash-command/phase1-technical-design.md` — Phase 1 Technical Design Document: Infrastructure Reconstruction (Технический дизайн Phase 1: Перестройка инфраструктуры)
+- `docs-ru/design/slash-command/phase2-technical-design.md` — Phase 2 Technical Design Document: Capability Expansion (Технический дизайн Phase 2: Расширение возможностей)
+- `docs-ru/design/slash-command/phase3-technical-design.md` — Phase 3 Технический дизайн: Выравнивание опыта
+- `docs-ru/design/slash-command/roadmap.md` — Slash Command Refactoring Roadmap (Дорожная карта рефакторинга slash команд)
+- `docs-ru/design/structured-output.md` — Структурированный вывод (`--json-schema`) — Дизайн
+- `docs-ru/design/telemetry-llm-request-timing-design.md` — Проектирование декомпозиции времени выполнения запроса LLM (P3 Phase 4)
+- `docs-ru/design/telemetry-outbound-propagation-design.md` — Телеметрия: распространение контекста трассировки и заголовка session ID
+- `docs-ru/design/telemetry-resource-attributes-design.md` — Телеметрия: Custom Resource Attributes + Контроль кардинальности метрик
+- `docs-ru/design/tool-use-summary-design.md` — Дизайн: Резюме использования инструментов
+- `docs-ru/design/workflow-tracing-gaps.md` — Workflow-уровень: анализ недостаточной гранулярности Span (P1)
+- `docs-ru/design/worktree.md` — Worktree — Дизайн универсальной возможности
+- `docs-ru/developers/architecture.md` — Обзор архитектуры Nessy CLI
+- `docs-ru/developers/channel-plugins.md` — Руководство разработчика канальных плагинов
+- `docs-ru/developers/contributing.md` — Как внести вклад
+- `docs-ru/developers/nessy-serve-protocol.md` — Справочник HTTP-протокола `nessy serve`
+- `docs-ru/developers/roadmap.md` — План развития Nessy CLI
+- `docs-ru/developers/sdk/sdk-java.md` — Java SDK для Nessy CLI
+- `docs-ru/developers/sdk/sdk-python.md` — Python SDK
+- `docs-ru/developers/sdk/sdk-typescript.md` — TypeScript SDK
+- `docs-ru/developers/work/daemon-client-adapters/channel-web.md` — Адаптер канала и веб-бэкенда для демона (черновик)
+- `docs-ru/developers/work/daemon-client-adapters/ide.md` — Адаптер IDE для демона (черновик)
+- `docs-ru/developers/work/daemon-client-adapters/web-ui.md` — Адаптер веб-UI для демона
+- `docs-ru/developers/work/daemon-ui/MIGRATION.md` — Миграция на `@nestor/nessy-cli-sdk/daemon` v2
+- `docs-ru/developers/work/daemon-ui/README.md` — UI SDK демона — руководство разработчика
+- `docs-ru/developers/work/daemon/00-index.md` — Документация разработчика Daemon
+- `docs-ru/developers/work/daemon/01-architecture.md` — Архитектура Daemon
+- `docs-ru/developers/work/daemon/02-serve-runtime.md` — Serve Runtime
+- `docs-ru/developers/work/daemon/03-acp-bridge.md` — ACP Bridge
+- `docs-ru/developers/work/daemon/04-permission-mediation.md` — Медиация разрешений для нескольких клиентов
+- `docs-ru/developers/work/daemon/05-mcp-transport-pool.md` — Пул транспортов MCP рабочей области
+- `docs-ru/developers/work/daemon/06-mcp-budget-guardrails.md` — Ограничения бюджета MCP рабочего пространства
+- `docs-ru/developers/work/daemon/07-workspace-filesystem.md` — Граница файловой системы рабочей области
+- `docs-ru/developers/work/daemon/08-session-lifecycle.md` — Жизненный цикл и идентичность сессии
+- `docs-ru/developers/work/daemon/09-event-schema.md` — Типизированная схема событий демона v1
+- `docs-ru/developers/work/daemon/10-event-bus.md` — Шина событий SSE и обратное давление
+- `docs-ru/developers/work/daemon/11-capabilities-versioning.md` — Возможности и версионирование протокола
+- `docs-ru/developers/work/daemon/12-auth-security.md` — Модель аутентификации и безопасности
+- `docs-ru/developers/work/daemon/13-sdk-daemon-client.md` — TypeScript SDK Daemon Client
+- `docs-ru/developers/work/daemon/14-cli-tui-adapter.md` — Общий слой транскрипта UI
+- `docs-ru/developers/work/daemon/15-channel-adapters.md` — Channel-адаптеры
+- `docs-ru/developers/work/daemon/16-vscode-ide-adapter.md` — Адаптер IDE-демона для VS Code
+- `docs-ru/developers/work/daemon/17-configuration.md` — Справочник конфигурации
+- `docs-ru/developers/work/daemon/18-error-taxonomy.md` — Таксономия ошибок и устранение
+- `docs-ru/developers/work/daemon/19-observability.md` — Наблюдаемость и отладка
+- `docs-ru/developers/work/daemon/20-quickstart-operations.md` — Быстрый старт и эксплуатация
+- `docs-ru/developers/work/development/channel-plugins.md` — (без заголовка)
+- `docs-ru/developers/work/development/deployment.md` — Выполнение и развёртывание Nessy CLI
+- `docs-ru/developers/work/development/integration-tests.md` — Интеграционные тесты
+- `docs-ru/developers/work/development/telemetry.md` — Наблюдаемость с OpenTelemetry
+- `docs-ru/developers/work/examples/daemon-client-quickstart.md` — Быстрый старт с DaemonClient (TypeScript)
+- `docs-ru/developers/work/examples/proxy-script.md` — Пример скрипта прокси
+- `docs-ru/developers/work/extension/extension-releasing.md` — (без заголовка)
+- `docs-ru/developers/work/extension/getting-started-extensions.md` — (без заголовка)
+- `docs-ru/developers/work/extension/introduction.md` — Nessy CLI Extensions
+- `docs-ru/developers/work/tools/exit-plan-mode.md` — Инструмент выхода из режима плана (`exit_plan_mode`)
+- `docs-ru/developers/work/tools/file-system.md` — Инструменты файловой системы Nessy CLI
+- `docs-ru/developers/work/tools/introduction.md` — Инструменты Nessy CLI
+- `docs-ru/developers/work/tools/mcp-server.md` — MCP серверы с Nessy CLI
+- `docs-ru/developers/work/tools/memory.md` — Инструмент памяти (`save_memory`)
+- `docs-ru/developers/work/tools/monitor.md` — Инструмент Monitor (`monitor`)
+- `docs-ru/developers/work/tools/multi-file.md` — Многофайловое чтение (`read_many_files`)
+- `docs-ru/developers/work/tools/nestor-web-search.md` — Управляемый Web Search Nestor
+- `docs-ru/developers/work/tools/sandbox.md` — Настройка среды песочницы (Docker/Podman)
+- `docs-ru/developers/work/tools/shell.md` — Инструмент оболочки (`run_shell_command`)
+- `docs-ru/developers/work/tools/task.md` — Инструмент задачи (`task`)
+- `docs-ru/developers/work/tools/todo-write.md` — Инструмент списка задач (`todo_write`)
+- `docs-ru/developers/work/tools/web-fetch.md` — Инструмент веб-запроса (`web_fetch`)
+- `docs-ru/index.md` — Документация Nessy CLI
+- `docs-ru/users/common-workflow.md` — Распространённые рабочие процессы
+- `docs-ru/users/ide/ide-companion-spec.md` — Спецификация интерфейса Nessy CLI Companion
+- `docs-ru/users/ide/integration-jetbrains-alt.md` — JetBrains IDEs — Альтернатива нативного подключения
+- `docs-ru/users/ide/integration-jetbrains.md` — JetBrains IDEs
+- `docs-ru/users/ide/integration-vscode.md` — Visual Studio Code
+- `docs-ru/users/ide/integration-xcode.md` — Xcode
+- `docs-ru/users/ide/integration-zed.md` — Zed IDE
+- `docs-ru/users/overview.md` — Обзор Nessy CLI
+- `docs-ru/users/quickstart.md` — Быстрый старт
+- `docs-ru/users/work/configuration/auth.md` — Аутентификация
+- `docs-ru/users/work/configuration/memory.md` — Память
+- `docs-ru/users/work/configuration/model-providers.md` — Провайдеры моделей
+- `docs-ru/users/work/configuration/nessy-ignore.md` — Игнорирование файлов
+- `docs-ru/users/work/configuration/settings.md` — Конфигурация Nessy CLI
+- `docs-ru/users/work/configuration/themes.md` — Темы
+- `docs-ru/users/work/configuration/trusted-folders.md` — Доверенные папки
+- `docs-ru/users/work/extension/extension-releasing.md` — Публикация расширений
+- `docs-ru/users/work/extension/getting-started-extensions.md` — Начало работы с расширениями Nessy CLI
+- `docs-ru/users/work/extension/introduction.md` — Nessy CLI Extensions
+- `docs-ru/users/work/features/approval-mode.md` — Режим утверждения (Approval Mode)
+- `docs-ru/users/work/features/arena.md` — Agent Arena
+- `docs-ru/users/work/features/auto-mode.md` — Auto Mode
+- `docs-ru/users/work/features/channels/channel-time.md` — Channel Time
+- `docs-ru/users/work/features/channels/overview.md` — Каналы
+- `docs-ru/users/work/features/channels/plugins.md` — Кастомные плагины каналов
+- `docs-ru/users/work/features/checkpointing.md` — Чекпоинты (Checkpointing)
+- `docs-ru/users/work/features/code-review.md` — Code Review
+- `docs-ru/users/work/features/commands.md` — Команды
+- `docs-ru/users/work/features/context-rules.md` — Контекстные правила (.nessy/rules/)
+- `docs-ru/users/work/features/delegated-token-auth.md` — Аутентификация через делегированный токен (NESSY_CLI_DP_AUTH_TOKEN)
+- `docs-ru/users/work/features/doc-search.md` — Поиск по внутренней документации
+- `docs-ru/users/work/features/dual-output.md` — Двойной вывод (Dual Output)
+- `docs-ru/users/work/features/followup-suggestions.md` — Подсказки продолжения (Followup Suggestions)
+- `docs-ru/users/work/features/headless.md` — Режим без интерфейса (Headless)
+- `docs-ru/users/work/features/hooks.md` — Хуки Nessy CLI
+- `docs-ru/users/work/features/language.md` — Интернационализация (i18n) и язык
+- `docs-ru/users/work/features/lsp.md` — Поддержка Language Server Protocol (LSP)
+- `docs-ru/users/work/features/markdown-rendering.md` — Рендеринг Markdown
+- `docs-ru/users/work/features/mcp.md` — Подключение Nessy CLI к инструментам через MCP
+- `docs-ru/users/work/features/memory.md` — Память
+- `docs-ru/users/work/features/nessy-serve-deploy-local.md` — Локальный запуск `nessy serve` (v0.16-alpha)
+- `docs-ru/users/work/features/nessy-serve.md` — Режим демона (`nessy serve`)
+- `docs-ru/users/work/features/sandbox.md` — Песочница
+- `docs-ru/users/work/features/scheduled-tasks.md` — Запуск промптов по расписанию
+- `docs-ru/users/work/features/skills.md` — Навыки агента
+- `docs-ru/users/work/features/status-line.md` — Status Line
+- `docs-ru/users/work/features/structured-output.md` — Структурированный вывод (`--json-schema`)
+- `docs-ru/users/work/features/sub-agents.md` — Subagents (Субагенты)
+- `docs-ru/users/work/features/tips.md` — Контекстные подсказки
+- `docs-ru/users/work/features/token-caching.md` — Кэширование токенов и оптимизация стоимости
+- `docs-ru/users/work/features/tool-use-summaries.md` — Сводки использования инструментов
+- `docs-ru/users/work/features/web-search.md` — Веб-поиск
+- `docs-ru/users/work/features/worktree.md` — Worktree
+- `docs-ru/users/work/reference/keyboard-shortcuts.md` — Клавиатурные сокращения Nessy CLI
+- `docs-ru/users/work/support/Uninstall.md` — Удаление
+- `docs-ru/users/work/support/tos-privacy.md` — Nessy CLI: Уведомление об условиях обслуживания и конфиденциальности
+- `docs-ru/users/work/support/troubleshooting.md` — Устранение неполадок
+
+## packages
+
+- `packages/acp-bridge/README.md` — `@nestor/nessy-cli-acp-bridge`
+- `packages/channels/base/README.md` — @nestor/nessy-cli-channel-base
+- `packages/channels/plugin-example/README.md` — @nestor/nessy-cli-channel-plugin-example
+- `packages/cli/src/acp-integration/session/rewrite/README.md` — Message Rewrite Middleware
+- `packages/cli/src/commands/extensions/examples/agent/agents/diary.md` — Core Mission
+- `packages/cli/src/commands/extensions/examples/commands/commands/fs/grep-code.md` — (без заголовка)
+- `packages/cli/src/commands/extensions/examples/context/NESSY.md` — Ink Library Screen Reader Guidance
+- `packages/cli/src/commands/extensions/examples/skills/skills/synonyms/SKILL.md` — Synonym Generation Guidelines
+- `packages/cli/src/commands/extensions/examples/starter/NESSY.md` — Writing Companion
+- `packages/cli/src/commands/extensions/examples/starter/README.md` — Starter Extension Example
+- `packages/cli/src/commands/extensions/examples/starter/agents/diary.md` — Core Mission
+- `packages/cli/src/commands/extensions/examples/starter/commands/writing/polish.md` — (без заголовка)
+- `packages/cli/src/commands/extensions/examples/starter/skills/synonyms/SKILL.md` — Synonym Generation Guidelines
+- `packages/cli/src/services/test-commands/example.md` — (без заголовка)
+- `packages/core/src/core/openaiContentGenerator/provider/README.md` — Provider Structure
+- `packages/core/src/skills/bundled/batch/SKILL.md` — /batch - Parallel Batch Operations
+- `packages/core/src/skills/bundled/loop/SKILL.md` — /loop — run a prompt repeatedly
+- `packages/core/src/skills/bundled/nc-helper/SKILL.md` — Nessy CLI Helper
+- `packages/core/src/skills/bundled/new-app/SKILL.md` — (без заголовка)
+- `packages/core/src/skills/bundled/review/DESIGN.md` — /review Design Document
+- `packages/core/src/skills/bundled/review/SKILL.md` — Code Review
+- `packages/core/src/skills/bundled/simplify/SKILL.md` — Simplify Recent Changes
+- `packages/core/src/skills/bundled/stuck/SKILL.md` — /stuck — diagnose frozen/slow Nessy CLI sessions
+- `packages/desktop/.agents/skills/desktop-brand-builder/SKILL.md` — Desktop Brand Builder
+- `packages/desktop/.agents/skills/desktop-develop/SKILL.md` — Desktop Development Harness
+- `packages/desktop/.agents/skills/desktop-develop/references/harness-principles.md` — Desktop Harness Principles
+- `packages/desktop/.agents/skills/desktop-pet/SKILL.md` — Desktop Pet Creator
+- `packages/desktop/CODE_OF_CONDUCT.md` — Code of Conduct
+- `packages/desktop/CONTRIBUTING.md` — Contributing to OpenWork
+- `packages/desktop/README.md` — Nessy CLI
+- `packages/desktop/SECURITY.md` — Security Policy
+- `packages/desktop/TRADEMARK.md` — Trademark Policy
+- `packages/desktop/apps/electron/README.md` — Nessy CLI Electron App
+- `packages/desktop/apps/electron/resources/AGENTS.md` — Bundled Resources
+- `packages/desktop/apps/electron/resources/docs/automations.md` — Automations Configuration Guide
+- `packages/desktop/apps/electron/resources/docs/browser-tools.md` — Browser Tools
+- `packages/desktop/apps/electron/resources/docs/craft-cli.md` — Nessy CLI Guide
+- `packages/desktop/apps/electron/resources/docs/data-tables.md` — Data Tables Guide
+- `packages/desktop/apps/electron/resources/docs/html-preview.md` — HTML Preview Guide
+- `packages/desktop/apps/electron/resources/docs/image-preview.md` — Image Preview Guide
+- `packages/desktop/apps/electron/resources/docs/labels.md` — Label Configuration
+- `packages/desktop/apps/electron/resources/docs/llm-tool.md` — call_llm
+- `packages/desktop/apps/electron/resources/docs/mermaid.md` — Mermaid Diagram Syntax Reference
+- `packages/desktop/apps/electron/resources/docs/pdf-preview.md` — PDF Preview Guide
+- `packages/desktop/apps/electron/resources/docs/permissions.md` — Permissions Configuration Guide
+- `packages/desktop/apps/electron/resources/docs/skills.md` — Skills Configuration Guide
+- `packages/desktop/apps/electron/resources/docs/sources.md` — Sources Configuration Guide
+- `packages/desktop/apps/electron/resources/docs/statuses.md` — Status Configuration
+- `packages/desktop/apps/electron/resources/docs/themes.md` — Theme Configuration Guide
+- `packages/desktop/apps/electron/resources/docs/tool-icons.md` — Tool Icons Configuration
+- `packages/desktop/apps/electron/resources/release-notes/0.0.1.md` — v0.0.1 - Prototype
+- `packages/desktop/apps/electron/resources/scripts/tests/README.md` — Document Tool Smoke Tests
+- `packages/desktop/docs/plans/2026-06-08-desktop-auto-update-design.md` — Desktop Auto-Update Design
+- `packages/desktop/packages/core/README.md` — @craft-agent/core
+- `packages/desktop/packages/server-core/README.md` — @craft-agent/server-core
+- `packages/sdk-java/client/NESSY.md` — ACP SDK Project Context
+- `packages/sdk-java/client/README.md` — ACP Client SDK (Agent Client Protocol Java SDK For Client)
+- `packages/sdk-java/nessycli/NESSY.md` — Nessy CLI Java SDK
+- `packages/sdk-java/nessycli/README.md` — Nessy CLI Java SDK
+- `packages/sdk-java/nessycli/RELEASE.md` — Release Notes
+- `packages/sdk-python/README.md` — nessy-cli-sdk
+- `packages/sdk-typescript/README.md` — @nestor/nessy-cli-sdk
+- `packages/sdk-typescript/src/daemon-mcp/serve-bridge/README.md` — nessy-serve-bridge MCP Server
+- `packages/vscode-ide-companion/README.md` — Nessy CLI Companion
+- `packages/vscode-ide-companion/development.md` — Local Development ⚙️
+- `packages/web-shell/README.md` — @nestor/nessy-cli-web-shell
+- `packages/webui/README.md` — @nestor/nessy-cli-webui
+- `packages/webui/docs/WEBUI_MIGRATION_PLAN_EN.md` — WebUI Component Library Extraction Plan
+- `packages/webui/examples/README.md` — Examples
+- `packages/zed-extension/README.md` — Nessy CLI Agent Server Extension for Zed
+
+## .nessy
+
+- `.nessy/agents/test-engineer.md` — Test Engineer — Bug Reproduction & Verification
+- `.nessy/commands/nc/bugfix.md` — Bugfix
+- `.nessy/commands/nc/code-review.md` — (без заголовка)
+- `.nessy/commands/nc/create-issue.md` — Create Issue
+- `.nessy/commands/nc/create-mr.md` — Create MR
+- `.nessy/e2e-tests/table-wrap-ansi-highlight.md` — Table Inline-Code Wrap ANSI Highlight E2E
+- `.nessy/skills/agent-reproduce-align/SKILL.md` — Agent Reproduce Align
+- `.nessy/skills/agent-reproduce-align/references/alignment-workflow.md` — Alignment Workflow Reference
+- `.nessy/skills/agent-reproduce-feature/SKILL.md` — Agent Reproduce Feature
+- `.nessy/skills/agent-reproduce-feature/references/capture-workflow.md` — Capture Workflow Reference
+- `.nessy/skills/bugfix/SKILL.md` — Bugfix Workflow
+- `.nessy/skills/codegraph/SKILL.md` — CodeScope Q&A
+- `.nessy/skills/codegraph/bug-analysis.md` — Bug Analysis Workflows
+- `.nessy/skills/codegraph/mr-analysis.md` — Analyzing MR Impact with CodeGraph
+- `.nessy/skills/codegraph/patterns.md` — CodeScope Cypher Patterns
+- `.nessy/skills/codegraph/schema.md` — CodeScope Graph Schema
+- `.nessy/skills/create-issue/SKILL.md` — Create Issue
+- `.nessy/skills/desktop-pet/SKILL.md` — Desktop Pet Creator
+- `.nessy/skills/docs-audit-and-refresh/SKILL.md` — Docs Audit And Refresh
+- `.nessy/skills/docs-audit-and-refresh/references/audit-checklist.md` — Audit Checklist
+- `.nessy/skills/docs-sync-verify/SKILL.md` — Навык: Проверка и исправление синхронизации документации
+- `.nessy/skills/docs-update-from-diff/SKILL.md` — Docs Update From Diff
+- `.nessy/skills/docs-update-from-diff/references/docs-surface.md` — Docs Surface Map
+- `.nessy/skills/e2e-testing/SKILL.md` — E2E Testing Guide
+- `.nessy/skills/e2e-testing/references/mcp-testing.md` — MCP Server E2E Testing
+- `.nessy/skills/e2e-testing/references/mock-openai-server.md` — Mock OpenAI Server E2E Testing
+- `.nessy/skills/feat-dev/SKILL.md` — Feature Development Workflow
+- `.nessy/skills/fork-patches/SKILL.md` — Fork Patch Workflow
+- `.nessy/skills/memory-leak-debug/SKILL.md` — Memory Leak Debugging
+- `.nessy/skills/memory-leak-debug/examples/react-reconciler-performance-measure-leak.md` — React Reconciler PerformanceMeasure Leak
+- `.nessy/skills/nessy-cli-claw/SKILL.md` — Nessy CLI Claw
+- `.nessy/skills/openwork-desktop-sync/SKILL.md` — OpenWork Desktop Sync
+- `.nessy/skills/skill-creator/SKILL.md` — Skill Creator
+- `.nessy/skills/skill-creator/agents/analyzer.md` — Post-hoc Analyzer Agent
+- `.nessy/skills/skill-creator/agents/comparator.md` — Blind Comparator Agent
+- `.nessy/skills/skill-creator/agents/grader.md` — Grader Agent
+- `.nessy/skills/skill-creator/references/schemas.md` — JSON Schemas
+- `.nessy/skills/structured-debugging/SKILL.md` — Structured Debugging
+- `.nessy/skills/structured-debugging/examples/headless-bg-agent-empty-stdout.md` — Worked example: headless run prints empty stdout in zsh TTY
+- `.nessy/skills/terminal-capture/SKILL.md` — Terminal Capture — CLI Terminal Screenshot Automation
+- `.nessy/skills/tmux-real-user-testing/SKILL.md` — tmux Real User Testing
+- `.nessy/skills/triage/SKILL.md` — PR / Issue Gatekeeper
+- `.nessy/skills/triage/references/issue-workflow.md` — Issue Workflow
+- `.nessy/skills/triage/references/pr-workflow.md` — PR Workflow
+
+## scripts
+
+- `scripts/dlh/README.md` — DLH Proxy - Локальный прокси для отладки DLH телеметрии
+- `scripts/installation/INSTALLATION_GUIDE.md` — Installation Guide for Nessy CLI with Source Tracking
+
+## integration-tests
+
+- `integration-tests/concurrent-runner/README.md` — Nessy Concurrent Runner
+- `integration-tests/terminal-capture/motivation.md` — terminal-capture — Motivation and Positioning
+
+## docs-site
+
+- `docs-site/README.md` — Nessy CLI Docs Site
+
+## deploy
+
+- `deploy/async/README.md` — nessy-async
+
+## fastlane
+
+- `fastlane/README.md` — fastlane documentation
+
+## .gitlab
+
+- `.gitlab/merge_request_template.md` — Summary
