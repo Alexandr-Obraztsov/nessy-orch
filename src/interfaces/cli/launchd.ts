@@ -51,7 +51,7 @@ ${programArguments(loginShell(), process.execPath, path.join(root, 'dist', 'src'
     <key>HOME</key><string>${home}</string>
   </dict>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>5</integer>
   <key>StandardOutPath</key><string>${logs}/orch.out.log</string>
   <key>StandardErrorPath</key><string>${logs}/orch.err.log</string>
