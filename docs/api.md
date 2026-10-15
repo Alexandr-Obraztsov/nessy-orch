@@ -57,13 +57,14 @@
 | POST | `/agents/:ref/restore` | `{}` | `AgentView` (`archived:false`, без сообщения) |
 | POST | `/agents/:ref/permission/:requestId` | `{approve:boolean}` (по умолчанию `true`) | `{ok:true}`; если запрос не найден (или нет соединения) — `404 {ok:false}`. Тело без `approve:false` означает «разрешить» |
 | GET | `/sessions?status=active\|done` | — | `SessionView[]`: сначала активные, затем по свежести |
-| POST | `/sessions` | `SessionRequest {title, owner?, id?}` | `201 SessionView`; id по умолчанию — slug заголовка (кириллица транслитерируется, пусто → `session`) + `-` + 4 hex; занятый явный id → `409 session_exists` |
+| POST | `/sessions` | `SessionRequest {title?, owner?, id?, cwd?, chatId?}` | `201 SessionView` (с `unread`); без `title` — имя папки `cwd` (вкладка проекта); `chatId` — id чата Claude (`--session-id`), занятый другой сессией — `409 chat_bound`; id по умолчанию — slug заголовка (кириллица транслитерируется, пусто → `session`) + `-` + 4 hex; занятый явный `id` — `409 session_exists` |
 | GET | `/sessions/:id` | — | `SessionView` или `404 no_session` |
 | PATCH | `/sessions/:id` | `SessionPatch {title?, status?, summary?}` | `SessionView` (`updatedAt` обновляется); `status: done` ставит оркестратор или человек из приложения |
-| GET | `/sessions/:id/updates` | — | `SessionUpdates {agents, replies, cursor, watching}`: краткая сводка агентов сессии, новые ответы, курсор для подтверждения и признак фонового ожидания (`inbox --session … --wait`). Без `consume` ответы не потребляются; `consume=1` сдвигает курсор сразу (для простых клиентов). Хуки Claude Code читают без `consume` и подтверждают доставку отдельно |
+| GET | `/sessions/:id/digest` | — | `DigestResponse {header, text, cursor, count, hidden, working, watching}`: непрочитанные Claude ответы и вопросы агентов одной пачкой (очищено от управляющих символов, ≤4000 знаков, один ответ ≤1500); курсор не двигает; ответы на вызовы с `--wait` не входят |
+| GET | `/sessions/:id/wait?timeout=СЕК` | — | `SettledResponse {reason, digest, active}`: long-poll до конца пачки; `reason`: `idle` (все закончили), `question` (вопрос агента), `timeout`, `nothing` (ждать нечего), `watching` (ожидание этой сессии уже идёт — оно одно) |
 | POST | `/sessions/:id/ack` | `{cursor}` | Ответы выведены хуком — сдвинуть курсор сессии (тот же, что у `inbox --session`) до `cursor`; назад не двигается, повтор безопасен. Недоставленные (таймаут хука, обрыв) приходят снова |
-| POST | `/sessions/bind` | `{chatId, session?, title?, terminal?, cwd?}` | `SessionView` — привязка чата Claude (`session_id` хука) к сессии: уже привязанная (resume) → она; иначе свободная `session`; иначе новая. Поля `chatId`, `origin` сохраняются |
-| POST | `/sessions/:id/lead-state` | `{state: working\|idle\|ended}` | `SessionView` с `claude: {state, at}` — состояние Claude Code по хуку (хранится в sessions.json вместе с сессией) |
+| POST | `/sessions/:id/lead` | `{idle, chatId?}` | `SessionView`: хук Stop сообщает, что Claude свободен (или продолжает работу), и актуальный чат (после `/clear`); чат другой сессии — `409 chat_bound` |
+| POST | `/sessions/:id/closed` | — | `{cancelled}`: вкладка закрыта, работающие агенты сессии остановлены, сессия остаётся (`lead.state: ended`) |
 | DELETE | `/sessions/:id` | — | `{ok:true}`; в сессии работают агенты (ход или очередь) → `409 session_busy`; агенты сессии остаются с `session:null`, курсор inbox и источники сессии забываются |
 | GET | `/sessions/:id/sources` | — | `SourceView[]` по порядку появления: ссылки из итоговых ответов агентов («Источники») и из входа их вызовов инструментов, без дублей; `404 no_session` |
 | POST | `/agents/:ref/plan` | `PlanRequest {from?, entries:[{content, status}]}` | `AgentView` с новым планом (заменяет прежний целиком). Неверные записи → `400 bad_plan`; `from` указан и ≠ id агента → `403 forbidden` |
@@ -168,7 +169,7 @@
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
 | GET | `/roles` | — | `RoleView[]` (по имени) |
-| POST | `/roles` | `RoleRequest` | `201 RoleView` |
+| POST | `/roles` | `RoleRequest {name, instructions, description?, color?, icon?, id?, packageDir?}` | `201 RoleView`; `packageDir` — абсолютный путь к папке пакета роли: копируется в `~/.nessy-orch/role-packages/<id>`, `{{role_dir}}` в инструкциях подменяется путём (`RoleView.package: true`) |
 | GET | `/roles/:id` | — | `RoleView`; `:id` — id или имя (без учёта регистра) |
 | PUT | `/roles/:id` | `RoleRequest` | `RoleView` (полная замена полей; `id` и `createdAt` не меняются; без `color` цвет прежний) |
 | DELETE | `/roles/:id` | — | `{ok:true}`; агенты сохраняют `role` (UI показывает роль удалённой) |
