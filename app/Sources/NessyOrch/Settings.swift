@@ -11,6 +11,22 @@ struct SettingsView: View {
 			ServerSettings().tabItem { Label("Сервер", systemImage: "server.rack") }
 		}
 		.frame(width: 540, height: 520)
+		// кнопки настроек — нейтральные (светлый текст на сером), а не синие: синий в интерфейсе один, акцентный, для переключателей и выбора
+		.buttonStyle(SettingsButtonStyle())
+	}
+}
+
+/// Кнопка настроек: серая плашка и основной цвет текста; при нажатии темнее, недоступная — тусклая.
+struct SettingsButtonStyle: ButtonStyle {
+	@Environment(\.isEnabled) private var enabled
+
+	func makeBody(configuration: Configuration) -> some View {
+		configuration.label
+			.font(DS.Typography.secondary)
+			.foregroundStyle(enabled ? DS.Palette.textPrimary : DS.Palette.textTertiary)
+			.padding(.horizontal, DS.Metrics.s3).padding(.vertical, 5)
+			.background(configuration.isPressed ? DS.Palette.border : DS.Palette.hover, in: Capsule())
+			.overlay(Capsule().strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
 	}
 }
 

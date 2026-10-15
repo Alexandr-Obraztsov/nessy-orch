@@ -91,8 +91,11 @@ extension AppModel {
 		}
 	}
 
-	/// ⌘W: закрыть окно (терминал завершается; при живом процессе спросит подтверждение).
-	func closeCurrentWindow() { if let w = activeWindow { close(w) } else { NSApp.keyWindow?.performClose(nil) } }
+	/// ⌘W: в главном окне — закрыть проект (с предупреждением); в окне «Роли» или «Настройки» — закрыть само это окно.
+	func closeCurrentWindow() {
+		if let kw = NSApp.keyWindow, !(kw.delegate is CloseGuard) { kw.performClose(nil); return }
+		if let w = activeWindow { close(w) } else { NSApp.keyWindow?.performClose(nil) }
+	}
 
 	// MARK: подтверждение выхода
 
