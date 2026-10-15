@@ -177,24 +177,57 @@ struct AgentRow: View {
 			Button("Открыть") { if compact { model.reveal(agent: a.id) } else { win?.open(agent: a.id) } }
 			if a.canStop { Button("Остановить") { model.stop(a) }.disabled(model.isOffline) }
 		}
-		.accessibilityElement(children: .contain)
-		.accessibilityLabel("\(model.store.title(of: a)), \(a.stateWord)")
+		.accessibilityElement(children: .ignore)
+		.accessibilityLabel(accessibilityText)
+		.accessibilityAction(named: "Открыть") { compact ? model.reveal(agent: a.id) : win?.open(agent: a.id) }
 		.accessibilityAddTraits(selected ? .isSelected : [])
 	}
 
 	/// Вторая строка: «Роль · 173 тыс. токенов · 5 вызовов · Работает» (в menu bar вместо роли — сессия: агенты там из разных сессий).
-	/// Статус — в конце и цветом состояния; что есть, то и пишем.
-	@ViewBuilder private var meta: some View {
+	/// Статус — в конце и цветом состояния. Узкая колонка: части вытесняются по порядку (слово «токенов», «вызовов» → «выз.», роль, вызовы),
+	/// статус и токены остаются; разделитель «·» стоит только между частями.
+	private var metaVariants: [[String]] {
 		let head: String? = compact ? model.store.session(a.session)?.title : model.roleInfo(of: a)?.name
-		let tokens = a.stats.tokens.flatMap { $0.total > 0 ? "\(Numbers.compact($0.total)) токенов" : nil }
-		let calls = a.stats.toolCalls > 0 ? Numbers.count(a.stats.toolCalls, "вызов", "вызова", "вызовов") : nil
-		let parts = [head, tokens, calls].compactMap { $0 }
-		HStack(spacing: 4) {
-			if !parts.isEmpty { Text(parts.joined(separator: " · ")).lineLimit(1).truncationMode(.tail) }
-			if !parts.isEmpty { Text("·") }
-			Text(a.stateWord).foregroundStyle(statusColor).lineLimit(1).layoutPriority(1)
+		let t = a.stats.tokens.flatMap { $0.total > 0 ? $0.total : nil }
+		let c = a.stats.toolCalls > 0 ? a.stats.toolCalls : nil
+		let full = [head, t.map { "\(Numbers.compact($0)) токенов" }, c.map { Numbers.count($0, "вызов", "вызова", "вызовов") }]
+		let mid = [head, t.map { Numbers.compact($0) }, c.map { "\($0)\u{00A0}выз." }]
+		let short = [t.map { Numbers.compact($0) }, c.map { "\($0)\u{00A0}выз." }]
+		let tiny = [t.map { Numbers.compact($0) }]
+		// числа с единицами не рвутся по строкам: обычные пробелы внутри части заменены неразрывными
+		return [full, mid, short, tiny].map { $0.compactMap { $0?.replacingOccurrences(of: " ", with: "\u{00A0}") } }
+	}
+
+	@ViewBuilder private var meta: some View {
+		ViewThatFits(in: .horizontal) {
+			ForEach(Array(metaVariants.enumerated()), id: \.offset) { _, parts in metaLine(parts).fixedSize() }
+			metaLine([]).fixedSize()
 		}
 		.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+		.frame(maxWidth: .infinity, alignment: .leading)
+	}
+
+	private func metaLine(_ parts: [String]) -> some View {
+		HStack(spacing: 4) {
+			ForEach(Array(parts.enumerated()), id: \.offset) { i, p in
+				if i > 0 { Text("·") }
+				Text(p).lineLimit(1)
+			}
+			if !parts.isEmpty { Text("·") }
+			Text(a.stateWord).foregroundStyle(statusColor).lineLimit(1)
+		}
+	}
+
+	/// Всё, что видно в карточке, одной фразой для VoiceOver.
+	private var accessibilityText: String {
+		var p = [model.store.title(of: a), a.stateWord]
+		if !compact, let r = model.roleInfo(of: a)?.name { p.append("роль \(r)") }
+		if let t = a.stats.tokens, t.total > 0 { p.append("\(Numbers.compact(t.total)) токенов") }
+		if a.stats.toolCalls > 0 { p.append(Numbers.count(a.stats.toolCalls, "вызов", "вызова", "вызовов")) }
+		if let pct = a.stats.contextPct { p.append("контекст заполнен на \(pct) процентов") }
+		if let steps = a.plan?.entries, !steps.isEmpty { p.append("план: выполнено \(steps.filter { $0.status == .completed }.count) из \(steps.count)") }
+		if let perm = a.pendingPermissions.first { p.append("ждёт разрешения: \(perm.title)") }
+		return p.joined(separator: ", ")
 	}
 
 	private var statusColor: Color {
@@ -207,19 +240,19 @@ struct AgentRow: View {
 	@ViewBuilder private var footer: some View {
 		let steps = (a.state == .working || a.state == .starting) ? (a.plan?.entries.map(\.status) ?? []) : []
 		let showTimer = a.state == .wait || a.canStop || (a.lastTurnMs ?? 0) >= 1000
-		if !steps.isEmpty || a.stats.contextPct != nil || showTimer || model.store.isNew(a) {
+		if !steps.isEmpty || (a.stats.contextPct ?? 0) > 0 || showTimer || model.store.isNew(a) {
 			HStack(spacing: DS.Metrics.s3) {
 				if !steps.isEmpty {
 					HStack(spacing: DS.Metrics.s2) {
 						DSPlanSegments(steps: steps)
-						Text("\(steps.filter { $0 == .completed }.count) из \(steps.count)").monospacedDigit()
+						Text("\(min(steps.filter { $0 == .completed }.count + (steps.contains(.inProgress) ? 1 : 0), steps.count)) из \(steps.count)").monospacedDigit()
 					}
 				}
 				Spacer(minLength: 0)
-				if let pct = a.stats.contextPct {
+				if let pct = a.stats.contextPct, pct > 0 {
 					HStack(spacing: 4) {
 						DSContextMeter(pct: pct, size: 11)
-						Text("\(pct) %").monospacedDigit()
+						Text("\(pct)\u{00A0}%").monospacedDigit()
 					}
 				}
 				if model.store.isNew(a) { DSNewDot() }
@@ -244,7 +277,10 @@ struct AgentStageLine: View {
 				// у работающего третьей строки нет: статус во второй, прогресс — в последней
 				EmptyView()
 			case .wait:
-				EmptyView()
+				// что именно ждёт решения
+				if let p = a.pendingPermissions.first {
+					reason("Разрешение", p.title + (a.pendingPermissions.count > 1 ? " +\(a.pendingPermissions.count - 1)" : ""), DS.Palette.attention)
+				}
 			case .error:
 				reason("Ошибка", a.error ?? "ход завершился ошибкой", DS.Palette.danger)
 			case .done:
@@ -264,7 +300,7 @@ struct AgentStageLine: View {
 	/// «Ошибка: причина» — первое слово цветом состояния, остальное вторичным.
 	private func reason(_ word: String, _ text: String, _ color: Color) -> some View {
 		Text("\(Text(word + ": ").foregroundStyle(color))\(Text(text).foregroundStyle(DS.Palette.textSecondary))")
-			.lineLimit(2)
+			.lineLimit(1).truncationMode(.tail).help(text)
 	}
 
 	/// Первая фраза ответа без «Итог —» и сносок [1].

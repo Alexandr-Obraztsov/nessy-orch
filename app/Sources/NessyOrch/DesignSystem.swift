@@ -278,7 +278,7 @@ struct DSPlanSegments: View {
 					Capsule().fill(i == current ? DS.Palette.textPrimary : s == .completed ? DS.Palette.quiet : DS.Palette.separator)
 				}
 			}
-			.frame(width: DS.Metrics.progressSize.width, height: DS.Metrics.progressSize.height)
+			.frame(width: CGFloat(steps.count) * 10 + CGFloat(steps.count - 1) * 2, height: DS.Metrics.progressSize.height)
 			.animation(DS.Motion.progress, value: steps)
 			.accessibilityElement()
 			.accessibilityValue(Text("\(steps.filter { $0 == .completed }.count) из \(steps.count)"))
@@ -436,6 +436,18 @@ struct PlainIconButton: View {
 
 /// Заполнение окна контекста агента — кольцо, как в Claude: дуга растёт по часовой от верха. От 60 % дуга оранжевая, от 80 % красная: новую задачу
 /// лучше отдать новому агенту с чистым контекстом. Процент — в подсказке и для VoiceOver; в карточку кольцо влезает при любой ширине (14 pt).
+private struct PieSlice: Shape {
+	var fraction: CGFloat
+	func path(in r: CGRect) -> Path {
+		var p = Path()
+		let c = CGPoint(x: r.midX, y: r.midY)
+		p.move(to: c)
+		p.addArc(center: c, radius: min(r.width, r.height) / 2, startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * Double(fraction)), clockwise: false)
+		p.closeSubpath()
+		return p
+	}
+}
+
 struct DSContextMeter: View {
 	var pct: Int
 	var size: CGFloat = 14
@@ -444,13 +456,12 @@ struct DSContextMeter: View {
 	private var tint: Color { pct >= 80 ? DS.Palette.danger : pct >= 60 ? DS.Palette.attention : DS.Palette.textSecondary }
 
 	var body: some View {
+		// круг-«пирог»: дорожка и заполненный сектор (не кольцо-спиннер), сектор растёт по часовой стрелке от 12 часов
 		ZStack {
-			Circle().stroke(DS.Palette.textTertiary.opacity(0.35), lineWidth: 2)
-			Circle().trim(from: 0, to: max(fraction, pct > 0 ? 0.04 : 0))
-				.stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-				.rotationEffect(.degrees(-90))
+			Circle().fill(DS.Palette.textTertiary.opacity(0.45))
+			PieSlice(fraction: max(fraction, pct > 0 ? 0.04 : 0)).fill(tint)
 		}
-		.frame(width: size - 2, height: size - 2)
+		.frame(width: size - 1, height: size - 1)
 		.frame(width: size, height: size)
 		.help("Контекст агента заполнен на \(pct) %: чем выше, тем хуже ответы; новую задачу лучше отдать новому агенту")
 		.accessibilityElement()
