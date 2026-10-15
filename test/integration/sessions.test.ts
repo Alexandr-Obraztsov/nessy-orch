@@ -321,6 +321,17 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'idle')
 	})
 
+	it('hook idle (хук Stop новой архитектуры): отчёт idle + актуальный chatId, вывода и блокировок нет', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		const s = (await hh.api<SessionView>('POST', '/sessions', { cwd: '/tmp/idle-proj', chatId: 'chat-before-1' })).body
+		const r = await runHook(hh.port, s.id, 'idle', JSON.stringify({ session_id: 'chat-after-clear' }))
+		assert.deepEqual(r, { code: 0, stdout: '', stderr: '' })
+		const v = (await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body
+		assert.equal(v.chatId, 'chat-after-clear')
+		assert.equal(v.lead?.state, 'idle')
+	})
+
 	it('хук не ломает Claude при недоступном оркестраторе', T, async () => {
 		const r = await runHook(1, 'any', 'prompt')
 		assert.deepEqual(r, { code: 0, stdout: '', stderr: '' })

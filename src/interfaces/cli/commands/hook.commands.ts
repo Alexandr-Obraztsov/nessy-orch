@@ -125,11 +125,25 @@ async function run(event: string, windowSession: string, terminal: string, input
 	}
 }
 
+/**
+ * Хук Stop новой архитектуры: главный агент закончил ход. Только отчёт `idle` с актуальным chatId (session_id из события) —
+ * ничего в контекст не печатается и ход не продлевается: ответы агентов вводит в терминал приложение (digest).
+ */
+async function runIdle(session: string, input: Record<string, unknown>): Promise<void> {
+	const chatId = typeof input['session_id'] === 'string' ? input['session_id'] : ''
+	await post(`/sessions/${enc(session)}/lead`, { idle: true, ...(chatId ? { chatId } : {}) }).catch(() => undefined)
+}
+
 async function cmdHook(p: { positionals: string[] }): Promise<void> {
 	const input = readInput() // прочитать stdin целиком: Claude ждёт, пока хук заберёт ввод
 	const event = p.positionals[0] ?? ''
 	const session = process.env['NESSY_ORCH_SESSION']?.trim() ?? ''
 	const terminal = process.env['NESSY_ORCH_TERMINAL']?.trim() ?? ''
+	if (event === 'idle') {
+		if (!session) return
+		await Promise.race([runIdle(session, input), new Promise<void>(resolve => setTimeout(resolve, HOOK_BUDGET_MS).unref())])
+		return
+	}
 	if ((!session && !terminal) || !['start', 'prompt', 'stop', 'stop-failure', 'end'].includes(event)) return
 	try {
 		// SessionEnd у Claude Code на всё про всё ~1,5 с: укладываемся, остальное успеют сервис и приложение

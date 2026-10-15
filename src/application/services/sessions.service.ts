@@ -5,7 +5,7 @@
  */
 import type { LeadReport, LeadState, SessionPatch, SessionRequest, SessionStatus, SessionView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
-import { isSessionId, sessionIdFrom, validateSessionPatch, validateSessionRequest } from '../../domain/sessions'
+import { isChatId, isSessionId, sessionIdFrom, validateSessionPatch, validateSessionRequest } from '../../domain/sessions'
 import { hexId } from '../../lib/ids'
 import type { ServiceContext } from './context.types'
 
@@ -95,6 +95,7 @@ export class SessionsService {
 	reportLead(ref: string, report: LeadReport): SessionView {
 		const s = this.raw(ref)
 		const chat = report.chatId?.trim()
+		if (chat && !isChatId(chat)) throw new AppError(400, 'bad_request', 'chatId — до 64 символов [A-Za-z0-9-]')
 		if (chat && chat !== s.chatId) {
 			const other = [...this.sessions.values()].find(x => x.id !== s.id && x.chatId === chat)
 			if (other) throw new AppError(409, 'chat_bound', `чат уже привязан к сессии «${other.id}»`)

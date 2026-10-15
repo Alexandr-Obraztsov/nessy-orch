@@ -38,6 +38,10 @@ export function sessionIdFrom(title: string, suffix: string): string {
 	return `${sessionSlugBase(title)}-${suffix}`
 }
 
+export function isChatId(id: string): boolean {
+	return CHAT_ID_RE.test(id)
+}
+
 export function isSessionId(id: string): boolean {
 	return id.length <= SESSION_ID_MAX && SESSION_ID_RE.test(id)
 }
