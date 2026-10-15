@@ -10,10 +10,10 @@ struct AgentsPanel: View {
 
 	var body: some View {
 		ZStack {
-			if let id = win?.openAgent?.id {
-				AgentPanel(agentId: id)
+			if let a = win?.openAgent {
+				AgentPanel(agentId: a.id)
 					.padding(.top, SessionWindowModel.rowHeight)
-					.overlay(alignment: .topLeading) { BackButton { win?.open(agent: nil) } }
+					.overlay(alignment: .topLeading) { AgentHeaderRow(agent: a) { win?.open(agent: nil) } }
 					.transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
 			} else {
 				AgentsListView()
@@ -22,7 +22,8 @@ struct AgentsPanel: View {
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.clipped()
-		.safeAreaInset(edge: .bottom, spacing: 0) { SidebarFooter() }
+		// подвал (кнопки «Роли» и т. п.) — safeAreaBar: карточки уходят под него с размытием и затемнением, как под заголовок
+		.safeAreaBar(edge: .bottom, spacing: 0) { SidebarFooter() }
 		.onExitCommand { win?.open(agent: nil) }
 	}
 }
@@ -33,6 +34,8 @@ struct AgentsListView: View {
 	@Environment(\.sessionWindow) private var win
 	@Environment(\.accessibilityReduceMotion) private var reduceMotion
 	@State private var doneExpanded: Bool?
+	/// «Ошибки» свёрнуты, пока человек сам не раскроет: не обязательно показывать всё
+	@State private var failedExpanded = false
 	@FocusState private var listFocused: Bool
 
 	private var agents: [AgentView] { win?.agents ?? [] }
@@ -40,20 +43,20 @@ struct AgentsListView: View {
 	var body: some View {
 		let sections = AgentGrouping.sections(agents)
 		let ids = visibleIds(sections)
-		VStack(spacing: 0) {
-			header
+		Group {
 			if agents.isEmpty {
 				VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 					Text("Агентов пока нет").font(DS.Typography.body).foregroundStyle(DS.Palette.textPrimary)
 					Text("Их запускает главный агент.").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
 				}
-				.frame(maxWidth: .infinity, alignment: .leading)
+				.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 				.padding(.horizontal, DS.Metrics.s4).padding(.top, DS.Metrics.s2)
-				Spacer(minLength: 0)
 			} else {
 				list(sections, ids)
 			}
 		}
+		// заголовок — safeAreaBar: карточки при прокрутке уходят под него с размытием и затемнением (Liquid Glass), а не обрезаются по линии
+		.safeAreaBar(edge: .top, spacing: 0) { header }
 	}
 
 	/// Заголовок списка: «Агенты · N». Кнопок здесь нет — они в тулбаре окна.
@@ -62,7 +65,6 @@ struct AgentsListView: View {
 			Text("Агенты").font(DS.Typography.panelTitle)
 			if !agents.isEmpty { Text("·").foregroundStyle(DS.Palette.textTertiary); DSCount(value: agents.count).foregroundStyle(DS.Palette.textSecondary) }
 			Spacer(minLength: 0)
-			LeadStateIndicator(state: win?.session?.lead?.state)
 		}
 		.foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
 		.padding(.leading, DS.Metrics.s4).padding(.trailing, 96)
@@ -73,12 +75,12 @@ struct AgentsListView: View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: DS.Metrics.s4) {
 				ForEach(sections) { sec in
-					let collapsible = sec.group == .done && sections.count > 1
-					let expanded = !collapsible || isDoneExpanded(sec, sections)
+					let collapsible = (sec.group == .done && sections.count > 1) || sec.group == .failed
+					let expanded = !collapsible || (sec.group == .failed ? failedExpanded : isDoneExpanded(sec, sections))
 					VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-						if sections.count > 1 {
+						if sections.count > 1 || sec.group == .failed {
 							DSGroupHeader(title: sec.group.title, count: sec.agents.count,
-										  expanded: collapsible ? Binding(get: { expanded }, set: { doneExpanded = $0 }) : nil)
+										  expanded: collapsible ? Binding(get: { expanded }, set: { if sec.group == .failed { failedExpanded = $0 } else { doneExpanded = $0 } }) : nil)
 						}
 						if expanded {
 							VStack(spacing: 0) {
@@ -101,6 +103,7 @@ struct AgentsListView: View {
 			.frame(maxWidth: .infinity, alignment: .leading)
 		}
 		.scrollEdgeEffectStyle(.soft, for: .top)
+		.scrollEdgeEffectStyle(.soft, for: .bottom)
 		// Клавиши списка (↑/↓, J/K, ↩) работают, только когда фокус в самом списке (клик по пустому месту); терминал и поле ввода
 		// получают свои клавиши как есть. Фокус сам список не забирает — иначе он отнимал бы его у терминала.
 		.background { Color.clear.contentShape(Rectangle()).onTapGesture { listFocused = true } }
@@ -126,7 +129,10 @@ struct AgentsListView: View {
 	}
 
 	private func visibleIds(_ sections: [AgentSection]) -> [String] {
-		sections.flatMap { s in s.group == .done && sections.count > 1 && !isDoneExpanded(s, sections) ? [] : s.agents.map(\.id) }
+		sections.flatMap { s in
+			if s.group == .failed { return failedExpanded ? s.agents.map(\.id) : [] }
+			return s.group == .done && sections.count > 1 && !isDoneExpanded(s, sections) ? [] : s.agents.map(\.id)
+		}
 	}
 
 	/// ↑/↓ двигают курсор; Enter открывает карточку.
@@ -210,6 +216,7 @@ struct AgentRow: View {
 			}
 			// индикатор шагов плана — под таймером, чтобы не отнимать место у строки «роль · токены · вызовы»
 			if !steps.isEmpty { DSPlanSegments(steps: steps) }
+			if let pct = a.stats.contextPct { DSContextMeter(pct: pct) }
 		}
 	}
 }
@@ -267,25 +274,32 @@ enum AnswerText {
 	}
 }
 
-/// «‹ Агенты» — назад к списку, в верхнем левом углу шапки панели (на одной линии со светофором и кнопками справа).
-struct BackButton: View {
-	var action: () -> Void
+/// Шапка открытого агента вместо «Агенты»: «‹», состояние и цель (суть поручения). Справа остаётся место под кнопки окна.
+struct AgentHeaderRow: View {
+	@Environment(AppModel.self) private var model
+	var agent: AgentView
+	var back: () -> Void
 	@State private var hover = false
+
 	var body: some View {
-		Button(action: action) {
-			HStack(spacing: 3) {
+		HStack(spacing: DS.Metrics.s2) {
+			Button(action: back) {
 				Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
-				Text("Агенты").font(.system(size: 13, weight: .medium))
+					.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+					.frame(width: 26, height: 26)
+					.background(hover ? DS.Palette.hover : .clear, in: Circle())
+					.contentShape(Circle())
 			}
-			.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
-			.padding(.horizontal, DS.Metrics.s2).frame(height: 26)
-			.background(hover ? DS.Palette.hover : .clear, in: Capsule())
-			.contentShape(Capsule())
+			.buttonStyle(.plain).focusEffectDisabled()
+			.onHover { hover = $0 }
+			.help("К списку агентов (Esc)").accessibilityLabel("Назад к списку агентов")
+			DSStateGlyph(state: agent.ds, size: DS.Metrics.glyphRow)
+			Text(model.store.title(of: agent)).font(DS.Typography.panelTitle)
+				.foregroundStyle(DS.Palette.textPrimary).lineLimit(1).truncationMode(.tail)
+				.help(model.store.goal(of: agent))
+			Spacer(minLength: 0)
 		}
-		.buttonStyle(.plain).focusEffectDisabled()
-		.onHover { hover = $0 }
-		.padding(.leading, DS.Metrics.s2)
+		.padding(.leading, DS.Metrics.s2).padding(.trailing, 96)
 		.frame(height: SessionWindowModel.rowHeight)
-		.help("К списку агентов (Esc)").accessibilityLabel("Назад к списку агентов")
 	}
 }

@@ -91,20 +91,6 @@ public struct ReplyBrief: Codable, Hashable, Sendable {
 	public var reason: String?
 }
 
-/// Что делает главный агент сессии (его сообщают хуки: `nessy-orch hook …`).
-public struct LeadState: Codable, Hashable, Sendable {
-	public enum Run: String, Codable, Sendable {
-		case working, idle, ended
-		/// неизвестное значение — «ждёт вас» (тихая точка), приложение не падает
-		public init(from decoder: Decoder) throws {
-			self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .idle
-		}
-	}
-	public var state: Run
-	public var at: String?
-	public init(state: Run, at: String? = nil) { self.state = state; self.at = at }
-}
-
 /// Сессия оркестратора: один разговор главного агента. В ней агенты, источники и счётчики.
 public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	public var id: String
@@ -116,12 +102,8 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	public var updatedAt: String
 	/// сколько источников собрано (список — GET /sessions/:id/sources)
 	public var sources: Int
-	/// состояние главного агента по хукам; nil — сервер не сообщает (старый сервер или хуки не подключены)
-	public var lead: LeadState?
-	/// чат главного агента (id для `claude --resume`); хук Stop обновляет его после /clear
+	/// чат главного агента (id для `claude --resume`)
 	public var chatId: String?
-	/// сколько ответов и вопросов агентов Claude ещё не получил (считает сервер)
-	public var unread: Int
 	/// папка чата главного агента (из хука); по ней сессию можно открыть снова
 	public var cwd: String?
 
@@ -135,9 +117,7 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 		createdAt = try c.decode(String.self, forKey: .createdAt)
 		updatedAt = try c.decode(String.self, forKey: .updatedAt)
 		sources = try c.decodeIfPresent(Int.self, forKey: .sources) ?? 0
-		lead = (try? c.decodeIfPresent(LeadState.self, forKey: .lead)) ?? nil
 		chatId = try c.decodeIfPresent(String.self, forKey: .chatId)
-		unread = try c.decodeIfPresent(Int.self, forKey: .unread) ?? 0
 		cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
 	}
 }
@@ -154,8 +134,11 @@ public struct AgentStats: Codable, Hashable, Sendable {
 	public var toolCalls: Int
 	public var workMs: Double
 	public var tokens: TokenUsage?
+	/// размер контекста по последнему ходу и доля окна, %; nil — данных ещё нет
+	public var contextTokens: Int?
+	public var contextPct: Int?
 
-	public static let zero = AgentStats(turns: 0, toolCalls: 0, workMs: 0, tokens: nil)
+	public static let zero = AgentStats(turns: 0, toolCalls: 0, workMs: 0, tokens: nil, contextTokens: nil, contextPct: nil)
 }
 
 public struct AgentView: Codable, Hashable, Identifiable, Sendable {

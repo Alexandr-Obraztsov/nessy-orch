@@ -25,6 +25,8 @@ public extension AgentView {
 
 	/// Группа в списке агентов.
 	var group: AgentGroup {
+		// ошибка без блокировки уходит в свою (сворачиваемую) группу: не мешает остальным
+		if state == .error, !isBlocked { return .failed }
 		if needsYou { return .needsYou }
 		switch state {
 		case .working, .starting: return .working
@@ -43,7 +45,7 @@ public extension AgentView {
 
 /// Группы списка агентов в порядке показа. Пустые группы не рисуются.
 public enum AgentGroup: Int, CaseIterable, Identifiable, Sendable {
-	case needsYou, working, done, idle
+	case needsYou, working, done, idle, failed
 	public var id: Int { rawValue }
 	public var title: String {
 		switch self {
@@ -51,6 +53,7 @@ public enum AgentGroup: Int, CaseIterable, Identifiable, Sendable {
 		case .working: "В работе"
 		case .done: "Готово"
 		case .idle: "Ждут поручения"
+		case .failed: "Ошибки"
 		}
 	}
 }
@@ -105,6 +108,9 @@ public extension Sequence where Element == AgentView {
 			case .needsYou:
 				s.needsYou += 1
 				if a.state == .wait { s.wait += 1 } else if a.state == .error { s.error += 1 }
+			case .failed:
+				s.needsYou += 1
+				s.error += 1
 			case .working: s.working += 1
 			case .done: s.done += 1
 			case .idle: s.idle += 1

@@ -66,26 +66,6 @@ struct LaunchOverlay: View {
 	}
 }
 
-/// Состояние Claude по хукам: работает — лоадер, ждёт вас — синяя точка, завершил — тусклая; нет данных — пусто.
-struct LeadStateIndicator: View {
-	var state: LeadState.Run?
-	var body: some View {
-		Group {
-			switch state {
-			case .working: DSStateGlyph(state: .working, size: 14).help("Главный агент работает")
-			case .idle: Circle().fill(DS.Palette.accent).frame(width: 8, height: 8).help("Главный агент ждёт вас")
-			case .ended: Circle().fill(DS.Palette.quiet.opacity(0.5)).frame(width: 8, height: 8).help("Главный агент завершил работу")
-			case nil: EmptyView()
-			}
-		}
-		.frame(width: 14, height: 14)
-		.accessibilityLabel(label)
-	}
-	private var label: String {
-		switch state { case .working: "Главный агент работает"; case .idle: "Главный агент ждёт вас"; case .ended: "Главный агент завершил работу"; case nil: "" }
-	}
-}
-
 /// Кнопка настроек в шапке: сразу открывает окно настроек (в нём же горячие клавиши).
 struct SettingsButton: View {
 	@Environment(\.openSettings) private var openSettings

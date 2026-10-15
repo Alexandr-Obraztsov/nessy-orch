@@ -80,6 +80,16 @@ export class RolesService {
 		return result
 	}
 
+	/** Завести роли папку для файлов (скрипты, шаблоны); если пакет уже есть, ничего не меняется. */
+	ensurePackage(id: string): RoleView {
+		const prev = this.resolve(id)
+		this.ctx.rolePackages.ensure(prev.id)
+		if (prev.package) return prev
+		const role: RoleView = { ...prev, package: true, updatedAt: this.isoNow() }
+		this.put(role)
+		return role
+	}
+
 	/** Удалить роль. Агенты сохраняют id роли (UI показывает её удалённой). */
 	remove(id: string): void {
 		const role = this.resolve(id)

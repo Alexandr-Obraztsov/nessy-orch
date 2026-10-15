@@ -1,9 +1,9 @@
 import SwiftUI
 import NessyKit
 
-/// Окно агента без вкладок, как в Claude: сверху заголовок (суть задачи) и кнопка «стоп», под ним «План»; в ленте первым идёт блок «Роль + поручение»,
-/// дальше сам чат. Снизу поле ввода — это safeAreaBar: система отодвигает чат на их фактическую высоту, поэтому
-/// карточки ничего не закрывают.
+/// Окно агента без вкладок, как в Claude: заголовок (цель) стоит в шапке панели вместо «Агенты»; в ленте первым идёт поручение, дальше сам чат.
+/// Снизу «План» и поле ввода (с кнопкой «стоп», пока поле пусто) — это safeAreaBar: система отодвигает чат на их фактическую высоту,
+/// поэтому карточки ничего не закрывают.
 struct AgentPanel: View {
 	@Environment(AppModel.self) private var model
 	var agentId: String
@@ -28,17 +28,15 @@ struct AgentPanel: View {
 					}
 					.frame(maxWidth: .infinity, maxHeight: .infinity)
 					.animation(DS.Motion.fade, value: a.isFinished)
-					.safeAreaBar(edge: .top, spacing: 0) {
+					// план — прямо над полем ввода: смотришь на него там, где пишешь агенту; раскрытый план ложится поверх чата
+					.safeAreaBar(edge: .bottom, spacing: 0) {
 						VStack(spacing: DS.Metrics.s2) {
-							AgentTitleBar(agent: a, title: model.store.title(of: a))
 							PlanBlock(agent: a, expanded: $planOpen, cap: geo.size.height * 0.3)
+								.padding(.horizontal, DS.Metrics.s3)
+							AgentComposer(agent: a, onEscape: collapseCards)
 						}
-						.padding(.horizontal, DS.Metrics.s3).padding(.top, DS.Metrics.s2).padding(.bottom, DS.Metrics.s2)
 						.fixedSize(horizontal: false, vertical: true)
 						.zIndex(1)
-					}
-					.safeAreaBar(edge: .bottom, spacing: 0) {
-						AgentComposer(agent: a, onEscape: collapseCards)
 					}
 					.id(a.id)
 					.transition(.opacity)
@@ -108,56 +106,13 @@ struct InfoCard<Trailing: View, Content: View>: View {
 	}
 }
 
-/// Шапка агента: состояние, заголовок (суть задачи) и кнопка «остановить» (пока агент работает). Без карточки и без имени агента:
-/// удаление и открытие в окне не предусмотрены — завершённые агенты убираются сами. «Назад» — в верхней строке панели (см. `AgentsPanel`).
-struct AgentTitleBar: View {
-	@Environment(AppModel.self) private var model
-	var agent: AgentView
-	var title: String
-
-	var body: some View {
-		HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
-			DSStateGlyph(state: agent.ds, size: DS.Metrics.glyphRow)
-				.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 3 }
-			Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(DS.Palette.textPrimary)
-				.lineLimit(2).multilineTextAlignment(.leading).layoutPriority(1)
-				.help(title)
-			Spacer(minLength: DS.Metrics.s2)
-			if agent.canStop {
-				TitleButton(symbol: "stop.fill", help: "Остановить ход (⌘.)") { model.stop(agent) }.disabled(model.isOffline)
-			}
-		}
-		.padding(.horizontal, DS.Metrics.s1)
-		.frame(maxWidth: .infinity, alignment: .leading)
-	}
-}
-
 /// Начало ленты: «Роль · состояние» и поручение (первое сообщение) сдержанным блоком; длинное — первые строки и «Показать ещё».
 struct AgentIntro: View {
-	@Environment(AppModel.self) private var model
 	var agent: AgentView
 	var goal: String
-	private var role: String? { model.roleInfo(of: agent)?.name }
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
-			HStack(spacing: DS.Metrics.s1) {
-				if let role {
-					Text("Роль").foregroundStyle(DS.Palette.textSecondary)
-					Text(role).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
-				}
-				Spacer(minLength: DS.Metrics.s2)
-				Text(agent.stateWord).foregroundStyle(DS.Palette.textSecondary)
-				if agent.parked {
-					Text("· свёрнут").foregroundStyle(DS.Palette.textSecondary).help("Сессия nessy закрыта по простою: контекст на диске, поднимется при следующем сообщении")
-				}
-				if agent.canStop || (agent.lastTurnMs ?? 0) >= 1000 {
-					DSTimer(agent: agent, frozenAt: model.frozenAt).foregroundStyle(DS.Palette.textSecondary)
-				}
-			}
-			.font(DS.Typography.secondary)
-			if !goal.isEmpty { MessageCard(text: goal) }
-		}
+		if !goal.isEmpty { MessageCard(text: goal) }
 	}
 }
 

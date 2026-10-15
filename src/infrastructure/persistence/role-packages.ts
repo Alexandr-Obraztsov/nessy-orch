@@ -48,6 +48,19 @@ export class FileRolePackages implements RolePackagePort {
 		return dest
 	}
 
+	ensure(id: string): string {
+		if (!isRoleId(id)) throw new AppError(400, 'bad_request', `id роли «${id}» не годится для пакета`)
+		const dir = path.join(this.root, id)
+		if (!fs.existsSync(dir)) {
+			fs.mkdirSync(dir, { recursive: true })
+			fs.writeFileSync(
+				path.join(dir, 'README.md'),
+				`# Файлы роли «${id}»\n\nСюда кладите скрипты, шаблоны и справочники роли. В инструкциях роли путь к этой папке пишется как {{role_dir}}:\nагент получит настоящий путь и сможет читать файлы и запускать скрипты (например, {{role_dir}}/scripts/run.sh).\n`,
+			)
+		}
+		return dir
+	}
+
 	remove(id: string): void {
 		if (!isRoleId(id)) return
 		fs.rmSync(path.join(this.root, id), { recursive: true, force: true })

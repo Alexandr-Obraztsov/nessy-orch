@@ -1,10 +1,11 @@
 import SwiftUI
 import NessyKit
 
-/// Строка источника (44): символ вида · заголовок / адрес · справа агенты и время. Ссылка открывается; файл и команда — только текст (выделяется).
+/// Строка источника (44): символ вида · заголовок / адрес · справа агенты и время. Ссылка открывается в браузере, файл — в редакторе кода.
 struct SourceRowView: View {
 	@Environment(AppModel.self) private var model
 	@Environment(\.openURL) private var openURL
+	@Environment(\.sessionWindow) private var win
 	var source: MergedSource
 	@State private var hovering = false
 
@@ -25,7 +26,7 @@ struct SourceRowView: View {
 				}
 			}
 			Spacer(minLength: DS.Metrics.s3)
-			if hovering, source.kind == .link {
+			if hovering, source.kind != .command {
 				Image(systemName: "arrow.up.right")
 					.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
 			} else if !source.agents.isEmpty {
@@ -43,9 +44,13 @@ struct SourceRowView: View {
 		.contentShape(Rectangle())
 		.onHover { h in withAnimation(h ? DS.Motion.hoverIn : DS.Motion.hoverOut) { hovering = h } }
 		.onTapGesture {
-			if let h = source.href, let u = URL(string: h) { openURL(u) }
+			switch source.kind {
+			case .link: if let h = source.href, let u = URL(string: h) { openURL(u) }
+			case .file: CodeOpener.open(label: source.title, line: nil, project: win?.dir ?? NSHomeDirectory(), model: model)
+			case .command: break
+			}
 		}
-		.help(source.href ?? source.title)
+		.help(source.kind == .file ? "Открыть в редакторе: \(source.title)" : (source.href ?? source.title))
 	}
 }
 
@@ -62,5 +67,23 @@ enum SourceIcon {
 			if h.contains("wiki") || h.contains("confluence") || h.contains("sage") { return "book" }
 			return "globe"
 		}
+	}
+}
+
+/// Открытие файла из источников в редакторе кода: VS Code, Cursor или Zed (по ссылке на нужную строку), иначе приложение по умолчанию.
+enum CodeOpener {
+	@MainActor
+	static func open(label: String, line: Int?, project: String, model: AppModel) {
+		let loc = CodeLocation.parse(label)
+		guard let path = loc.resolved(in: project) else {
+			model.flash("Файл не найден в проекте: \(loc.path)", error: true)
+			return
+		}
+		let l = line ?? loc.line
+		let workspace = NSWorkspace.shared
+		for editor in CodeEditor.allCases where workspace.urlForApplication(withBundleIdentifier: editor.bundleId) != nil {
+			if let url = editor.url(path: path, line: l) { workspace.open(url); return }
+		}
+		workspace.open(URL(fileURLWithPath: path))
 	}
 }

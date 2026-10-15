@@ -288,6 +288,27 @@ final class AppModel {
 		do { try await store.client.deleteRole(id); return true }
 		catch { flash("Роль не удалена: \(error.localizedDescription)", error: true); return false }
 	}
+	/// Папка файлов роли: при необходимости сначала создаётся (роль без файлов становится пакетом).
+	func roleFolder(_ r: RoleView) async -> URL? {
+		do {
+			if r.package != true { try await store.client.ensureRolePackage(r.id) }
+			return OrchToken.rolePackage(r.id)
+		} catch { flash("Папка роли не создана: \(error.localizedDescription)", error: true); return nil }
+	}
+	func revealRoleFolder(_ r: RoleView) {
+		Task { if let u = await roleFolder(r) { NSWorkspace.shared.open(u) } }
+	}
+	/// Папка роли в редакторе кода (VS Code, Cursor, Zed), иначе в Finder.
+	func openRoleInEditor(_ r: RoleView) {
+		Task {
+			guard let u = await roleFolder(r) else { return }
+			let ws = NSWorkspace.shared
+			for e in CodeEditor.allCases where ws.urlForApplication(withBundleIdentifier: e.bundleId) != nil {
+				if let url = e.url(path: u.path, line: nil) { ws.open(url); return }
+			}
+			ws.open(u)
+		}
+	}
 	func stop(_ a: AgentView) { Task { await run("Остановка") { try await self.store.client.cancel(a.id) } } }
 }
 

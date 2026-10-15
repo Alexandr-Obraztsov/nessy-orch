@@ -32,7 +32,7 @@ struct ResultContent: View {
 					if !parsed.sources.isEmpty {
 						VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 							Text("Источники").font(DS.Typography.groupTitle).foregroundStyle(DS.Palette.textSecondary)
-							VStack(spacing: 0) { ForEach(parsed.sources) { SourceRowView(source: MergedSource(chip: $0)) } }
+							VStack(spacing: 0) { ForEach(parsed.sources.map(MergedSource.init(chip:)).filter { $0.kind != .command }) { SourceRowView(source: $0) } }
 								.padding(.horizontal, -DS.Metrics.s3)
 						}
 					}
@@ -225,7 +225,8 @@ struct AgentComposer: View {
 	private var draft: Binding<String> {
 		Binding(get: { model.drafts[agent.id] ?? "" }, set: { model.drafts[agent.id] = $0 })
 	}
-	private var canSend: Bool { !draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.isOffline }
+	private var hasText: Bool { !draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+	private var canSend: Bool { hasText && !model.isOffline }
 
 	var body: some View {
 		let font = NSFont.systemFont(ofSize: 13)
@@ -243,8 +244,14 @@ struct AgentComposer: View {
 					}
 				}
 				.padding(.vertical, DS.Metrics.s1)
-				PlainIconButton(systemImage: "arrow.up", help: model.isOffline ? "Нет связи" : "Отправить (↩)", size: 28, filled: true, action: submit)
-					.disabled(!canSend)
+				// поле пусто, а агент работает: вместо «отправить» кнопка «стоп» (остановить ход)
+				if !hasText && agent.canStop {
+					PlainIconButton(systemImage: "stop.fill", help: model.isOffline ? "Нет связи" : "Остановить ход (⌘.)", size: 28, filled: true) { model.stop(agent) }
+						.disabled(model.isOffline)
+				} else {
+					PlainIconButton(systemImage: "arrow.up", help: model.isOffline ? "Нет связи" : "Отправить (↩)", size: 28, filled: true, action: submit)
+						.disabled(!canSend)
+				}
 			}
 		}
 		.padding(.leading, DS.Metrics.s3).padding(.trailing, DS.Metrics.s2).padding(.vertical, DS.Metrics.s2)

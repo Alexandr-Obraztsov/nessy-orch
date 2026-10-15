@@ -57,6 +57,19 @@ describe('роли-пакеты', () => {
 		assert.ok((await hh.api<RoleView>('GET', '/roles/pkg')).body.instructions.includes('{{role_dir}}'))
 	})
 
+	it('POST /roles/:id/package: пустая папка для файлов создаётся, роль помечается пакетом', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		const made = await hh.api<RoleView>('POST', '/roles', { name: 'Без файлов', instructions: 'x', id: 'plain' })
+		assert.equal(made.body.package, undefined)
+		const r = await hh.api<RoleView>('POST', '/roles/plain/package')
+		assert.equal(r.status, 200)
+		assert.equal(r.body.package, true)
+		assert.ok(fs.existsSync(path.join(hh.home, 'role-packages', 'plain', 'README.md')))
+		assert.equal((await hh.api<RoleView>('POST', '/roles/plain/package')).body.package, true, 'повтор безопасен')
+		await hh.api('DELETE', '/roles/plain')
+	})
+
 	it('правка роли без packageDir сохраняет пакет; удаление роли убирает копию; плохой путь — 400', T, async () => {
 		const hh = h
 		assert.ok(hh)

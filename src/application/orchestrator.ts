@@ -61,6 +61,9 @@ const NO_ROLE_PACKAGES: RolePackagePort = {
 	},
 	dirOf: () => null,
 	remove: () => undefined,
+	ensure: () => {
+		throw new AppError(400, 'packages_unavailable', 'пакеты ролей недоступны в этой сборке')
+	},
 }
 
 export class Orchestrator implements AgentHost {
@@ -307,6 +310,11 @@ export class Orchestrator implements AgentHost {
 		return this.rolesSvc.seed(files)
 	}
 
+	/** Создать роли папку для файлов (если её нет); `{{role_dir}}` в инструкциях начнёт подставляться. */
+	ensureRolePackage(ref: string): RoleView {
+		return this.rolesSvc.ensurePackage(ref)
+	}
+
 	removeRole(ref: string): void {
 		this.rolesSvc.remove(ref)
 	}
@@ -336,23 +344,30 @@ export class Orchestrator implements AgentHost {
 	 * полчаса, вместе с их (простаивающими) агентами. Свежие и работающие не трогаем: лимит может быть временно превышен.
 	 */
 	async pruneSessions(keepId: string): Promise<number> {
+		// одна уборка за раз: две параллельные видели бы одни и те же «лишние» сессии и удалили бы лишнее
+		const run = (this.pruning ?? Promise.resolve(0)).then(() => this.pruneOnce(keepId))
+		this.pruning = run.catch(() => 0)
+		return run
+	}
+
+	private pruning: Promise<number> | null = null
+
+	private async pruneOnce(keepId: string): Promise<number> {
 		const max = this.ctx.settings.maxSessions ?? 10
-		const all = this.sessionsSvc.list()
-		let over = all.length - max
-		if (over <= 0) return 0
 		const now = this.ctx.clock.now()
 		const agentsOf = (id: string): Agent[] => [...this.registry.agents.values()].filter(a => a.session === id)
 		const lastActivity = (s: SessionView): number => Math.max(Date.parse(s.updatedAt), ...agentsOf(s.id).map(a => Date.parse(a.lastActivityAt)))
-		const candidates = all
+		const candidates = this.sessionsSvc
+			.list()
 			.filter(s => s.id !== keepId && agentsOf(s.id).every(a => !a.isBusy && a.queue.length === 0) && now - lastActivity(s) > SESSION_FRESH_MS)
 			.sort((a, b) => lastActivity(a) - lastActivity(b))
 		let removed = 0
 		for (const s of candidates) {
-			if (over <= 0) break
+			if (this.sessionsSvc.list().length <= max) break // число пересчитывается по живым данным
+			if (!this.sessionsSvc.has(s.id)) continue
 			for (const a of agentsOf(s.id)) await this.agentsSvc.remove(a.id).catch(() => undefined)
 			try {
 				this.removeSession(s.id)
-				over--
 				removed++
 			} catch {
 				/* сессия снова занята — пропускаем */

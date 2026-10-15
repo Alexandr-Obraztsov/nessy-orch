@@ -429,3 +429,22 @@ struct PlainIconButton: View {
 	}
 }
 
+
+/// Заполнение окна контекста агента: тонкая полоса и процент. Чем больше, тем хуже ответы: от 60 % полоса красная — новую задачу лучше
+/// отдать новому агенту с чистым контекстом.
+struct DSContextMeter: View {
+	var pct: Int
+
+	private var tint: Color { pct >= 80 ? DS.Palette.danger : pct >= 60 ? DS.Palette.attention : DS.Palette.textSecondary }
+
+	var body: some View {
+		HStack(spacing: DS.Metrics.s1) {
+			Capsule().fill(DS.Palette.hover)
+				.frame(width: 28, height: 4)
+				.overlay(alignment: .leading) { Capsule().fill(tint).frame(width: 28 * CGFloat(min(max(pct, 0), 100)) / 100) }
+			Text("\(pct)%").font(DS.Typography.caption).monospacedDigit().foregroundStyle(pct >= 60 ? tint : DS.Palette.textSecondary)
+		}
+		.help("Контекст агента заполнен на \(pct) %: чем выше, тем хуже ответы; новую задачу лучше отдать новому агенту")
+		.accessibilityLabel("Контекст \(pct) процентов")
+	}
+}

@@ -368,10 +368,11 @@ struct SessionLogicTests {
 			try j("a-i", "idle"),
 		]
 		let sections = AgentGrouping.sections(list)
-		#expect(sections.map(\.group) == [.needsYou, .working, .done, .idle])
-		#expect(sections[0].agents.map(\.id) == ["a-w", "a-b", "a-e"], "запросы прав → блокировки → ошибки")
+		#expect(sections.map(\.group) == [.needsYou, .working, .done, .idle, .failed])
+		#expect(sections[0].agents.map(\.id) == ["a-w", "a-b"], "запросы прав → блокировки")
+		#expect(sections[4].agents.map(\.id) == ["a-e"], "ошибка без блокировки — в своей сворачиваемой группе")
 		let sum = list.summary
-		#expect(sum.needsYou == sections[0].agents.count && sum.working == 1 && sum.done == 1 && sum.idle == 1)
+		#expect(sum.needsYou == sections[0].agents.count + sections[4].agents.count && sum.error == 1 && sum.working == 1 && sum.done == 1 && sum.idle == 1)
 		#expect(sections.map(\.agents.count).reduce(0, +) == sum.total)
 		#expect(sum.top == .wait)
 	}
@@ -455,9 +456,9 @@ struct InstallerTests {
 	func makePlugin(_ dir: URL, version: String) throws {
 		try FileManager.default.createDirectory(at: dir.appendingPathComponent(".claude-plugin"), withIntermediateDirectories: true)
 		try FileManager.default.createDirectory(at: dir.appendingPathComponent("bin"), withIntermediateDirectories: true)
-		try FileManager.default.createDirectory(at: dir.appendingPathComponent("hooks"), withIntermediateDirectories: true)
+		try FileManager.default.createDirectory(at: dir.appendingPathComponent("skills/nessy-orch"), withIntermediateDirectories: true)
 		try #"{"name":"nessy","version":"\#(version)"}"#.write(to: dir.appendingPathComponent(".claude-plugin/plugin.json"), atomically: true, encoding: .utf8)
-		try "{}".write(to: dir.appendingPathComponent("hooks/hooks.json"), atomically: true, encoding: .utf8)
+		try "---\nname: nessy-orch\n---\n".write(to: dir.appendingPathComponent("skills/nessy-orch/SKILL.md"), atomically: true, encoding: .utf8)
 		let cli = dir.appendingPathComponent("bin/nessy-orch")
 		try "#!/usr/bin/env node\n".write(to: cli, atomically: true, encoding: .utf8)
 		try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
@@ -478,8 +479,8 @@ struct InstallerTests {
 		#expect(inst.state() == .outdated(installed: "1.0.1"))
 		try inst.install()
 		#expect(inst.state() == .upToDate)
-		// повреждённая копия (нет хуков) — не «актуальна»
-		try FileManager.default.removeItem(at: inst.destination!.appendingPathComponent("hooks/hooks.json"))
+		// повреждённая копия (нет скилла) — не «актуальна»
+		try FileManager.default.removeItem(at: inst.destination!.appendingPathComponent("skills/nessy-orch/SKILL.md"))
 		#expect(inst.state() == .outdated(installed: "1.0.2"))
 		try inst.uninstall()
 		#expect(inst.state() == .missing)
@@ -513,14 +514,40 @@ struct LossySnapshotTests {
 	@Test func brokenRecordIsSkippedNotTheWholeSnapshot() throws {
 		let json = """
 		{"t":"snapshot","rev":3,"spaces":[],"roles":[],"messages":[],
-		 "sessions":[{"id":"s1","title":"T","owner":null,"status":"active","summary":null,"createdAt":"a","updatedAt":"b","sources":0,"unread":2},{"id":5}],
+		 "sessions":[{"id":"s1","title":"T","owner":null,"status":"active","summary":null,"createdAt":"a","updatedAt":"b","sources":0},{"id":5}],
 		 "agents":[{"id":"a1"}]}
 		"""
 		let e = StreamEvent.decode(Data(json.utf8))
 		guard case .snapshot(let s) = e else { Issue.record("снимок не разобран"); return }
 		#expect(s.sessions.map(\.id) == ["s1"])
-		#expect(s.sessions.first?.unread == 2)
 		#expect(s.agents.isEmpty, "запись без обязательных полей пропущена")
 		#expect(s.skipped == 2)
+	}
+}
+
+@Suite("Ссылки на код")
+struct CodeLocationTests {
+	@Test func parsesLabels() {
+		#expect(CodeLocation.parse("src/app.ts:42") == CodeLocation(path: "src/app.ts", line: 42))
+		#expect(CodeLocation.parse("repo@abc123:src/app.ts:7:3") == CodeLocation(path: "src/app.ts", line: 7))
+		#expect(CodeLocation.parse("README.md") == CodeLocation(path: "README.md", line: nil))
+		#expect(CodeLocation.parse("  /abs/x.swift:1 ") == CodeLocation(path: "/abs/x.swift", line: 1))
+	}
+
+	@Test func resolvesInsideProjectAndAbove() throws {
+		let root = FileManager.default.temporaryDirectory.appendingPathComponent("loc-\(UUID().uuidString)")
+		let sub = root.appendingPathComponent("a/b")
+		try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+		try "x".write(to: root.appendingPathComponent("a/file.txt"), atomically: true, encoding: .utf8)
+		defer { try? FileManager.default.removeItem(at: root) }
+		#expect(CodeLocation(path: "file.txt").resolved(in: sub.path) == nil || CodeLocation(path: "a/file.txt").resolved(in: sub.path) != nil)
+		#expect(CodeLocation(path: "a/file.txt").resolved(in: sub.path) == root.appendingPathComponent("a/file.txt").path, "поиск идёт вверх от каталога проекта")
+		#expect(CodeLocation(path: "нет.txt").resolved(in: sub.path) == nil)
+		#expect(CodeLocation(path: root.appendingPathComponent("a/file.txt").path).resolved(in: "/nowhere") != nil)
+	}
+
+	@Test func editorUrls() {
+		#expect(CodeEditor.vscode.url(path: "/p/a b.ts", line: 12)?.absoluteString == "vscode://file/p/a%20b.ts:12")
+		#expect(CodeEditor.zed.url(path: "/p/x.rs", line: nil)?.absoluteString == "zed://file/p/x.rs")
 	}
 }

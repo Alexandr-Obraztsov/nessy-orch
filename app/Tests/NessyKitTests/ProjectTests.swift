@@ -153,16 +153,11 @@ struct HooksTests {
 		#expect(ShellQuote.quote("it's") == "'it'\\''s'")
 	}
 
-	@Test func sessionLeadStateDecodesWithFallback() throws {
-		func dec(_ extra: String) throws -> SessionView {
-			let j = #"{"id":"s","title":"T","owner":null,"status":"active","summary":null,"createdAt":"x","updatedAt":"x","sources":0\#(extra)}"#
-			return try JSONDecoder().decode(SessionView.self, from: Data(j.utf8))
-		}
-		#expect(try dec("").lead == nil)
-		#expect(try dec(#","lead":{"state":"working","at":"2026-10-10T10:00:00Z"}"#).lead?.state == .working)
-		#expect(try dec(#","lead":{"state":"ended"}"#).lead?.state == .ended)
-		#expect(try dec(#","lead":{"state":"что-то новое"}"#).lead?.state == .idle)
-		#expect(try dec(#","lead":"мусор""#).lead == nil)
+	@Test func sessionDecodesWithoutRemovedFields() throws {
+		// старые сервисы присылали lead/unread/origin: лишние поля игнорируются
+		let j = #"{"id":"s","title":"T","owner":null,"status":"active","summary":null,"createdAt":"x","updatedAt":"x","sources":0,"lead":{"state":"idle"},"unread":3,"origin":"w","cwd":"/p","chatId":"c"}"#
+		let v = try JSONDecoder().decode(SessionView.self, from: Data(j.utf8))
+		#expect(v.id == "s" && v.cwd == "/p" && v.chatId == "c")
 	}
 
 }

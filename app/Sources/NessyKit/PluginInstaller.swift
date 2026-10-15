@@ -2,7 +2,7 @@ import Foundation
 
 /// Глобальная установка плагина nessy в Claude Code: копия плагина из приложения кладётся в `~/.claude/skills/<имя плагина>/`.
 /// Claude Code сам подхватывает такую папку как плагин (`<имя>@skills-dir`, включён по умолчанию), читает его на месте и не копирует,
-/// поэтому ни маркетплейс, ни `claude plugin install` не нужны. В плагине: скилл `nessy-orch`, команды, хуки сессий и CLI `nessy-orch` (`bin/`
+/// поэтому ни маркетплейс, ни `claude plugin install` не нужны. В плагине: скилл `nessy-orch`, команда и CLI `nessy-orch` (`bin/`
 /// попадает в PATH инструмента Bash). Обновление — перезапись папки; приложение делает его при смене версии плагина.
 public struct PluginInstaller: Sendable {
 	public enum State: Equatable, Sendable {
@@ -39,8 +39,8 @@ public struct PluginInstaller: Sendable {
 	public func state() -> State {
 		guard let b = bundled, let dest = destination else { return .notBundled }
 		guard let installed = Self.manifest(dest) else { return fm.fileExists(atPath: dest.path) ? .outdated(installed: nil) : .missing }
-		// версия та же и на месте всё, что нужно для работы (CLI и хуки)
-		let complete = fm.isExecutableFile(atPath: dest.appendingPathComponent("bin/nessy-orch").path) && fm.fileExists(atPath: dest.appendingPathComponent("hooks/hooks.json").path)
+		// версия та же и на месте всё, что нужно для работы (CLI и скилл)
+		let complete = fm.isExecutableFile(atPath: dest.appendingPathComponent("bin/nessy-orch").path) && fm.fileExists(atPath: dest.appendingPathComponent("skills/nessy-orch/SKILL.md").path)
 		return installed.version == b.version && complete ? .upToDate : .outdated(installed: installed.version)
 	}
 

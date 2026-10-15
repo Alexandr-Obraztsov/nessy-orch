@@ -14,6 +14,7 @@ export function registerRoleRoutes(r: Router): void {
 		const body = await readBody(req)
 		sendJson(res, 200, orch.updateRole(params['id'] ?? '', parseRoleRequest(body)))
 	})
+	r.add('POST', '/roles/:id/package', ({ res, orch, params }) => sendJson(res, 200, orch.ensureRolePackage(params['id'] ?? '')))
 	r.add('DELETE', '/roles/:id', ({ res, orch, params }) => {
 		orch.removeRole(params['id'] ?? '')
 		sendJson(res, 200, { ok: true })

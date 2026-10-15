@@ -90,6 +90,9 @@ public final class OrchClient: @unchecked Sendable {
 		return try await send("POST", "/roles", body: body)
 	}
 	public func deleteRole(_ id: String) async throws { try await raw("DELETE", "/roles/\(id)") }
+	/// Завести роли папку для файлов (скрипты, шаблоны); если она есть — ничего не меняется.
+	@discardableResult
+	public func ensureRolePackage(_ id: String) async throws -> RoleView { try await send("POST", "/roles/\(id)/package", body: [String: String]()) }
 
 	// MARK: сессии
 	/// Новая сессия вкладки проекта: папка и id чата Claude (`--session-id`).

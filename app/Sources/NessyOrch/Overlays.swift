@@ -97,8 +97,16 @@ struct RolesView: View {
 		// кнопки — круглые иконки справа в шапке окна; подписи в подсказках
 		.toolbar {
 			ToolbarItemGroup(placement: .primaryAction) {
-				Button { askDelete = true } label: { Label("Удалить роль", systemImage: "trash") }
-					.help("Удалить роль").disabled(sel == nil || isNew)
+				// всё про роль в одном меню: файлы (скрипты, шаблоны, команды) и удаление
+				Menu {
+					if let r = current, !isNew {
+						Button { model.revealRoleFolder(r) } label: { Label(r.package == true ? "Показать папку роли в Finder" : "Создать папку роли и показать", systemImage: "folder") }
+						Button { model.openRoleInEditor(r) } label: { Label("Открыть папку роли в редакторе кода", systemImage: "chevron.left.forwardslash.chevron.right") }
+						Divider()
+						Button(role: .destructive) { askDelete = true } label: { Label("Удалить роль", systemImage: "trash") }
+					}
+				} label: { Label("Ещё", systemImage: "ellipsis.circle") }
+					.help("Файлы роли и удаление").disabled(sel == nil || isNew)
 				Button { request(.new) } label: { Label("Новая роль", systemImage: "plus") }.help("Новая роль")
 				Button { save() } label: { Label("Сохранить", systemImage: "checkmark") }
 					.buttonStyle(.borderedProminent).keyboardShortcut("s")

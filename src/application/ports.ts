@@ -143,6 +143,8 @@ export interface RolePackagePort {
 	/** Путь копии или null, если пакета нет. */
 	dirOf(id: string): string | null
 	remove(id: string): void
+	/** Создать пустую папку пакета (с подсказкой в README), если её нет; возвращает путь. */
+	ensure(id: string): string
 }
 
 // ---------- время и идентификаторы ----------

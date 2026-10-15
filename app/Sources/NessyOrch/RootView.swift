@@ -116,16 +116,16 @@ final class SessionWindowModel {
 		app.startTerminal(for: self)
 	}
 
-	/// Окно закрыто: терминал завершается; пустая сессия (ни агентов, ни состояния Claude) удаляется.
+	/// Окно закрыто: терминал завершается; пустая сессия (ни одного агента) удаляется.
 	func closed() {
 		app.terminals.close(key: key)
 		// сервер останавливает работающих агентов сессии (они без хозяина жгли бы токены); сессия остаётся — её можно продолжить (`--resume`)
 		if let id = sessionId {
-			let empty = app.store.agents(inSession: id).isEmpty && app.store.session(id)?.lead == nil
+			let empty = app.store.agents(inSession: id).isEmpty
 			let client = app.store.client
 			Task {
 				try? await client.sessionClosed(id)
-				// проект без единого агента и без ответа Claude ничего не хранит: сессия не копится
+				// проект без единого агента ничего не хранит: сессия не копится
 				if empty { try? await client.deleteSession(id) }
 			}
 		}
@@ -236,17 +236,15 @@ private struct SidePanel: View {
 /// полоса прокручивается, активный всегда виден. Один проект — просто его название и «+».
 private struct ProjectSwitcher: View {
 	@Environment(AppModel.self) private var model
-	@Namespace private var ns
 	@State private var tabsWidth: CGFloat = 0
 
 	var body: some View {
-		let many = model.tabs.count > 1
 		HStack(spacing: 2) {
 			ScrollViewReader { proxy in
 				ScrollView(.horizontal) {
 					HStack(spacing: 2) {
 						ForEach(model.tabs, id: \.key) { w in
-							Segment(window: w, title: model.label(of: w), selected: many && w === model.activeWindow, plain: !many, ns: ns,
+							Segment(window: w, title: model.label(of: w), selected: w === model.activeWindow,
 									select: { model.select(w) }, close: { model.close(w) })
 								.id(w.key)
 						}
@@ -304,42 +302,41 @@ private struct ProjectSwitcher: View {
 		var window: SessionWindowModel
 		var title: String
 		var selected: Bool
-		var plain: Bool
-		var ns: Namespace.ID
 		var select: () -> Void
 		var close: () -> Void
 		@State private var hover = false
 
 		private var sum: SessionSummary { window.agents.summary }
 
+		/// Боковые слоты одинаковой ширины: индикатор слева, «×» справа (по наведению), название между ними. Отступы с обеих сторон равны по построению.
+		private let slot: CGFloat = 20
+
 		var body: some View {
-			HStack(spacing: 5) {
-				// слева слот той же ширины, что у «×» справа: название по центру вкладки; индикатор состояния лежит в этом слоте
-				indicator.frame(minWidth: 14, minHeight: 14)
-				Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
-					.frame(maxWidth: 140)
-				// «×» всегда занимает место (меняется только прозрачность): иначе ширина вкладки скачет, а полоса прокрутки не успевает за ней
-				// и обрезает крестик наполовину
-				Button(action: close) {
-					Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).frame(width: 14, height: 14)
-						.background(DS.Palette.hover, in: Circle()).contentShape(Circle())
+			Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+				.frame(maxWidth: 140)
+				.padding(.horizontal, slot + 4)
+				.frame(height: 22)
+				.overlay(alignment: .leading) { indicator.frame(width: slot, height: 14).padding(.leading, 4) }
+				.overlay(alignment: .trailing) {
+					Button(action: close) {
+						Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).frame(width: 14, height: 14)
+							.background(DS.Palette.hover, in: Circle()).contentShape(Circle())
+					}
+					.buttonStyle(.plain).focusEffectDisabled().help("Закрыть проект")
+					.frame(width: slot).padding(.trailing, 4)
+					.opacity(hover ? 1 : 0).allowsHitTesting(hover)
 				}
-				.buttonStyle(.plain).focusEffectDisabled().help("Закрыть проект")
-				.opacity(hover ? 1 : 0).allowsHitTesting(hover)
-			}
-			.padding(.horizontal, 8).frame(height: 22)
-			.foregroundStyle(plain || selected || hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
-			.background {
-				if selected { Capsule().fill(DS.Palette.textPrimary.opacity(0.14)).matchedGeometryEffect(id: "seg", in: ns) }
-				else if hover && !plain { Capsule().fill(DS.Palette.hover) }
-			}
-			.contentShape(Capsule())
-			.onTapGesture { if !plain { select() } }
-			.onHover { h in withAnimation(DS.Motion.pick(DS.Motion.layout, reduceMotion: false)) { hover = h } }
-			.help(window.dir)
-			.contextMenu { Button("Закрыть проект") { close() } }
-			.accessibilityElement(children: .combine)
-			.accessibilityAddTraits(selected ? .isSelected : [])
+				.foregroundStyle(selected || hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+				// активный проект подсвечен всегда (даже единственный); цвет меняется без привязки геометрии: при появлении новой вкладки подсветка не «залипает» на прежней
+				.background { Capsule().fill(selected ? DS.Palette.textPrimary.opacity(0.14) : hover ? DS.Palette.hover : .clear) }
+				.animation(DS.Motion.pick(DS.Motion.layout, reduceMotion: false), value: selected)
+				.contentShape(Capsule())
+				.onTapGesture { select() }
+				.onHover { h in withAnimation(DS.Motion.pick(DS.Motion.layout, reduceMotion: false)) { hover = h } }
+				.help(window.dir)
+				.contextMenu { Button("Закрыть проект") { close() } }
+				.accessibilityElement(children: .combine)
+				.accessibilityAddTraits(selected ? .isSelected : [])
 		}
 
 		/// Ждут вас — число на акценте; иначе работают — вращающийся глиф; иначе ничего.
@@ -350,9 +347,6 @@ private struct ProjectSwitcher: View {
 					.help("Ждут вас: \(sum.needsYou)")
 			} else if sum.working > 0 {
 				DSStateGlyph(state: .working, size: 11).help("Работают: \(sum.working)")
-			} else if let n = window.session?.unread, n > 0 {
-				// ответы агентов пришли, а Claude их ещё не получил (он занят или ждёт, пока вы напишете)
-				Image(systemName: "tray.full").font(.system(size: 11)).help("Ответов агентов, которые Claude ещё не получил: \(n)")
 			}
 		}
 	}
