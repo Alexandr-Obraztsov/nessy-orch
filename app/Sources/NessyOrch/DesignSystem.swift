@@ -172,13 +172,12 @@ extension AgentView {
 		case .working, .starting: return .working
 		case .error: return .error
 		case .done: return .done
-		case .idle: return .idle
 		}
 	}
 
 	/// Слово состояния по словарю (screens.md §6).
 	var stateWord: String {
-		if let c = replyCode, c != .done, state == .done || state == .idle { return c.label }
+		if let c = replyCode, c != .done, state == .done { return c.label }
 		return state.label
 	}
 }
@@ -190,7 +189,6 @@ extension NessyKit.AgentState {
 		case .working, .starting: .working
 		case .error: .error
 		case .done: .done
-		case .idle: .idle
 		}
 	}
 }

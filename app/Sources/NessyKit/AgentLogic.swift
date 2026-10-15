@@ -1,17 +1,16 @@
 import Foundation
 
-/// Отображаемое состояние агента. Порядок важности: ждёт → ошибка → работает → запуск → выполнено → свободен.
+/// Отображаемое состояние агента. Порядок важности: ждёт → ошибка → работает → запуск → выполнено.
 public enum AgentState: Int, Sendable, Comparable {
-	case wait, working, starting, error, idle, done
+	case wait, working, starting, error, done
 	public static func < (a: AgentState, b: AgentState) -> Bool { a.rank < b.rank }
-	/// порядок карточек в задаче: ждут → работают → ошибка → ждут поручения → выполнены
+	/// порядок карточек в задаче: ждут → работают → ошибка → выполнены
 	var rank: Int {
 		switch self {
 		case .wait: 0
 		case .working, .starting: 1
 		case .error: 2
-		case .idle: 3
-		case .done: 4
+		case .done: 3
 		}
 	}
 	public var label: String {
@@ -20,7 +19,6 @@ public enum AgentState: Int, Sendable, Comparable {
 		case .error: "Ошибка"
 		case .working: "Работает"
 		case .starting: "Запускается"
-		case .idle: "Ждёт поручения"
 		case .done: "Готово"
 		}
 	}
@@ -32,11 +30,12 @@ public extension AgentView {
 		if status == .error { return .error }
 		if status == .working { return .working }
 		if status == .starting { return .starting }
-		return archived || (lastReply != nil && lastReply?.failed == nil) ? .done : .idle
+		// «ждёт поручения» нет: провалившийся ответ — ошибка, всё остальное, что не работает, — готово
+		return lastReply?.failed != nil ? .error : .done
 	}
 	var canStop: Bool { status == .working || status == .starting }
 	/// Ход закончен (готово, ошибка, ждёт поручения): в окне агента показываем итог, а не чат.
-	var isFinished: Bool { state == .done || state == .idle || state == .error }
+	var isFinished: Bool { state == .done || state == .error }
 	var created: Date? { ISO.parse(createdAt) }
 	var lastActivity: Date? { ISO.parse(lastActivityAt) }
 	var turnStarted: Date? { ISO.parse(turnStartedAt) }

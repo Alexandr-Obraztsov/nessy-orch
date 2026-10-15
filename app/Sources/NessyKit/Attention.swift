@@ -14,7 +14,7 @@ public extension AgentView {
 	/// Ответ «заблокирован» / «не хватает данных», и агент не взял новую работу.
 	var isBlocked: Bool {
 		guard replyCode?.needsHuman == true else { return false }
-		return state == .done || state == .idle
+		return state == .done
 	}
 
 	/// Требует действия человека: запрос прав, ошибка, блокировка.
@@ -31,7 +31,7 @@ public extension AgentView {
 		switch state {
 		case .working, .starting: return .working
 		case .done: return .done
-		case .idle, .wait, .error: return .idle
+		case .wait, .error: return .failed
 		}
 	}
 
@@ -45,14 +45,13 @@ public extension AgentView {
 
 /// Группы списка агентов в порядке показа. Пустые группы не рисуются.
 public enum AgentGroup: Int, CaseIterable, Identifiable, Sendable {
-	case needsYou, working, done, idle, failed
+	case needsYou, working, done, failed
 	public var id: Int { rawValue }
 	public var title: String {
 		switch self {
 		case .needsYou: "Нужны вы"
 		case .working: "В работе"
 		case .done: "Готово"
-		case .idle: "Ждут поручения"
 		case .failed: "Ошибки"
 		}
 	}
@@ -84,7 +83,7 @@ public enum AgentGrouping {
 /// Сводка сессии. Числа считаются той же функцией, что раскладывает агентов по группам, — поэтому сходятся.
 public struct SessionSummary: Sendable, Equatable {
 	public var total = 0
-	public var needsYou = 0, working = 0, done = 0, idle = 0
+	public var needsYou = 0, working = 0, done = 0
 	/// из needsYou: сколько ждут разрешения и сколько с ошибкой (для глифа сессии)
 	public var wait = 0, error = 0
 	public var active: Int { needsYou + working }
@@ -95,7 +94,7 @@ public struct SessionSummary: Sendable, Equatable {
 		if error > 0 { return .error }
 		if working > 0 { return .working }
 		if done > 0 { return .done }
-		return idle > 0 ? .idle : nil
+		return nil
 	}
 }
 
@@ -113,7 +112,6 @@ public extension Sequence where Element == AgentView {
 				s.error += 1
 			case .working: s.working += 1
 			case .done: s.done += 1
-			case .idle: s.idle += 1
 			}
 		}
 		return s

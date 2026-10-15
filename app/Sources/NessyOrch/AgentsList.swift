@@ -26,7 +26,7 @@ struct AgentsPanel: View {
 	}
 }
 
-/// Список агентов сессии по смыслу: Нужны вы → В работе → Готово → Ждут поручения. Заголовок — «Агенты · N».
+/// Список агентов сессии по смыслу: Нужны вы → В работе → Готово → Ошибки. Заголовок — «Агенты · N».
 struct AgentsListView: View {
 	@Environment(AppModel.self) private var model
 	@Environment(\.sessionWindow) private var win
@@ -235,15 +235,13 @@ struct AgentStageLine: View {
 				EmptyView()
 			case .error:
 				reason("Ошибка", a.error ?? "ход завершился ошибкой", DS.Palette.danger)
-			case .done, .idle:
+			case .done:
 				if a.isBlocked, let c = a.replyCode {
 					reason(c.label, a.replyReason.isEmpty ? answer : a.replyReason, DS.Palette.danger)
 				} else if a.replyCode == .doneWithConcerns {
 					reason("С оговорками", a.replyReason.isEmpty ? answer : a.replyReason, DS.Palette.textSecondary)
-				} else if a.state == .done, !answer.isEmpty {
+				} else if !answer.isEmpty {
 					Text(answer).foregroundStyle(DS.Palette.textSecondary).lineLimit(1)
-				} else {
-					Text("Ждёт поручения").foregroundStyle(DS.Palette.textSecondary)
 				}
 			}
 		}

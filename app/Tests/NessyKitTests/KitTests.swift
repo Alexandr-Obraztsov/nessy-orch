@@ -115,8 +115,8 @@ struct AgentLogicTests {
 		let done = try decodeAgent(agentJSON(id: "a-done", status: "idle", archived: true))
 		let idle = try decodeAgent(agentJSON(id: "a-idle", status: "idle"))
 		let err = try decodeAgent(agentJSON(id: "a-err", status: "error"))
-		#expect(perm.state == .wait && work.state == .working && done.state == .done && idle.state == .idle && err.state == .error)
-		#expect(AgentOrder.sorted([done, idle, err, work, perm]).map(\.id) == ["a-wait", "a-work", "a-err", "a-idle", "a-done"])
+		#expect(perm.state == .wait && work.state == .working && done.state == .done && idle.state == .done && err.state == .error)
+		#expect(AgentOrder.sorted([done, idle, err, work, perm]).map(\.id) == ["a-wait", "a-work", "a-err", "a-done", "a-idle"])
 	}
 
 	@Test func replyMakesDone() throws {
@@ -124,7 +124,7 @@ struct AgentLogicTests {
 		#expect(a.state == .done)
 		#expect(Brief.summary(a) == "ок")
 		let f = try decodeAgent(agentJSON(status: "idle", reply: #"{"msgId":"m","ts":1,"failed":"x","preview":"…"}"#))
-		#expect(f.state == .idle)
+		#expect(f.state == .error)
 	}
 
 	@Test func elapsedAndStalled() throws {
@@ -368,11 +368,11 @@ struct SessionLogicTests {
 			try j("a-i", "idle"),
 		]
 		let sections = AgentGrouping.sections(list)
-		#expect(sections.map(\.group) == [.needsYou, .working, .done, .idle, .failed])
+		#expect(sections.map(\.group) == [.needsYou, .working, .done, .failed])
 		#expect(sections[0].agents.map(\.id) == ["a-w", "a-b"], "запросы прав → блокировки")
-		#expect(sections[4].agents.map(\.id) == ["a-e"], "ошибка без блокировки — в своей сворачиваемой группе")
+		#expect(sections[3].agents.map(\.id) == ["a-e"], "ошибка без блокировки — в своей сворачиваемой группе")
 		let sum = list.summary
-		#expect(sum.needsYou == sections[0].agents.count + sections[4].agents.count && sum.error == 1 && sum.working == 1 && sum.done == 1 && sum.idle == 1)
+		#expect(sum.needsYou == sections[0].agents.count + sections[3].agents.count && sum.error == 1 && sum.working == 1 && sum.done == 2)
 		#expect(sections.map(\.agents.count).reduce(0, +) == sum.total)
 		#expect(sum.top == .wait)
 	}
