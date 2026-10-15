@@ -196,8 +196,7 @@ id роли (`reviewer`, `reviewer-2`, …), а `preambleFor` добавляет
 (`Agent.session`; агент, запущенный агентом, наследует сессию родителя), у неё свой курсор inbox (`Feed`). Не путать с сессией nessy
 (`Agent.nessyId`). `SourcesService` собирает источники сессии: ссылки из раздела «Источники» итоговых ответов (`domain/reply.ts`)
 и ссылки из входа вызовов инструментов (`domain/sources.ts`); дедупликация по ключу, хранение построчно в `sources/<сессия>.jsonl`,
-счётчик — в `SessionView.sources`. `Agent.stats` считает ходы, вызовы инструментов, время и токены (`usage` из `turn_complete` или
-`GET /session/:id/stats`); `ReplyBrief.status` — статус из последней строки ответа. Ход «в полёте» при рестарте помечается потерянным
+счётчик — в `SessionView.sources`. `Agent.stats` считает ходы, вызовы инструментов, время и токены (`GET /session/:id/stats`), заполнение контекста — `GET /session/:id/context-usage`; `ReplyBrief.status` — статус из последней строки ответа. Ход «в полёте» при рестарте помечается потерянным
 (`PersistedAgent.inflight`) и завершается ошибкой при `start()`.
 
 ### Ожидание (`--wait`)

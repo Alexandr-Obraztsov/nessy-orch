@@ -171,7 +171,7 @@ function endTurn(s: Session, turn: Turn, stopReason: string): void {
 	const output = 150 + s.seq * 8
 	const cached = Math.floor(input * 0.4)
 	s.tokens = { input: s.tokens.input + input, output: s.tokens.output + output, cached: s.tokens.cached + cached }
-	emit(s, 'turn_complete', { stopReason, promptId: turn.promptId, usage: { inputTokens: input, outputTokens: output, cachedReadTokens: cached, totalTokens: input + output } })
+	emit(s, 'turn_complete', { stopReason, promptId: turn.promptId })
 }
 
 const LONG_ANSWER = `## План проверки
@@ -564,7 +564,13 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
 	}
 	if (req.method === 'GET' && action === 'stats') {
 		const t = s.tokens
-		return json(res, 200, { session: { tokens: { inputTokens: t.input, outputTokens: t.output, cachedReadTokens: t.cached, totalTokens: t.input + t.output } } })
+		// формат живого nessy serve: токены по моделям
+		return json(res, 200, { v: 1, sessionId: s.id, promptCount: 1, models: { 'fake/model': { tokens: { prompt: t.input, candidates: t.output, total: t.input + t.output, cached: t.cached, thoughts: 0 } } }, tools: { totalCalls: 0 } })
+	}
+	if (req.method === 'GET' && action === 'context-usage') {
+		// формат живого nessy serve: занято и окно модели; занятое растёт вместе с токенами сессии
+		const used = 12_000 + Math.min(s.tokens.input, 300_000)
+		return json(res, 200, { v: 1, sessionId: s.id, usage: { modelName: 'fake/model', totalTokens: used, contextWindowSize: 524_000 } })
 	}
 	if (req.method === 'POST' && action === 'cancel') {
 		cancelTurn(s)

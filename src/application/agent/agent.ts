@@ -16,7 +16,7 @@
  * с lastEventId из ответа (без повтора истории). Сообщение работающему агенту по умолчанию не прерывает его, а доставляется в идущий ход
  * (mid-turn-message); не приняли — встаёт в очередь.
  */
-import type { AgentPlan, AgentStats, AgentStatus, AgentView, Message, PlanEntry, ReplyBrief, TokenUsage, ToolBrief } from '../../../shared/types'
+import type { AgentPlan, AgentStats, AgentStatus, AgentView, Message, PlanEntry, ReplyBrief, ToolBrief } from '../../../shared/types'
 import { archiveAfterTurn, restoredStatus, statusAfterAttach, statusAfterTurn } from '../../domain/agent-status'
 import { USER, YOU } from '../../domain/constants'
 import { NessyBusyError } from '../../domain/errors'
@@ -25,7 +25,6 @@ import { coercePlanEntries, planOnTurnStart } from '../../domain/plan'
 import { planReminder } from '../../domain/preamble'
 import { parseReply } from '../../domain/reply'
 import { urlsInInput } from '../../domain/sources'
-import { addUsage } from '../../domain/usage'
 import { framePrompt } from '../../domain/routing'
 import type { AgentIdentity, TurnOutcome } from '../../domain/types'
 import { errMsg } from '../../lib/json'
@@ -104,8 +103,7 @@ export class Agent implements AgentIdentity {
 	/** ход, который шёл в момент остановки оркестратора: ответа не будет (разбирается в resumeQueue) */
 	private lostTurn: Message | null = null
 	/** токены хода из turn_complete (если nessy их прислал) */
-	private turnUsage: TokenUsage | null = null
-	/** заполнение контекста от nessy (usage_update / context-usage); приоритетнее оценки по токенам хода */
+	/** заполнение контекста по GET /context-usage: занято и размер окна модели (оба от nessy, без значений по умолчанию) */
 	private ctxUsed = 0
 	private ctxSize = 0
 	/** promptId завершённых ходов (поздние turn_complete/cancelled по ним игнорируются) */
@@ -718,17 +716,12 @@ export class Agent implements AgentIdentity {
 			case 'turn_complete':
 				if (!this.current || this.isDonePrompt(ev.promptId)) return
 				if (this.current.promptId && ev.promptId && this.current.promptId !== ev.promptId) return // устаревший реплей
-				this.turnUsage = ev.usage ?? null
 				this.finishTurn({ stopReason: ev.stopReason })
 				return
 			case 'cancelled':
 				if (!this.current || this.isDonePrompt(ev.promptId)) return
 				if (this.current.promptId && ev.promptId && this.current.promptId !== ev.promptId) return
 				this.finishTurn({ stopReason: 'cancelled' })
-				return
-			case 'context':
-				this.ctxUsed = ev.used
-				if (ev.size) this.ctxSize = ev.size
 				return
 			case 'plan':
 				if (!this.current) return // реплей вне хода игнорируем: план мог смениться через CLI
@@ -853,10 +846,8 @@ export class Agent implements AgentIdentity {
 
 	/** Размер контекста по входным токенам последнего хода: растёт вместе с историей чата агента (usage.input — весь промпт хода). */
 	private contextMetric(): Pick<AgentStats, 'contextTokens' | 'contextPct'> {
-		const used = this.ctxUsed > 0 ? this.ctxUsed : (this.turnUsage?.input ?? 0)
-		if (used <= 0) return { contextTokens: this.stats.contextTokens ?? null, contextPct: this.stats.contextPct ?? null }
-		const window = this.ctxSize || (this.deps.contextWindow ?? 128_000)
-		return { contextTokens: used, contextPct: Math.round((used / window) * 100) }
+		if (this.ctxUsed <= 0 || this.ctxSize <= 0) return { contextTokens: this.stats.contextTokens ?? null, contextPct: this.stats.contextPct ?? null }
+		return { contextTokens: this.ctxUsed, contextPct: Math.round((this.ctxUsed / this.ctxSize) * 100) }
 	}
 
 	private finishTurn(outcome: TurnOutcome): void {
@@ -868,10 +859,9 @@ export class Agent implements AgentIdentity {
 			turns: this.stats.turns + 1,
 			toolCalls: this.stats.toolCalls + this.turnSteps,
 			workMs: this.stats.workMs + this.lastTurnMs,
-			tokens: addUsage(this.stats.tokens, this.turnUsage),
+			tokens: this.stats.tokens,
 			...this.contextMetric(),
 		}
-		this.turnUsage = null
 		this.clearCancelTimer()
 		if (cur.promptId) this.rememberDone(cur.promptId)
 		this.journal.flushRun()
@@ -951,7 +941,7 @@ export class Agent implements AgentIdentity {
 		const [usage, ctx] = await Promise.all([client.usage(this.nessyId).catch(() => null), client.contextUsage(this.nessyId).catch(() => null)])
 		if (ctx) {
 			this.ctxUsed = ctx.used
-			if (ctx.size) this.ctxSize = ctx.size
+			this.ctxSize = ctx.size
 		}
 		if (!usage && !ctx) return
 		this.stats = { ...this.stats, ...(usage ? { tokens: usage } : {}), ...this.contextMetric() }

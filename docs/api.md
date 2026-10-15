@@ -75,9 +75,10 @@
 `SessionView.sources` — сколько источников собрано; список — `GET /sessions/:id/sources` (сохраняется в `sources/<id>.jsonl`).
 
 `AgentView.stats` = `{turns, toolCalls, workMs, tokens}`: завершённые ходы, вызовы инструментов, суммарное время ходов (мс) и токены
-`{input, output, cached, total}` (`null`, если nessy их не сообщает). Токены берутся из `usage` в `turn_complete` либо из
-`GET /session/:id/stats` nessy нарастающим итогом; точная форма в контракте nessy не зафиксирована, разбор — по именам полей
-(`inputTokens`/`input_tokens`/`promptTokens`, `outputTokens`/`completionTokens`, `cachedReadTokens`, `totalTokens`).
+`{input, output, cached, total}` (`null`, если nessy их не сообщает). Токены — нарастающий итог из `GET /session/:id/stats`:
+сумма `models.<модель>.tokens.{prompt, candidates, cached, total}` по всем моделям сессии. Заполнение контекста — из
+`GET /session/:id/context-usage`: `usage.totalTokens` (занято) и `usage.contextWindowSize` (окно модели) → `contextTokens`, `contextPct`;
+нет ответа — поля пусты, значения по умолчанию нет. Оба опрашиваются каждые 5 с, пока идёт ход, и в конце хода.
 
 `AgentView.lastReply.status` / `.reason` — статус из последней строки ответа агента (`Статус: DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT — причина`), если он его указал.
 У `ToolEvent` в чате есть `endedTs` (когда вызов завершился): длительность = `endedTs − ts`.

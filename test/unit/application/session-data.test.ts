@@ -92,8 +92,10 @@ describe('счётчики и ответ агента', () => {
 		const id = await startTurn(ctx, s.id)
 		ctx.gw.emit({ kind: 'tool', toolId: 't1', name: 'bash', title: 'ls', input: {}, status: 'completed', output: '' })
 		ctx.gw.emit({ kind: 'tool', toolId: 't2', name: 'bash', title: 'pwd', input: {}, status: 'completed', output: '' })
+		ctx.gw.usageValue = { input: 1000, output: 250, cached: 400, total: 1250 }
 		ctx.gw.emit({ kind: 'text', text: REPLY, messageId: 'm' })
-		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1', usage: { input: 1000, output: 250, cached: 400, total: 1250 } })
+		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
+		await until(() => ctx.orch.getAgent(id).stats.tokens?.total === 1250, 2000, 'токены из /stats')
 		const a = ctx.orch.getAgent(id)
 		assert.equal(a.stats.turns, 1)
 		assert.equal(a.stats.toolCalls, 2)
@@ -102,13 +104,13 @@ describe('счётчики и ответ агента', () => {
 		assert.equal(a.lastReply.reason, 'не гонял e2e')
 	})
 
-	it('токены нарастающим итогом из /stats переопределяют сумму по ходам', async () => {
+	it('токены — нарастающий итог из /stats', async () => {
 		const ctx = setup()
 		ctx.gw.usageValue = { input: 5000, output: 900, cached: 0, total: 5900 }
 		const s = ctx.orch.createSession({ title: 'Токены' })
 		const id = await startTurn(ctx, s.id)
 		ctx.gw.emit({ kind: 'text', text: 'ок', messageId: 'm' })
-		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1', usage: { input: 10, output: 5, cached: 0, total: 15 } })
+		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
 		await until(() => ctx.orch.getAgent(id).stats.tokens?.total === 5900, 2000, 'токены из /stats')
 	})
 

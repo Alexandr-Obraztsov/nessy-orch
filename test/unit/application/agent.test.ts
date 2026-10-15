@@ -267,13 +267,22 @@ describe('агент: архив и прерывание', () => {
 		assert.equal(ctx.orch.resolveAgent(id).nessyId, session)
 	})
 
-	it('метрика контекста: входные токены последнего хода и доля окна', async () => {
+	it('метрика контекста: занято и окно модели — оба от nessy (GET /context-usage)', async () => {
+		const ctx = setup()
+		ctx.gw.contextValue = { used: 33_241, size: 524_000 }
+		const id = await startTurn(ctx)
+		ctx.gw.emit({ kind: 'text', text: 'ок', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
+		await until(() => ctx.orch.getAgent(id).stats.contextPct === 6, 2000, 'контекст из /context-usage')
+		assert.equal(ctx.orch.getAgent(id).stats.contextTokens, 33_241)
+	})
+
+	it('nessy не сообщает контекст — пусто, окно по умолчанию не подставляется', async () => {
 		const ctx = setup()
 		const id = await startTurn(ctx)
-		ctx.gw.emit({ kind: 'text', text: 'ок', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1', usage: { input: 64_000, output: 10, cached: 0, total: 64_010 } })
+		ctx.gw.emit({ kind: 'text', text: 'ок', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
 		const st = ctx.orch.getAgent(id).stats
-		assert.equal(st.contextTokens, 64_000)
-		assert.equal(st.contextPct, 50, 'окно по умолчанию 128000')
+		assert.equal(st.contextPct ?? null, null)
+		assert.equal(st.contextTokens ?? null, null)
 	})
 
 	it('interrupt: следующий промпт уходит только после подтверждения отмены, срочное — первым', async () => {

@@ -19,18 +19,18 @@ import type { JsonObject } from '../../lib/json.types'
 import { clip } from '../../lib/text'
 import { SseParser } from '../sse/sse-parser'
 import { NessyEventMapper } from './event-mapper'
-import { extractContext, extractUsage } from './usage'
+import { parseContextUsage, parseStats } from './usage'
 
 /**
  * Сырой ответ nessy на /stats и /context-usage — в файл `<home>/logs/usage-raw.log` (и в лог оркестратора): формат в контракте не
- * зафиксирован, по этим строкам его можно сверить. Пишем первые несколько ответов каждого вида, дальше не засоряем.
+ * зафиксирован, по этим строкам его можно сверить. Формат уже подтверждён; пишем первые два ответа каждого вида на случай смены версии nessy.
  */
 const rawCount = new Map<string, number>()
 function noteRaw(kind: string, status: number, body: unknown): void {
 	if (process.env['NODE_TEST_CONTEXT']) return // тесты не пишут в настоящий лог
 	const key = `${kind}:${status}`
 	const n = rawCount.get(key) ?? 0
-	if (n >= 5) return
+	if (n >= 2) return
 	rawCount.set(key, n + 1)
 	const line = `${new Date().toISOString()} nessy ${kind}: HTTP ${status} ${JSON.stringify(body).slice(0, 1500)}`
 	console.log(`[nessy-orch] ${line}`)
@@ -173,17 +173,17 @@ export class NessyClient implements NessyGateway {
 		try {
 			const r = await this.request('GET', `/session/${sessionId}/stats`, undefined, 5000)
 			noteRaw('stats', r.status, r.json)
-			return r.status === 200 ? extractUsage(r.json) : null
+			return r.status === 200 ? parseStats(r.json) : null
 		} catch {
 			return null
 		}
 	}
 
-	async contextUsage(sessionId: string): Promise<{ used: number; size: number | null } | null> {
+	async contextUsage(sessionId: string): Promise<{ used: number; size: number } | null> {
 		try {
 			const r = await this.request('GET', `/session/${sessionId}/context-usage`, undefined, 5000)
 			noteRaw('context-usage', r.status, r.json)
-			return r.status === 200 ? extractContext(r.json) : null
+			return r.status === 200 ? parseContextUsage(r.json) : null
 		} catch {
 			return null
 		}

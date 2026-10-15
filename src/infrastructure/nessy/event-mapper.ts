@@ -5,11 +5,10 @@
  * Состояние маппера — только буфер инструментов по toolCallId: `title`/`rawInput` приходят
  * лишь в tool_call, а в tool_call_update их нет — без буфера обновление теряет заголовок.
  */
-import { extractUsage } from './usage'
 import type { PlanEntry, PlanStatus, ToolStatus } from '../../../shared/types'
 import type { SessionEvent } from '../../application/ports'
 import type { PermissionOption } from '../../domain/types'
-import { arr, isObject, num, obj, str, strOrNull } from '../../lib/json'
+import { arr, isObject, obj, str, strOrNull } from '../../lib/json'
 import type { JsonObject } from '../../lib/json.types'
 import type { ToolCallBuffer } from './protocol.types'
 import { buildToolOutput } from './tool-output'
@@ -98,10 +97,6 @@ function mapSessionUpdate(u: JsonObject, tools: Map<string, ToolCallBuffer>): Se
 		else tools.set(toolId, b)
 		return toolEvent(toolId, b)
 	}
-	if (su === 'usage_update') {
-		const used = num(u['used'])
-		return used > 0 ? { kind: 'context', used, size: num(u['size']) || null } : null
-	}
 	if (su === 'plan') return mapPlan(u)
 	return null // user_message_chunk (эхо), current_mode_update, session_info_update, available_commands_update
 }
@@ -128,7 +123,6 @@ function followupText(d: JsonObject): string {
  * Привести кадр nessy к внутренней форме. null — событие оркестратору не нужно.
  * `tools` — буфер инструментов этой подписки (мутируется). Вход — произвольный JSON.
  */
-let loggedNoUsage = false
 export function mapNessyEvent(eventName: string, frame: unknown, tools: Map<string, ToolCallBuffer>): SessionEvent | null {
 	if (!isObject(frame)) return null
 	const type = str(frame['type'], eventName)
@@ -139,12 +133,7 @@ export function mapNessyEvent(eventName: string, frame: unknown, tools: Map<stri
 		case 'turn_complete':
 			tools.clear()
 		{
-			const usage = extractUsage(d['usage'] ?? obj(d['_meta'])['usage'])
-			if (!usage && !loggedNoUsage) {
-				loggedNoUsage = true
-				console.log(`[nessy-orch] nessy turn_complete без токенов: ${JSON.stringify(d).slice(0, 600)}`)
-			}
-			return { kind: 'turn_complete', stopReason: str(d['stopReason'], 'end_turn'), promptId: strOrNull(d['promptId']), ...(usage ? { usage } : {}) }
+			return { kind: 'turn_complete', stopReason: str(d['stopReason'], 'end_turn'), promptId: strOrNull(d['promptId']) }
 		}
 		case 'turn_error':
 			return {

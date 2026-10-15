@@ -20,8 +20,7 @@ export type SessionEvent =
 			status: ToolStatus
 			output: string
 	  }
-	/** usage — токены хода, если nessy их сообщил */
-	| { kind: 'turn_complete'; stopReason: string; promptId: string | null; usage?: TokenUsage }
+	| { kind: 'turn_complete'; stopReason: string; promptId: string | null }
 	/** Ошибка хода (обычно следом придёт turn_complete). */
 	| { kind: 'turn_error'; message: string; retryable: boolean; code: number | null }
 	| { kind: 'cancelled'; promptId: string | null }
@@ -30,8 +29,6 @@ export type SessionEvent =
 	| { kind: 'followup'; text: string }
 	/** План агента целиком (ACP `plan`): каждое обновление заменяет прежний. */
 	| { kind: 'plan'; entries: PlanEntry[] }
-	/** Заполнение контекста модели (ACP usage_update): used — токенов в окне, size — размер окна, если nessy его сообщил */
-	| { kind: 'context'; used: number; size: number | null }
 	| { kind: 'died'; reason: string }
 	| { kind: 'evicted' }
 	/** кольцо событий nessy не покрывает пропуск: часть событий потеряна (ход мог закончиться незамеченным) */
@@ -64,7 +61,7 @@ export interface NessyGateway {
 	/** Токены сессии нарастающим итогом (GET /session/:id/stats); null — nessy не сообщает. */
 	usage(sessionId: string): Promise<TokenUsage | null>
 	/** Заполнение контекста (GET /session/:id/context-usage); null — nessy не сообщает. */
-	contextUsage(sessionId: string): Promise<{ used: number; size: number | null } | null>
+	contextUsage(sessionId: string): Promise<{ used: number; size: number } | null>
 	cancel(sessionId: string): Promise<void>
 	closeSession(sessionId: string): Promise<void>
 	/** Проголосовать по запросу разрешения (optionId=null → отмена). */

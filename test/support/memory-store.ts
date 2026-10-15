@@ -134,8 +134,10 @@ export class FakeGateway implements NessyGateway {
 	}
 	/** токены, которые вернёт GET /stats (null — nessy не сообщает) */
 	usageValue: TokenUsage | null = null
-	contextUsage(): Promise<{ used: number; size: number | null } | null> {
-		return Promise.resolve(null)
+	/** то, что вернёт GET /context-usage (null — nessy не сообщает) */
+	contextValue: { used: number; size: number } | null = null
+	contextUsage(): Promise<{ used: number; size: number } | null> {
+		return Promise.resolve(this.contextValue)
 	}
 	usage(): Promise<TokenUsage | null> {
 		return Promise.resolve(this.usageValue)
