@@ -79,6 +79,9 @@ struct RolesView: View {
 	@State private var askDiscard = false
 	@State private var askDelete = false
 	@State private var showStyle = false
+	/// вкладка редактора: инструкции роли или её файлы (скрипты, шаблоны)
+	@State private var tab = RoleTab.instructions
+	private enum RoleTab: Hashable { case instructions, files }
 
 	private var roles: [RoleView] { model.store.roles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending } }
 	private var current: RoleView? { if case .role(let id) = sel { return model.store.role(id) } else { return nil } }
@@ -193,18 +196,31 @@ struct RolesView: View {
 							}
 						}
 
-						section("Инструкции") {
-							TextEditor(text: $draft.instructions)
-								.font(.system(size: 13, design: .monospaced)).lineSpacing(3)
-								.scrollContentBackground(.hidden)
-								.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
-								.frame(minHeight: 180)
-								.background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))
-								.overlay(RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous).stroke(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
-							Text(draft.hasPackage
-								? "Markdown. Эти инструкции агент получает в начале работы. У роли есть файлы (скрипты, шаблоны): `{{role_dir}}` в тексте заменяется путём к ним."
-								: "Markdown. Эти инструкции агент получает в начале работы.")
-								.font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+						// у существующей роли — вкладки «Инструкции» и «Файлы» (скрипты, шаблоны, справочники): файлы правятся здесь же
+						if let r = current, !isNew {
+							Picker("", selection: $tab) {
+								Text("Инструкции").tag(RoleTab.instructions)
+								Text(r.package == true ? "Файлы" : "Файлы (нет)").tag(RoleTab.files)
+							}
+							.pickerStyle(.segmented).labelsHidden().frame(maxWidth: 260)
+						}
+						if tab == .files, let r = current, !isNew {
+							RoleFilesSection(role: r)
+						} else {
+							section("Инструкции") {
+								TextEditor(text: $draft.instructions)
+									.font(.system(size: 13, design: .monospaced)).lineSpacing(3)
+									.scrollContentBackground(.hidden)
+									.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
+									.frame(minHeight: 180)
+									.background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))
+									.overlay(RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous).stroke(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+								Text(draft.hasPackage
+									? "Markdown. Эти инструкции агент получает в начале работы. У роли есть файлы (скрипты, шаблоны): `{{role_dir}}` в тексте заменяется путём к ним."
+									: "Markdown. Эти инструкции агент получает в начале работы.")
+									.font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+							}
+
 						}
 					}
 					.padding(.horizontal, DS.Metrics.s8).padding(.top, DS.Metrics.s4).padding(.bottom, DS.Metrics.s4)
@@ -266,6 +282,7 @@ struct RolesView: View {
 	}
 	private func go(_ n: Sel) {
 		sel = n
+		tab = .instructions
 		if case .role(let id) = n, let r = model.store.role(id) { draft = RoleDraft(r) } else { var g = SystemRandomNumberGenerator(); draft = RoleDraft.fresh(using: &g) }
 	}
 	private func save() {

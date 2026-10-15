@@ -28,7 +28,7 @@ struct NessyOrchApp: App {
 		Window("Роли", id: "roles") {
 			RolesView().environment(model).tint(DS.Palette.accent)
 		}
-		.defaultSize(width: 760, height: 520)
+		.defaultSize(width: 920, height: 680)
 
 		MenuBarExtra {
 			MenuBarPanel().environment(model).tint(DS.Palette.accent)

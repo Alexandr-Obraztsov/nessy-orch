@@ -430,21 +430,26 @@ struct PlainIconButton: View {
 }
 
 
-/// Заполнение окна контекста агента: тонкая полоса и процент. Чем больше, тем хуже ответы: от 60 % полоса красная — новую задачу лучше
-/// отдать новому агенту с чистым контекстом.
+/// Заполнение окна контекста агента — кольцо, как в Claude: дуга растёт по часовой от верха. От 60 % дуга оранжевая, от 80 % красная: новую задачу
+/// лучше отдать новому агенту с чистым контекстом. Процент — в подсказке и для VoiceOver; в карточку кольцо влезает при любой ширине (14 pt).
 struct DSContextMeter: View {
 	var pct: Int
+	var size: CGFloat = 14
 
+	private var fraction: CGFloat { CGFloat(min(max(pct, 0), 100)) / 100 }
 	private var tint: Color { pct >= 80 ? DS.Palette.danger : pct >= 60 ? DS.Palette.attention : DS.Palette.textSecondary }
 
 	var body: some View {
-		HStack(spacing: DS.Metrics.s1) {
-			Capsule().fill(DS.Palette.hover)
-				.frame(width: 28, height: 4)
-				.overlay(alignment: .leading) { Capsule().fill(tint).frame(width: 28 * CGFloat(min(max(pct, 0), 100)) / 100) }
-			Text("\(pct)%").font(DS.Typography.caption).monospacedDigit().foregroundStyle(pct >= 60 ? tint : DS.Palette.textSecondary)
+		ZStack {
+			Circle().stroke(DS.Palette.textTertiary.opacity(0.35), lineWidth: 2)
+			Circle().trim(from: 0, to: max(fraction, pct > 0 ? 0.04 : 0))
+				.stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+				.rotationEffect(.degrees(-90))
 		}
+		.frame(width: size - 2, height: size - 2)
+		.frame(width: size, height: size)
 		.help("Контекст агента заполнен на \(pct) %: чем выше, тем хуже ответы; новую задачу лучше отдать новому агенту")
+		.accessibilityElement()
 		.accessibilityLabel("Контекст \(pct) процентов")
 	}
 }

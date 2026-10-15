@@ -12,6 +12,18 @@ import * as path from 'node:path'
 const PORT = Number(process.env.ORCH_PORT ?? 4337)
 const BASE = `http://127.0.0.1:${PORT}`
 
+// токен оператора: из окружения или из файла сервиса (<home>/token)
+function operatorToken() {
+	if (process.env.NESSY_ORCH_TOKEN) return process.env.NESSY_ORCH_TOKEN.trim()
+	try {
+		const home = process.env.NESSY_ORCH_HOME ?? path.join(os.homedir(), '.nessy-orch')
+		return fs.readFileSync(path.join(home, 'token'), 'utf8').trim()
+	} catch {
+		return ''
+	}
+}
+const TOKEN = operatorToken()
+
 function api(method, p, body) {
 	return new Promise((resolve, reject) => {
 		const payload = body === undefined ? null : JSON.stringify(body)
@@ -21,7 +33,7 @@ function api(method, p, body) {
 				port: PORT,
 				method,
 				path: p,
-				headers: payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {},
+				headers: { ...(TOKEN ? { 'X-Orch-Token': TOKEN } : {}), ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}) },
 			},
 			res => {
 				let d = ''

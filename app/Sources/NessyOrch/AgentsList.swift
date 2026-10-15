@@ -209,6 +209,7 @@ struct AgentRow: View {
 		let steps = (a.state == .working || a.state == .starting) ? (a.plan?.entries.map(\.status) ?? []) : []
 		VStack(alignment: .trailing, spacing: 6) {
 			HStack(spacing: DS.Metrics.s2) {
+				if let pct = a.stats.contextPct { DSContextMeter(pct: pct) }
 				if model.store.isNew(a) { DSNewDot() }
 				if a.state == .wait || a.canStop || (a.lastTurnMs ?? 0) >= 1000 {
 					DSTimer(agent: a, frozenAt: model.frozenAt)
@@ -216,7 +217,6 @@ struct AgentRow: View {
 			}
 			// индикатор шагов плана — под таймером, чтобы не отнимать место у строки «роль · токены · вызовы»
 			if !steps.isEmpty { DSPlanSegments(steps: steps) }
-			if let pct = a.stats.contextPct { DSContextMeter(pct: pct) }
 		}
 	}
 }
