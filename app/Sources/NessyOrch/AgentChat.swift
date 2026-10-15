@@ -80,12 +80,10 @@ struct ChatContent: View {
 		if let chat {
 			let entries = ChatEntries.build(chat.items, goal: goal)
 			ScrollView {
-				VStack(alignment: .leading, spacing: DS.Metrics.s4) {
+				LazyVStack(alignment: .leading, spacing: DS.Metrics.s4) {
 					AgentIntro(agent: agent, goal: goal)
-					if !chat.replayDone && chat.items.isEmpty {
-						ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(DS.Metrics.s6)
-					}
 					ForEach(entries) { LogEntryView(entry: $0) }
+					if agent.canStop { StageLine(agent: agent) }
 					Color.clear.frame(height: 1).id("chat-end")
 				}
 				.padding(DS.Metrics.s4)
@@ -119,7 +117,7 @@ struct ChatContent: View {
 				}
 			}
 		} else {
-			ProgressView().controlSize(.small)
+			Color.clear
 		}
 	}
 }
@@ -158,7 +156,7 @@ enum ChatEntries {
 				case .text(let t):
 					let s = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
 					if !s.isEmpty { out.append(LogEntry(id: row.id, label: "", body: .answer(s))) }
-				case .thought(let t): out.append(LogEntry(id: row.id, label: "Размышления", body: .thought(t.text)))
+				case .thought(let t): out.append(LogEntry(id: row.id, label: "", body: .thought(t.text)))
 				case .permission(let p): out.append(LogEntry(id: row.id, label: "", body: .permission(p)))
 				case .system(let s): if s.isError { out.append(LogEntry(id: row.id, label: "", body: .system(s))) }
 				case .tool: continue
@@ -253,11 +251,26 @@ struct AgentComposer: View {
 						.disabled(!canSend)
 				}
 			}
+			contextCaption
 		}
 		.padding(.leading, DS.Metrics.s3).padding(.trailing, DS.Metrics.s2).padding(.vertical, DS.Metrics.s2)
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.dsFloatingCard()
 		.padding(.horizontal, DS.Metrics.s3).padding(.bottom, DS.Metrics.s3)
+	}
+
+	/// Заполнение контекста под полем: кольцо и «Контекст: 42 % · 54 тыс. токенов».
+	private var contextCaption: some View {
+		HStack(spacing: DS.Metrics.s1) {
+			if let pct = agent.stats.contextPct {
+				DSContextMeter(pct: pct, size: 12)
+				Text("Контекст заполнен на \(pct) %" + (agent.stats.contextTokens.map { " · \(Numbers.compact($0)) токенов" } ?? ""))
+			} else {
+				Text("Контекст: нет данных")
+			}
+		}
+		.font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary).monospacedDigit()
+		.padding(.top, 2)
 	}
 
 	private func submit() {

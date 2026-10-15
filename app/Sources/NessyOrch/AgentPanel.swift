@@ -9,6 +9,7 @@ struct AgentPanel: View {
 	var agentId: String
 	@State private var chat: ChatModel?
 	@State private var planOpen = false
+	@Environment(\.sessionWindow) private var win
 	private var agent: AgentView? { model.store.agents[agentId] }
 
 	var body: some View {
@@ -38,6 +39,8 @@ struct AgentPanel: View {
 						.fixedSize(horizontal: false, vertical: true)
 						.zIndex(1)
 					}
+					// шапка — «ликвид глас»: прозрачная, чат уходит под неё с размытием; своей анимации у шапки нет
+					.safeAreaBar(edge: .top, spacing: 0) { AgentHeaderRow(agent: a) { win?.open(agent: nil) } }
 					.id(a.id)
 					.transition(.opacity)
 				} else {
@@ -52,8 +55,11 @@ struct AgentPanel: View {
 			planOpen = UserDefaults.standard.bool(forKey: "debug.planOpen")
 			chat?.stop()
 			let c = ChatModel(ref: agentId)
-			c.start(client: model.store.client)
 			chat = c
+			// подписка — после анимации перехода от списка: реплей истории не должен конкурировать с ней за главный поток
+			try? await Task.sleep(for: .milliseconds(380))
+			guard !Task.isCancelled else { return }
+			c.start(client: model.store.client)
 		}
 		.onDisappear { chat?.stop() }
 		.onChange(of: agent?.lastReply?.msgId) { _, _ in if let a = agent { model.store.markSeen(agent: a) } }
@@ -71,6 +77,7 @@ struct AgentPanel: View {
 /// Свёрнутая — заголовок и одна строка; раскрытая — то же, но содержимое целиком.
 struct InfoCard<Trailing: View, Content: View>: View {
 	var title: String
+	var tint: Color = DS.Palette.hover
 	@Binding var expanded: Bool
 	var help: String
 	var cap: CGFloat
@@ -99,7 +106,7 @@ struct InfoCard<Trailing: View, Content: View>: View {
 		}
 		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.dsFloatingCard()
+		.dsFloatingCard(tint: tint)
 		.contentShape(RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous))
 		.onTapGesture { withAnimation(dsAnimation(DS.Motion.disclosure)) { expanded.toggle() } }
 		.help(help)
@@ -148,39 +155,28 @@ struct PlanBlock: View {
 			let cur = PlanWindowing.current(plan.entries)
 			let n = plan.entries.count
 			let done = plan.entries.filter { $0.status == .completed }.count
-			InfoCard(title: "План", expanded: $expanded, help: expanded ? "Свернуть план" : "Показать весь план", cap: cap) {
+			InfoCard(title: "План", tint: DS.Palette.accent.opacity(0.12), expanded: $expanded, help: expanded ? "Свернуть план" : "Показать весь план", cap: cap) {
 				HStack(spacing: DS.Metrics.s2) {
 					Text("\(done) из \(n)").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).monospacedDigit()
 					DSPlanSegments(steps: plan.entries.map(\.status))
 				}
 			} content: {
 				if expanded {
-					VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+					VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 						ForEach(Array(plan.entries.enumerated()), id: \.offset) { i, e in
-							PlanRow(entry: e, current: i == cur, spinning: agent.canStop)
+							PlanRow(entry: e, current: i == cur)
 						}
 					}
 				} else {
-					// свёрнуто: лоадер (или галочка) и последняя команда как есть; прогресс — сегменты в заголовке
-					HStack(spacing: DS.Metrics.s2) {
-						Group {
-							if agent.canStop { ProgressView().controlSize(.small).scaleEffect(0.7) }
-							else if done == n { Image(systemName: "checkmark").font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.quiet) }
-							else { Image(systemName: "circle").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary) }
+					// свёрнуто: предыдущий, текущий и следующий пункты; соседние затемнены
+					let focus = cur ?? max(n - 1, 0)
+					VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+						ForEach(Array((max(focus - 1, 0)...min(focus + 1, n - 1)).enumerated()), id: \.offset) { _, i in
+							PlanRow(entry: plan.entries[i], current: i == cur, oneLine: true).opacity(i == focus ? 1 : 0.45)
 						}
-						.frame(width: DS.Metrics.glyphRow, height: DS.Metrics.glyphRow)
-						Text(agent.activity ?? "").font(DS.Typography.secondary)
-							.foregroundStyle(agent.canStop ? DS.Palette.textPrimary : DS.Palette.textSecondary)
-							.lineLimit(1).truncationMode(.middle)
-							.frame(maxWidth: .infinity, alignment: .leading)
 					}
 				}
 			}
-		} else if agent.status == .working || agent.status == .starting {
-			StageLine(agent: agent)
-				.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
-				.frame(maxWidth: .infinity, alignment: .leading)
-				.dsFloatingCard()
 		}
 	}
 }
@@ -188,7 +184,6 @@ struct PlanBlock: View {
 struct PlanRow: View {
 	var entry: PlanEntry
 	var current: Bool
-	var spinning: Bool
 	var oneLine = false
 
 	var body: some View {
@@ -196,8 +191,8 @@ struct PlanRow: View {
 			Group {
 				if entry.status == .completed {
 					Image(systemName: "checkmark").font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.quiet)
-				} else if current && spinning {
-					ProgressView().controlSize(.small).scaleEffect(0.7)
+				} else if current {
+					Image(systemName: "circle.inset.filled").font(DS.Typography.caption).foregroundStyle(DS.Palette.accentText)
 				} else {
 					Image(systemName: "circle").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
 				}
@@ -205,7 +200,7 @@ struct PlanRow: View {
 			.frame(width: DS.Metrics.glyphRow, height: DS.Metrics.glyphRow)
 			.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
 			Text(entry.content)
-				.font(DS.Typography.secondary)
+				.font(DS.Typography.caption)
 				.foregroundStyle(current ? DS.Palette.textPrimary : entry.status == .completed ? DS.Palette.textSecondary : DS.Palette.textTertiary)
 				.lineLimit(oneLine ? 1 : 3)
 				.frame(maxWidth: .infinity, alignment: .leading)
@@ -213,7 +208,7 @@ struct PlanRow: View {
 	}
 }
 
-/// Нет плана: лоадер и сырой текст текущей команды.
+/// Строка статуса в конце чата, пока агент работает (как у Claude): единственный лоадер на экране агента.
 struct StageLine: View {
 	@Environment(AppModel.self) private var model
 	var agent: AgentView
@@ -222,8 +217,8 @@ struct StageLine: View {
 		TimelineView(.periodic(from: .now, by: 5)) { ctx in
 			HStack(spacing: DS.Metrics.s2) {
 				ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: DS.Metrics.glyphRow)
-				Text(agent.stage(now: model.frozenAt ?? ctx.date)?.text ?? "").font(DS.Typography.secondary)
-					.foregroundStyle(DS.Palette.textPrimary).lineLimit(1).truncationMode(.middle)
+				Text(agent.stage(now: model.frozenAt ?? ctx.date)?.text ?? "Думает…").font(DS.Typography.secondary)
+					.foregroundStyle(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
 			}
 		}
 	}
@@ -257,7 +252,6 @@ struct ToolRunView: View {
 	var body: some View {
 		let isOpen = open ?? verbose
 		let failed = tools.filter { $0.status == .failed }.count
-		let running = tools.last { $0.status == .inProgress || $0.status == .pending }
 		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 			Button { withAnimation(dsAnimation(DS.Motion.disclosure)) { open = !isOpen } } label: {
 				HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s1) {
@@ -273,14 +267,6 @@ struct ToolRunView: View {
 				.contentShape(Rectangle())
 			}
 			.buttonStyle(.plain)
-			// пока вызов идёт, под сводкой — что делается прямо сейчас
-			if let r = running, !isOpen {
-				HStack(spacing: DS.Metrics.s2) {
-					DSStateGlyph(state: .working, size: DS.Metrics.s3)
-					Text(ToolKind.activity(name: r.view.name)).foregroundStyle(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
-				}
-				.font(DS.Typography.caption)
-			}
 			if isOpen {
 				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 					ForEach(tools, id: \.seq) { ToolCallRow(tool: $0, verbose: verbose) }
@@ -311,7 +297,7 @@ struct ToolCallRow: View {
 				HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
 					Group {
 						switch tool.status {
-						case .inProgress, .pending: DSStateGlyph(state: .working, size: DS.Metrics.s3)
+						case .inProgress, .pending: Image(systemName: kind.symbol).foregroundStyle(DS.Palette.textSecondary)
 						case .failed: Image(systemName: kind.symbol).foregroundStyle(DS.Palette.danger)
 						case .completed: Image(systemName: kind.symbol).foregroundStyle(DS.Palette.textTertiary)
 						}
@@ -362,13 +348,22 @@ struct ThoughtView: View {
 	var text: String
 	@State private var open = false
 	var body: some View {
-		Text(text)
-			.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
-			.lineLimit(open ? nil : 2)
-			.textSelection(.enabled)
-			.contentShape(Rectangle())
-			.onTapGesture { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } }
-			.help(open ? "Свернуть" : "Показать целиком")
+		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+			Button { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } } label: {
+				HStack(spacing: DS.Metrics.s1) {
+					Text("Размышления")
+					Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold)).rotationEffect(.degrees(open ? 90 : 0)).foregroundStyle(DS.Palette.textTertiary)
+					Spacer(minLength: 0)
+				}
+				.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+				.contentShape(Rectangle())
+			}
+			.buttonStyle(.plain)
+			if open {
+				Text(text).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).textSelection(.enabled)
+					.padding(.leading, DS.Metrics.s3).transition(.opacity)
+			}
+		}
 	}
 }
 

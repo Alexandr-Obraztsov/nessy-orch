@@ -30,6 +30,8 @@ export type SessionEvent =
 	| { kind: 'followup'; text: string }
 	/** План агента целиком (ACP `plan`): каждое обновление заменяет прежний. */
 	| { kind: 'plan'; entries: PlanEntry[] }
+	/** Заполнение контекста модели (ACP usage_update): used — токенов в окне, size — размер окна, если nessy его сообщил */
+	| { kind: 'context'; used: number; size: number | null }
 	| { kind: 'died'; reason: string }
 	| { kind: 'evicted' }
 	/** кольцо событий nessy не покрывает пропуск: часть событий потеряна (ход мог закончиться незамеченным) */
@@ -61,6 +63,8 @@ export interface NessyGateway {
 	prompt(sessionId: string, text: string): Promise<{ promptId: string | null }>
 	/** Токены сессии нарастающим итогом (GET /session/:id/stats); null — nessy не сообщает. */
 	usage(sessionId: string): Promise<TokenUsage | null>
+	/** Заполнение контекста (GET /session/:id/context-usage); null — nessy не сообщает. */
+	contextUsage(sessionId: string): Promise<{ used: number; size: number | null } | null>
 	cancel(sessionId: string): Promise<void>
 	closeSession(sessionId: string): Promise<void>
 	/** Проголосовать по запросу разрешения (optionId=null → отмена). */

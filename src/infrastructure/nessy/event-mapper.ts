@@ -9,7 +9,7 @@ import { extractUsage } from './usage'
 import type { PlanEntry, PlanStatus, ToolStatus } from '../../../shared/types'
 import type { SessionEvent } from '../../application/ports'
 import type { PermissionOption } from '../../domain/types'
-import { arr, isObject, obj, str, strOrNull } from '../../lib/json'
+import { arr, isObject, num, obj, str, strOrNull } from '../../lib/json'
 import type { JsonObject } from '../../lib/json.types'
 import type { ToolCallBuffer } from './protocol.types'
 import { buildToolOutput } from './tool-output'
@@ -97,6 +97,10 @@ function mapSessionUpdate(u: JsonObject, tools: Map<string, ToolCallBuffer>): Se
 		if (b.status === 'completed' || b.status === 'failed') tools.delete(toolId)
 		else tools.set(toolId, b)
 		return toolEvent(toolId, b)
+	}
+	if (su === 'usage_update') {
+		const used = num(u['used'])
+		return used > 0 ? { kind: 'context', used, size: num(u['size']) || null } : null
 	}
 	if (su === 'plan') return mapPlan(u)
 	return null // user_message_chunk (эхо), current_mode_update, session_info_update, available_commands_update

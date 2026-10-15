@@ -127,12 +127,12 @@ extension View {
 	func dsGroup() -> some View { modifier(DSGroup()) }
 
 	/// Карточка панели агента: стеклянный слой поверх чата, одинаковый радиус у всех карточек.
-	func dsFloatingCard() -> some View {
+	func dsFloatingCard(tint: Color = DS.Palette.hover) -> some View {
 		let shape = RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous)
 		// непрозрачный слой: чат прокручивается под карточкой и не должен просвечивать сквозь текст
 		return self
 			.background(.regularMaterial, in: shape)
-			.background(DS.Palette.hover, in: shape)
+			.background(tint, in: shape)
 			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
 	}
 

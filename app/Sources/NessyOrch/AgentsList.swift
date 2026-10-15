@@ -12,18 +12,16 @@ struct AgentsPanel: View {
 		ZStack {
 			if let a = win?.openAgent {
 				AgentPanel(agentId: a.id)
-					.padding(.top, SessionWindowModel.rowHeight)
-					.overlay(alignment: .topLeading) { AgentHeaderRow(agent: a) { win?.open(agent: nil) } }
 					.transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
 			} else {
 				AgentsListView()
+					// подвал («Роли») — только на списке; карточки уходят под него с размытием, как под заголовок
+					.safeAreaBar(edge: .bottom, spacing: 0) { SidebarFooter() }
 					.transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
 			}
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.clipped()
-		// подвал (кнопки «Роли» и т. п.) — safeAreaBar: карточки уходят под него с размытием и затемнением, как под заголовок
-		.safeAreaBar(edge: .bottom, spacing: 0) { SidebarFooter() }
 		.onExitCommand { win?.open(agent: nil) }
 	}
 }

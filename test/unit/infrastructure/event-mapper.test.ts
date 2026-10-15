@@ -204,3 +204,11 @@ describe('маппер событий nessy: отдельный кадр turn_er
 		assert.deepEqual(map('turn_error', frame('turn_error', {})), { kind: 'turn_error', message: 'ошибка nessy', retryable: false, code: null })
 	})
 })
+
+describe('заполнение контекста (ACP usage_update)', () => {
+	it('usage_update даёт used и size, пустой — ничего', () => {
+		const ev = map('session_update', { type: 'session_update', data: { update: { sessionUpdate: 'usage_update', used: 54000, size: 200000 } } })
+		assert.deepEqual(ev, { kind: 'context', used: 54000, size: 200000 })
+		assert.equal(map('session_update', { type: 'session_update', data: { update: { sessionUpdate: 'usage_update', used: 0 } } }), null)
+	})
+})

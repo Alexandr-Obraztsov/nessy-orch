@@ -36,3 +36,18 @@ export function extractUsage(root: unknown, depth = 0): TokenUsage | null {
 	}
 	return null
 }
+
+const USED = ['used', 'usedtokens', 'currenttokens', 'contexttokens', 'tokens', 'totaltokens']
+const SIZE = ['size', 'contextwindow', 'maxtokens', 'limit', 'windowsize', 'contextsize']
+
+/** Заполнение контекста из ответа context-usage: used/size под любыми из привычных имён, на глубине до 3 уровней. */
+export function extractContext(root: unknown, depth = 0): { used: number; size: number | null } | null {
+	if (!isObject(root) || depth > 3) return null
+	const used = pick(root, USED)
+	if (used > 0) return { used, size: pick(root, SIZE) || null }
+	for (const v of Object.values(root)) {
+		const hit = extractContext(v, depth + 1)
+		if (hit) return hit
+	}
+	return null
+}

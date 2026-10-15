@@ -16,7 +16,7 @@ import type { JsonObject } from '../../lib/json.types'
 import { clip } from '../../lib/text'
 import { SseParser } from '../sse/sse-parser'
 import { NessyEventMapper } from './event-mapper'
-import { extractUsage } from './usage'
+import { extractContext, extractUsage } from './usage'
 import type { NessyResponse } from './protocol.types'
 import type { TokenUsage } from '../../../shared/types'
 
@@ -148,6 +148,15 @@ export class NessyClient implements NessyGateway {
 		try {
 			const r = await this.request('GET', `/session/${sessionId}/stats`, undefined, 5000)
 			return r.status === 200 ? extractUsage(r.json) : null
+		} catch {
+			return null
+		}
+	}
+
+	async contextUsage(sessionId: string): Promise<{ used: number; size: number | null } | null> {
+		try {
+			const r = await this.request('GET', `/session/${sessionId}/context-usage`, undefined, 5000)
+			return r.status === 200 ? extractContext(r.json) : null
 		} catch {
 			return null
 		}

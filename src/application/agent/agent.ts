@@ -105,6 +105,9 @@ export class Agent implements AgentIdentity {
 	private lostTurn: Message | null = null
 	/** токены хода из turn_complete (если nessy их прислал) */
 	private turnUsage: TokenUsage | null = null
+	/** заполнение контекста от nessy (usage_update / context-usage); приоритетнее оценки по токенам хода */
+	private ctxUsed = 0
+	private ctxSize = 0
 	/** promptId завершённых ходов (поздние turn_complete/cancelled по ним игнорируются) */
 	private readonly donePrompts: string[] = []
 	/** повторы поручения после ошибки: какое сообщение, который по счёту повтор и последняя ошибка (для пометки в промпте) */
@@ -703,6 +706,10 @@ export class Agent implements AgentIdentity {
 				if (this.current.promptId && ev.promptId && this.current.promptId !== ev.promptId) return
 				this.finishTurn({ stopReason: 'cancelled' })
 				return
+			case 'context':
+				this.ctxUsed = ev.used
+				if (ev.size) this.ctxSize = ev.size
+				return
 			case 'plan':
 				if (!this.current) return // реплей вне хода игнорируем: план мог смениться через CLI
 				this.setPlan(coercePlanEntries(ev.entries), 'acp')
@@ -815,9 +822,9 @@ export class Agent implements AgentIdentity {
 
 	/** Размер контекста по входным токенам последнего хода: растёт вместе с историей чата агента (usage.input — весь промпт хода). */
 	private contextMetric(): Pick<AgentStats, 'contextTokens' | 'contextPct'> {
-		const used = this.turnUsage?.input ?? 0
+		const used = this.ctxUsed > 0 ? this.ctxUsed : (this.turnUsage?.input ?? 0)
 		if (used <= 0) return { contextTokens: this.stats.contextTokens ?? null, contextPct: this.stats.contextPct ?? null }
-		const window = this.deps.contextWindow ?? 128_000
+		const window = this.ctxSize || (this.deps.contextWindow ?? 128_000)
 		return { contextTokens: used, contextPct: Math.round((used / window) * 100) }
 	}
 
@@ -910,9 +917,13 @@ export class Agent implements AgentIdentity {
 	private async refreshUsage(): Promise<void> {
 		const client = this.deps.host.getSpace(this.space)?.client
 		if (!client || !this.nessyId) return
-		const usage = await client.usage(this.nessyId).catch(() => null)
-		if (!usage) return
-		this.stats = { ...this.stats, tokens: usage }
+		const [usage, ctx] = await Promise.all([client.usage(this.nessyId).catch(() => null), client.contextUsage(this.nessyId).catch(() => null)])
+		if (ctx) {
+			this.ctxUsed = ctx.used
+			if (ctx.size) this.ctxSize = ctx.size
+		}
+		if (!usage && !ctx) return
+		this.stats = { ...this.stats, ...(usage ? { tokens: usage } : {}), ...this.contextMetric() }
 		this.publishNode()
 	}
 

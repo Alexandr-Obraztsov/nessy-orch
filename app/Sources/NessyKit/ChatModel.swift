@@ -24,17 +24,41 @@ public final class ChatModel {
 			onOpen: { [weak self] in Task { @MainActor in self?.reset() } },
 			onData: { [weak self] d in
 				let ev = AgentStreamEvent.decode(d)
-				Task { @MainActor in self?.apply(ev) }
+				Task { @MainActor in self?.enqueue(ev) }
 			}
 		)
 	}
 
+	/// События копятся и применяются пачкой раз в ~60 мс: реплей истории — сотни событий, а каждое по отдельности
+	/// перестраивало бы всю ленту (и душило главный поток, например во время анимации перехода к чату).
+	private var pending: [AgentStreamEvent] = []
+	private var flushScheduled = false
+
+	private func enqueue(_ ev: AgentStreamEvent) {
+		pending.append(ev)
+		guard !flushScheduled else { return }
+		flushScheduled = true
+		Task { @MainActor [weak self] in
+			try? await Task.sleep(for: .milliseconds(60))
+			self?.flush()
+		}
+	}
+
+	private func flush() {
+		flushScheduled = false
+		let batch = pending
+		pending = []
+		for e in batch { apply(e) }
+	}
+
 	public func stop() {
+		pending = []
 		stream?.stop()
 		stream = nil
 	}
 
 	public func reset() {
+		pending = []
 		items = []
 		index = [:]
 		replayDone = false
