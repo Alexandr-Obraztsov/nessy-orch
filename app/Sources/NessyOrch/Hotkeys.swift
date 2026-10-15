@@ -83,7 +83,8 @@ final class Hotkeys {
 		let reserved: [(Hotkey, String)] = [
 			(Hotkey(key: "q", mods: .command), "Выйти"), (Hotkey(key: "w", mods: .command), "Закрыть терминал"), (Hotkey(key: ",", mods: .command), "Настройки"),
 			(Hotkey(key: "k", mods: .command), "Перейти к…"), (Hotkey(key: "/", mods: .command), "Горячие клавиши"), (Hotkey(key: "r", mods: [.command, .shift]), "Роли"),
-		]
+		] + ["c", "v", "x", "a", "z", "h", "m"].map { (Hotkey(key: $0, mods: .command), "Системное сочетание") }
+			+ (1...9).map { (Hotkey(key: String($0), mods: .command), "Переключение проектов") }
 		return reserved.first { $0.0 == h }?.1
 	}
 

@@ -237,6 +237,8 @@ public struct RoleView: Codable, Hashable, Identifiable, Sendable {
 	public var color: Double
 	/// имя SF Symbol; у старых ролей поля нет
 	public var icon: String?
+	/// у роли есть пакет файлов (скрипты, шаблоны): `{{role_dir}}` в инструкциях — путь к ним
+	public var package: Bool?
 	public var createdAt: String
 	public var updatedAt: String
 }
@@ -374,13 +376,31 @@ public enum StreamEvent: Sendable {
 	case sessionRemoved(String)
 	case unknown
 
-	public struct Snapshot: Codable, Sendable {
+	/// Снимок состояния. Записи декодируются по одной: одна повреждённая запись (новое поле другого типа, правка руками) пропускается и
+	/// считается в `skipped`, а не превращает в пустой экран весь снимок.
+	public struct Snapshot: Decodable, Sendable {
 		public var rev: Int
 		public var spaces: [SpaceView]
 		public var agents: [AgentView]
 		public var roles: [RoleView]
 		public var sessions: [SessionView]
 		public var messages: [Message]
+		/// сколько записей пропущено из-за ошибок разбора
+		public var skipped = 0
+
+		private enum CodingKeys: String, CodingKey { case rev, spaces, agents, roles, sessions, messages }
+
+		public init(from decoder: Decoder) throws {
+			let c = try decoder.container(keyedBy: CodingKeys.self)
+			rev = try c.decode(Int.self, forKey: .rev)
+			let sp = try c.decode(LossyArray<SpaceView>.self, forKey: .spaces)
+			let ag = try c.decode(LossyArray<AgentView>.self, forKey: .agents)
+			let ro = try c.decode(LossyArray<RoleView>.self, forKey: .roles)
+			let se = try c.decode(LossyArray<SessionView>.self, forKey: .sessions)
+			let me = try c.decode(LossyArray<Message>.self, forKey: .messages)
+			spaces = sp.items; agents = ag.items; roles = ro.items; sessions = se.items; messages = me.items
+			skipped = sp.skipped + ag.skipped + ro.skipped + se.skipped + me.skipped
+		}
 	}
 
 	private struct Frame: Decodable {
@@ -452,4 +472,22 @@ public struct StatusResponse: Codable, Sendable {
 	public var agents: Int
 	public var working: Int
 	public var roles: Int
+}
+
+/// Массив, который декодируется по элементам: повреждённый элемент пропускается и учитывается в `skipped`.
+struct LossyArray<T: Decodable>: Decodable {
+	var items: [T] = []
+	var skipped = 0
+
+	init(from decoder: Decoder) throws {
+		var c = try decoder.unkeyedContainer()
+		while !c.isAtEnd {
+			if let v = try? c.decode(T.self) {
+				items.append(v)
+			} else {
+				skipped += 1
+				_ = try? c.decode(JSONValue.self) // сдвинуть курсор за повреждённый элемент
+			}
+		}
+	}
 }

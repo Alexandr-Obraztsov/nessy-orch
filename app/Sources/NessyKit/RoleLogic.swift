@@ -8,9 +8,11 @@ public struct RoleDraft: Equatable, Sendable {
 	/// оттенок 0…360 (0 — серый) и SF Symbol
 	public var color: Double = 0
 	public var icon = RolePalette.defaultIcon
+	/// у роли есть пакет файлов: правка инструкций его не трогает
+	public var hasPackage = false
 
 	public init() {}
-	public init(_ r: RoleView) { name = r.name; description = r.description; instructions = r.instructions; color = r.color; icon = r.icon ?? RolePalette.defaultIcon }
+	public init(_ r: RoleView) { name = r.name; description = r.description; instructions = r.instructions; color = r.color; icon = r.icon ?? RolePalette.defaultIcon; hasPackage = r.package == true }
 
 	/// Новая роль: случайный цвет из палитры и иконка сразу.
 	public static func fresh(using g: inout some RandomNumberGenerator) -> RoleDraft {

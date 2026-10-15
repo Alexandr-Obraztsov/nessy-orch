@@ -148,6 +148,9 @@ struct AgentIntro: View {
 				}
 				Spacer(minLength: DS.Metrics.s2)
 				Text(agent.stateWord).foregroundStyle(DS.Palette.textSecondary)
+				if agent.parked {
+					Text("· свёрнут").foregroundStyle(DS.Palette.textSecondary).help("Сессия nessy закрыта по простою: контекст на диске, поднимется при следующем сообщении")
+				}
 				if agent.canStop || (agent.lastTurnMs ?? 0) >= 1000 {
 					DSTimer(agent: agent, frozenAt: model.frozenAt).foregroundStyle(DS.Palette.textSecondary)
 				}

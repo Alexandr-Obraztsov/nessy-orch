@@ -507,3 +507,20 @@ struct ToolSummaryTests {
 		#expect(ToolKind.command.symbol == "terminal")
 	}
 }
+
+@Suite("Устойчивый разбор снимка")
+struct LossySnapshotTests {
+	@Test func brokenRecordIsSkippedNotTheWholeSnapshot() throws {
+		let json = """
+		{"t":"snapshot","rev":3,"spaces":[],"roles":[],"messages":[],
+		 "sessions":[{"id":"s1","title":"T","owner":null,"status":"active","summary":null,"createdAt":"a","updatedAt":"b","sources":0,"unread":2},{"id":5}],
+		 "agents":[{"id":"a1"}]}
+		"""
+		let e = StreamEvent.decode(Data(json.utf8))
+		guard case .snapshot(let s) = e else { Issue.record("снимок не разобран"); return }
+		#expect(s.sessions.map(\.id) == ["s1"])
+		#expect(s.sessions.first?.unread == 2)
+		#expect(s.agents.isEmpty, "запись без обязательных полей пропущена")
+		#expect(s.skipped == 2)
+	}
+}

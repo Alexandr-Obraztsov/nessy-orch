@@ -193,7 +193,9 @@ struct RolesView: View {
 								.frame(minHeight: 180)
 								.background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))
 								.overlay(RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous).stroke(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
-							Text("Markdown. Эти инструкции агент получает в начале работы.")
+							Text(draft.hasPackage
+								? "Markdown. Эти инструкции агент получает в начале работы. У роли есть файлы (скрипты, шаблоны): `{{role_dir}}` в тексте заменяется путём к ним."
+								: "Markdown. Эти инструкции агент получает в начале работы.")
 								.font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
 						}
 					}

@@ -33,6 +33,8 @@ public final class OrchStore {
 	public private(set) var spaces: [SpaceView] = []
 	public private(set) var roles: [RoleView] = []
 	public private(set) var sessions: [SessionView] = []
+	/// записей последнего снимка, которые не удалось разобрать (пропущены, остальное показывается)
+	public private(set) var skippedRecords = 0
 	public private(set) var agents: [String: AgentView] = [:]
 	public private(set) var messages: [Message] = []
 	public private(set) var messagesById: [String: Message] = [:]
@@ -109,6 +111,7 @@ public final class OrchStore {
 		lastEventAt = Date()
 		switch e {
 		case .snapshot(let s):
+			skippedRecords = s.skipped
 			let old = agents
 			spaces = s.spaces
 			roles = s.roles
