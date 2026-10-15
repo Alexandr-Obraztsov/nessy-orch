@@ -435,22 +435,23 @@ struct DialogTests {
 struct InstallerTests {
 	func tmp() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent("inst-\(UUID().uuidString)") }
 
-	@Test func serviceMatchesBundle() throws {
+	@Test func buildVersionsCompareNumerically() {
+		#expect(BuildVersion.compare("1.0.232.2610151700", "1.0.231.2610160000") == 1)
+		#expect(BuildVersion.compare("1.0.9.1", "1.0.10.1") == -1, "не по строкам")
+		#expect(BuildVersion.compare("1.0.5.1", "1.0.5.1") == 0)
+		#expect(BuildVersion.compare(nil, "1.0.1.1") == -1 && BuildVersion.compare("1.0.1.1", nil) == 1)
+		#expect(BuildVersion.compare("мусор", "1.0.0.1") == -1)
+		#expect(BuildVersion.parse("1.0.2") == [1, 0, 2] && BuildVersion.parse("1") == nil)
+	}
+
+	@Test func serviceIsBundledOnlyWithCli() throws {
 		let root = tmp()
 		defer { try? FileManager.default.removeItem(at: root) }
 		let bundle = root.appendingPathComponent("App/Resources/orch")
 		try FileManager.default.createDirectory(at: bundle.appendingPathComponent("bin"), withIntermediateDirectories: true)
 		FileManager.default.createFile(atPath: bundle.appendingPathComponent("bin/nessy-orch").path, contents: Data())
-		let home = root.appendingPathComponent("home")
-		let svc = ServiceInstaller(bundleRoot: bundle, home: home)
-		#expect(svc.isBundled)
-		#expect(svc.serviceMatchesBundle() == nil, "службы нет")
-		try FileManager.default.createDirectory(at: svc.plist.deletingLastPathComponent(), withIntermediateDirectories: true)
-		try "<string>exec node '\(svc.daemonMain?.path ?? "")'</string>".write(to: svc.plist, atomically: true, encoding: .utf8)
-		#expect(svc.serviceMatchesBundle() == true)
-		try "<string>exec node '/old/dist/src/main.js'</string>".write(to: svc.plist, atomically: true, encoding: .utf8)
-		#expect(svc.serviceMatchesBundle() == false, "служба смотрит на старый путь — надо переустановить")
-		#expect(!ServiceInstaller(bundleRoot: nil, home: home).isBundled)
+		#expect(ServiceInstaller(bundleRoot: bundle, home: root).isBundled)
+		#expect(!ServiceInstaller(bundleRoot: nil, home: root).isBundled)
 	}
 
 	func makePlugin(_ dir: URL, version: String) throws {
@@ -468,20 +469,24 @@ struct InstallerTests {
 		let root = tmp()
 		defer { try? FileManager.default.removeItem(at: root) }
 		let src = root.appendingPathComponent("app/plugin")
-		try makePlugin(src, version: "1.0.1")
+		try makePlugin(src, version: "1.0.1.1")
 		let inst = PluginInstaller(source: src, root: root.appendingPathComponent("skills"))
 		#expect(inst.state() == .missing)
 		try inst.install()
 		#expect(inst.state() == .upToDate)
 		#expect(inst.destination?.lastPathComponent == "nessy")
 		#expect(FileManager.default.isExecutableFile(atPath: inst.destination!.appendingPathComponent("bin/nessy-orch").path), "права на CLI сохраняются")
-		try makePlugin(src, version: "1.0.2")
-		#expect(inst.state() == .outdated(installed: "1.0.1"))
+		try makePlugin(src, version: "1.0.2.1")
+		#expect(inst.state() == .outdated(installed: "1.0.1.1"))
 		try inst.install()
 		#expect(inst.state() == .upToDate)
+		// запущена старая копия приложения: установленная новее встроенной — не откатываем
+		try makePlugin(src, version: "1.0.1.1")
+		#expect(inst.state() == .upToDate, "новее не затираем")
+		try makePlugin(src, version: "1.0.2.1")
 		// повреждённая копия (нет скилла) — не «актуальна»
 		try FileManager.default.removeItem(at: inst.destination!.appendingPathComponent("skills/nessy-orch/SKILL.md"))
-		#expect(inst.state() == .outdated(installed: "1.0.2"))
+		#expect(inst.state() == .outdated(installed: "1.0.2.1"))
 		try inst.uninstall()
 		#expect(inst.state() == .missing)
 		#expect(PluginInstaller(source: nil, root: root).state() == .notBundled)
@@ -549,5 +554,19 @@ struct CodeLocationTests {
 	@Test func editorUrls() {
 		#expect(CodeEditor.vscode.url(path: "/p/a b.ts", line: 12)?.absoluteString == "vscode://file/p/a%20b.ts:12")
 		#expect(CodeEditor.zed.url(path: "/p/x.rs", line: nil)?.absoluteString == "zed://file/p/x.rs")
+	}
+}
+
+@Suite("Заголовок агента")
+struct AgentTitleTests {
+	@Test func titleComesFromOrchestratorThenGoal() throws {
+		let store = OrchStore(client: OrchClient(baseURL: URL(string: "http://127.0.0.1:1")!))
+		var a = try decodeAgent(agentJSON(id: "a-1", status: "idle"))
+		#expect(a.title == nil)
+		#expect(store.title(of: a) == a.displayName ?? a.name, "без заголовка и поручения — имя")
+		a.title = "Проверка MR !512"
+		#expect(store.title(of: a) == "Проверка MR !512")
+		let json = #"{"id":"a-2","name":"reviewer-2","title":"Причина падения CI","space":"s","parent":"you","status":"idle","archived":false,"createdAt":"x","lastActivityAt":"x","queued":0,"preview":"","pendingPermissions":[],"turnSteps":0}"#
+		#expect(try JSONDecoder().decode(AgentView.self, from: Data(json.utf8)).title == "Причина падения CI")
 	}
 }

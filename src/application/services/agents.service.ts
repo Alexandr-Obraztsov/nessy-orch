@@ -1,7 +1,7 @@
 /** Жизненный цикл агентов: создание, удаление, прерывание, архив, разрешения, история чата. */
 import type { AgentEvent, AgentView, Message, PlanRequest, SendResponse, SpawnRequest, SpawnResponse, RoleView, WaitResponse } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
-import { uniqueName } from '../../domain/naming'
+import { cleanTitle, uniqueName } from '../../domain/naming'
 import { validatePlanEntries } from '../../domain/plan'
 import { buildPreamble } from '../../domain/preamble'
 import type { AgentIdentity, PeerInfo } from '../../domain/types'
@@ -50,12 +50,14 @@ export class AgentsService {
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)
 		while (registry.agents.has(id))
+		// служебное имя назначаем сами и возвращаем в ответе: роль, роль-2, … (без роли — agent, agent-2, …); коллизий у вызывающего не бывает.
+		// Явное имя (только через API) занятым быть не может
 		const explicit = req.name?.trim()
-		// с ролью и без имени: имя = id роли (reviewer, reviewer-2, …)
-		const name = explicit || (role ? uniqueName(role.id, n => registry.isNameTaken(n)) : id)
+		const name = explicit || uniqueName(role?.id ?? 'agent', n => registry.isNameTaken(n))
 		if (registry.isNameTaken(name)) throw new AppError(409, 'name_taken', `имя «${name}» уже занято`)
 
 		const agent = new Agent({ id, name, space: space.name, parent, session, role: role?.id ?? null }, this.ctx.agentDeps)
+		agent.title = cleanTitle(req.title)
 		registry.agents.set(id, agent)
 		agent.addSystem(`агент создан в пространстве «${space.name}» (${space.path})${role ? `, роль «${role.name}»` : ''}${session ? `, сессия «${session}»` : ''}`)
 		agent.publishNode()

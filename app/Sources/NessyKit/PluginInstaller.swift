@@ -41,7 +41,8 @@ public struct PluginInstaller: Sendable {
 		guard let installed = Self.manifest(dest) else { return fm.fileExists(atPath: dest.path) ? .outdated(installed: nil) : .missing }
 		// версия та же и на месте всё, что нужно для работы (CLI и скилл)
 		let complete = fm.isExecutableFile(atPath: dest.appendingPathComponent("bin/nessy-orch").path) && fm.fileExists(atPath: dest.appendingPathComponent("skills/nessy-orch/SKILL.md").path)
-		return installed.version == b.version && complete ? .upToDate : .outdated(installed: installed.version)
+		// копия новее встроенной (запущена старая копия приложения) — не откатываем: другая копия уже обновила плагин
+		return BuildVersion.compare(installed.version, b.version) >= 0 && complete ? .upToDate : .outdated(installed: installed.version)
 	}
 
 	public func install() throws {

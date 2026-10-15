@@ -57,6 +57,8 @@ export class Agent implements AgentIdentity {
 	/** id сессии nessy (не путать с сессией оркестратора — `session`) */
 	nessyId: string | null = null
 	displayName: string | null = null
+	/** короткий заголовок от запустившего (поручение — отдельно) */
+	title: string | null = null
 	lastEventId: number | null = null
 	introduced = false
 	status: AgentStatus
@@ -137,6 +139,7 @@ export class Agent implements AgentIdentity {
 		a.createdAt = p.createdAt
 		a.nessyId = p.sessionId
 		a.displayName = p.displayName
+		a.title = p.title ?? null
 		a.lastEventId = p.lastEventId
 		a.introduced = p.introduced
 		a.queue = p.queue
@@ -168,6 +171,7 @@ export class Agent implements AgentIdentity {
 			parked: this.parked,
 			error: this.error,
 			displayName: this.displayName,
+			title: this.title,
 			createdAt: this.createdAt,
 			lastActivityAt: this.lastActivityAt,
 			queued: this.queue.length,
@@ -197,6 +201,7 @@ export class Agent implements AgentIdentity {
 			createdAt: this.createdAt,
 			sessionId: this.nessyId,
 			displayName: this.displayName,
+			title: this.title,
 			lastEventId: this.lastEventId,
 			introduced: this.introduced,
 			status: this.status,
@@ -224,7 +229,7 @@ export class Agent implements AgentIdentity {
 		return this.current?.msg ?? null
 	}
 
-	/** Незавершённый блок текста (для снапшота при подключении UI). */
+	/** Незавершённый блок текста (для снапшота при подключении клиента). */
 	liveRun(): LiveRun | null {
 		return this.journal.liveRun()
 	}

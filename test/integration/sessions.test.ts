@@ -172,13 +172,14 @@ describe('CLI: spawn и send ждут результат сами, wait, --no-wa
 		const hh = h
 		await hh.api('POST', '/spaces', { path: hh.ws, name: 'main' })
 		const s = (await hh.api<SessionView>('POST', '/sessions', { title: 'CLI' })).body.id
-		const a = await cli(hh.port, ['spawn', '--session', s, '--space', 'main', '--name', 'w1', 'сделай раз'])
+		const a = await cli(hh.port, ['spawn', '--session', s, '--space', 'main', '--title', 'Первое дело', 'сделай раз'])
 		assert.equal(a.code, 0, a.stderr)
 		assert.equal(a.stdout.trim(), 'ответ: сделай раз')
-		const b = await cli(hh.port, ['send', 'w1', 'сделай два'])
+		assert.match(a.stderr, /✓ агент agent «Первое дело»/, 'имя назначил оркестратор и вывел; заголовок отдельно')
+		const b = await cli(hh.port, ['send', 'agent', 'сделай два'])
 		assert.equal(b.code, 0, b.stderr)
 		assert.equal(b.stdout.trim(), 'ответ: сделай два')
-		const c = await cli(hh.port, ['send', 'w1', 'без ожидания', '--no-wait'])
+		const c = await cli(hh.port, ['send', 'agent', 'без ожидания', '--no-wait'])
 		assert.equal(c.code, 0)
 		assert.equal(c.stdout.trim(), '', 'ответа в выводе нет')
 		assert.match(c.stderr, /nessy-orch wait/)

@@ -22,9 +22,10 @@ final class SetupModel {
 		guard autoService, service.isBundled else { return }
 		Task {
 			try? await Task.sleep(for: .seconds(2.5)) // дать подключиться к уже работающему оркестратору
-			let match = service.serviceMatchesBundle()
-			let online = match == nil ? await daemonOnline() : true
-			if match == false || (match == nil && !online) { await installService() }
+			// `install --ensure` сам решает: служба загружена, смотрит в рабочую копию и копия не новее встроенной — ничего не трогаем (запуск другой
+			// копии приложения службу не перезапускает); иначе обновляет рабочую копию (только вперёд) и перезапускает службу
+			_ = await daemonOnline()
+			await installService()
 		}
 		watchService()
 	}
@@ -113,12 +114,12 @@ final class SetupModel {
 		}
 	}
 
-	/// Служба launchd из встроенной копии сервера: `node <orch>/bin/nessy-orch install` (пишет plist и запускает).
+	/// Служба launchd: `node <orch>/bin/nessy-orch install --ensure` (рабочая копия сервера, plist, запуск; без изменений — ничего не делает).
 	@discardableResult
 	func installService() async -> Bool {
 		guard let script = service.script?.path else { return false }
 		guard let node = await Shell.run("command -v node").output.split(separator: "\n").last.map(String.init), node.hasPrefix("/") else { return false }
-		return await Shell.run("exec \(ShellQuote.quote(node)) \(ShellQuote.quote(script)) install", timeout: 60).status == 0
+		return await Shell.run("exec \(ShellQuote.quote(node)) \(ShellQuote.quote(script)) install --ensure", timeout: 60).status == 0
 	}
 }
 

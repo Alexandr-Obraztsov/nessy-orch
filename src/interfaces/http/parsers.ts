@@ -18,6 +18,7 @@ export function parseSpawnRequest(b: unknown): SpawnRequest {
 		space: optStr(b['space']),
 		cwd: optStr(b['cwd']),
 		name: optStr(b['name']),
+		title: optStr(b['title']),
 		role: optStr(b['role']),
 		session: optStr(b['session']),
 		prompt: optStr(b['prompt']),

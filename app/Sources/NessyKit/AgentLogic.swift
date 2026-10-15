@@ -41,9 +41,6 @@ public extension AgentView {
 	var lastActivity: Date? { ISO.parse(lastActivityAt) }
 	var turnStarted: Date? { ISO.parse(turnStartedAt) }
 
-	/// Заголовок: имя сессии nessy, иначе имя агента.
-	var title: String { name }
-
 	/// Таймер хода, мс: идущий — от начала, закончивший — длительность последнего; nil — «—».
 	func elapsedMs(now: Date) -> Double? {
 		if let t = turnStarted, status == .working || status == .starting { return max(0, now.timeIntervalSince(t) * 1000) }

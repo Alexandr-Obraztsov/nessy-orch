@@ -1,7 +1,8 @@
 import Foundation
 
-/// Служба оркестратора (launchd) из встроенной копии сервера: внутри .app лежат сервер и CLI (`Contents/Resources/orch`),
-/// служба запускает сервер оттуда. Если приложение переехало, служба переустанавливается при следующем запуске.
+/// Служба оркестратора (launchd): внутри .app лежат сервер и CLI (`Contents/Resources/orch`). Служба запускается не из конкретной копии .app, а
+/// из рабочей копии `~/.nessy-orch/runtime`, которую `nessy-orch install --ensure` обновляет только вперёд (по `VERSION`): запуск другой копии
+/// приложения службу не перетягивает и не перезапускает.
 public struct ServiceInstaller: Sendable {
 	/// `Contents/Resources/orch` внутри приложения (nil — не упаковано)
 	public let bundleRoot: URL?
@@ -18,11 +19,4 @@ public struct ServiceInstaller: Sendable {
 	public var daemonMain: URL? { bundleRoot?.appendingPathComponent("dist/src/main.js") }
 	public var isBundled: Bool { script.map { FileManager.default.fileExists(atPath: $0.path) } ?? false }
 	public var plist: URL { home.appendingPathComponent("Library/LaunchAgents/\(Self.launchLabel).plist") }
-
-	/// Служба запускает сервер из встроенной копии? nil — службы нет.
-	public func serviceMatchesBundle() -> Bool? {
-		guard let text = try? String(contentsOf: plist, encoding: .utf8) else { return nil }
-		guard let main = daemonMain?.path else { return false }
-		return text.contains(main)
-	}
 }

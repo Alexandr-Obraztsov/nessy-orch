@@ -33,6 +33,8 @@ cp -R "$ROOT/dist/src" "$PLUGIN/dist/src"
 cp -R "$ROOT/dist/shared" "$PLUGIN/dist/shared"
 chmod +x "$PLUGIN/bin/nessy-orch"
 BUILD="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 0).$(date +%y%m%d%H%M)"
+# версия сборки: по ней служба и плагин обновляются только вперёд (старая копия приложения новую не затирает)
+echo "1.0.$BUILD" > "$ORCH/VERSION"
 python3 - "$PLUGIN/.claude-plugin/plugin.json" "$BUILD" <<'PY'
 import json, sys
 p, build = sys.argv[1], sys.argv[2]

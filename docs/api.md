@@ -47,7 +47,7 @@
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
 | GET | `/agents?session=<id>` | — | `AgentView[]` (включая архивных — фильтрует клиент по `archived`); `session` — только агенты сессии, неизвестная → `404 no_session` |
-| POST | `/agents` | `SpawnRequest` | `201 SpawnResponse`. `session` — id сессии (`404 no_session`); без него агент получает сессию родителя (`parent`/`from`-агента) или `null` |
+| POST | `/agents` | `SpawnRequest` (`title?` — короткий заголовок; `name` обычно не задаётся: оркестратор назначает уникальное имя и возвращает в `agent.name`) | `201 SpawnResponse`. `session` — id сессии (`404 no_session`); без него агент получает сессию родителя (`parent`/`from`-агента) или `null` |
 | GET | `/agents/:ref/wait?timeout=СЕК` | — | `WaitResponse {done, agent, reply?}`: дождаться, пока агент освободится (ход и очередь закончены), и получить его последний ответ; `done:false` — время вышло, агент ещё работает |
 | GET | `/agents/:ref` | — | `AgentView` |
 | DELETE | `/agents/:ref` | — | `{ok:true}` (отмена хода, закрытие сессии, архив истории) |
@@ -168,7 +168,7 @@
 | POST | `/roles` | `RoleRequest {name, instructions, description?, color?, icon?, id?, packageDir?}` | `201 RoleView`; `packageDir` — абсолютный путь к папке пакета роли: копируется в `~/.nessy-orch/role-packages/<id>`, `{{role_dir}}` в инструкциях подменяется путём (`RoleView.package: true`) |
 | GET | `/roles/:id` | — | `RoleView`; `:id` — id или имя (без учёта регистра) |
 | PUT | `/roles/:id` | `RoleRequest` | `RoleView` (полная замена полей; `id` и `createdAt` не меняются; без `color` цвет прежний) |
-| DELETE | `/roles/:id` | — | `{ok:true}`; агенты сохраняют `role` (UI показывает роль удалённой) |
+| DELETE | `/roles/:id` | — | `{ok:true}`; агенты сохраняют `role` (приложение показывает роль удалённой) |
 
 ```jsonc
 // RoleRequest
@@ -191,7 +191,7 @@
 ## Потоки (SSE)
 
 Заголовки ответа: `Content-Type: text/event-stream; charset=utf-8`. Сразу после открытия — комментарий `: connected`, затем
-каждые 15 с — `: hb`. **Кадры без поля `event:`** — только `data: <json>` (в `/stream` снапшот ещё несёт `id: <rev>`). Для браузера подходит `EventSource` (тот же origin).
+каждые 15 с — `: hb`. **Кадры без поля `event:`** — только `data: <json>` (в `/stream` снапшот ещё несёт `id: <rev>`).
 
 ### `GET /stream` — граф и общая лента
 

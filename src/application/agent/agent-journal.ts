@@ -58,7 +58,7 @@ export class AgentJournal {
 		if (r.text) this.write({ seq: r.seq, ts: r.ts, kind: r.kind, text: r.text })
 	}
 
-	/** Незавершённый блок текста (для снапшота при подключении UI). */
+	/** Незавершённый блок текста (для снапшота при подключении клиента). */
 	liveRun(): LiveRun | null {
 		return this.run ? { ...this.run } : null
 	}

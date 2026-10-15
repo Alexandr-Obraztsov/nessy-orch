@@ -49,6 +49,6 @@ export const serviceCommands: CommandTable = {
 	app: { run: cmdApp, spec: COMMON },
 	status: { run: cmdStatus, spec: COMMON },
 	open: { run: cmdOpen, spec: COMMON },
-	install: { run: p => install({ print: flagBool(p, 'print') }), spec: { bool: ['help', 'print'] } },
+	install: { run: p => install({ print: flagBool(p, 'print'), ensure: flagBool(p, 'ensure') }), spec: { bool: ['help', 'print', 'ensure'] } },
 	uninstall: { run: () => uninstall(), spec: COMMON },
 }

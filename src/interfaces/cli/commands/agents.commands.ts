@@ -34,7 +34,8 @@ function spaceArg(v: string | undefined): string | undefined {
 /** Общий вывод для spawn/send: ответ — в stdout, служебное — в stderr. */
 function printSendResult(p: Parsed, agent: AgentView | null, r: SendResponse): void {
 	if (flagBool(p, 'json')) return json(agent ? { agent, ...r } : r)
-	if (agent) info(`${green('✓')} агент ${bold(agent.id)}${agent.name !== agent.id ? ` (${agent.name})` : ''} в «${agent.space}»`)
+	// имя назначает оркестратор: оно нужно, чтобы потом написать агенту (`send <имя>`), поэтому выводим его на видном месте, вместе с результатом
+	if (agent) info(`${green('✓')} агент ${bold(agent.name)}${agent.title ? ` «${agent.title}»` : ''} (id ${agent.id}) в «${agent.space}»`)
 	if (r.reply) {
 		if (r.reply.failed) info(red(`агент ответил с ошибкой: ${r.reply.failed}`))
 		out(r.reply.text)
@@ -65,7 +66,7 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(flagStr(p, 'space')),
 		cwd: process.cwd(), // пространство по умолчанию, если --space не указан и пространств не одно
-		name: flagStr(p, 'name'),
+		title: flagStr(p, 'title'),
 		role: flagStr(p, 'role'),
 		session: sessionOption(p),
 		from: flagStr(p, 'from'),

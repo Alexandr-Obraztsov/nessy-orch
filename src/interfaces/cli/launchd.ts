@@ -6,6 +6,7 @@ import * as path from 'node:path'
 import { projectRoot } from '../../infrastructure/config/load-config'
 import { errMsg } from '../../lib/json'
 import { CliError } from './errors'
+import { runtimeDir, syncRuntime } from './runtime'
 
 const LABEL = 'com.nessy.orch'
 
@@ -29,8 +30,7 @@ export function programArguments(shell: string, node: string, mainJs: string): s
 	return [shell, '-lic', `exec ${shq(node)} ${shq(mainJs)}`]
 }
 
-function plist(): string {
-	const root = projectRoot()
+function plist(root: string): string {
 	const home = os.homedir()
 	const logs = path.join(home, '.nessy-orch', 'logs')
 	return `<?xml version="1.0" encoding="UTF-8"?>
@@ -63,10 +63,35 @@ ${programArguments(loginShell(), process.execPath, path.join(root, 'dist', 'src'
 const plistPath = (): string => path.join(os.homedir(), 'Library', 'LaunchAgents', `${LABEL}.plist`)
 const domain = (): string => `gui/${process.getuid?.() ?? 501}`
 
-export function install(opts: { print: boolean }): Promise<void> {
-	const xml = plist()
+/** Загружена ли служба в launchd. */
+function loaded(): boolean {
+	try {
+		execFileSync('launchctl', ['print', `${domain()}/${LABEL}`], { stdio: 'ignore' })
+		return true
+	} catch {
+		return false
+	}
+}
+
+/**
+ * Установить службу. Сборка из приложения (с файлом VERSION) копируется в `~/.nessy-orch/runtime` (только вперёд: старая версия приложения новую
+ * не затирает), служба смотрит туда. `--ensure` — ничего не делать, если служба уже загружена, смотрит в нужное место и копия не менялась:
+ * приложение зовёт так при каждом запуске, поэтому запуск другой копии .app службу не перезапускает.
+ */
+export function install(opts: { print: boolean; ensure?: boolean }): Promise<void> {
 	if (opts.print) {
-		process.stdout.write(xml)
+		process.stdout.write(plist(projectRoot()))
+		return Promise.resolve()
+	}
+	let plan
+	try {
+		plan = syncRuntime(projectRoot(), runtimeDir())
+	} catch (e) {
+		throw new CliError(`не удалось обновить рабочую копию сервера (${errMsg(e)})`)
+	}
+	const xml = plist(plan.root)
+	if (opts.ensure && !plan.copied && loaded() && fs.existsSync(plistPath()) && fs.readFileSync(plistPath(), 'utf8') === xml) {
+		process.stdout.write(`✓ сервис ${LABEL} уже актуален (${plan.root})\n`)
 		return Promise.resolve()
 	}
 	try {
@@ -82,7 +107,7 @@ export function install(opts: { print: boolean }): Promise<void> {
 		/* сервис ещё не был загружен */
 	}
 	execFileSync('launchctl', ['bootstrap', domain(), plistPath()], { stdio: 'inherit' })
-	process.stdout.write(`✓ сервис ${LABEL} установлен и запущен (через ${loginShell()} -lic — окружение как в терминале)\n  перезапуск: launchctl kickstart -k ${domain()}/${LABEL}\n  логи: ~/.nessy-orch/logs/orch.{out,err}.log\n`)
+	process.stdout.write(`✓ сервис ${LABEL} установлен и запущен из ${plan.root} (через ${loginShell()} -lic — окружение как в терминале)\n  перезапуск: launchctl kickstart -k ${domain()}/${LABEL}\n  логи: ~/.nessy-orch/logs/orch.{out,err}.log\n`)
 	return Promise.resolve()
 }
 

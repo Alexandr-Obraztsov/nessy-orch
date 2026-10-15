@@ -30,6 +30,8 @@ export interface PersistedAgent {
 	/** счётчики работы; нет в состояниях старых версий */
 	stats?: AgentStats
 	displayName: string | null
+	/** заголовок агента; нет в старых состояниях */
+	title?: string | null
 	lastEventId: number | null
 	introduced: boolean
 	status: string

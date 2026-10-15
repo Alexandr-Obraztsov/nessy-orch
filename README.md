@@ -48,7 +48,7 @@ npm run build                       # сервер (TypeScript → dist/)
 node dist/src/main.js               # оркестратор на http://127.0.0.1:4337
 ```
 
-Веб-интерфейса нет: оркестрацию показывает приложение TClaude-Orch (`bin/nessy-orch open` открывает его на сессии).
+Оркестрацию показывает приложение TClaude-Orch (`bin/nessy-orch open` открывает его на сессии).
 
 Чтобы оркестратор работал постоянно, установите его как сервис launchd (macOS, `KeepAlive`). Запускайте
 `install` из обычного терминала — не из Claude Code: внутри песочницы Claude сервер и его агенты тоже окажутся
@@ -69,7 +69,7 @@ bin/nessy-orch uninstall
 
 ```sh
 bin/nessy-orch space add ~/Projects/shippy
-bin/nessy-orch spawn --space shippy --name reviewer --wait "посмотри README и скажи, что это"
+bin/nessy-orch spawn --space shippy --title "Обзор README" "посмотри README и скажи, что это"
 bin/nessy-orch feed -n 20
 ```
 
@@ -134,7 +134,7 @@ defaults write com.nessy.orch.app serverURL "http://127.0.0.1:4338"   # друг
 nessy-orch session new "<заголовок>" [--owner X] [--id slug]   # один раз на разговор: id и ссылка nessy-orch://session/<id>
 nessy-orch session ls [--all] | session show <id> | session sources <id> | session reopen <id> | session rm <id>
 nessy-orch session done <id> [--summary "…" | --summary-file F]
-nessy-orch spawn [--session S] [--space S] [--name N] [--role R] [--no-wait] [--timeout СЕК] "задача"   # ждёт ответ и печатает его (в фоне)
+nessy-orch spawn [--session S] [--space S] [--title "заголовок"] [--role R] [--no-wait] [--timeout СЕК] "задача"   # ждёт ответ и печатает его (в фоне)
 nessy-orch send <агент|you> "текст" [--no-wait] [--interrupt] [--timeout СЕК] [--from ID]   # ждёт ответ (агент с --from по умолчанию не ждёт)
 nessy-orch wait <агент> [--timeout СЕК]   # дождаться, пока агент освободится, и вывести его последний ответ (код 3 — ещё работает)
 nessy-orch ask <путь|space> "задача" [--session S]   # spawn в другом каталоге

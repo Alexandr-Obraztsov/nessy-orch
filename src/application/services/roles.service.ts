@@ -90,7 +90,7 @@ export class RolesService {
 		return role
 	}
 
-	/** Удалить роль. Агенты сохраняют id роли (UI показывает её удалённой). */
+	/** Удалить роль. Агенты сохраняют id роли (приложение показывает её удалённой). */
 	remove(id: string): void {
 		const role = this.resolve(id)
 		this.roles.delete(role.id)

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * fake-nessy — имитация `nessy serve` для тестов и демо UI (без модели и без сети).
+ * fake-nessy — имитация `nessy serve` для тестов и демо приложения (без модели и без сети).
  * Повторяет контракт docs/contract/README.md: /health, POST /session (независимые сессии), POST /prompt,
  * GET /events (SSE с Last-Event-ID), cancel (→ prompt_cancelled), permission, DELETE (сессия «закрывается», но остаётся на диске),
  * load (поднимает закрытую сессию, ответ {attached, lastEventId}), mid-turn-message (в ход принимается, в простое — accepted:false;
@@ -19,7 +19,7 @@
  *   «#error»           → ошибка хода (agent_message_chunk с _meta['nessy/error']) + turn_complete
  *   «#fail»            → аварийное завершение сессии (session_died)
  *   «#relay <args>»    → выполнить shell `$FAKE_NESSY_CLI send <args>` (как сделал бы реальный агент)
- *   «#work[~] K шаг => Tool: арг; шаг => ?Tool: арг; … || ответ» — план из шагов (для демо и e2e UI):
+ *   «#work[~] K шаг => Tool: арг; шаг => ?Tool: арг; … || ответ» — план из шагов (для демо и e2e приложения):
  *                        первые K шагов проходятся сразу, на шаге K+1 агент «работает» (инструмент не завершается),
  *                        пока ход не прервут; «~» — дальше идти по шагу раз в FAKE_NESSY_WORK_MS (2500 мс) до ответа;
  *                        «?» перед инструментом — сначала запрос разрешения, после «Разрешить» — до конца с ответом.

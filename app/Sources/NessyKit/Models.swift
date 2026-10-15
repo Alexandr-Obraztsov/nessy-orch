@@ -146,7 +146,10 @@ public struct AgentStats: Codable, Hashable, Sendable {
 
 public struct AgentView: Codable, Hashable, Identifiable, Sendable {
 	public var id: String
+	/// служебное имя (по нему пишут `send <имя>`): назначает оркестратор
 	public var name: String
+	/// короткий заголовок от запустившего; цель — само поручение (`OrchStore.goal(of:)`)
+	public var title: String?
 	public var space: String
 	public var session: String?
 	public var parent: String
@@ -174,6 +177,7 @@ public struct AgentView: Codable, Hashable, Identifiable, Sendable {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		id = try c.decode(String.self, forKey: .id)
 		name = try c.decode(String.self, forKey: .name)
+		title = try c.decodeIfPresent(String.self, forKey: .title)
 		space = try c.decode(String.self, forKey: .space)
 		session = try c.decodeIfPresent(String.self, forKey: .session)
 		parent = try c.decode(String.self, forKey: .parent)

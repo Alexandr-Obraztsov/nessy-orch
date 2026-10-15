@@ -223,8 +223,8 @@ public final class OrchStore {
 
 	/// Поручение агента целиком.
 	public func goal(of a: AgentView) -> String { goals[a.id] ?? a.displayName ?? Brief.plain(a.preview) }
-	/// Заголовок агента: суть задачи; имя — только если поручения нет.
-	public func title(of a: AgentView) -> String { titles[a.id] ?? a.displayName ?? a.name }
+	/// Заголовок агента: тот, что дал запустивший; нет — суть поручения; иначе имя.
+	public func title(of a: AgentView) -> String { a.title ?? titles[a.id] ?? a.displayName ?? a.name }
 
 	// MARK: просмотр
 

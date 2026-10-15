@@ -15,7 +15,7 @@ nessy, агенты общаются между собой и с главной 
 
 - Ядро перестроено по слоям (domain, application, infrastructure, interfaces) — см. [architecture.md](architecture.md).
 - Клиент `nessy serve` исправлен по [contract/README.md](contract/README.md) (`src/infrastructure/nessy/`).
-- Клиент — нативное приложение TClaude-Orch (`app/`, описание — в [app/README.md](../app/README.md)); веб-интерфейса нет.
+- Клиент — нативное приложение TClaude-Orch (`app/`, описание — в [app/README.md](../app/README.md)).
 - Серверные тесты: `npm test`.
 
 ## Быстрый старт (вне песочницы)

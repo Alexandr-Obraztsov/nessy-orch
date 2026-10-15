@@ -81,7 +81,7 @@ const reply = (itog, details, sources, status = 'DONE') =>
 const brief = (goal, context, limits, result) => `Цель: ${goal}\nКонтекст: ${context}\nГраницы: ${limits}\nРезультат: ${result}`
 
 /**
- * Сессии и их агенты. Видимое в UI — `prompt` (человеческий текст). Что делает заглушка nessy, лежит отдельно
+ * Сессии и их агенты. Видимое в приложении — `prompt` (человеческий текст). Что делает заглушка nessy, лежит отдельно
  * в `scenario` и уходит в $NESSY_ORCH_HOME/fake-scenarios.json (ключ — первая строка prompt).
  * Сценарий: строка `#work[~] K шаг => Tool: арг; … || ответ` (см. test/support/fake-nessy.ts) или массив операций.
  */

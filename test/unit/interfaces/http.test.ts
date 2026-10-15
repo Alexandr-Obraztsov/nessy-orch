@@ -87,6 +87,7 @@ describe('HTTP: разбор тел запросов', () => {
 			space: 's',
 			cwd: undefined,
 			name: undefined,
+			title: undefined,
 			role: 'rev',
 			session: 't-1',
 			prompt: 'p',
