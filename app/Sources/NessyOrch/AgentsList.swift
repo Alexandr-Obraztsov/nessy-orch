@@ -157,7 +157,8 @@ struct AgentRow: View {
 		HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s3) {
 			DSStateGlyph(state: a.ds)
 				.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-			VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+			// карточка: 1) заголовок и таймер · 2) роль, контекст, токены, вызовы · 3) последняя команда (у готового — итог) · 4) план
+			VStack(alignment: .leading, spacing: 2) {
 				HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
 					Text(model.store.title(of: a)).font(DS.Typography.secondary.weight(.semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(2).layoutPriority(1)
 					Spacer(minLength: DS.Metrics.s2)
@@ -165,6 +166,7 @@ struct AgentRow: View {
 				}
 				meta
 				AgentStageLine(agent: a)
+				planRow
 			}
 		}
 		.padding(.leading, DS.Metrics.s3).padding(.trailing, DS.Metrics.s4).padding(.vertical, DS.Metrics.s2 + DS.Metrics.s1)
@@ -185,43 +187,46 @@ struct AgentRow: View {
 		.accessibilityAddTraits(selected ? .isSelected : [])
 	}
 
-	/// Роль · токены · вызовы (в menu bar вместо роли — сессия: агенты там из разных сессий). Что есть, то и пишем.
+	/// «Роль · ◔ 6 % · 173 тыс. токенов · 5 вызовов» (в menu bar вместо роли — сессия: агенты там из разных сессий). Что есть, то и пишем;
+	/// кольцо заполнения контекста стоит перед токенами. Строка переносится целиком, а не обрезается по частям.
 	@ViewBuilder private var meta: some View {
-		let parts = metaParts
-		if !parts.isEmpty || a.stats.contextPct != nil {
-			// кольцо контекста стоит в начале строки и читается вместе с цифрами: «◔ 54 % · Исполнитель · 12 тыс. токенов · 3 вызова»
-			HStack(spacing: DS.Metrics.s1 + 2) {
+		let head: String? = compact ? model.store.session(a.session)?.title : model.roleInfo(of: a)?.name
+		let tokens = a.stats.tokens.flatMap { $0.total > 0 ? "\(Numbers.compact($0.total)) токенов" : nil }
+		let calls = a.stats.toolCalls > 0 ? Numbers.count(a.stats.toolCalls, "вызов", "вызова", "вызовов") : nil
+		if head != nil || a.stats.contextPct != nil || tokens != nil || calls != nil {
+			HStack(spacing: 4) {
+				if let head { Text(head).lineLimit(1) }
 				if let pct = a.stats.contextPct {
-					DSContextMeter(pct: pct, size: 12)
+					if head != nil { Text("·") }
+					DSContextMeter(pct: pct, size: 11)
 					Text("\(pct) %").monospacedDigit()
 				}
-				Text(parts.joined(separator: " · ")).lineLimit(1)
+				if let tokens { if head != nil || a.stats.contextPct != nil { Text("·") }; Text(tokens).lineLimit(1) }
+				if let calls { if head != nil || a.stats.contextPct != nil || tokens != nil { Text("·") }; Text(calls).lineLimit(1) }
 			}
 			.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
 		}
 	}
 
-	private var metaParts: [String] {
-		var p: [String] = []
-		if compact { if let t = model.store.session(a.session)?.title { p.append(t) } }
-		else if let r = model.roleInfo(of: a) { p.append(r.name) }
-		if let t = a.stats.tokens, t.total > 0 { p.append("\(Numbers.compact(t.total)) токенов всего") }
-		if a.stats.toolCalls > 0 { p.append(Numbers.count(a.stats.toolCalls, "вызов", "вызова", "вызовов")) }
-		return p
+	/// Строка плана: сегменты и «3 из 5» (только у работающего агента с планом).
+	@ViewBuilder private var planRow: some View {
+		if (a.state == .working || a.state == .starting), let steps = a.plan?.entries.map(\.status), !steps.isEmpty {
+			HStack(spacing: DS.Metrics.s2) {
+				DSPlanSegments(steps: steps)
+				Text("\(steps.filter { $0 == .completed }.count) из \(steps.count)").monospacedDigit()
+			}
+			.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+			.padding(.top, 2)
+		}
 	}
 
-	/// Справа: таймер. Кнопок в строке нет: остановка — в контекстном меню (⌘. — с клавиатуры).
+	/// Справа: таймер и точка «новое». Кнопок в строке нет: остановка — в контекстном меню (⌘. — с клавиатуры).
 	@ViewBuilder private var trailing: some View {
-		let steps = (a.state == .working || a.state == .starting) ? (a.plan?.entries.map(\.status) ?? []) : []
-		VStack(alignment: .trailing, spacing: 6) {
-			HStack(spacing: DS.Metrics.s2) {
-				if model.store.isNew(a) { DSNewDot() }
-				if a.state == .wait || a.canStop || (a.lastTurnMs ?? 0) >= 1000 {
-					DSTimer(agent: a, frozenAt: model.frozenAt)
-				}
+		HStack(spacing: DS.Metrics.s2) {
+			if model.store.isNew(a) { DSNewDot() }
+			if a.state == .wait || a.canStop || (a.lastTurnMs ?? 0) >= 1000 {
+				DSTimer(agent: a, frozenAt: model.frozenAt)
 			}
-			// индикатор шагов плана — под таймером, чтобы не отнимать место у строки «роль · токены · вызовы»
-			if !steps.isEmpty { DSPlanSegments(steps: steps) }
 		}
 	}
 }
@@ -236,9 +241,9 @@ struct AgentStageLine: View {
 		Group {
 			switch a.state {
 			case .working, .starting:
-				// чем занят агент сейчас: «Ищет в коде», команда и т. п.
-				if let t = a.stage(now: model.frozenAt ?? Date())?.text, !t.isEmpty {
-					Text(t).foregroundStyle(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
+				// последняя команда как есть (моноширинно), у ещё не начавшего — пусто
+				if let t = a.activity, !t.isEmpty {
+					Text(t).font(DS.Typography.monoCaption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
 				}
 			case .wait:
 				EmptyView()
