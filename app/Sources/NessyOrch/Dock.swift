@@ -201,7 +201,9 @@ private struct DragPill: View {
 			}
 			.animation(.easeOut(duration: 0.15), value: hover)
 			.onHover { hover = $0 }
-			.help("Перенести")
+			// курсор-«рука»: открытая над ярлычком, сжатая во время переноса; подсказка появляется с системной задержкой, не сразу
+			.pointerStyle(active ? .grabActive : .grabIdle)
+			.help("Переместить")
 			.gesture(DragGesture(minimumDistance: 4, coordinateSpace: .global)
 				.onChanged { active = true; changed($0) }
 				.onEnded { _ in active = false; ended() })
