@@ -146,6 +146,10 @@ export interface RolePackagePort {
 	remove(id: string): void
 	/** Создать пустую папку пакета (с подсказкой в README), если её нет; возвращает путь. */
 	ensure(id: string): string
+	/** Записать файл внутри пакета (путь относительный, за пределы папки нельзя). */
+	write(id: string, rel: string, text: string): void
+	/** Прочитать текстовый файл пакета; null — пакета или файла нет. */
+	read(id: string, rel: string): string | null
 }
 
 // ---------- время и идентификаторы ----------

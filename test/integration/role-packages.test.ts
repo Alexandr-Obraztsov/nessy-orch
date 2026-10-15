@@ -70,6 +70,33 @@ describe('роли-пакеты', () => {
 		await hh.api('DELETE', '/roles/plain')
 	})
 
+	it('role.md в папке роли: зеркало роли, правки из редактора подхватываются через /sync, ошибки не ломают роль', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		await hh.api<RoleView>('POST', '/roles', { name: 'Зеркало', instructions: 'Исходные инструкции', description: 'опис', id: 'mirror' })
+		await hh.api('POST', '/roles/mirror/package')
+		const md = path.join(hh.home, 'role-packages', 'mirror', 'role.md')
+		assert.ok(fs.readFileSync(md, 'utf8').includes('Исходные инструкции'), 'role.md повторяет роль')
+		// правка в окне ролей попадает в файл
+		await hh.api('PUT', '/roles/mirror', { name: 'Зеркало', instructions: 'Из окна', description: 'опис' })
+		assert.ok(fs.readFileSync(md, 'utf8').includes('Из окна'))
+		// правка в редакторе кода → роль
+		fs.writeFileSync(md, fs.readFileSync(md, 'utf8').replace('Из окна', 'Из редактора').replace('опис', 'новое описание'))
+		const synced = await hh.api<RoleView>('POST', '/roles/mirror/sync')
+		assert.equal(synced.status, 200)
+		assert.equal(synced.body.instructions.trim(), 'Из редактора')
+		assert.equal(synced.body.description, 'новое описание')
+		assert.equal((await hh.api<RoleView>('GET', '/roles/mirror')).body.instructions.trim(), 'Из редактора')
+		// без изменений — роль та же
+		assert.equal((await hh.api<RoleView>('POST', '/roles/mirror/sync')).body.updatedAt, synced.body.updatedAt)
+		// сломанный role.md — 400, роль прежняя
+		fs.writeFileSync(md, 'просто текст без frontmatter')
+		const bad = await hh.api<ApiError>('POST', '/roles/mirror/sync')
+		assert.equal(bad.status, 400)
+		assert.equal((await hh.api<RoleView>('GET', '/roles/mirror')).body.instructions.trim(), 'Из редактора')
+		await hh.api('DELETE', '/roles/mirror')
+	})
+
 	it('правка роли без packageDir сохраняет пакет; удаление роли убирает копию; плохой путь — 400', T, async () => {
 		const hh = h
 		assert.ok(hh)

@@ -55,10 +55,35 @@ export class FileRolePackages implements RolePackagePort {
 			fs.mkdirSync(dir, { recursive: true })
 			fs.writeFileSync(
 				path.join(dir, 'README.md'),
-				`# Файлы роли «${id}»\n\nСюда кладите скрипты, шаблоны и справочники роли. В инструкциях роли путь к этой папке пишется как {{role_dir}}:\nагент получит настоящий путь и сможет читать файлы и запускать скрипты (например, {{role_dir}}/scripts/run.sh).\n`,
+				`# Файлы роли «${id}»\n\nrole.md — описание и инструкции роли: правьте здесь или в окне «Роли», изменения подхватятся в обе стороны.\nСюда кладите скрипты, шаблоны и справочники роли. В инструкциях роли путь к этой папке пишется как {{role_dir}}:\nагент получит настоящий путь и сможет читать файлы и запускать скрипты (например, {{role_dir}}/scripts/run.sh).\n`,
 			)
 		}
 		return dir
+	}
+
+	write(id: string, rel: string, text: string): void {
+		const file = this.inside(id, rel)
+		if (!file) throw new AppError(400, 'bad_path', `путь «${rel}» вне папки роли`)
+		fs.mkdirSync(path.dirname(file), { recursive: true })
+		fs.writeFileSync(file, text)
+	}
+
+	read(id: string, rel: string): string | null {
+		const file = this.inside(id, rel)
+		if (!file) return null
+		try {
+			return fs.readFileSync(file, 'utf8')
+		} catch {
+			return null
+		}
+	}
+
+	/** Абсолютный путь внутри пакета роли или null (нет пакета, путь выходит за папку). */
+	private inside(id: string, rel: string): string | null {
+		const dir = this.dirOf(id)
+		if (!dir) return null
+		const file = path.resolve(dir, rel)
+		return file === dir || !file.startsWith(dir + path.sep) ? null : file
 	}
 
 	remove(id: string): void {

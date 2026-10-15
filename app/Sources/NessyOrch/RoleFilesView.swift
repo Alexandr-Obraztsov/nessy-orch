@@ -3,7 +3,7 @@ import AppKit
 import NessyKit
 
 /// Файлы роли в окне ролей: скрипты, шаблоны, справочники, которые агент читает и запускает по `{{role_dir}}`. Список, правка текста,
-/// новый файл или скрипт, быстрый переход в Finder и редактор кода. Правка пишется прямо на диск и сразу видна агентам.
+/// новый файл или скрипт (в папке лежит и role.md — описание и инструкции роли, правки двусторонние), быстрый переход в Finder и редактор кода. Правка пишется прямо на диск и сразу видна агентам.
 struct RoleFilesSection: View {
 	@Environment(AppModel.self) private var model
 	var role: RoleView
@@ -43,7 +43,11 @@ struct RoleFilesSection: View {
 				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 					Text("У роли пока нет файлов. Добавьте папку, чтобы класть в неё скрипты, шаблоны и справочники: агент получит к ним путь во вводной.")
 						.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
-					Button("Добавить файлы роли") { Task { _ = await model.roleFolder(role) } }
+					HStack(spacing: DS.Metrics.s2) {
+						Button("Добавить файлы роли") { Task { _ = await model.roleFolder(role) } }
+						// сразу открыть папку-плагин: в ней role.md (описание и инструкции) рядом со скриптами, правки видны и в этом окне
+						Button("Создать и открыть в редакторе") { model.openRoleInEditor(role) }
+					}
 				}
 				.frame(maxWidth: .infinity, alignment: .leading)
 				.padding(DS.Metrics.s3).background(DS.Palette.hover.opacity(0.6), in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))

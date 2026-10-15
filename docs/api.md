@@ -169,6 +169,8 @@
 | POST | `/roles` | `RoleRequest {name, instructions, description?, color?, icon?, id?, packageDir?}` | `201 RoleView`; `packageDir` — абсолютный путь к папке пакета роли: копируется в `~/.nessy-orch/role-packages/<id>`, `{{role_dir}}` в инструкциях подменяется путём (`RoleView.package: true`) |
 | GET | `/roles/:id` | — | `RoleView`; `:id` — id или имя (без учёта регистра) |
 | PUT | `/roles/:id` | `RoleRequest` | `RoleView` (полная замена полей; `id` и `createdAt` не меняются; без `color` цвет прежний) |
+| POST | `/roles/:id/package` | — | `RoleView`: заводит роли папку для файлов (`role-packages/<id>`); в ней лежит `role.md` — зеркало роли (frontmatter + инструкции) |
+| POST | `/roles/:id/sync` | — | `RoleView`: подхватывает правки `role.md` из папки роли (редактор кода) в роль; без изменений — та же роль; сломанный `role.md` — `400 bad_role_md`, роль прежняя. Правки роли через API/окно «Роли» пишутся в `role.md` |
 | DELETE | `/roles/:id` | — | `{ok:true}`; агенты сохраняют `role` (приложение показывает роль удалённой) |
 
 ```jsonc

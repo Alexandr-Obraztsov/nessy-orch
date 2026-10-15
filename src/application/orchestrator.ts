@@ -65,6 +65,8 @@ const NO_ROLE_PACKAGES: RolePackagePort = {
 	ensure: () => {
 		throw new AppError(400, 'packages_unavailable', 'пакеты ролей недоступны в этой сборке')
 	},
+	write: () => undefined,
+	read: () => null,
 }
 
 export class Orchestrator implements AgentHost {
@@ -313,6 +315,11 @@ export class Orchestrator implements AgentHost {
 	/** Создать роли папку для файлов (если её нет); `{{role_dir}}` в инструкциях начнёт подставляться. */
 	ensureRolePackage(ref: string): RoleView {
 		return this.rolesSvc.ensurePackage(ref)
+	}
+
+	/** Подхватить правки role.md из папки роли (редактор кода, Finder) в саму роль. */
+	syncRoleFromDisk(ref: string): RoleView {
+		return this.rolesSvc.syncFromDisk(ref)
 	}
 
 	removeRole(ref: string): void {

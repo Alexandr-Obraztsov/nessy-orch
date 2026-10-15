@@ -1,7 +1,7 @@
 /** Роли субагентов: хранение (roles.json), CRUD, разрешение по id или имени. Правила полей — domain/roles.ts. */
 import type { RoleRequest, RoleView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
-import { parseRolePreset } from '../../domain/role-presets'
+import { formatRolePreset, parseRolePreset } from '../../domain/role-presets'
 import { validateRole } from '../../domain/roles'
 import type { RoleFields, RolePresetFile, RoleSeedResult } from '../../domain/types'
 import type { ServiceContext } from './context.types'
@@ -84,10 +84,50 @@ export class RolesService {
 	ensurePackage(id: string): RoleView {
 		const prev = this.resolve(id)
 		this.ctx.rolePackages.ensure(prev.id)
-		if (prev.package) return prev
+		if (prev.package) {
+			this.mirror(prev)
+			return prev
+		}
 		const role: RoleView = { ...prev, package: true, updatedAt: this.isoNow() }
 		this.put(role)
 		return role
+	}
+
+	/**
+	 * Подхватить правки `role.md` из папки роли: описание и инструкции можно править в редакторе кода рядом со скриптами, а в окне «Роли» —
+	 * как раньше. Ничего не изменилось — возвращается та же роль; role.md не читается — 400 с причиной (роль остаётся прежней).
+	 */
+	syncFromDisk(id: string): RoleView {
+		const role = this.resolve(id)
+		if (!role.package) return role
+		const text = this.ctx.rolePackages.read(role.id, 'role.md')
+		if (text === null) {
+			this.mirror(role)
+			return role
+		}
+		let parsed
+		try {
+			parsed = parseRolePreset(text)
+		} catch (e) {
+			throw new AppError(400, 'bad_role_md', `role.md: ${e instanceof Error ? e.message : String(e)}`)
+		}
+		const same =
+			parsed.name === role.name &&
+			(parsed.description ?? '') === role.description &&
+			parsed.instructions.replace(/\n*$/, '') === role.instructions.replace(/\n*$/, '') &&
+			(parsed.color ?? role.color) === role.color &&
+			(parsed.icon ?? null) === (role.icon ?? null)
+		return same ? role : this.update(role.id, { ...parsed, id: role.id })
+	}
+
+	/** role.md в папке роли повторяет роль: открыв папку в редакторе, видно и описание, и скрипты. */
+	private mirror(role: RoleView): void {
+		if (!role.package) return
+		try {
+			this.ctx.rolePackages.write(role.id, 'role.md', formatRolePreset({ ...role, color: role.color }))
+		} catch {
+			/* зеркало необязательно */
+		}
 	}
 
 	/** Удалить роль. Агенты сохраняют id роли (приложение показывает её удалённой). */
@@ -101,6 +141,7 @@ export class RolesService {
 
 	private put(role: RoleView): void {
 		this.roles.set(role.id, role)
+		this.mirror(role)
 		this.save()
 		this.ctx.hub.publish({ t: 'role', role })
 	}

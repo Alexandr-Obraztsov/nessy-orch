@@ -92,6 +92,8 @@ public final class OrchClient: @unchecked Sendable {
 	public func deleteRole(_ id: String) async throws { try await raw("DELETE", "/roles/\(id)") }
 	/// Завести роли папку для файлов (скрипты, шаблоны); если она есть — ничего не меняется.
 	@discardableResult
+	/// Подхватить правки role.md из папки роли (редактор кода) в роль.
+	public func syncRole(_ id: String) async throws -> RoleView { try await send("POST", "/roles/\(id)/sync", body: [String: String]()) }
 	public func ensureRolePackage(_ id: String) async throws -> RoleView { try await send("POST", "/roles/\(id)/package", body: [String: String]()) }
 
 	// MARK: сессии

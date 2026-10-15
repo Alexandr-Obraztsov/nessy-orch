@@ -75,6 +75,8 @@ struct RolesView: View {
 	private enum Sel: Hashable { case new, role(String) }
 	@State private var sel: Sel?
 	@State private var draft = RoleDraft()
+	/// что загружено из роли: пока черновик ему равен, правки роли извне (role.md в редакторе кода) подставляются в окно
+	@State private var loaded = RoleDraft()
 	@State private var pending: Sel?
 	@State private var askDiscard = false
 	@State private var askDelete = false
@@ -124,7 +126,13 @@ struct RolesView: View {
 		}
 		// роли могут приехать позже окна: первая выбирается, когда список появился
 		.onChange(of: roles.count) { _, _ in if sel == nil, let r = roles.first { go(.role(r.id)) } }
-		.onChange(of: current?.updatedAt) { _, _ in if !dirty, let r = current { draft = RoleDraft(r) } }
+		.onChange(of: current?.updatedAt) { _, _ in
+			if let r = current, draft == loaded { draft = RoleDraft(r); loaded = draft }
+		}
+		// правки role.md в редакторе кода подхватываются при возвращении в приложение и при выборе роли
+		.onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in syncFromDisk() }
+		.onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in syncFromDisk() }
+		.task(id: sel) { syncFromDisk() }
 		.confirmationDialog("Отменить несохранённые изменения?", isPresented: $askDiscard) {
 			Button("Отменить изменения", role: .destructive) { if let p = pending { go(p) }; pending = nil }
 			Button("Остаться", role: .cancel) { pending = nil }
@@ -232,6 +240,15 @@ struct RolesView: View {
 		}
 	}
 
+	/// Подхватить role.md из папки роли (если у роли есть файлы): описание и инструкции можно править и там, и в окне.
+	private func syncFromDisk() {
+		guard let r = current, r.package == true else { return }
+		Task {
+			do { _ = try await model.store.client.syncRole(r.id) }
+			catch { model.flash(error.localizedDescription, error: true) }
+		}
+	}
+
 	private func section<C: View>(_ title: String, @ViewBuilder _ c: () -> C) -> some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 			Text(title).font(DS.Typography.caption.weight(.medium)).foregroundStyle(DS.Palette.textSecondary)
@@ -286,10 +303,11 @@ struct RolesView: View {
 		sel = n
 		tab = .instructions
 		if case .role(let id) = n, let r = model.store.role(id) { draft = RoleDraft(r) } else { var g = SystemRandomNumberGenerator(); draft = RoleDraft.fresh(using: &g) }
+		loaded = draft
 	}
 	private func save() {
 		let id = current?.id
-		Task { if let r = await model.saveRole(id: id, draft) { sel = .role(r.id); draft = RoleDraft(r); model.flash("Роль сохранена") } }
+		Task { if let r = await model.saveRole(id: id, draft) { sel = .role(r.id); draft = RoleDraft(r); loaded = draft; model.flash("Роль сохранена") } }
 	}
 	private func remove() {
 		guard let id = current?.id else { return }
