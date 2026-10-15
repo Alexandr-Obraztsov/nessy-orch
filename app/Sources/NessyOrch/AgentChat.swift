@@ -264,7 +264,7 @@ struct AgentComposer: View {
 		HStack(spacing: DS.Metrics.s1) {
 			if let pct = agent.stats.contextPct {
 				DSContextMeter(pct: pct, size: 12)
-				Text("Контекст заполнен на \(pct) %" + (agent.stats.contextTokens.map { " · \(Numbers.compact($0)) токенов" } ?? ""))
+				Text("Контекст заполнен на \(pct) %" + (agent.stats.contextTokens.map { " · в окне \(Numbers.compact($0)) токенов" } ?? ""))
 			} else {
 				Text("Контекст: нет данных")
 			}

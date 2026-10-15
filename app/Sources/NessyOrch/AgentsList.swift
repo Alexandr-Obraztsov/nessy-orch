@@ -205,7 +205,7 @@ struct AgentRow: View {
 		var p: [String] = []
 		if compact { if let t = model.store.session(a.session)?.title { p.append(t) } }
 		else if let r = model.roleInfo(of: a) { p.append(r.name) }
-		if let t = a.stats.tokens, t.total > 0 { p.append("\(Numbers.compact(t.total)) токенов") }
+		if let t = a.stats.tokens, t.total > 0 { p.append("\(Numbers.compact(t.total)) токенов всего") }
 		if a.stats.toolCalls > 0 { p.append(Numbers.count(a.stats.toolCalls, "вызов", "вызова", "вызовов")) }
 		return p
 	}
