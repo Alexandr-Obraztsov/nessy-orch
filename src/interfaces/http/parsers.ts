@@ -68,7 +68,9 @@ export function parseRoleRequest(b: unknown): RoleRequest {
 	if (description !== undefined && typeof description !== 'string') throw new AppError(400, 'bad_request', 'description — строка')
 	const icon = b['icon']
 	if (icon !== undefined && typeof icon !== 'string') throw new AppError(400, 'bad_request', 'icon — строка')
-	return { name: b['name'], instructions: b['instructions'], description, color, icon, id }
+	const packageDir = b['packageDir']
+	if (packageDir !== undefined && typeof packageDir !== 'string') throw new AppError(400, 'bad_request', 'packageDir — строка')
+	return { name: b['name'], instructions: b['instructions'], description, color, icon, id, ...(packageDir ? { packageDir } : {}) }
 }
 
 /** Тело плана: entries — массив (записи проверяет домен), from — необязательная строка. */

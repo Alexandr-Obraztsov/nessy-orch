@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>@@TITLE@@</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/*STYLES*/
+</style>
+</head>
+<body>
+<main class="page">
+
+  <header class="hero">
+    <div class="eyebrow">@@EYEBROW@@</div>
+    <h1>@@TITLE@@</h1>
+    <p class="muted">@@SUBTITLE@@</p>
+    <div class="meta">
+      <span class="pill info active">В работе</span>
+      <span>@@DATE@@</span>
+      <button class="theme-toggle" type="button" id="theme-toggle" aria-label="Сменить тему">Тема: авто</button>
+    </div>
+  </header>
+
+  <!-- СОДЕРЖИМОЕ: секции <section class="section"> с h2; компоненты из assets/catalog.md -->
+  <section class="section" id="summary">
+    <h2>Кратко</h2>
+    <p>Одно-два предложения: что это и что решено.</p>
+  </section>
+
+  <footer class="footer">Собрано агентом nessy · @@DATE@@</footer>
+</main>
+
+<script>
+/* Тема: авто → светлая → тёмная. Выбор помнится в этом браузере, без него страница работает. */
+(function () {
+  var root = document.documentElement, btn = document.getElementById('theme-toggle');
+  var order = ['auto', 'light', 'dark'], names = { auto: 'авто', light: 'светлая', dark: 'тёмная' };
+  var cur = 'auto';
+  try { cur = localStorage.getItem('nessy-theme') || 'auto'; } catch (e) {}
+  function apply() {
+    if (cur === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', cur);
+    if (btn) btn.textContent = 'Тема: ' + names[cur];
+  }
+  if (btn) btn.addEventListener('click', function () {
+    cur = order[(order.indexOf(cur) + 1) % order.length];
+    try { localStorage.setItem('nessy-theme', cur); } catch (e) {}
+    apply();
+  });
+  apply();
+})();
+</script>
+</body>
+</html>

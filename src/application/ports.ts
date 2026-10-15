@@ -133,6 +133,16 @@ export interface StorePort {
 	close(): void
 }
 
+// ---------- пакеты ролей ----------
+/** Файлы роли (скрипты, шаблоны, команды) в каталоге оркестратора: агент читает и запускает их по абсолютному пути. */
+export interface RolePackagePort {
+	/** Скопировать папку пакета роли `id` из `src`; возвращает путь копии. Старая копия заменяется. */
+	install(id: string, src: string): string
+	/** Путь копии или null, если пакета нет. */
+	dirOf(id: string): string | null
+	remove(id: string): void
+}
+
 // ---------- время и идентификаторы ----------
 export interface Clock {
 	now(): number

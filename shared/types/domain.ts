@@ -185,6 +185,8 @@ export interface RoleView {
 	color: number
 	/** имя иконки (SF Symbols), например `magnifyingglass`; null — без иконки */
 	icon: string | null
+	/** у роли есть пакет файлов (`role-packages/<id>`): `{{role_dir}}` в инструкциях заменяется путём к нему */
+	package?: boolean
 	createdAt: string
 	updatedAt: string
 }

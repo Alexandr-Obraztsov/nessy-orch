@@ -61,6 +61,8 @@ export interface RoleFields {
 	instructions: string
 	color: number
 	icon: string | null
+	/** путь к папке пакета (источник копирования) или null */
+	packageDir: string | null
 }
 
 /** Сырые поля роли из запроса (до проверки). */
@@ -71,6 +73,7 @@ export interface RoleInput {
 	color?: number
 	icon?: string
 	id?: string
+	packageDir?: string
 }
 
 /** Результат разбора frontmatter пресета роли. */
@@ -84,6 +87,8 @@ export interface RolePresetFile {
 	/** имя файла (для сообщений) */
 	source: string
 	text: string
+	/** папка пакета роли (рядом с role.md): скрипты, шаблоны и т. д. */
+	packageDir?: string
 }
 
 /** Итог заливки пресетов при первом запуске. */

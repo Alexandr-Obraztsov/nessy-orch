@@ -3,7 +3,7 @@ import type { RoleRequest, RoleView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { parseRolePreset } from '../../domain/role-presets'
 import { validateRole } from '../../domain/roles'
-import type { RolePresetFile, RoleSeedResult } from '../../domain/types'
+import type { RoleFields, RolePresetFile, RoleSeedResult } from '../../domain/types'
 import type { ServiceContext } from './context.types'
 
 export class RolesService {
@@ -42,9 +42,19 @@ export class RolesService {
 		if (this.roles.has(f.id)) throw new AppError(409, 'role_exists', `роль с id «${f.id}» уже есть`)
 		this.assertNameFree(f.name, null)
 		const now = this.isoNow()
-		const role: RoleView = { ...f, createdAt: now, updatedAt: now }
+		const role: RoleView = { ...this.view(f), createdAt: now, updatedAt: now }
 		this.put(role)
 		return role
+	}
+
+	/** Поля роли → вид: пакет (если задан) копируется в каталог оркестратора; без packageDir прежний пакет сохраняется. */
+	private view(f: RoleFields, prevPackage = false): Omit<RoleView, 'createdAt' | 'updatedAt'> {
+		const { packageDir, ...rest } = f
+		if (packageDir) {
+			this.ctx.rolePackages.install(f.id, packageDir)
+			return { ...rest, package: true }
+		}
+		return prevPackage ? { ...rest, package: true } : rest
 	}
 
 	/** Полная замена полей роли (id не меняется; цвет без значения сохраняется прежним). */
@@ -52,7 +62,7 @@ export class RolesService {
 		const prev = this.resolve(id)
 		const f = validateRole({ ...req, id: prev.id, color: req.color ?? prev.color, icon: req.icon ?? prev.icon ?? undefined })
 		this.assertNameFree(f.name, prev.id)
-		const role: RoleView = { ...f, createdAt: prev.createdAt, updatedAt: this.isoNow() }
+		const role: RoleView = { ...this.view(f, prev.package === true), createdAt: prev.createdAt, updatedAt: this.isoNow() }
 		this.put(role)
 		return role
 	}
@@ -62,7 +72,7 @@ export class RolesService {
 		const result: RoleSeedResult = { added: [], invalid: [] }
 		for (const f of files) {
 			try {
-				result.added.push(this.create(parseRolePreset(f.text)).id)
+				result.added.push(this.create({ ...parseRolePreset(f.text), ...(f.packageDir ? { packageDir: f.packageDir } : {}) }).id)
 			} catch {
 				result.invalid.push(f.source)
 			}
@@ -74,6 +84,7 @@ export class RolesService {
 	remove(id: string): void {
 		const role = this.resolve(id)
 		this.roles.delete(role.id)
+		if (role.package) this.ctx.rolePackages.remove(role.id)
 		this.save()
 		this.ctx.hub.publish({ t: 'role_removed', id: role.id })
 	}

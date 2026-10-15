@@ -16,6 +16,7 @@ export async function importRolePresets(files: readonly RolePresetFile[], api: R
 			rows.push({ id: f.source, name: '', outcome: 'invalid', action: `пропущена: ${errMsg(e)}` })
 			continue
 		}
+		if (f.packageDir) req = { ...req, packageDir: f.packageDir }
 		const id = req.id ?? ''
 		const exists = known.has(id)
 		try {

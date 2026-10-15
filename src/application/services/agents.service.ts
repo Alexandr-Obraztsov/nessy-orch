@@ -1,5 +1,5 @@
 /** Жизненный цикл агентов: создание, удаление, прерывание, архив, разрешения, история чата. */
-import type { AgentEvent, AgentView, Message, PlanRequest, SendResponse, SpawnBatchItem, SpawnBatchRequest, SpawnBatchResponse, SpawnRequest, SpawnResponse } from '../../../shared/types'
+import type { AgentEvent, AgentView, Message, PlanRequest, SendResponse, SpawnBatchItem, SpawnBatchRequest, SpawnBatchResponse, SpawnRequest, SpawnResponse, RoleView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { uniqueName } from '../../domain/naming'
 import { validatePlanEntries } from '../../domain/plan'
@@ -28,7 +28,13 @@ export class AgentsService {
 			.map(a => ({ id: a.id, name: a.name, space: a.space, archived: a.archived, roleName: this.roles.find(a.role)?.name ?? null }))
 		const role = this.roles.find(this.ctx.registry.agents.get(agent.id)?.role ?? null)
 		const key = this.ctx.settings.authRequired ? this.ctx.registry.agents.get(agent.id)?.key : undefined
-		return buildPreamble(agent, peers, this.ctx.settings.cliPath, role && { name: role.name, instructions: role.instructions }, key)
+		return buildPreamble(agent, peers, this.ctx.settings.cliPath, role && { name: role.name, instructions: this.roleInstructions(role) }, key)
+	}
+
+	/** Инструкции роли с путём к её пакету вместо `{{role_dir}}` (скрипты и шаблоны агент берёт оттуда). */
+	private roleInstructions(role: RoleView): string {
+		const dir = role.package ? this.ctx.rolePackages.dirOf(role.id) : null
+		return dir ? role.instructions.split('{{role_dir}}').join(dir) : role.instructions
 	}
 
 	async spawn(req: SpawnRequest): Promise<SpawnResponse> {

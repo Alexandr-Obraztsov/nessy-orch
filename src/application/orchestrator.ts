@@ -41,7 +41,7 @@ import type { InboxQuery } from './feed.types'
 import { Hub } from './hub'
 import type { OrchestratorDeps } from './orchestrator.types'
 import type { PersistedState } from './persisted.types'
-import type { SpaceRuntime, StorePort } from './ports'
+import type { RolePackagePort, SpaceRuntime, StorePort } from './ports'
 import { Registry } from './registry'
 import { buildDigest } from '../domain/digest'
 import { SessionPool } from './session-pool'
@@ -57,6 +57,15 @@ const SNAPSHOT_MESSAGES = 300
 const DEFAULT_CANCEL_GRACE_MS = 3000
 const DEFAULT_IDLE_CLOSE_MS = 120_000
 const GC_INTERVAL_MS = 5 * 60_000
+
+/** Пакеты ролей не подключены (тесты, встраивание): роль с packageDir отклоняется понятной ошибкой. */
+const NO_ROLE_PACKAGES: RolePackagePort = {
+	install: () => {
+		throw new AppError(400, 'packages_unavailable', 'пакеты ролей недоступны в этой сборке')
+	},
+	dirOf: () => null,
+	remove: () => undefined,
+}
 
 export class Orchestrator implements AgentHost {
 	readonly hub = new Hub()
@@ -113,6 +122,7 @@ export class Orchestrator implements AgentHost {
 			settings: deps.settings,
 			clock,
 			ids,
+			rolePackages: deps.rolePackages ?? NO_ROLE_PACKAGES,
 			agentDeps: {
 				host: this,
 				hub: this.hub,

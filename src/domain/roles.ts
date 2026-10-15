@@ -86,5 +86,7 @@ export function validateRole(input: RoleInput): RoleFields {
 	if (!Number.isFinite(color) || color < 0 || color > 360) throw bad('color — число 0..360')
 	const iconRaw = (input.icon ?? '').trim()
 	if (iconRaw && (iconRaw.length > ROLE_ICON_MAX || !ROLE_ICON_RE.test(iconRaw))) throw bad(`icon — имя SF Symbols ([a-z0-9.-], до ${ROLE_ICON_MAX} символов)`)
-	return { id, name, description, instructions, color: Math.round(color), icon: iconRaw || null }
+	const packageDir = input.packageDir?.trim() || null
+	if (packageDir && (!packageDir.startsWith('/') || packageDir.length > 1024)) throw bad('packageDir — абсолютный путь к папке')
+	return { id, name, description, instructions, color: Math.round(color), icon: iconRaw || null, packageDir }
 }

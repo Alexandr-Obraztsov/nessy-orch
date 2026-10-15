@@ -64,6 +64,29 @@ describe('пресеты ролей: заливка при первом запу
 		assert.deepEqual(await roles(h), [])
 	})
 
+	it('существующая установка получает недавно добавленную роль один раз; удалённая не возвращается', T, async () => {
+		const base = tmp()
+		dirs.push(base)
+		const rolesDir = presetsDir(base)
+		fs.writeFileSync(path.join(rolesDir, 'html-writer.md'), preset('html-writer', 'HTML-писатель'))
+		fs.mkdirSync(path.join(base, 'home'), { recursive: true })
+		// roles.json уже есть (установка до учёта «виденных»): в нём одна своя роль
+		fs.writeFileSync(path.join(base, 'home', 'roles.json'), JSON.stringify({ roles: [{ id: 'mine', name: 'Моя', description: '', instructions: 'x', color: 1, icon: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }] }))
+		const h1 = await startHarness({ base, config: { seedRoles: true, rolesDir } })
+		assert.deepEqual((await roles(h1)).map(r => r.id).sort(), ['html-writer', 'mine'], 'alpha и beta считаются виденными, html-writer — новая')
+		await h1.api('DELETE', '/roles/html-writer')
+		await h1.close({ keepFiles: true })
+		const h2 = await startHarness({ base, config: { seedRoles: true, rolesDir } })
+		open.push(h2)
+		assert.deepEqual((await roles(h2)).map(r => r.id), ['mine'], 'удалённая роль не вернулась')
+		// в поставку добавили ещё одну роль — она приходит
+		fs.writeFileSync(path.join(rolesDir, 'gamma.md'), preset('gamma', 'Гамма'))
+		await h2.close({ keepFiles: true })
+		const h3 = await startHarness({ base, config: { seedRoles: true, rolesDir } })
+		open.push(h3)
+		assert.deepEqual((await roles(h3)).map(r => r.id).sort(), ['gamma', 'mine'])
+	})
+
 	it('seedRoles=false и отсутствующий каталог — без ролей и без ошибок', T, async () => {
 		const base = tmp()
 		dirs.push(base)

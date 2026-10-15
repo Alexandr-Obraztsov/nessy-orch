@@ -12,7 +12,12 @@ export function readRolePresetFiles(target: string): RolePresetFile[] {
 	} catch {
 		return []
 	}
-	if (stat.isFile()) return [{ source: path.basename(target), text: fs.readFileSync(target, 'utf8') }]
+	if (stat.isFile()) {
+		const file: RolePresetFile = { source: path.basename(target), text: fs.readFileSync(target, 'utf8') }
+		// role.md внутри папки — пакет роли: рядом лежат её файлы
+		if (path.basename(target).toLowerCase() === 'role.md') file.packageDir = path.dirname(path.resolve(target))
+		return [file]
+	}
 	const files: RolePresetFile[] = []
 	for (const name of fs.readdirSync(target).sort()) {
 		if (!name.toLowerCase().endsWith('.md') || name.toLowerCase() === 'readme.md') continue
@@ -21,6 +26,16 @@ export function readRolePresetFiles(target: string): RolePresetFile[] {
 			if (fs.statSync(p).isFile()) files.push({ source: name, text: fs.readFileSync(p, 'utf8') })
 		} catch {
 			/* файл пропал или нечитаем — пропускаем */
+		}
+	}
+	// пакеты ролей: <каталог>/<id>/role.md, остальные файлы папки — содержимое пакета
+	for (const name of fs.readdirSync(target).sort()) {
+		const dir = path.join(target, name)
+		const md = path.join(dir, 'role.md')
+		try {
+			if (fs.statSync(dir).isDirectory() && fs.statSync(md).isFile()) files.push({ source: `${name}/role.md`, text: fs.readFileSync(md, 'utf8'), packageDir: dir })
+		} catch {
+			/* не пакет — пропускаем */
 		}
 	}
 	return files
