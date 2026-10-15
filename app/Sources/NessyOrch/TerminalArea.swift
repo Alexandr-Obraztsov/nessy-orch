@@ -12,8 +12,7 @@ struct CenterView: View {
 			if win == nil {
 				NoProjectView()
 			} else if let tab = win?.terminal {
-				// терминал на всю высоту: шапка прозрачная, первые строки пустые (см. padTopLines), чтобы текст начинался ниже неё
-				TerminalHost(tab: tab, topInset: 0)
+				TerminalHost(tab: tab, topInset: win?.barHeight ?? 44)
 					.id(tab.id)
 					.accessibilityLabel("Терминал")
 					.overlay { if let win { LaunchOverlay(tab: tab, win: win) } }

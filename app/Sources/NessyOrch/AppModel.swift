@@ -45,7 +45,14 @@ final class AppModel {
 		let w = UserDefaults.standard.double(forKey: "leftPanelWidth")
 		return w > 0 ? min(DS.Metrics.sidePanelWidth.max, max(DS.Metrics.sidePanelWidth.min, CGFloat(w))) : DS.Metrics.sidePanelWidth.ideal
 	}() { didSet { UserDefaults.standard.set(Double(leftPanelWidth), forKey: "leftPanelWidth") } }
-	func width(of side: DockSide) -> CGFloat { side == .left ? leftPanelWidth : panelWidth }
+	/// Ширина колонки: свой запас у каждой, потолка нет — ограничено лишь тем, чтобы центральному терминалу осталось место.
+	func width(of side: DockSide) -> CGFloat {
+		let raw = side == .left ? leftPanelWidth : panelWidth
+		guard windowSize.width > 0 else { return raw }
+		let other: DockSide = side == .left ? .right : .left
+		let otherW = blocks(on: other).isEmpty ? 0 : (other == .left ? leftPanelWidth : panelWidth) + 1.5 * SessionWindowModel.panelMargin
+		return min(raw, max(DS.Metrics.sidePanelWidth.min, windowSize.width - 360 - otherW))
+	}
 	func setWidth(_ v: CGFloat, of side: DockSide) { if side == .left { leftPanelWidth = v } else if side == .right { panelWidth = v } }
 	var showAgents = UserDefaults.standard.object(forKey: "showAgents") as? Bool ?? true { didSet { UserDefaults.standard.set(showAgents, forKey: "showAgents") } }
 	/// высота терминала проекта в правой колонке (тянется за верхний край), общая для окон

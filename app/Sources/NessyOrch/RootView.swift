@@ -234,33 +234,41 @@ private struct MainWindowBody: View {
 	}
 }
 
-/// Терминал проекта: содержимое блока колонки — заголовок с папкой и «×» (процесс остаётся, пока жив проект) и сам терминал.
+/// Терминал проекта: содержимое блока. Терминал занимает весь блок, а шапка — плавающая «стеклянная» капсула (Liquid Glass) поверх него:
+/// первые строки терминала пустые (см. `padTopLines`), чтобы вывод начинался ниже шапки.
 struct ShellBlock: View {
 	var win: SessionWindowModel
 
 	var body: some View {
-		VStack(spacing: 0) {
-			HStack(spacing: DS.Metrics.s2) {
-				Image(systemName: "terminal").font(.system(size: 11, weight: .medium))
-				Text(Projects.name(ofPath: win.dir)).font(DS.Typography.caption.weight(.semibold)).lineLimit(1).truncationMode(.middle)
-				Spacer(minLength: 0)
-				Button { win.toggleShell() } label: {
-					Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).frame(width: 18, height: 18).contentShape(Circle())
-				}
-				.buttonStyle(.plain).focusEffectDisabled().help("Скрыть терминал")
-			}
-			.foregroundStyle(DS.Palette.textSecondary)
-			.padding(.horizontal, DS.Metrics.s4).frame(height: 30)
+		ZStack(alignment: .top) {
 			if let tab = win.shell {
 				TerminalHost(tab: tab, topInset: 0)
 					.id(tab.id)
-					.padding(.horizontal, DS.Metrics.s2).padding(.bottom, DS.Metrics.s2)
 					.accessibilityLabel("Терминал проекта")
-			} else {
-				Spacer()
 			}
+			header
+				.padding(.horizontal, DS.Metrics.s2).padding(.top, DS.Metrics.s2)
 		}
 	}
+
+	private var header: some View {
+		HStack(spacing: DS.Metrics.s2) {
+			Image(systemName: "terminal").font(.system(size: 11, weight: .medium))
+			Text(Projects.name(ofPath: win.dir)).font(DS.Typography.caption.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+			Spacer(minLength: 0)
+			Button { win.toggleShell() } label: {
+				Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).frame(width: 18, height: 18).contentShape(Circle())
+			}
+			.buttonStyle(.plain).focusEffectDisabled().help("Скрыть терминал")
+		}
+		.foregroundStyle(DS.Palette.textSecondary)
+		.padding(.horizontal, DS.Metrics.s3).frame(height: ShellBlock.headerHeight)
+		.glassEffect(.regular, in: Capsule())
+	}
+
+	/// высота шапки и отступ над ней: под них резервируются верхние строки терминала
+	static let headerHeight: CGFloat = 30
+	static var reservedTop: CGFloat { headerHeight + 2 * DS.Metrics.s2 }
 }
 
 /// Переключатель проектов в шапке на Liquid Glass: вкладка на проект (активная подсвечена), у каждой — состояние агентов проекта

@@ -75,7 +75,7 @@ extension DS {
 		static let s1: CGFloat = 4, s2: CGFloat = 8, s3: CGFloat = 12, s4: CGFloat = 16, s5: CGFloat = 20, s6: CGFloat = 24, s8: CGFloat = 32
 		static let contentInset: CGFloat = 20
 		/// левая панель агентов (layout-v2.md, итог): 300…440, по умолчанию 340
-		static let sidePanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 300, 520)
+		static let sidePanelWidth: (min: CGFloat, ideal: CGFloat, max: CGFloat) = (240, 300, 4000)
 		static let panelRadius: CGFloat = 22
 		/// круглые кнопки: 36 — везде, 40 — в тулбаре; иконка 16–17 pt (layout-v2.md, «Кнопки»)
 		static let button: CGFloat = 36, buttonIcon: CGFloat = 16.5

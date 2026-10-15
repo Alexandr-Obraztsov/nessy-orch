@@ -56,7 +56,6 @@ extension AppModel {
 			spec.environment[i] = "PATH=" + (extra + [String(spec.environment[i].dropFirst(5))]).joined(separator: ":")
 		}
 		let tab = terminals.add(spec, key: win.key)
-		tab.container.padTopLines(for: win.barHeight)
 		tab.onTitle = { [weak win] title in win?.noteChatTitle(title) }
 		tab.onExit = { [weak win, weak tab] code in
 			guard let win, let tab else { return }
@@ -82,6 +81,7 @@ extension AppModel {
 		}
 		let tab = terminals.add(spec, key: win.shellKey)
 		tab.container.fontOffset = -2
+		tab.container.padTopLines(for: ShellBlock.reservedTop)
 		tab.container.backgroundOverride = NSColor(DS.Palette.panelSurface)
 		// `exit` в оболочке: блок закрывается, следующее открытие запускает новую
 		tab.onExit = { [weak win] _ in

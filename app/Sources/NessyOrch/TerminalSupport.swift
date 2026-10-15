@@ -71,6 +71,7 @@ final class TerminalContainer: NSView {
 		terminal = AgentTerminalView(frame: .zero)
 		super.init(frame: frame)
 		wantsLayer = true
+		layer?.masksToBounds = true // терминал может отставать от размера контейнера (см. `scheduleLayout`)
 		applyFont()
 		addSubview(terminal)
 		applyTheme()
@@ -153,7 +154,19 @@ final class TerminalContainer: NSView {
 	}
 
 	override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyTheme() }
-	override func layout() { super.layout(); layoutTerminal() }
+	override func layout() { super.layout(); scheduleLayout() }
+
+	/// Терминал пересчитывает колонки и строки долго, поэтому при плавном изменении размера блока (анимация раскладки) он подстраивается
+	/// один раз — когда размер перестал меняться; пока что контейнер обрезает его прежний кадр. Первая раскладка и анимация отступа — сразу.
+	private var layoutWork: DispatchWorkItem?
+	private func scheduleLayout() {
+		if terminal.frame.isEmpty || insetTimer != nil || (window?.inLiveResize ?? false) { layoutWork?.cancel(); layoutTerminal(); return }
+		guard terminalFrame != terminal.frame else { return }
+		layoutWork?.cancel()
+		let w = DispatchWorkItem { [weak self] in self?.layoutTerminal() }
+		layoutWork = w
+		DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: w)
+	}
 	override var acceptsFirstResponder: Bool { true }
 	override func becomeFirstResponder() -> Bool { window?.makeFirstResponder(terminal) ?? false }
 }

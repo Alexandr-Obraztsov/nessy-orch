@@ -46,10 +46,10 @@ extension AppModel {
 				g.places[b] = DockPlace(side: side, index: i, count: list.count, frame: CGRect(x: x, y: y, width: w, height: h))
 				y += h + m
 			}
-			g.columnEdges.append((side, CGRect(x: side == .left ? x + w - 5 : x - 5, y: m, width: 10, height: total)))
+			g.columnEdges.append((side, CGRect(x: side == .left ? x + w - 6 : x - 6, y: m, width: 12, height: total)))
 			if list.count == 2 {
 				let upper = g.places[list[0]]!.frame
-				g.gaps.append((side, CGRect(x: x, y: upper.maxY, width: w, height: m), list[0] == .shell, total))
+				g.gaps.append((side, CGRect(x: x, y: upper.maxY - 3, width: w, height: m + 6), list[0] == .shell, total))
 			}
 		}
 		column(.left, x: m, w: wl)
@@ -117,6 +117,8 @@ private struct DockTile: View {
 	var place: DockPlace
 	var shape: RoundedRectangle
 	@State private var dragging = false
+	/// размер блока, пока его несут
+	static let carried = CGSize(width: 280, height: 200)
 
 	var body: some View {
 		let f = place.frame
@@ -124,6 +126,9 @@ private struct DockTile: View {
 		// слева кнопки окна (светофор) попадают в верхний блок, и он делает отступ содержимому
 		let topInset: CGFloat = place.side == .left && place.index == 0 && !model.isFullScreen ? 28 : 0
 		let off = isDragged ? CGSize(width: model.dragPointer.x - model.dragGrab.x - f.minX, height: model.dragPointer.y - model.dragGrab.y - f.minY) : .zero
+		// пока блок несут, у него фиксированный (уменьшенный) размер: терминал внутри не пересчитывается за указателем и не лагает,
+		// а на месте назначения он растягивается до синей зоны, когда блок отпустили
+		let size = isDragged ? CGSize(width: min(f.width, Self.carried.width), height: min(f.height, Self.carried.height)) : f.size
 		ZStack(alignment: .topLeading) {
 			if isDragged {
 				shape.fill(DS.Palette.accent.opacity(0.10))
@@ -131,19 +136,23 @@ private struct DockTile: View {
 			}
 			content
 				.padding(.top, topInset)
-				.frame(width: f.width, height: f.height, alignment: .top)
+				.frame(width: size.width, height: size.height, alignment: .top)
 				.clipShape(shape)
 				.background(DS.Palette.panelSurface, in: shape)
 				.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
 				.shadow(color: .black.opacity(isDragged ? 0.35 : 0), radius: 16, y: 6)
 				.opacity(isDragged ? 0.92 : 1)
 				.offset(off)
+				.animation(DS.Motion.pick(DS.Motion.layout, reduceMotion: false), value: isDragged)
+				.background(alignment: .topLeading) { NoWindowDrag().frame(width: f.width, height: 34 + topInset) }
 				.simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)
 					.onChanged { g in
 						if !dragging {
 							guard g.startLocation.y - f.minY < 34 + topInset else { return }
 							dragging = true
-							model.dragGrab = CGPoint(x: g.startLocation.x - f.minX, y: g.startLocation.y - f.minY)
+							// точка захвата переносится на уменьшенный блок пропорционально
+							let w = min(f.width, Self.carried.width)
+							model.dragGrab = CGPoint(x: (g.startLocation.x - f.minX) * w / max(f.width, 1), y: min(g.startLocation.y - f.minY, 17))
 						}
 						model.dragMoved(block, pointer: g.location)
 					}
@@ -163,7 +172,7 @@ private struct DockTile: View {
 	}
 }
 
-/// Захват ширины колонки у внутреннего края: курсор «↔»; двойной щелчок — обычная ширина.
+/// Захват ширины колонки у внутреннего края: курсор «↔» (pointerStyle) при подходе к краю; двойной щелчок — обычная ширина.
 private struct WidthHandle: View {
 	@Environment(AppModel.self) private var model
 	var side: DockSide
@@ -171,13 +180,12 @@ private struct WidthHandle: View {
 
 	var body: some View {
 		Color.clear.contentShape(Rectangle())
-			.onHover { h in if h { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+			.pointerStyle(.columnResize)
 			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
 				.onChanged { g in
 					if start == nil { start = model.width(of: side) }
-					let r = DS.Metrics.sidePanelWidth
 					let dx = side == .right ? -g.translation.width : g.translation.width
-					model.setWidth(min(max((start ?? r.ideal) + dx, r.min), r.max), of: side)
+					model.setWidth(max((start ?? DS.Metrics.sidePanelWidth.ideal) + dx, DS.Metrics.sidePanelWidth.min), of: side)
 				}
 				.onEnded { _ in start = nil })
 			.onTapGesture(count: 2) { model.setWidth(DS.Metrics.sidePanelWidth.ideal, of: side) }
@@ -192,7 +200,7 @@ private struct HeightHandle: View {
 
 	var body: some View {
 		Color.clear.contentShape(Rectangle())
-			.onHover { h in if h { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
+			.pointerStyle(.rowResize)
 			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
 				.onChanged { g in
 					if start == nil { start = model.bottomHeight }
@@ -204,41 +212,38 @@ private struct HeightHandle: View {
 	}
 }
 
-/// Тянучка между двумя блоками колонки: простая тонкая плашка по центру зазора. Появляется (и работает) только после долгого удержания курсора.
+/// Зазор между двумя блоками колонки: курсор «↕» при подходе, тянуть можно сразу; двойной щелчок — обычная высота. Никаких полосок.
 private struct SplitGrip: View {
 	@Environment(AppModel.self) private var model
 	var shellIsUpper: Bool
 	var total: CGFloat
-	@State private var hover = false
-	@State private var visible = false
 	@State private var start: CGFloat?
 	private let m = SessionWindowModel.panelMargin
 
 	var body: some View {
 		Color.clear.contentShape(Rectangle())
-			.overlay { Capsule().fill(DS.Palette.textTertiary).frame(width: 36, height: 4).opacity(visible ? 0.9 : 0) }
-			.onHover { h in
-				hover = h
-				if h {
-					DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-						guard hover, !visible else { return }
-						withAnimation(.easeOut(duration: 0.15)) { visible = true }
-						NSCursor.resizeUpDown.push()
-					}
-				} else if visible {
-					NSCursor.pop()
-					withAnimation(.easeOut(duration: 0.12)) { visible = false }
-				}
-			}
+			.pointerStyle(.rowResize)
 			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
 				.onChanged { g in
-					guard visible else { return }
 					if start == nil { start = model.shellHeight }
 					let dy = shellIsUpper ? g.translation.height : -g.translation.height
 					model.shellHeight = min(max((start ?? 240) + dy, AppModel.shellHeightMin), max(total - 160 - m, AppModel.shellHeightMin))
 				}
 				.onEnded { _ in start = nil })
-			.onTapGesture(count: 2) { if visible { model.shellHeight = 240 } }
+			.onTapGesture(count: 2) { model.shellHeight = 240 }
 			.help("Потяните, чтобы изменить высоту блоков; двойной щелчок — по умолчанию")
 	}
+}
+
+/// Прозрачная для перетаскивания окна зона: мышь, нажатая здесь, не двигает окно (иначе перенос блока за шапку тащил бы всё окно).
+/// События пересылаются дальше по цепочке, поэтому жесты SwiftUI поверх работают как обычно.
+struct NoWindowDrag: NSViewRepresentable {
+	final class V: NSView {
+		override var mouseDownCanMoveWindow: Bool { false }
+		override func mouseDown(with e: NSEvent) { nextResponder?.mouseDown(with: e) }
+		override func mouseDragged(with e: NSEvent) { nextResponder?.mouseDragged(with: e) }
+		override func mouseUp(with e: NSEvent) { nextResponder?.mouseUp(with: e) }
+	}
+	func makeNSView(context: Context) -> NSView { V() }
+	func updateNSView(_ v: NSView, context: Context) {}
 }
