@@ -92,6 +92,14 @@ final class TerminalContainer: NSView {
 
 	/// поправка к размеру шрифта из настроек (терминал-блок в колонке мельче главного)
 	var fontOffset: CGFloat = 0 { didSet { applyFont() } }
+	/// Пустые строки сверху: терминал лежит под прозрачной шапкой, и вывод должен начинаться ниже неё. Сколько строк, считается по высоте
+	/// шапки и высоте строки шрифта (13 pt даёт 16 pt на строку — 3 строки под шапку в 48 pt).
+	func padTopLines(for height: CGFloat) {
+		let f = terminal.font
+		let lineH = max(ceil(f.ascender - f.descender + f.leading), 1)
+		terminal.feed(text: String(repeating: "\r\n", count: Int(ceil(height / lineH))))
+	}
+
 	/// свой фон (терминал-блок в колонке красится под соседние блоки); nil — фон темы
 	var backgroundOverride: NSColor? { didSet { applyTheme() } }
 
