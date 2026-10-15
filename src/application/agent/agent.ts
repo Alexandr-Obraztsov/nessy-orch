@@ -105,6 +105,10 @@ export class Agent implements AgentIdentity {
 	private turnUsage: TokenUsage | null = null
 	/** promptId завершённых ходов (поздние turn_complete/cancelled по ним игнорируются) */
 	private readonly donePrompts: string[] = []
+	/** повторы поручения после ошибки: какое сообщение, который по счёту повтор и последняя ошибка (для пометки в промпте) */
+	private retryState: { id: string; n: number; error: string } | null = null
+	/** пока идёт пауза перед повтором, очередь не разбирается */
+	private holdPump = false
 
 	constructor(
 		init: AgentInit,
@@ -482,7 +486,7 @@ export class Agent implements AgentIdentity {
 	}
 
 	private async pump(): Promise<void> {
-		if (this.current || this.pumping || this.removed) return
+		if (this.current || this.pumping || this.removed || this.holdPump) return
 		if (!this.queue.length) return
 		this.pumping = true
 		try {
@@ -569,7 +573,11 @@ export class Agent implements AgentIdentity {
 
 	private buildPrompt(msg: Message): string {
 		const { host } = this.deps
-		const body = framePrompt(msg, host.labelOf(msg.from))
+		let body = framePrompt(msg, host.labelOf(msg.from))
+		// повтор после ошибки: модель знает, что предыдущая попытка оборвалась, и не повторяет уже сделанное
+		if (this.retryState?.id === msg.id) {
+			body = `[nessy-orch] Прошлая попытка выполнить это поручение оборвалась ошибкой: «${clip(this.retryState.error, 300)}». Продолжи с того места, где остановился. Уже выполненные действия (особенно записи во внешние системы: комментарии, правки, коммиты) не повторяй: сначала проверь текущее состояние.\n\n${body}`
+		}
 		// правила плана — в вводной первого промпта; напоминание повторяем только там: у агентов малое окно контекста, каждая строка в каждом ходе копится
 		return this.introduced ? body : `${host.preambleFor(this)}\n\n${body}\n\n${planReminder(this.id, this.deps.cliPath, this.deps.showKey ? this.key : undefined)}`
 	}
@@ -580,6 +588,12 @@ export class Agent implements AgentIdentity {
 		const dropped = [...this.queue, ...(this.current?.injected.filter(i => !i.confirmed).map(i => i.msg) ?? [])]
 		this.queue = []
 		this.urgent = 0
+		if (this.holdPump) {
+			// шла пауза перед повтором: поручение отменено, повторять нечего
+			this.holdPump = false
+			this.retryState = null
+			if (!this.current) this.setStatus('idle')
+		}
 		if (this.current) this.current.injected = this.current.injected.filter(i => i.confirmed)
 		for (const m of dropped) if (m.wait) this.noteReply(this.deps.host.onTurnDone(this, m, '', { stopReason: 'cancelled' }))
 		this.publishNode()
@@ -819,8 +833,15 @@ export class Agent implements AgentIdentity {
 		// результат хода — только финальное сообщение: последний непустой блок текста
 		const text = finalText(cur.texts)
 		if (text) this.lastReply = text
-		if (info.error) this.addSystem('ход завершился ошибкой: ' + info.error, 'error')
+		// ошибка хода: повторяем то же поручение (2 раза с растущей паузой), ответ с ошибкой — только когда повторы кончились
+		const retry = this.planRetry(cur, info, cancelled)
+		if (info.error) this.addSystem('ход завершился ошибкой: ' + info.error + (retry ? ` — повтор ${retry.n}/${this.deps.turnRetries ?? 0} через ${Math.round(retry.delayMs / 1000)} с` : ''), 'error')
 		else if (cancelled) this.addSystem('ход прерван')
+		if (!info.error) this.retryState = null
+		if (retry) {
+			this.holdRetry(cur, retry.delayMs)
+			return
+		}
 		const queued = this.queue.length
 		if (archiveAfterTurn(info, queued)) this.archived = true
 		this.setStatus(statusAfterTurn(info, queued), info.error ?? null)
@@ -838,6 +859,33 @@ export class Agent implements AgentIdentity {
 		void this.pump()
 		this.scheduleIdleClose()
 		void this.refreshUsage()
+	}
+
+	/** Нужен ли повтор: ошибка хода (не отмена), агент жив и повторы не исчерпаны. */
+	private planRetry(cur: CurrentTurn, info: TurnOutcome, cancelled: boolean): { n: number; delayMs: number } | null {
+		const max = this.deps.turnRetries ?? 0
+		if (!info.error || cancelled || cur.cancelRequested || this.removed || max <= 0) return null
+		const n = (this.retryState?.id === cur.msg.id ? this.retryState.n : 0) + 1
+		if (n > max) {
+			this.retryState = null
+			return null
+		}
+		this.retryState = { id: cur.msg.id, n, error: info.error }
+		return { n, delayMs: (this.deps.turnRetryBaseMs ?? 3000) * 2 ** (n - 1) }
+	}
+
+	/** Вернуть поручение в начало очереди и разобрать её после паузы; сообщения, доставленные в тот же ход, идут следом. */
+	private holdRetry(cur: CurrentTurn, delayMs: number): void {
+		this.queue.unshift(cur.msg)
+		this.urgent++
+		this.queue.splice(this.urgent, 0, ...cur.injected.map(i => i.msg))
+		this.holdPump = true
+		this.setStatus('working')
+		this.publishNode()
+		setTimeout(() => {
+			this.holdPump = false
+			void this.pump()
+		}, delayMs).unref()
 	}
 
 	/** Токены сессии нарастающим итогом (если nessy отдаёт /stats) — точнее суммы по ходам. */

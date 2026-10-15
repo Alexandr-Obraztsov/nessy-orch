@@ -36,6 +36,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		maxActivePerSession: Math.max(1, int(env['ORCH_MAX_ACTIVE'], 12)),
 		maxAgentsPerSession: Math.max(1, int(env['ORCH_MAX_AGENTS'], 40)),
 		contextWindow: Math.max(1000, int(env['ORCH_CONTEXT_WINDOW'], 128_000)),
+		turnRetries: Math.max(0, int(env['ORCH_TURN_RETRIES'], 2)),
 		agentTtlMs: Math.max(0, int(env['ORCH_AGENT_TTL_MIN'], 360)) * 60_000,
 		idleCloseMs: Math.max(0, int(env['ORCH_IDLE_CLOSE_SEC'], 120)) * 1000,
 		autoApprove: flag(env['ORCH_AUTO_APPROVE'], true),

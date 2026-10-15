@@ -38,6 +38,10 @@ export interface AgentDeps {
 	cliPath: string
 	/** окно контекста, токенов (для метрики «контекст %»); по умолчанию 128000 */
 	contextWindow?: number
+	/** повторов поручения после ошибки хода; по умолчанию 0 */
+	turnRetries?: number
+	/** пауза перед первым повтором, мс (дальше удваивается) */
+	turnRetryBaseMs?: number
 }
 
 export interface AgentInit {

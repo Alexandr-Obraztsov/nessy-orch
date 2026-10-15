@@ -135,6 +135,8 @@ export class Orchestrator implements AgentHost {
 				showKey: deps.settings.authRequired === true,
 				cliPath: deps.settings.cliPath,
 				contextWindow: deps.settings.contextWindow ?? 128_000,
+				turnRetries: deps.settings.turnRetries ?? 0,
+				...(deps.settings.turnRetryBaseMs !== undefined ? { turnRetryBaseMs: deps.settings.turnRetryBaseMs } : {}),
 			},
 			saveSoon: () => this.saveSoon(),
 			isShuttingDown: () => this.shuttingDown,
