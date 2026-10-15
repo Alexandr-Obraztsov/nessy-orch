@@ -246,7 +246,6 @@ struct ShellBlock: View {
 	var body: some View {
 		VStack(spacing: 0) {
 			header
-			DSSeparator()
 			if let tab = win.shell {
 				TerminalHost(tab: tab, topInset: 0)
 					.id(tab.id)
@@ -269,7 +268,7 @@ struct ShellBlock: View {
 		}
 		.foregroundStyle(DS.Palette.textSecondary)
 		.padding(.horizontal, DS.Metrics.s4).frame(height: ShellBlock.headerHeight)
-		.background(DS.Palette.panelSurface)
+		.background(DS.Palette.terminalBackground)
 	}
 
 	static let headerHeight: CGFloat = 34

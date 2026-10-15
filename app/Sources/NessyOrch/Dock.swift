@@ -170,7 +170,7 @@ private struct DockTile: View {
 			.clipShape(shape)
 			// терминал — другого, «консольного» цвета, чтобы было видно, что сюда можно вводить
 			.background(block == .shell ? DS.Palette.terminalBackground : DS.Palette.panelSurface, in: shape)
-			.overlay(shape.strokeBorder(block == .shell ? DS.Palette.separator.opacity(1.6) : DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+			.overlay(shape.strokeBorder(DS.Palette.border, lineWidth: DS.Metrics.hairline))
 			.opacity(isDragged ? 0.55 : 1)
 			.animation(.easeOut(duration: 0.15), value: isDragged)
 			.simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)

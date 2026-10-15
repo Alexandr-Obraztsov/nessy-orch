@@ -15,8 +15,10 @@ extension DS {
 		/// плитка боковой панели: один ровный цвет
 		static let panelSurface = Color.ds(0xF7F7F9, 0x242427)
 		static let terminalBackground = Color.ds(0xFBFBFC, 0x1C1C1E)
-		static let surface = Color.ds(0xFFFFFF, 0x262628)
+		static let surface = Color.ds(0xFFFFFF, 0x2E2E32)
 		static let panel = Color.ds(0xFFFFFF, 0x2C2C2F)
+		/// обводка карточек и блоков: заметнее разделителя, чтобы карточка отделялась от фона и на обычном экране
+		static let border = Color.ds(0x000000, 0xFFFFFF, alpha: 0.16, hcAlpha: 0.34)
 		static let separator = Color.ds(0x000000, 0xFFFFFF, alpha: 0.10, hcAlpha: 0.28)
 		/// фон карточки плана: нейтральный, плотнее поля ввода, чтобы их не путать
 		static let planSurface = Color.ds(0x000000, 0xFFFFFF, alpha: 0.13, hcAlpha: 0.2)
@@ -90,7 +92,8 @@ extension DS {
 		static let progressSize = CGSize(width: 48, height: 3)
 		/// отступ текста строки агента от левого края: 12 + глиф 16 + 12
 		static let rowTextX: CGFloat = 40
-		static let hairline: CGFloat = 0.5
+		/// ровно один физический пиксель: 0,5 pt на Retina и 1 pt на обычном экране (там 0,5 pt обводка исчезала)
+		static var hairline: CGFloat { 1 / max(NSApp?.keyWindow?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, 1) }
 		static let hairlineHC: CGFloat = 1
 	}
 }
@@ -136,7 +139,7 @@ extension View {
 		return self
 			.background(.regularMaterial, in: shape)
 			.background(tint, in: shape)
-			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+			.overlay(shape.strokeBorder(DS.Palette.border, lineWidth: DS.Metrics.hairline))
 	}
 
 }
@@ -148,7 +151,7 @@ private struct DSGroup: ViewModifier {
 		content
 			.background(DS.Palette.surface, in: shape)
 			.clipShape(shape)
-			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: contrast == .increased ? DS.Metrics.hairlineHC : DS.Metrics.hairline))
+			.overlay(shape.strokeBorder(DS.Palette.border, lineWidth: contrast == .increased ? DS.Metrics.hairlineHC : DS.Metrics.hairline))
 			.containerShape(shape)
 	}
 }
