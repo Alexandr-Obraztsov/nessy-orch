@@ -16,17 +16,13 @@ final class SetupModel {
 	var autoService: Bool { UserDefaults.standard.object(forKey: "autoInstallService") as? Bool ?? true }
 
 	/// Запуск приложения: плагин (нет или другая версия) и служба (нет, старый путь или не отвечает) — молча.
-	func launch(daemonOnline: @escaping @MainActor () async -> Bool) {
+	func launch() {
 		if autoPlugin { installPluginIfNeeded() }
 		cleanupLegacy()
 		guard autoService, service.isBundled else { return }
-		Task {
-			try? await Task.sleep(for: .seconds(2.5)) // дать подключиться к уже работающему оркестратору
-			// `install --ensure` сам решает: служба загружена, смотрит в рабочую копию и копия не новее встроенной — ничего не трогаем (запуск другой
-			// копии приложения службу не перезапускает); иначе обновляет рабочую копию (только вперёд) и перезапускает службу
-			_ = await daemonOnline()
-			await installService()
-		}
+		// первый запуск приложения: прежний процесс службы (любой версии) сбиваем и поднимаем последнюю установленную копию;
+		// дальше службу трогает только сторож, когда она перестала отвечать
+		Task { _ = await restartService() }
 		watchService()
 	}
 

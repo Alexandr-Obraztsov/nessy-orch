@@ -98,11 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		// «просто запустил приложение — оркестрация работает»: служба оркестратора и плагин nessy в Claude Code (глобально) ставятся и обновляются сами;
 		// окно «Установка» — на первом запуске и если нужно участие (нет claude или Node.js)
 		if UserDefaults.standard.string(forKey: "debug.terminalCommand") == nil {
-			model.setup.launch {
-				await model.store.refreshStatus()
-				if case .online = model.store.daemon { return true }
-				return false
-			}
+			model.setup.launch()
 		}
 		NSApp.setActivationPolicy(UserDefaults.standard.bool(forKey: "menuBarOnly") ? .accessory : .regular)
 		// Finder: пункт «Открыть в TClaude-Orch» (служба приложения и быстрое действие) — один раз при первом запуске
