@@ -63,6 +63,7 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 	const prompt = p.positionals.join(' ').trim()
 	const wait = waits(p) && prompt !== ''
 	if (flagBool(p, 'wait') && !prompt) throw new CliError('--wait требует текст поручения', 2)
+	const timeout = flagNum(p, 'timeout') ?? DEFAULT_WAIT_SEC
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(flagStr(p, 'space')),
 		cwd: process.cwd(), // пространство по умолчанию, если --space не указан и пространств не одно
@@ -71,10 +72,19 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 		session: sessionOption(p),
 		from: flagStr(p, 'from'),
 		prompt: prompt || undefined,
-		wait,
-		waitTimeoutSec: flagNum(p, 'timeout') ?? DEFAULT_WAIT_SEC,
+		// ждём отдельным запросом: имя агента печатаем сразу после создания (его можно прочитать из вывода фоновой команды,
+		// пока агент работает), а не вместе с результатом
+		wait: false,
+		waitTimeoutSec: timeout,
 	})
-	printSendResult(p, r.agent, r)
+	if (!wait) return printSendResult(p, r.agent, r)
+	const a = r.agent
+	if (!flagBool(p, 'json')) info(`${green('✓')} агент ${bold(a.name)}${a.title ? ` «${a.title}»` : ''} (id ${a.id}) в «${a.space}»: работает; написать ему: nessy-orch send ${a.name} "…"`)
+	const w = await get<WaitResponse>(`/agents/${enc(a.id)}/wait?timeout=${timeout}`)
+	if (flagBool(p, 'json')) return json({ agent: w.agent, ...(w.reply ? { reply: w.reply } : {}), ...(w.done ? {} : { timedOut: true }) })
+	if (!w.done) throw new CliError(`ответ не получен за отведённое время; агент ${a.name} продолжает работу. Дождаться снова (в фоне): nessy-orch wait ${a.name}`, 3)
+	if (w.reply?.failed) info(red(`агент ответил с ошибкой: ${w.reply.failed}`))
+	out(w.reply?.text ?? '(агент ничего не ответил)')
 }
 
 async function cmdSend(p: Parsed): Promise<void> {

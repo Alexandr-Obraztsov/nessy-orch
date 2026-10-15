@@ -12,13 +12,20 @@ export class Registry {
 		return this.spaces.get(name)
 	}
 
-	/** Агент по id или имени (без учёта регистра). */
+	/**
+	 * Агент по id, имени или (если нет совпадений и он один такой) заголовку, без учёта регистра. Заголовок удобен, пока имя ещё неизвестно:
+	 * `spawn` в фоне печатает имя сразу, но читать его можно не сразу.
+	 */
 	resolveAgent(ref: string): Agent {
 		const byId = this.agents.get(ref)
 		if (byId) return byId
-		const hits = [...this.agents.values()].filter(a => a.name.toLowerCase() === ref.toLowerCase())
+		const key = ref.trim().toLowerCase()
+		const hits = [...this.agents.values()].filter(a => a.name.toLowerCase() === key)
 		if (hits.length === 1) return hits[0] as Agent
 		if (hits.length > 1) throw new AppError(409, 'ambiguous_agent', `имя «${ref}» неоднозначно: ${hits.map(a => a.id).join(', ')}`)
+		const byTitle = [...this.agents.values()].filter(a => a.title !== null && a.title.toLowerCase() === key)
+		if (byTitle.length === 1) return byTitle[0] as Agent
+		if (byTitle.length > 1) throw new AppError(409, 'ambiguous_agent', `заголовок «${ref}» у нескольких агентов: ${byTitle.map(a => a.name).join(', ')} — обратитесь по имени`)
 		throw new AppError(404, 'no_agent', `агент «${ref}» не найден`)
 	}
 

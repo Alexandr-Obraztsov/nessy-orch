@@ -77,13 +77,14 @@ export function agentsTable(agents: readonly AgentView[], spaces: readonly Space
 		agents.map(a => [
 			bold(a.id),
 			a.name === a.id ? dim('—') : a.name,
+			a.title ?? dim('—'),
 			roleCell(a.role, rl),
 			status(a.status) + (a.archived ? dim(' · архив') : '') + (a.queued ? dim(` +${a.queued}`) : ''),
 			a.space + (sp.get(a.space)?.status === 'failed' ? red(' (!)') : ''),
 			contextCell(a),
 			a.lastTool ? dim(`⚙ ${a.lastTool.name}`) : a.preview ? dim(a.preview.replace(/\s+/g, ' ').slice(0, 50)) : '',
 		]),
-		['ID', 'ИМЯ', 'РОЛЬ', 'СТАТУС', 'ПРОСТРАНСТВО', 'КОНТЕКСТ', 'ПОСЛЕДНЕЕ'],
+		['ID', 'ИМЯ', 'ЗАГОЛОВОК', 'РОЛЬ', 'СТАТУС', 'ПРОСТРАНСТВО', 'КОНТЕКСТ', 'ПОСЛЕДНЕЕ'],
 	)
 	return hint ? `${rows}\n${hint}` : rows
 }
