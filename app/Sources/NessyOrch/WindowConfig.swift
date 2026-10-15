@@ -19,6 +19,8 @@ struct WindowConfigurator: NSViewRepresentable {
 		private var tokens: [NSObjectProtocol] = []
 		private var guardian: CloseGuard?
 		private var shown = false
+		private var monitor: Any?
+		private var lockedMove = false
 
 		/// Окно в стиле терминала: без заголовка, содержимое идёт под шапку, фон как у терминала (углы и края не выделяются).
 		private func style(_ w: NSWindow) {
@@ -73,6 +75,29 @@ struct WindowConfigurator: NSViewRepresentable {
 			}
 			tokens.append(nc.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.measure(w) } })
 			model?.isFullScreen = w.styleMask.contains(.fullScreen)
+			// нажатие на шапку блока (он переносится) не должно двигать окно: на время нажатия окно «не перемещаемое»
+			if monitor == nil {
+				monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .keyDown]) { [weak self, weak w] e in
+					MainActor.assumeIsolated {
+						guard let self, let w, e.window === w, let m = self.model else { return e }
+						// ⌘W — закрыть проект (с предупреждением), а не окно; без проектов — как обычно
+						if e.type == .keyDown {
+							if e.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command, e.charactersIgnoringModifiers == "w", m.activeWindow != nil {
+								m.closeCurrentWindow()
+								return nil
+							}
+							return e
+						}
+						if e.type == .leftMouseDown {
+							let p = CGPoint(x: e.locationInWindow.x, y: (w.contentView?.bounds.height ?? 0) - e.locationInWindow.y)
+							if m.isDockHeader(at: p) { w.isMovable = false; self.lockedMove = true }
+						} else if self.lockedMove {
+							w.isMovable = true; self.lockedMove = false
+						}
+						return e
+					}
+				}
+			}
 			// система переставляет светофор после показа окна, смены ключевого окна и масштаба: выравниваем несколько раз
 			for d in [0.0, 0.1, 0.4, 1.0, 2.0] { DispatchQueue.main.asyncAfter(deadline: .now() + d) { [weak self] in self?.measure(w) } }
 			for n in [NSWindow.didBecomeKeyNotification, NSWindow.didChangeScreenNotification, NSWindow.didEndLiveResizeNotification, NSWindow.didUpdateNotification] {
@@ -85,7 +110,10 @@ struct WindowConfigurator: NSViewRepresentable {
 			}
 		}
 		override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); if let w = window { style(w) } }
-		deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
+		deinit {
+			tokens.forEach(NotificationCenter.default.removeObserver)
+			if let monitor { NSEvent.removeMonitor(monitor) }
+		}
 	}
 }
 

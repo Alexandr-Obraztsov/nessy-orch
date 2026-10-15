@@ -57,7 +57,7 @@ struct AppCommands: Commands {
 			Button("Открыть папку…") { model.openFolderPanel() }.keyboardShortcut(Hotkeys.shared.shortcut(.openFolder))
 		}
 		CommandGroup(replacing: .saveItem) {
-			Button("Закрыть терминал") { model.closeCurrentWindow() }.keyboardShortcut("w")
+			Button("Закрыть проект") { model.closeCurrentWindow() }.keyboardShortcut("w")
 		}
 		CommandGroup(after: .toolbar) {
 			Button("Показать / скрыть панель агентов") { model.toggleAgents() }

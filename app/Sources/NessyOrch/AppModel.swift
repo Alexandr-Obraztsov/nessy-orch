@@ -219,8 +219,8 @@ final class AppModel {
 	func close(_ w: SessionWindowModel) {
 		if w.terminal?.isAlive == true {
 			let a = NSAlert()
-			a.messageText = "Закрыть терминал «\(label(of: w))»?"
-			a.informativeText = "Его процесс будет завершён."
+			a.messageText = "Закрыть проект «\(label(of: w))»?"
+			a.informativeText = "Главный агент и терминал проекта будут завершены, работающие агенты остановлены. Сессию можно продолжить позже."
 			a.addButton(withTitle: "Закрыть")
 			a.addButton(withTitle: "Отмена")
 			a.alertStyle = .warning

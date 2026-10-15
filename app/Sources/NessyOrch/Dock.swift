@@ -27,10 +27,20 @@ struct DockGeometry {
 extension AppModel {
 	static let dockMargin = SessionWindowModel.panelMargin
 
+	/// Точка окна (от левого верхнего угла) лежит на шапке плитки — за неё блок переносится.
+	func isDockHeader(at p: CGPoint) -> Bool {
+		guard showAgents, activeWindow != nil else { return false }
+		return dockGeometry().places.values.contains { place in
+			let inset: CGFloat = place.side == .left && place.index == 0 && !isFullScreen ? 28 : 0
+			return CGRect(x: place.frame.minX, y: place.frame.minY, width: place.frame.width, height: 34 + inset).contains(p)
+		}
+	}
+
 	func dockGeometry() -> DockGeometry {
 		var g = DockGeometry()
 		let W = windowSize.width, H = windowSize.height, m = Self.dockMargin
-		guard W > 0, H > 0 else { return g }
+		// нет открытого проекта — нет и блоков: центр занимает всё окно
+		guard W > 0, H > 0, activeWindow != nil else { return g }
 		let lists: [DockSide: [DockBlock]] = [.left: blocks(on: .left), .right: blocks(on: .right), .bottom: blocks(on: .bottom)]
 		let wl = width(of: .left), wr = width(of: .right)
 		let total = max(H - 2 * m, 0)
@@ -144,7 +154,6 @@ private struct DockTile: View {
 				.opacity(isDragged ? 0.92 : 1)
 				.offset(off)
 				.animation(DS.Motion.pick(DS.Motion.layout, reduceMotion: false), value: isDragged)
-				.background(alignment: .topLeading) { NoWindowDrag().frame(width: f.width, height: 34 + topInset) }
 				.simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)
 					.onChanged { g in
 						if !dragging {
@@ -233,17 +242,4 @@ private struct SplitGrip: View {
 			.onTapGesture(count: 2) { model.shellHeight = 240 }
 			.help("Потяните, чтобы изменить высоту блоков; двойной щелчок — по умолчанию")
 	}
-}
-
-/// Прозрачная для перетаскивания окна зона: мышь, нажатая здесь, не двигает окно (иначе перенос блока за шапку тащил бы всё окно).
-/// События пересылаются дальше по цепочке, поэтому жесты SwiftUI поверх работают как обычно.
-struct NoWindowDrag: NSViewRepresentable {
-	final class V: NSView {
-		override var mouseDownCanMoveWindow: Bool { false }
-		override func mouseDown(with e: NSEvent) { nextResponder?.mouseDown(with: e) }
-		override func mouseDragged(with e: NSEvent) { nextResponder?.mouseDragged(with: e) }
-		override func mouseUp(with e: NSEvent) { nextResponder?.mouseUp(with: e) }
-	}
-	func makeNSView(context: Context) -> NSView { V() }
-	func updateNSView(_ v: NSView, context: Context) {}
 }
