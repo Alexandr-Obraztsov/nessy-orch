@@ -6,9 +6,12 @@ import { RateLimiter } from '../../domain/rate-limiter'
 import { assertHops, expectsReply, isAgentSender, nextHops, replyDraft, shouldDeliver } from '../../domain/routing'
 import type { AgentIdentity, MessageDraft, TurnOutcome } from '../../domain/types'
 import { WaitGraph } from '../../domain/wait-graph'
+import { clip } from '../../lib/text'
 import type { ServiceContext } from './context.types'
 
 const DEFAULT_WAIT_SEC = 600
+/** длина копии ответа агента человеку, которую получает главный агент */
+const COPY_MAX = 300
 
 export class MessagingService {
 	private readonly limiter: RateLimiter
@@ -104,8 +107,11 @@ export class MessagingService {
 		const reply = this.ctx.feed.append(draft)
 		// ответ человеку (не главному агенту): главный агент получает копию — он ведёт разговор и должен знать, что ответил его агент
 		if (msg.from === USER) {
-			const session = this.ctx.registry.agents.get(agent.id)?.session ?? null
-			this.ctx.feed.append({ from: agent.id, to: YOU, kind: 'reply', text: `(ответ пользователю на его сообщение)\n${reply.text}`, ...(session ? { session } : {}) })
+			const self = this.ctx.registry.agents.get(agent.id)
+			const session = self?.session ?? null
+			// главному агенту — короткая копия: полный ответ человек уже видит, лишние токены в контексте Claude не нужны
+			const copy = reply.text.length > COPY_MAX ? `${clip(reply.text, COPY_MAX)}\n(полностью: nessy-orch show ${self?.name ?? agent.id})` : reply.text
+			this.ctx.feed.append({ from: agent.id, to: YOU, kind: 'reply', text: `(ответ пользователю на его сообщение)\n${copy}`, ...(session ? { session } : {}) })
 		}
 		const back = this.ctx.registry.agents.get(msg.from)
 		if (back && !msg.wait) back.deliver(reply)

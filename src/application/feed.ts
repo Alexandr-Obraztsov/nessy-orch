@@ -8,6 +8,8 @@ import type { MessageDraft } from '../domain/types'
 import type { FeedDeps, FeedQuery, InboxQuery } from './feed.types'
 
 const MAX_MEMORY_MESSAGES = 5000
+/** сколько последних сообщений читаем с диска, когда истории узла не хватает в памяти */
+const DISK_HISTORY_LIMIT = 100_000
 
 export class Feed {
 	private messages: Message[] = []
@@ -138,7 +140,15 @@ export class Feed {
 		const { involving, since } = q
 		if (involving) list = list.filter(m => m.from === involving || m.to === involving)
 		if (since !== undefined) list = list.filter(m => m.seq > since)
-		return list.slice(-(q.limit ?? 200))
+		const limit = q.limit ?? 200
+		// в памяти хранится только хвост ленты: если по запросу узла не набралось нужное число, а лента длиннее окна, дочитываем с диска
+		if (involving && list.length < limit && this.messages.length >= MAX_MEMORY_MESSAGES) {
+			const older = this.deps.store
+				.loadMessages(DISK_HISTORY_LIMIT)
+				.filter(m => (m.from === involving || m.to === involving) && (since === undefined || m.seq > since))
+			if (older.length > list.length) list = older
+		}
+		return list.slice(-limit)
 	}
 
 	/**

@@ -45,6 +45,9 @@ export class MemoryStore implements StorePort {
 		list.push(structuredClone(source))
 		this.sources.set(sessionId, list)
 	}
+	removeSources(sessionId: string): void {
+		this.sources.delete(sessionId)
+	}
 	loadSources(sessionId: string): SourceView[] {
 		return structuredClone(this.sources.get(sessionId) ?? [])
 	}

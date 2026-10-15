@@ -140,6 +140,7 @@ export class SessionsService {
 				`в сессии работают агенты: ${busy.map(a => registry.labelOf(a.id)).join(', ')} — прервите их (cancel) или дождитесь ответа`,
 			)
 		this.sessions.delete(session.id)
+		this.ctx.store.removeSources(session.id)
 		this.save()
 		for (const a of inside) a.setSession(null)
 		this.ctx.feed.forgetSession(session.id)

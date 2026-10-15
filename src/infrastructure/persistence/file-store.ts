@@ -118,6 +118,10 @@ export class FileStore implements StorePort {
 		if (!this.closed) this.safe('источник', () => appendJsonl(path.join(this.sourcesDir, `${sessionId}.jsonl`), source))
 	}
 
+	removeSources(sessionId: string): void {
+		if (!this.closed) this.safe('источники', () => fs.rmSync(path.join(this.sourcesDir, `${sessionId}.jsonl`), { force: true }))
+	}
+
 	loadSources(sessionId: string): SourceView[] {
 		return readJsonl<SourceView>(path.join(this.sourcesDir, `${sessionId}.jsonl`), 5000)
 	}

@@ -127,6 +127,8 @@ export interface StorePort {
 	/** Источники сессии (append-only JSONL: sources/<id>.jsonl). */
 	appendSource(sessionId: string, s: SourceView): void
 	loadSources(sessionId: string): SourceView[]
+	/** Сессию удалили: её файл источников больше не нужен. */
+	removeSources(sessionId: string): void
 	/** Историю не удаляем: архивируем. */
 	archiveAgent(agentId: string): void
 	/** Записать отложенное и больше ничего не писать (остановка). */
