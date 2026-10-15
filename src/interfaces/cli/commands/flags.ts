@@ -16,7 +16,7 @@ export const SPAWN_MANY_FLAGS: FlagSpec = { bool: ['json', 'help', 'stdin'], val
 export const ASK_FLAGS: FlagSpec = { ...WAIT_FLAGS, value: [...(WAIT_FLAGS.value ?? []), 'session'] }
 /** ls: --all — с архивом, --session — только агенты сессии */
 export const LS_FLAGS: FlagSpec = { bool: ['json', 'help', 'all'], value: ['session'], short: { a: 'all' } }
-/** inbox: --session — ответы только агентов сессии (свой курсор) */
-export const INBOX_FLAGS: FlagSpec = { bool: ['json', 'help', 'peek'], value: ['wait', 'session'] }
+/** inbox: --session — ответы только агентов сессии (свой курсор); --all — ждать всю пачку и вывести одну сводку */
+export const INBOX_FLAGS: FlagSpec = { bool: ['json', 'help', 'peek', 'all'], value: ['wait', 'session'] }
 /** plan: --from — id агента-автора, --clear — убрать план */
 export const PLAN_FLAGS: FlagSpec = { bool: ['json', 'help', 'clear'], value: ['from', 'key'] }

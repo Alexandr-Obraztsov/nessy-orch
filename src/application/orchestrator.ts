@@ -29,6 +29,7 @@ import type {
 	StreamEvent,
 	SessionPatch,
 	SessionRequest,
+	SettledResponse,
 	SessionUpdates,
 	SessionStatus,
 	SessionView,
@@ -426,11 +427,23 @@ export class Orchestrator implements AgentHost {
 		const working = [...registry.agents.values()]
 			.filter(a => a.session === session && !a.archived && (a.isBusy || a.queue.length > 0))
 			.map(a => a.name)
-		return buildDigest(feed.pending(session), {
+		const digest = buildDigest(feed.pending(session), {
 			nameOf: n => (n === SYSTEM ? 'система' : n === USER ? 'человек' : (registry.agents.get(n)?.name ?? n)),
 			taskOf: m => (m.replyTo ? (feed.byId(m.replyTo)?.text ?? null) : null),
 			working,
 		})
+		return { ...digest, watching: feed.isWatching(session) }
+	}
+
+	/**
+	 * Дождаться пачки: все агенты сессии закончили, либо агент задал вопрос, либо вышло время; вернуть сводку.
+	 * Курсор не двигает — подтверждает вызывающий (`ack`) после того, как напечатал сводку.
+	 */
+	async waitSession(id: string, waitSec: number): Promise<SettledResponse> {
+		const session = this.sessionsSvc.resolve(id).id
+		const reason = await this.feed.settled(session, waitSec)
+		const active = [...this.registry.agents.values()].filter(a => a.session === session && !a.archived && (a.isBusy || a.queue.length > 0)).length
+		return { reason, digest: this.digest(session), active }
 	}
 
 	/** Вкладка закрыта: работающие агенты сессии останавливаются (без хозяина они жгли бы токены); сессия и ответы остаются. */

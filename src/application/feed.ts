@@ -180,6 +180,28 @@ export class Feed {
 		return { messages: list, cursor, active: this.deps.activeAgents(session) }
 	}
 
+	/**
+	 * Дождаться, пока вся пачка агентов сессии закончит (или появится вопрос агента к главному), и вернуть причину.
+	 * Одно ожидание на пачку: не просыпаемся на каждый ответ. Пока ждём, сессия считается «наблюдаемой» (isWatching).
+	 */
+	async settled(session: string, waitSec: number): Promise<'idle' | 'question' | 'timeout' | 'nothing'> {
+		const deadline = Date.now() + waitSec * 1000
+		this.watchers.set(session, (this.watchers.get(session) ?? 0) + 1)
+		try {
+			for (;;) {
+				const pending = this.pending(session)
+				if (pending.some(m => m.kind === 'msg')) return 'question'
+				if (this.deps.activeAgents(session) === 0) return pending.length ? 'idle' : 'nothing'
+				if (this.closed || Date.now() >= deadline) return 'timeout'
+				await this.sleepUntilMessage(deadline - Date.now())
+			}
+		} finally {
+			const n = (this.watchers.get(session) ?? 1) - 1
+			if (n > 0) this.watchers.set(session, n)
+			else this.watchers.delete(session)
+		}
+	}
+
 	/** Ждать нового сообщения к you не дольше ms. */
 	private sleepUntilMessage(ms: number): Promise<void> {
 		return new Promise<void>(resolve => {

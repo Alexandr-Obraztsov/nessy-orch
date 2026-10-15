@@ -1,7 +1,6 @@
 /** Сессии по HTTP: CRUD, spawn в сессии и наследование, inbox по сессиям (два оркестратора), поток, рестарт. */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import type { AgentView, ApiError, GraphView, InboxResponse, SpawnBatchResponse, SpawnResponse, StreamEvent, SessionView } from '../../shared/types'
@@ -152,7 +151,7 @@ describe('пакетный запуск агентов', () => {
 	})
 })
 
-describe('хуки Claude Code (updates, ping, CLI hook)', () => {
+describe('хук Stop и ожидание пачки (updates, ping, CLI)', () => {
 	let h: Harness | null = null
 	after(async () => {
 		await h?.close()
@@ -196,61 +195,64 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		assert.equal((await h.api<InboxResponse>('GET', `/inbox?session=${s.body.id}&peek=1`)).body.messages.length, 0, 'курсор общий с inbox сессии')
 	})
 
-	it('CLI hook: старт — контекст, prompt — сводка, без переменной — тишина, Stop блокирует при новых ответах', T, async () => {
+	it('CLI hook stop: без переменной — тишина; ответы — код 2 со сводкой и ack; агенты работают без ожидания — просьба один раз; chatId и idle', T, async () => {
 		const hh = h
 		assert.ok(hh)
-		const s = await hh.api<SessionView>('POST', '/sessions', { title: 'CLI-хуки' })
-		const start = await runHook(hh.port, s.body.id, 'start')
-		assert.equal(start.code, 0)
-		assert.match(start.stdout, new RegExp(s.body.id), 'контекст старта — простой текст в stdout')
-		assert.ok(!start.stdout.trimStart().startsWith('{'), 'не JSON: схема вывода хуков не нужна')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'idle')
-
-		const silent = await runHook(hh.port, undefined, 'prompt')
+		const s = (await hh.api<SessionView>('POST', '/sessions', { cwd: '/tmp/stop-proj', chatId: 'chat-before-1' })).body
+		const silent = await runHook(hh.port, undefined, 'stop')
 		assert.deepEqual(silent, { code: 0, stdout: '', stderr: '' }, 'без NESSY_ORCH_SESSION хук молчит')
 
-		const calm = await runHook(hh.port, s.body.id, 'prompt')
-		assert.equal(calm.stdout, '', 'агентов и ответов нет — нечего сообщать')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'working')
+		// пусто: Claude останавливается, хук отчитывается: свободен, чат сменился (/clear)
+		const calm = await runHook(hh.port, s.id, 'stop', JSON.stringify({ session_id: 'chat-after-clear' }))
+		assert.deepEqual(calm, { code: 0, stdout: '', stderr: '' })
+		const v = (await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body
+		assert.equal(v.chatId, 'chat-after-clear')
+		assert.equal(v.lead?.state, 'idle')
 
-		await hh.api('POST', '/agents', { space: 'main', name: 'helper', session: s.body.id, prompt: 'сделай', wait: true, waitTimeoutSec: 8 })
-		const stop = await runHook(hh.port, s.body.id, 'stop')
+		// пришёл ответ: не останавливаться, причина — сводка; повторный Stop молчит (ответ доставлен один раз)
+		await hh.api('POST', '/agents', { space: 'main', name: 'helper', session: s.id, prompt: 'сделай', wait: false })
+		for (let i = 0; i < 200 && (await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.unread !== 1; i++) await new Promise(r => setTimeout(r, 20))
+		const stop = await runHook(hh.port, s.id, 'stop')
 		assert.equal(stop.code, 2, 'код 2: не останавливаться; причина — в stderr')
-		assert.match(stop.stderr, /helper/)
-		const stop2 = await runHook(hh.port, s.body.id, 'stop')
-		assert.equal(stop2.code, 0, 'ответ доставлен один раз')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'idle')
+		assert.match(stop.stderr, /Ответы агентов nessy/)
+		assert.match(stop.stderr, /\[helper/)
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.lead?.state, 'working')
+		assert.equal((await runHook(hh.port, s.id, 'stop')).code, 0)
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.unread, 0)
 
-		await runHook(hh.port, s.body.id, 'end')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'ended')
+		// агент работает, ожидания нет: просим запустить его — один раз
+		await hh.api('POST', '/agents', { space: 'main', name: 'slowpoke', session: s.id, prompt: '#slow' })
+		const ask = await runHook(hh.port, s.id, 'stop')
+		assert.equal(ask.code, 2)
+		assert.match(ask.stderr, /inbox --session .* --all --wait 1500/)
+		const again = await runHook(hh.port, s.id, 'stop', JSON.stringify({ stop_hook_active: true }))
+		assert.equal(again.code, 0, 'при stop_hook_active повторно не просим: цикла нет')
 	})
 
-	it('привязка чата Claude: первый чат окна берёт сессию окна, resume возвращает её, новый чат — новая сессия в том же окне', T, async () => {
+	it('inbox --all: ждёт всю пачку одной сводкой, вопрос агента завершает ожидание; ждать нечего — код 4', T, async () => {
 		const hh = h
 		assert.ok(hh)
-		const w = await hh.api<SessionView>('POST', '/sessions', { title: 'Окно' })
-		const envFile = path.join(hh.ws, 'claude-env')
-		const ev = (id: string): string => JSON.stringify({ session_id: id })
-		await runHook(hh.port, w.body.id, 'start', ev('chat-a'), { CLAUDE_ENV_FILE: envFile })
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.chatId, 'chat-a')
-
-		// новый чат в том же окне (/clear) — новая сессия, а Bash-инструменты получают её id
-		await runHook(hh.port, w.body.id, 'start', ev('chat-b'), { CLAUDE_ENV_FILE: envFile })
-		const all = (await hh.api<SessionView[]>('GET', '/sessions')).body
-		const b = all.find(x => x.chatId === 'chat-b')
-		assert.ok(b && b.id !== w.body.id)
-		assert.equal(b.origin, w.body.id)
-		assert.equal(b.lead?.state, 'idle')
-		assert.match(fs.readFileSync(envFile, 'utf8'), new RegExp(`NESSY_ORCH_SESSION='${b.id}'`))
-
-		// resume первого чата: возвращается его же сессия, второй раз ничего не создаётся
-		const before = (await hh.api<SessionView[]>('GET', '/sessions')).body.length
-		const resumed = await runHook(hh.port, w.body.id, 'start', ev('chat-a'))
-		assert.equal((await hh.api<SessionView[]>('GET', '/sessions')).body.length, before, 'resume не создаёт новую сессию')
-		assert.match(resumed.stdout, new RegExp(w.body.id), 'контекст старта — про возобновлённую сессию')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.lead?.state, 'idle')
-		await runHook(hh.port, w.body.id, 'prompt', ev('chat-a'))
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${w.body.id}`)).body.lead?.state, 'working')
+		const s = (await hh.api<SessionView>('POST', '/sessions', { title: 'Пачка' })).body
+		const run = (args: string[]): Promise<{ code: number | null; stdout: string }> =>
+			new Promise(resolve => {
+				const env: NodeJS.ProcessEnv = { ...process.env, ORCH_PORT: String(hh.port), NO_COLOR: '1' }
+				delete env['NESSY_ORCH_SESSION']
+				const p = spawn(process.execPath, [CLI_MAIN, 'inbox', '--session', s.id, ...args], { env })
+				let stdout = ''
+				p.stdout.on('data', (d: Buffer) => (stdout += d.toString()))
+				p.on('close', code => resolve({ code, stdout }))
+			})
+		assert.equal((await run(['--all', '--wait', '5'])).code, 4, 'агентов нет — ждать нечего')
+		await hh.api('POST', '/agents', { space: 'main', name: 'p1', session: s.id, prompt: '#slow' })
+		await hh.api('POST', '/agents', { space: 'main', name: 'p2', session: s.id, prompt: 'быстро' })
+		const r = await run(['--all', '--wait', '30'])
+		assert.equal(r.code, 0)
+		assert.match(r.stdout, /\[p1/)
+		assert.match(r.stdout, /\[p2/, 'обе ответа — в одной сводке: ожидание не просыпается на каждый')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.unread, 0, 'сводка напечатана — курсор сдвинут')
+		// таймаут: агент ещё работает → код 3
+		await hh.api('POST', '/agents', { space: 'main', name: 'p3', session: s.id, prompt: '#work 0 шаг => Bash: x' })
+		assert.equal((await run(['--all', '--wait', '1'])).code, 3)
 	})
 
 	it('CLI: inbox без работающих агентов — код 4 сразу; spawn-many позиционно создаёт агентов в сессии', T, async () => {
@@ -280,60 +282,8 @@ describe('хуки Claude Code (updates, ping, CLI hook)', () => {
 		assert.match(bad.stderr, /имя\|роль\|поручение/)
 	})
 
-	it('терминал без заранее созданной сессии: сессия рождается по хуку из session_id чата и привязана к терминалу', T, async () => {
-		const hh = h
-		assert.ok(hh)
-		const ev = (id: string): string => JSON.stringify({ session_id: id, cwd: '/Users/me/proj' })
-		const envFile = path.join(hh.ws, 'claude-env-2')
-		const startA = await runHook(hh.port, undefined, 'start', ev('term-chat-a'), { NESSY_ORCH_TERMINAL: 'term-1', CLAUDE_ENV_FILE: envFile })
-		assert.equal(startA.code, 0)
-		const a = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.chatId === 'term-chat-a')
-		assert.ok(a)
-		assert.equal(a.origin, 'term-1')
-		assert.equal(a.title, 'proj', 'название — по папке чата')
-		assert.match(fs.readFileSync(envFile, 'utf8'), new RegExp(`NESSY_ORCH_SESSION='${a.id}'`))
-		// /clear — новый чат в том же терминале: новая сессия с тем же origin
-		await runHook(hh.port, undefined, 'start', ev('term-chat-b'), { NESSY_ORCH_TERMINAL: 'term-1' })
-		const b = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.chatId === 'term-chat-b')
-		assert.ok(b && b.id !== a.id && b.origin === 'term-1')
-		// /resume первого чата в другом терминале: его сессия переезжает туда, дубля нет
-		const before = (await hh.api<SessionView[]>('GET', '/sessions')).body.length
-		await runHook(hh.port, undefined, 'start', ev('term-chat-a'), { NESSY_ORCH_TERMINAL: 'term-2' })
-		const all = (await hh.api<SessionView[]>('GET', '/sessions')).body
-		assert.equal(all.length, before)
-		assert.equal(all.find(x => x.id === a.id)?.origin, 'term-2')
-	})
-
-	it('хуки nessy: контекст — JSON hookSpecificOutput.additionalContext, Stop возвращает к ожиданию, stop-failure освобождает', T, async () => {
-		const hh = h
-		assert.ok(hh)
-		const s = await hh.api<SessionView>('POST', '/sessions', { title: 'nessy-хуки' })
-		const env = { NESSY_ORCH_LEAD: 'nessy' }
-		const start = await runHook(hh.port, s.body.id, 'start', '{}', env)
-		const j = JSON.parse(start.stdout) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } }
-		assert.equal(j.hookSpecificOutput.hookEventName, 'SessionStart')
-		assert.match(j.hookSpecificOutput.additionalContext, /~\/\.nessy\/skills/)
-		await hh.api('POST', '/agents', { space: 'main', name: 'nessy-work', session: s.body.id, prompt: '#slow' })
-		const stop = await runHook(hh.port, s.body.id, 'stop', JSON.stringify({ stop_hook_active: true }), env)
-		assert.equal(stop.code, 2)
-		assert.match(stop.stderr, /--wait 50/)
-		await runHook(hh.port, s.body.id, 'stop-failure', '{}', env)
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'idle')
-	})
-
-	it('hook idle (хук Stop новой архитектуры): отчёт idle + актуальный chatId, вывода и блокировок нет', T, async () => {
-		const hh = h
-		assert.ok(hh)
-		const s = (await hh.api<SessionView>('POST', '/sessions', { cwd: '/tmp/idle-proj', chatId: 'chat-before-1' })).body
-		const r = await runHook(hh.port, s.id, 'idle', JSON.stringify({ session_id: 'chat-after-clear' }))
-		assert.deepEqual(r, { code: 0, stdout: '', stderr: '' })
-		const v = (await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body
-		assert.equal(v.chatId, 'chat-after-clear')
-		assert.equal(v.lead?.state, 'idle')
-	})
-
 	it('хук не ломает Claude при недоступном оркестраторе', T, async () => {
-		const r = await runHook(1, 'any', 'prompt')
+		const r = await runHook(1, 'any', 'stop')
 		assert.deepEqual(r, { code: 0, stdout: '', stderr: '' })
 	})
 })

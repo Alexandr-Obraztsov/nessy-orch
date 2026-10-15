@@ -39,6 +39,10 @@ export function registerSessionRoutes(r: Router): void {
 		sendJson(res, 200, orch.reportLead(params['id'] ?? '', parseLeadReport(await readBody(req))))
 	})
 	r.add('GET', '/sessions/:id/digest', ({ res, orch, params }) => sendJson(res, 200, orch.digest(params['id'] ?? '')))
+	r.add('GET', '/sessions/:id/wait', async ({ res, orch, params, query }) => {
+		const sec = Number(query.get('timeout') ?? '0')
+		sendJson(res, 200, await orch.waitSession(params['id'] ?? '', Number.isFinite(sec) ? Math.min(Math.max(sec, 0), 3600) : 0))
+	})
 	r.add('POST', '/sessions/:id/closed', async ({ res, orch, params }) => sendJson(res, 200, await orch.sessionClosed(params['id'] ?? '')))
 	r.add('POST', '/sessions/:id/lead-state', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)

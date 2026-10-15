@@ -132,6 +132,17 @@ export interface DigestResponse {
 	hidden: number
 	/** имена агентов сессии, которые ещё работают */
 	working: string[]
+	/** у сессии сейчас висит фоновое ожидание (`inbox --session S --all`): второе запускать не нужно */
+	watching?: boolean
+}
+
+/** Итог ожидания пачки (`GET /sessions/:id/wait`): почему вернулись и сводка. */
+export interface SettledResponse {
+	/** idle — все агенты закончили; question — агент задал вопрос; timeout — агенты ещё работают; nothing — ждать нечего */
+	reason: 'idle' | 'question' | 'timeout' | 'nothing'
+	digest: DigestResponse
+	/** сколько агентов сессии ещё работает */
+	active: number
 }
 
 export interface SessionPatch {
