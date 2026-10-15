@@ -183,9 +183,9 @@ struct AgentRow: View {
 		.accessibilityAddTraits(selected ? .isSelected : [])
 	}
 
-	/// Вторая строка: «Роль · 173 тыс. токенов · 5 вызовов · Работает» (в menu bar вместо роли — сессия: агенты там из разных сессий).
-	/// Статус — в конце и цветом состояния. Узкая колонка: части вытесняются по порядку (слово «токенов», «вызовов» → «выз.», роль, вызовы),
-	/// статус и токены остаются; разделитель «·» стоит только между частями.
+	/// Вторая строка: «Роль · 173 тыс. токенов · 5 вызовов» (в menu bar вместо роли — сессия: агенты там из разных сессий). Статуса нет:
+	/// состояние видно по группе. Узкая колонка: части вытесняются по порядку (слово «токенов», «вызовов» → «выз.», роль, вызовы),
+	/// токены остаются; разделитель «·» стоит только между частями.
 	private var metaVariants: [[String]] {
 		let head: String? = compact ? model.store.session(a.session)?.title : model.roleInfo(of: a)?.name
 		let t = a.stats.tokens.flatMap { $0.total > 0 ? $0.total : nil }
@@ -213,8 +213,6 @@ struct AgentRow: View {
 				if i > 0 { Text("·") }
 				Text(p).lineLimit(1)
 			}
-			if !parts.isEmpty { Text("·") }
-			Text(a.stateWord).foregroundStyle(statusColor).lineLimit(1)
 		}
 	}
 
@@ -228,12 +226,6 @@ struct AgentRow: View {
 		if let steps = a.plan?.entries, !steps.isEmpty { p.append("план: выполнено \(steps.filter { $0.status == .completed }.count) из \(steps.count)") }
 		if let perm = a.pendingPermissions.first { p.append("ждёт разрешения: \(perm.title)") }
 		return p.joined(separator: ", ")
-	}
-
-	private var statusColor: Color {
-		if a.state == .error || a.isBlocked { return DS.Palette.danger }
-		if a.state == .wait { return DS.Palette.attention }
-		return DS.Palette.textSecondary
 	}
 
 	/// Последняя строка: план («▮▮▯ 3 из 5»), кольцо контекста и время. Пустая — не рисуется.
