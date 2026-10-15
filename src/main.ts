@@ -7,8 +7,6 @@ import * as path from 'node:path'
 import { buildApp } from './app'
 import { ensureToken } from './infrastructure/config/auth-token'
 import { loadConfig } from './infrastructure/config/load-config'
-import { acquireInstance, releaseInstance } from './infrastructure/process/single-instance'
-import { readVersion } from './interfaces/cli/runtime'
 import { errMsg } from './lib/json'
 
 function version(root: string): string {
@@ -25,13 +23,6 @@ async function main(): Promise<void> {
 	const config = loadConfig()
 	config.authToken = ensureToken(config.home)
 	config.authRequired = true
-	// один оркестратор на home: уже работает — используем его, второй не запускаем (код 0: launchd не зацикливает)
-	const lock = acquireInstance(config.home, readVersion(config.root))
-	if (!lock.ok) {
-		console.log(`[nessy-orch] уже работает (pid ${lock.holder.pid}, сборка ${lock.holder.build ?? '?'}): второй не запускаю`)
-		process.exit(0)
-	}
-	process.on('exit', () => releaseInstance(config.home))
 	const app = buildApp(config, version(config.root))
 	try {
 		await app.listen()
