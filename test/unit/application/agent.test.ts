@@ -262,8 +262,18 @@ describe('агент: архив и прерывание', () => {
 		await ctx.orch.send(id, { text: 'ещё' })
 		assert.equal(ctx.orch.getAgent(id).archived, false)
 		await until(() => ctx.gw.prompts.length === 2, 1000, 'второй промпт')
-		assert.equal(ctx.gw.prompts[1], `ещё\n\n${planReminder(id, 'nessy-orch')}`, 'контекст прежний — без повторной вводной')
+		assert.equal(ctx.gw.prompts[1], 'ещё', 'контекст прежний: без вводной и без повторного напоминания о плане (окно агента мало)')
+		assert.match(ctx.gw.prompts[0] ?? '', /Веди план/, 'напоминание — в первом промпте')
 		assert.equal(ctx.orch.resolveAgent(id).nessyId, session)
+	})
+
+	it('метрика контекста: входные токены последнего хода и доля окна', async () => {
+		const ctx = setup()
+		const id = await startTurn(ctx)
+		ctx.gw.emit({ kind: 'text', text: 'ок', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1', usage: { input: 64_000, output: 10, cached: 0, total: 64_010 } })
+		const st = ctx.orch.getAgent(id).stats
+		assert.equal(st.contextTokens, 64_000)
+		assert.equal(st.contextPct, 50, 'окно по умолчанию 128000')
 	})
 
 	it('interrupt: следующий промпт уходит только после подтверждения отмены, срочное — первым', async () => {

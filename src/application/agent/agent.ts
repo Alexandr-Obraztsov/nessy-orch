@@ -569,9 +569,9 @@ export class Agent implements AgentIdentity {
 
 	private buildPrompt(msg: Message): string {
 		const { host } = this.deps
-		// напоминание о плане — в каждом промпте (в истории чата хранится исходный текст без него)
-		const body = `${framePrompt(msg, host.labelOf(msg.from))}\n\n${planReminder(this.id, this.deps.cliPath, this.deps.showKey ? this.key : undefined)}`
-		return this.introduced ? body : `${host.preambleFor(this)}\n\n${body}`
+		const body = framePrompt(msg, host.labelOf(msg.from))
+		// правила плана — в вводной первого промпта; напоминание повторяем только там: у агентов малое окно контекста, каждая строка в каждом ходе копится
+		return this.introduced ? body : `${host.preambleFor(this)}\n\n${body}\n\n${planReminder(this.id, this.deps.cliPath, this.deps.showKey ? this.key : undefined)}`
 	}
 
 	/** Прервать ход и очистить очередь. */
@@ -786,6 +786,14 @@ export class Agent implements AgentIdentity {
 		return true
 	}
 
+	/** Размер контекста по входным токенам последнего хода: растёт вместе с историей чата агента (usage.input — весь промпт хода). */
+	private contextMetric(): Pick<AgentStats, 'contextTokens' | 'contextPct'> {
+		const used = this.turnUsage?.input ?? 0
+		if (used <= 0) return { contextTokens: this.stats.contextTokens ?? null, contextPct: this.stats.contextPct ?? null }
+		const window = this.deps.contextWindow ?? 128_000
+		return { contextTokens: used, contextPct: Math.round((used / window) * 100) }
+	}
+
 	private finishTurn(outcome: TurnOutcome): void {
 		const cur = this.current
 		if (!cur) return
@@ -796,6 +804,7 @@ export class Agent implements AgentIdentity {
 			toolCalls: this.stats.toolCalls + this.turnSteps,
 			workMs: this.stats.workMs + this.lastTurnMs,
 			tokens: addUsage(this.stats.tokens, this.turnUsage),
+			...this.contextMetric(),
 		}
 		this.turnUsage = null
 		this.clearCancelTimer()

@@ -126,6 +126,7 @@ export class Orchestrator implements AgentHost {
 				newKey: () => ids.next(24),
 				showKey: deps.settings.authRequired === true,
 				cliPath: deps.settings.cliPath,
+				contextWindow: deps.settings.contextWindow ?? 128_000,
 			},
 			saveSoon: () => this.saveSoon(),
 			isShuttingDown: () => this.shuttingDown,

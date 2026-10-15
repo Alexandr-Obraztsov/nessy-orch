@@ -36,6 +36,8 @@ export interface AgentDeps {
 	promptRetryBaseMs?: number
 	/** команда CLI оркестратора (для напоминания о плане в промпте) */
 	cliPath: string
+	/** окно контекста, токенов (для метрики «контекст %»); по умолчанию 128000 */
+	contextWindow?: number
 }
 
 export interface AgentInit {
