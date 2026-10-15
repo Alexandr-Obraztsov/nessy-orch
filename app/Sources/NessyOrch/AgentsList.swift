@@ -31,9 +31,9 @@ struct AgentsListView: View {
 	@Environment(AppModel.self) private var model
 	@Environment(\.sessionWindow) private var win
 	@Environment(\.accessibilityReduceMotion) private var reduceMotion
-	@State private var doneExpanded: Bool?
-	/// «Ошибки» свёрнуты, пока человек сам не раскроет: не обязательно показывать всё
-	@State private var failedExpanded = false
+	private var doneExpanded: Bool? { get { model.doneGroupOpen } nonmutating set { model.doneGroupOpen = newValue } }
+	/// «Ошибки» свёрнуты, пока человек сам не раскроет; состояние групп общее для проектов (хранится в AppModel)
+	private var failedExpanded: Bool { get { model.failedGroupOpen } nonmutating set { model.failedGroupOpen = newValue } }
 	@FocusState private var listFocused: Bool
 
 	private var agents: [AgentView] { win?.agents ?? [] }

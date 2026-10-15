@@ -41,6 +41,17 @@ final class AppModel {
 	}() { didSet { UserDefaults.standard.set(Double(panelWidth), forKey: "panelWidth") } }
 	/// правая панель агентов видна (запоминается, общая для всех окон)
 	var showAgents = UserDefaults.standard.object(forKey: "showAgents") as? Bool ?? true { didSet { UserDefaults.standard.set(showAgents, forKey: "showAgents") } }
+	/// высота терминала проекта в правой колонке (тянется за верхний край), общая для окон
+	var shellHeight: CGFloat = {
+		let h = UserDefaults.standard.double(forKey: "shellHeight")
+		return h > 0 ? CGFloat(h) : 240
+	}() { didSet { UserDefaults.standard.set(Double(shellHeight), forKey: "shellHeight") } }
+	static let shellHeightMin: CGFloat = 120
+	/// раскрытость групп списка агентов — одна на все проекты и запуски: «Готово» (nil — по умолчанию, решает список) и «Ошибки»
+	var doneGroupOpen: Bool? = UserDefaults.standard.object(forKey: "agents.doneOpen") as? Bool {
+		didSet { if let v = doneGroupOpen { UserDefaults.standard.set(v, forKey: "agents.doneOpen") } else { UserDefaults.standard.removeObject(forKey: "agents.doneOpen") } }
+	}
+	var failedGroupOpen = UserDefaults.standard.bool(forKey: "agents.failedOpen") { didSet { UserDefaults.standard.set(failedGroupOpen, forKey: "agents.failedOpen") } }
 	let terminals = TerminalStore.shared
 	/// первичная установка и проверка окружения (CLI, служба, Claude Code, скилл)
 	let setup = SetupModel()

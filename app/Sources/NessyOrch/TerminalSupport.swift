@@ -85,14 +85,23 @@ final class TerminalContainer: NSView {
 	var isDark: Bool { effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua }
 
 	private func applyFont() {
-		let size = AppSettings.terminalFontSize
+		let size = max(AppSettings.terminalFontSize + fontOffset, 8)
 		guard terminal.font.pointSize != size else { return }
 		terminal.font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
 	}
 
+	/// поправка к размеру шрифта из настроек (терминал-блок в колонке мельче главного)
+	var fontOffset: CGFloat = 0 { didSet { applyFont() } }
+	/// свой фон (терминал-блок в колонке красится под соседние блоки); nil — фон темы
+	var backgroundOverride: NSColor? { didSet { applyTheme() } }
+
 	func applyTheme() {
 		TerminalTheme.apply(to: terminal, dark: isDark)
 		layer?.backgroundColor = TerminalTheme.ns(TerminalTheme.scheme(dark: isDark).background).cgColor
+		if let c = backgroundOverride {
+			terminal.nativeBackgroundColor = c
+			layer?.backgroundColor = c.cgColor
+		}
 	}
 
 	/// Отступ сверху: панель открыта — почти нулевой (терминал под прозрачной шапкой), закрыта — высота шапки.

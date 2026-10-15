@@ -83,6 +83,27 @@ final class SessionWindowModel {
 	var targetAgent: AgentView? { openAgent ?? selectedAgentId.flatMap { app.store.agents[$0] }.flatMap { $0.session == currentSessionId ? $0 : nil } }
 	var terminal: TerminalTab? { app.terminals.tab(for: key) }
 
+	/// Терминал-блок в правой колонке (оболочка в папке проекта): по умолчанию закрыт, открывается кнопкой в шапке; процесс живёт, пока жив проект.
+	var shellOpen = false
+	var shellKey: String { key + "#shell" }
+	var shell: TerminalTab? { app.terminals.tab(for: shellKey) }
+
+	func toggleShell() {
+		// оболочка стартует до показа блока: к первому кадру вид терминала уже есть
+		if !shellOpen, shell == nil { app.startShell(for: self) }
+		withAnimation(dsAnimation(DS.Motion.panel)) {
+			shellOpen.toggle()
+			if shellOpen { app.showAgents = true }
+		}
+		if !shellOpen {
+			// фокус возвращается главному терминалу
+			DispatchQueue.main.async { [weak self] in
+				guard let c = self?.terminal?.container else { return }
+				c.window?.makeFirstResponder(c.terminal)
+			}
+		}
+	}
+
 	/// Открыть карточку агента в панели (id) или вернуться к списку (nil). Пружина прерываема.
 	func open(agent id: String?) {
 		withAnimation(dsAnimation(DS.Motion.panel)) {
@@ -147,6 +168,7 @@ final class SessionWindowModel {
 	/// Окно закрыто: терминал завершается; пустая сессия (ни одного агента) удаляется.
 	func closed() {
 		app.terminals.close(key: key)
+		app.terminals.close(key: shellKey)
 		// сервер останавливает работающих агентов сессии (они без хозяина жгли бы токены); сессия остаётся — её можно продолжить (`--resume`)
 		let client = app.store.client
 		for id in sessionChain {
@@ -224,20 +246,36 @@ private struct SidePanel: View {
 		let w = model.panelWidth
 		let hidden = !model.showAgents
 		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
-		AgentsPanel()
-			.id(model.activeKey)
-			.frame(width: w)
-			.clipShape(shape)
-			.background(DS.Palette.panelSurface, in: shape)
-			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+		let glow = dragStart != nil || hovering
+		GeometryReader { geo in
+			let total = max(geo.size.height - 2 * m, 0)
+			let shellOpen = model.activeWindow?.shellOpen == true
+			let shellH = shellOpen ? min(max(model.shellHeight, AppModel.shellHeightMin), max(total - 160 - m, AppModel.shellHeightMin)) : 0
+			// два отдельных блока одной формы и цвета с зазором: агенты сверху, терминал проекта снизу (если открыт)
+			VStack(spacing: m) {
+				AgentsPanel()
+					.id(model.activeKey)
+					.frame(width: w, height: shellOpen ? max(total - shellH - m, 0) : total)
+					.clipShape(shape)
+					.background(DS.Palette.panelSurface, in: shape)
+					.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+					.overlay(shape.strokeBorder(glow ? DS.Palette.accent.opacity(0.55) : .clear, lineWidth: 1.5))
+				if let win = model.activeWindow, win.shellOpen {
+					ShellBlock(win: win, height: shellH, maxHeight: max(total - 160 - m, AppModel.shellHeightMin))
+						.frame(width: w)
+						.transition(.move(edge: .bottom).combined(with: .opacity))
+				}
+			}
+			.frame(height: max(geo.size.height - 2 * m, 0))
 			.overlay(alignment: .leading) { handle }
-			.overlay(shape.strokeBorder(dragStart != nil || hovering ? DS.Palette.accent.opacity(0.55) : .clear, lineWidth: 1.5))
 			.padding(.top, m).padding(.bottom, m).padding(.trailing, m).padding(.leading, m / 2)
 			.frame(width: hidden ? 0 : w + m * 1.5, alignment: .trailing)
 			.clipped()
 			.opacity(hidden ? 0 : 1)
 			.allowsHitTesting(!hidden)
 			.accessibilityHidden(hidden)
+		}
+		.frame(width: hidden ? 0 : w + m * 1.5)
 	}
 
 	/// Полоса захвата у левого края: курсор «↔», перетаскивание влево расширяет панель в пределах min…max.
@@ -256,6 +294,66 @@ private struct SidePanel: View {
 				.onEnded { _ in dragStart = nil })
 			.onTapGesture(count: 2) { model.panelWidth = DS.Metrics.sidePanelWidth.ideal }
 			.help("Потяните, чтобы изменить ширину; двойной щелчок — по умолчанию")
+	}
+}
+
+/// Терминал проекта: отдельный блок под списком агентов — та же форма, цвет и рамка, что у блока агентов. Высота тянется за верхний край
+/// (двойной щелчок — по умолчанию), заголовок с папкой и кнопкой «закрыть» (процесс остаётся, пока жив проект).
+private struct ShellBlock: View {
+	@Environment(AppModel.self) private var model
+	var win: SessionWindowModel
+	var height: CGFloat
+	var maxHeight: CGFloat
+	@State private var dragStart: CGFloat?
+	@State private var hovering = false
+
+	var body: some View {
+		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
+		let h = height
+		VStack(spacing: 0) {
+			HStack(spacing: DS.Metrics.s2) {
+				Image(systemName: "terminal").font(.system(size: 11, weight: .medium))
+				Text(Projects.name(ofPath: win.dir)).font(DS.Typography.caption.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+				Spacer(minLength: 0)
+				Button { win.toggleShell() } label: {
+					Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).frame(width: 18, height: 18).contentShape(Circle())
+				}
+				.buttonStyle(.plain).focusEffectDisabled().help("Скрыть терминал")
+			}
+			.foregroundStyle(DS.Palette.textSecondary)
+			.padding(.horizontal, DS.Metrics.s4).frame(height: 30)
+			if let tab = win.shell {
+				TerminalHost(tab: tab, topInset: 0)
+					.id(tab.id)
+					.padding(.horizontal, DS.Metrics.s2).padding(.bottom, DS.Metrics.s2)
+					.accessibilityLabel("Терминал проекта")
+			} else {
+				Spacer()
+			}
+		}
+		.frame(height: h)
+		.clipShape(shape)
+		.background(DS.Palette.panelSurface, in: shape)
+		.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+		.overlay(shape.strokeBorder(dragStart != nil || hovering ? DS.Palette.accent.opacity(0.55) : .clear, lineWidth: 1.5))
+		.overlay(alignment: .top) { grip }
+	}
+
+	/// Полоса захвата по верхнему краю: курсор «↕», потянуть вверх — выше.
+	private var grip: some View {
+		Color.clear.frame(height: 8).contentShape(Rectangle())
+			.onHover { h in
+				hovering = h
+				if h { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+			}
+			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+				.onChanged { g in
+					if dragStart == nil { dragStart = model.shellHeight }
+					model.shellHeight = min(max((dragStart ?? 240) - g.translation.height, AppModel.shellHeightMin), maxHeight)
+				}
+				.onEnded { _ in dragStart = nil })
+			.onTapGesture(count: 2) { model.shellHeight = 240 }
+			.help("Потяните, чтобы изменить высоту; двойной щелчок — по умолчанию")
 	}
 }
 
@@ -404,6 +502,9 @@ private struct WindowBar: View {
 			HStack(spacing: 0) {
 				Spacer(minLength: 0)
 				HStack(spacing: 2) {
+					if let win = model.activeWindow {
+						BarIcon(systemImage: win.shellOpen ? "terminal.fill" : "terminal", help: win.shellOpen ? "Скрыть терминал проекта" : "Терминал проекта") { win.toggleShell() }
+					}
 					BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
 					SettingsButton()
 				}
