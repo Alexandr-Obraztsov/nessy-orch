@@ -259,15 +259,16 @@ private struct DockColumn: View {
 		let blocks = model.blocks(on: side)
 		let hidden = !model.showAgents || blocks.isEmpty
 		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
-		// под светофором (слева) верхний блок начинается ниже кнопок окна
-		let topPad = side == .left && !model.isFullScreen ? max(m, 44) : m
+		// колонки идут от самой шапки; слева кнопки окна (светофор) попадают в верхний блок, и он делает отступ содержимому
+		let topPad = m
+		let lightsInset: CGFloat = side == .left && !model.isFullScreen ? 28 : 0
 		GeometryReader { geo in
 			let total = max(geo.size.height - topPad - m, 0)
 			let shellH = blocks.count == 2 ? min(max(model.shellHeight, AppModel.shellHeightMin), max(total - 160 - m, AppModel.shellHeightMin)) : total
 			VStack(spacing: m) {
-				ForEach(blocks, id: \.rawValue) { b in
+				ForEach(Array(blocks.enumerated()), id: \.element.rawValue) { i, b in
 					let h = blocks.count == 1 ? total : (b == .shell ? shellH : max(total - shellH - m, 0))
-					DockTile(block: b, side: side, height: h, width: w, shape: shape, glow: widthStart != nil || hovering)
+					DockTile(block: b, side: side, height: h, width: w, shape: shape, glow: widthStart != nil || hovering, topInset: i == 0 ? lightsInset : 0)
 				}
 			}
 			.frame(height: total, alignment: .top)
@@ -316,13 +317,16 @@ private struct DockTile: View {
 	var width: CGFloat
 	var shape: RoundedRectangle
 	var glow: Bool
+	/// отступ содержимого сверху (кнопки окна внутри блока)
+	var topInset: CGFloat = 0
 	@State private var origin: CGPoint = .zero
 	@State private var dragging = false
 
 	var body: some View {
 		let isDragged = model.draggingBlock == block
 		content
-			.frame(width: width, height: height)
+			.padding(.top, topInset)
+			.frame(width: width, height: height, alignment: .top)
 			.clipShape(shape)
 			.background(DS.Palette.panelSurface, in: shape)
 			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
@@ -335,7 +339,7 @@ private struct DockTile: View {
 			.simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .local)
 				.onChanged { g in
 					if !dragging {
-						guard g.startLocation.y < 34 else { return }
+						guard g.startLocation.y < 34 + topInset else { return }
 						dragging = true
 						model.draggingBlock = block
 					}
