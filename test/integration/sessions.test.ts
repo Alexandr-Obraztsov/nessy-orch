@@ -250,6 +250,12 @@ describe('хук Stop и ожидание пачки (updates, ping, CLI)', () =
 		assert.match(r.stdout, /\[p1/)
 		assert.match(r.stdout, /\[p2/, 'обе ответа — в одной сводке: ожидание не просыпается на каждый')
 		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.unread, 0, 'сводка напечатана — курсор сдвинут')
+		// второе ожидание той же сессии отказывается сразу, первое остаётся единственным
+		await hh.api('POST', '/agents', { space: 'main', name: 'p4', session: s.id, prompt: '#slow' })
+		const first = run(['--all', '--wait', '30'])
+		await new Promise(r => setTimeout(r, 400))
+		assert.equal((await run(['--all', '--wait', '30'])).code, 5)
+		assert.equal((await first).code, 0)
 		// таймаут: агент ещё работает → код 3
 		await hh.api('POST', '/agents', { space: 'main', name: 'p3', session: s.id, prompt: '#work 0 шаг => Bash: x' })
 		assert.equal((await run(['--all', '--wait', '1'])).code, 3)

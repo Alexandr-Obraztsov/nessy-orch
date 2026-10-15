@@ -138,8 +138,8 @@ export interface DigestResponse {
 
 /** Итог ожидания пачки (`GET /sessions/:id/wait`): почему вернулись и сводка. */
 export interface SettledResponse {
-	/** idle — все агенты закончили; question — агент задал вопрос; timeout — агенты ещё работают; nothing — ждать нечего */
-	reason: 'idle' | 'question' | 'timeout' | 'nothing'
+	/** idle — все агенты закончили; question — агент задал вопрос; timeout — агенты ещё работают; nothing — ждать нечего; watching — ожидание этой сессии уже запущено */
+	reason: 'idle' | 'question' | 'timeout' | 'nothing' | 'watching'
 	digest: DigestResponse
 	/** сколько агентов сессии ещё работает */
 	active: number

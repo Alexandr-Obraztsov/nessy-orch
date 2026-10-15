@@ -36,7 +36,8 @@ async function cmdFeed(p: Parsed): Promise<void> {
 /**
  * `inbox --session S --all --wait N`: один раз дождаться, пока агенты сессии закончат (или зададут вопрос), и вывести сводку.
  * Запускается в фоне (Bash run_in_background): Claude Code разбудит Claude по завершении. Курсор сдвигается после вывода сводки.
- * Коды выхода: 0 — сводка (все закончили или вопрос), 3 — время вышло, агенты ещё работают (сводка напечатана, если есть), 4 — ждать нечего.
+ * Коды выхода: 0 — сводка (все закончили или вопрос), 3 — время вышло, агенты ещё работают (сводка напечатана, если есть), 4 — ждать нечего,
+ * 5 — ожидание этой сессии уже запущено (второе не нужно).
  */
 async function awaitDigest(p: Parsed, session: string): Promise<void> {
 	const r = await get<SettledResponse>(`/sessions/${enc(session)}/wait?timeout=${flagNum(p, 'wait') ?? 1500}`)
@@ -46,7 +47,11 @@ async function awaitDigest(p: Parsed, session: string): Promise<void> {
 		out(`${d.header}\n\n${d.text}`)
 		await post(`/sessions/${enc(session)}/ack`, { cursor: d.cursor })
 	}
-	if (r.reason === 'nothing') {
+	if (r.reason === 'watching') {
+		// второго ожидания не нужно: первое напечатает общую сводку
+		info(dim('ожидание этой сессии уже запущено — второе не нужно'))
+		process.exitCode = 5
+	} else if (r.reason === 'nothing') {
 		info(dim('ждать нечего: в сессии нет работающих агентов и непрочитанных ответов'))
 		process.exitCode = 4
 	} else if (r.reason === 'timeout') {

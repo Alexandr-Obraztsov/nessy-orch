@@ -184,7 +184,9 @@ export class Feed {
 	 * Дождаться, пока вся пачка агентов сессии закончит (или появится вопрос агента к главному), и вернуть причину.
 	 * Одно ожидание на пачку: не просыпаемся на каждый ответ. Пока ждём, сессия считается «наблюдаемой» (isWatching).
 	 */
-	async settled(session: string, waitSec: number): Promise<'idle' | 'question' | 'timeout' | 'nothing'> {
+	async settled(session: string, waitSec: number): Promise<'idle' | 'question' | 'timeout' | 'nothing' | 'watching'> {
+		// ожидание на сессию одно: второе сразу отказывается, а не печатает ту же сводку и не двигает курсор повторно
+		if (this.isWatching(session)) return 'watching'
 		const deadline = Date.now() + waitSec * 1000
 		this.watchers.set(session, (this.watchers.get(session) ?? 0) + 1)
 		try {
