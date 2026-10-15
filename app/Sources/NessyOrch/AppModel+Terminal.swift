@@ -93,7 +93,8 @@ extension AppModel {
 
 	/// ⌘W: в главном окне — закрыть проект (с предупреждением); в окне «Роли» или «Настройки» — закрыть само это окно.
 	func closeCurrentWindow() {
-		if let kw = NSApp.keyWindow, !(kw.delegate is CloseGuard) { kw.performClose(nil); return }
+		// окно берём по событию клавиши (оно знает, где нажали), иначе — ключевое окно
+		if let kw = NSApp.currentEvent?.window ?? NSApp.keyWindow, !(kw.delegate is CloseGuard) { kw.performClose(nil); return }
 		if let w = activeWindow { close(w) } else { NSApp.keyWindow?.performClose(nil) }
 	}
 
