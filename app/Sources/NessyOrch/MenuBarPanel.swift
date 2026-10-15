@@ -61,7 +61,7 @@ struct MenuBarPanel: View {
 			if !needs.isEmpty {
 				section("Нужны вы", count: needs.count) {
 					ForEach(Array(needs.prefix(4).enumerated()), id: \.element.id) { i, a in
-						if i > 0 { DSSeparator(leading: DS.Metrics.rowTextX) }
+						if i > 0 { DSSeparator(leading: DS.Metrics.s4) }
 						AgentRow(agent: a, compact: true)
 					}
 				}
@@ -69,7 +69,7 @@ struct MenuBarPanel: View {
 			if !working.isEmpty {
 				section("В работе", count: working.count) {
 					ForEach(Array(working.prefix(5).enumerated()), id: \.element.id) { i, a in
-						if i > 0 { DSSeparator(leading: DS.Metrics.rowTextX) }
+						if i > 0 { DSSeparator(leading: DS.Metrics.s4) }
 						AgentRow(agent: a, compact: true)
 					}
 					if working.count > 5 {

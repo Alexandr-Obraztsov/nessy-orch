@@ -81,7 +81,7 @@ struct AgentsListView: View {
 						if expanded {
 							VStack(spacing: 0) {
 								ForEach(Array(sec.agents.enumerated()), id: \.element.id) { i, a in
-									if i > 0 { DSSeparator(leading: DS.Metrics.rowTextX) }
+									if i > 0 { DSSeparator(leading: DS.Metrics.s4) }
 									AgentRow(agent: a)
 								}
 							}
@@ -154,9 +154,8 @@ struct AgentRow: View {
 	private var selected: Bool { win?.selectedAgentId == a.id && !compact }
 
 	var body: some View {
-		HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s3) {
-			DSStateGlyph(state: a.ds)
-				.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+		// слева индикатора состояния нет: состояние видно по группе, в которой стоит карточка
+		HStack(alignment: .firstTextBaseline, spacing: 0) {
 			// карточка: 1) заголовок на всю ширину · 2) роль, токены, вызовы, статус · (итог или причина у не работающего) · 3) план, контекст, время
 			VStack(alignment: .leading, spacing: 2) {
 				Text(model.store.title(of: a)).font(DS.Typography.secondary.weight(.semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(2)
@@ -165,7 +164,7 @@ struct AgentRow: View {
 				footer
 			}
 		}
-		.padding(.leading, DS.Metrics.s3).padding(.trailing, DS.Metrics.s4).padding(.vertical, DS.Metrics.s2 + DS.Metrics.s1)
+		.padding(.horizontal, DS.Metrics.s4).padding(.vertical, DS.Metrics.s2 + DS.Metrics.s1)
 		.background {
 			ConcentricRectangle(corners: .concentric(minimum: .fixed(DS.Metrics.groupRadius - DS.Metrics.rowInset)), isUniform: true)
 				.fill(selected ? DS.Palette.selection : hovering ? DS.Palette.hover : .clear)
