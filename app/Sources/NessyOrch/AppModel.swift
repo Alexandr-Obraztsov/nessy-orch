@@ -64,18 +64,29 @@ final class AppModel {
 	var shellSide: DockSide = DockSide(rawValue: UserDefaults.standard.string(forKey: "dock.shellSide") ?? "") ?? .right { didSet { UserDefaults.standard.set(shellSide.rawValue, forKey: "dock.shellSide") } }
 	/// в общей колонке терминал выше агентов
 	var shellFirst = UserDefaults.standard.bool(forKey: "dock.shellFirst") { didSet { UserDefaults.standard.set(shellFirst, forKey: "dock.shellFirst") } }
-	/// блок, который тащат за шапку, и его смещение; размер окна нужен, чтобы понять, куда его бросили
+	/// блок, который тащат за шапку: где указатель (глобально) и за какую точку блока взялись; куда блок попадёт, если отпустить сейчас
 	var draggingBlock: DockBlock?
-	var dragOffset: CGSize = .zero
-	var dropSide: DockSide?
+	var dragPointer: CGPoint = .zero
+	var dragGrab: CGPoint = .zero
+	var previewSide: DockSide?
+	var previewFirst = false
 	var windowSize: CGSize = .zero
 
-	/// Блоки колонки сверху вниз (терминал — только если открыт).
+	/// Раскладка с учётом переноса: пока блок тащат, он уже стоит там, где окажется при отпускании, а остальные подстроены под это место
+	/// (оптимистичное обновление, как при реальном броске).
+	private var effAgentsSide: DockSide { draggingBlock == .agents ? (previewSide ?? agentsSide) : agentsSide }
+	private var effShellSide: DockSide { draggingBlock == .shell ? (previewSide ?? shellSide) : shellSide }
+	private var effShellFirst: Bool {
+		guard let d = draggingBlock, previewSide != nil else { return shellFirst }
+		return d == .shell ? previewFirst : !previewFirst
+	}
+
+	/// Блоки колонки сверху вниз (в нижней полосе слева направо); терминал — только если открыт.
 	func blocks(on side: DockSide) -> [DockBlock] {
 		var out: [DockBlock] = []
-		if agentsSide == side { out.append(.agents) }
-		if shellSide == side, activeWindow?.shellOpen == true { out.append(.shell) }
-		return shellFirst ? out.reversed() : out
+		if effAgentsSide == side { out.append(.agents) }
+		if effShellSide == side, activeWindow?.shellOpen == true { out.append(.shell) }
+		return effShellFirst ? out.reversed() : out
 	}
 
 	/// Куда попадёт блок, отпущенный в точке окна: низ посередине — нижняя полоса под центральным терминалом (углы остаются за колонками),
@@ -86,23 +97,39 @@ final class AppModel {
 		return p.x < w / 2 ? .left : .right
 	}
 
+	/// «Первый» в месте назначения: в колонке — верхний, в нижней полосе — левый.
+	func isFirst(at p: CGPoint, side: DockSide) -> Bool {
+		side == .bottom ? p.x < windowSize.width / 2 : p.y < windowSize.height / 2
+	}
+
 	/// высота нижней полосы блоков (тянется за верхний край)
 	var bottomHeight: CGFloat = {
 		let h = UserDefaults.standard.double(forKey: "bottomHeight")
 		return h > 0 ? CGFloat(h) : 220
 	}() { didSet { UserDefaults.standard.set(Double(bottomHeight), forKey: "bottomHeight") } }
 
-	/// Блок отпущен в точке окна: колонка — по половине окна, место в колонке — по верхней/нижней половине.
-	func drop(_ block: DockBlock, at p: CGPoint) {
-		let side = zone(at: p)
-		// в колонке «первый» — верхний, в нижней полосе — левый
-		let first = side == .bottom ? p.x < windowSize.width / 2 : p.y < windowSize.height / 2
+	/// Указатель блока сдвинулся: пересчитать место назначения (раскладка перестраивается на лету).
+	func dragMoved(_ block: DockBlock, pointer: CGPoint) {
+		draggingBlock = block
+		dragPointer = pointer
+		let side = zone(at: pointer)
+		let first = isFirst(at: pointer, side: side)
+		if previewSide != side || previewFirst != first {
+			withAnimation(dsAnimation(DS.Motion.panel)) { previewSide = side; previewFirst = first }
+		}
+	}
+
+	/// Блок отпущен: предварительная раскладка становится настоящей.
+	func dropBlock() {
+		guard let block = draggingBlock else { return }
+		let side = previewSide ?? (block == .agents ? agentsSide : shellSide)
+		let first = previewFirst
 		withAnimation(dsAnimation(DS.Motion.panel)) {
 			switch block {
 			case .agents: agentsSide = side; shellFirst = !first
 			case .shell: shellSide = side; shellFirst = first
 			}
-			draggingBlock = nil; dragOffset = .zero; dropSide = nil
+			draggingBlock = nil; previewSide = nil
 		}
 	}
 	let terminals = TerminalStore.shared
