@@ -487,42 +487,6 @@ struct InstallerTests {
 	}
 }
 
-@Suite("Сессия окна при /resume")
-struct WindowSessionsTests {
-	func s(_ id: String, origin: String? = nil, state: String? = nil, at: String = "", updated: String = "2026-10-10T10:00:00Z") -> SessionView {
-		var v = sessionJSON(id)
-		v.origin = origin
-		v.updatedAt = updated
-		if let state { v.lead = LeadState(state: LeadState.Run(rawValue: state) ?? .idle, at: at) }
-		return v
-	}
-
-	@Test func followsMostRecentLiveChat() {
-		let list = [s("w", state: "idle", at: "2026-10-10T10:01:00Z"), s("b", origin: "w", state: "working", at: "2026-10-10T10:05:00Z"), s("other", state: "working", at: "2026-10-10T11:00:00Z")]
-		#expect(WindowSessions.current(list, origin: "w") == "b")
-	}
-
-	@Test func resumeOfOldChatWinsEvenIfOldOneEndedLater() {
-		// /resume: SessionEnd старого чата пришёл позже SessionStart возобновлённого — завершённый не перебивает живой
-		let list = [s("w", state: "idle", at: "2026-10-10T10:05:00Z"), s("b", origin: "w", state: "ended", at: "2026-10-10T10:05:02Z")]
-		#expect(WindowSessions.current(list, origin: "w") == "w")
-	}
-
-	@Test func terminalGroupsSessionsByKeyAndReopenedSession() {
-		// сессии терминала — по ключу `origin`; терминал, открытый по сессии, видит её и её семью
-		let list = [s("a", origin: "term-1", state: "idle", at: "2026-10-10T10:00:00Z"), s("b", origin: "term-2", state: "working", at: "2026-10-10T11:00:00Z")]
-		#expect(WindowSessions.current(list, origin: "term-1") == "a")
-		#expect(WindowSessions.current(list, origin: "term-9", initial: "b") == "b")
-		#expect(WindowSessions.current(list, origin: "term-9") == "term-9", "своих сессий ещё нет")
-	}
-
-	@Test func fallsBackToEndedThenUpdatedThenOrigin() {
-		#expect(WindowSessions.current([s("w", state: "ended", at: "2026-10-10T10:00:00Z"), s("b", origin: "w", state: "ended", at: "2026-10-10T10:09:00Z")], origin: "w") == "b")
-		#expect(WindowSessions.current([s("w", updated: "2026-10-10T09:00:00Z"), s("b", origin: "w", updated: "2026-10-10T10:30:00Z")], origin: "w") == "b")
-		#expect(WindowSessions.current([], origin: "w") == "w")
-	}
-}
-
 @Suite("Сводка вызовов инструментов")
 struct ToolSummaryTests {
 	func tool(_ name: String, _ seq: Int = 0) -> AgentEvent.ToolEvent {

@@ -197,12 +197,7 @@ CLI, поэтому приложение подключает его так: х�
 
 | Компонент | Вызов | Что делает |
 |---|---|---|
-| Скилл `nessy-orch` | `/nessy:nessy-orch`, загружается сам | Цикл оркестратора, выбор роли, шаблон поручения, правила, «красные флаги», ошибки; `references/commands.md` — справочник команд, `references/briefs.md` — общие схемы и указатель рецептов |
-| Скилл `code-question` | `/nessy:code-question` | Вопрос по коду чужого репозитория: `code-explorer` (+ `verifier`) |
-| Скилл `mr-review` | `/nessy:mr-review` | Ревью MR: `gitlab-mr-reviewer` ‖ `jira-analyst` (+ `security-reviewer`), черновики комментариев без публикации |
-| Скилл `incident` | `/nessy:incident` | Инцидент: `debugger` ‖ `wiki-researcher` / `jira-analyst`, хронология и гипотезы |
-| Скилл `jira-report` | `/nessy:jira-report` | Сводка задач Jira таблицей: `jira-analyst` |
-| Скилл `implement` | `/nessy:implement` | Изменение кода: `analyst` → `executor` → `verifier` |
+| Скилл `nessy-orch` | `/nessy:nessy-orch`, загружается сам | Правила оркестратора: декомпозиция на малых агентов, поручения, ожидание, итог; типовые связки ролей (MR, инцидент, Jira, код); `references/commands.md` — справочник команд, `references/briefs.md` — общие схемы и указатель рецептов |
 | Команда `status` | `/nessy:status` | `nessy-orch ls --all` и короткая сводка |
 
 Роли в плагин не входят: они живут в [`roles/`](roles/) и загружаются в оркестратор (см. ниже).

@@ -30,8 +30,8 @@ final class SessionWindowModel {
 	let value: TerminalWindowValue
 	var key: String { value.key }
 	var dir: String { value.dir }
-	/// сессия, по которой терминал открыт (повторное открытие сессии из уведомления или ссылки); обычный терминал её не знает:
-	/// сессии рождаются по хукам Claude (по `session_id` чата) и привязаны к ключу терминала (`origin` = `key`)
+	/// сессия оркестратора этого проекта: одна на вкладку. Создаётся при запуске (`POST /sessions {cwd, chatId}`) или берётся у
+	/// повторно открытой сессии; `/clear` и `/resume` внутри Claude её не меняют (чат обновляет хук Stop)
 	private(set) var sessionId: String?
 	/// агент, чья карточка открыта в панели (nil — виден список агентов)
 	private(set) var openAgentId: String?
@@ -59,16 +59,9 @@ final class SessionWindowModel {
 		sessionId = value.session
 	}
 
-	/// сессия текущего чата Claude этого окна: самая недавно активная среди сессий окна (один чат = одна сессия)
-	var currentSessionId: String? {
-		let id = WindowSessions.current(app.store.sessions, origin: key, initial: sessionId)
-		return app.store.session(id) == nil ? nil : id
-	}
-	/// сессия относится к этому терминалу (открыт по ней или чат Claude шёл в нём)
-	func owns(_ id: String) -> Bool {
-		guard let s = app.store.session(id) else { return id == sessionId }
-		return id == sessionId || s.origin == key || (sessionId != nil && s.origin == sessionId)
-	}
+	var currentSessionId: String? { sessionId.flatMap { app.store.session($0) == nil ? nil : $0 } }
+	/// сессия относится к этому проекту
+	func owns(_ id: String) -> Bool { id == sessionId }
 
 	var session: SessionView? { currentSessionId.flatMap { app.store.session($0) } }
 	var agents: [AgentView] { currentSessionId.map { app.store.agents(inSession: $0) } ?? [] }
@@ -94,23 +87,47 @@ final class SessionWindowModel {
 		app.startTerminal(for: self)
 	}
 
-	/// Первый показ: терминал в папке. Сессию оркестратора заранее не создаём — её заведёт хук SessionStart Claude по `session_id` чата.
+	/// id чата Claude этой вкладки: новый (`--session-id`) или продолжаемый (`--resume`)
+	private(set) var newChat: String?
+
+	/// Первый показ: сессия оркестратора (новая или прежняя), затем терминал с Claude. Сервер не ответил — несколько повторов, и терминал
+	/// всё равно запускается (без сессии агенты не получат окружения), а причина показывается тостом.
 	func bootstrap() async {
 		guard !started else { return }
 		started = true
+		if sessionId == nil {
+			let chat = UUID().uuidString.lowercased()
+			var failure: Error?
+			for attempt in 0..<4 {
+				do {
+					sessionId = try await app.store.client.createSession(cwd: dir, chatId: chat).id
+					newChat = chat
+					failure = nil
+					break
+				} catch {
+					failure = error
+					if attempt < 3 { try? await Task.sleep(for: .seconds(1)) }
+				}
+			}
+			if let failure { app.flash("Оркестратор недоступен: агенты в этой вкладке не получат сессию (\(failure.localizedDescription))", error: true) }
+		} else if value.chat == nil {
+			newChat = UUID().uuidString.lowercased() // сессия есть, чата у неё нет (создана CLI): начинаем новый чат, Stop сообщит его серверу
+		}
 		app.startTerminal(for: self)
 	}
 
 	/// Окно закрыто: терминал завершается; пустая сессия (ни агентов, ни состояния Claude) удаляется.
 	func closed() {
 		app.terminals.close(key: key)
-		// сервер завершает сессии терминала и останавливает его работающих агентов (они без хозяина жгли бы токены)
-		let k = key
-		Task { try? await app.store.client.terminalClosed(k) }
-		// пустые сессии окна (ни агентов, ни чата Claude) удаляются; сессия с чатом остаётся — её можно продолжить через /resume
-		for s in app.store.sessions where owns(s.id) && s.chatId == nil && s.lead == nil && app.store.agents(inSession: s.id).isEmpty {
-			let id = s.id
-			Task { try? await app.store.client.deleteSession(id) }
+		// сервер останавливает работающих агентов сессии (они без хозяина жгли бы токены); сессия остаётся — её можно продолжить (`--resume`)
+		if let id = sessionId {
+			let empty = app.store.agents(inSession: id).isEmpty && app.store.session(id)?.lead == nil
+			let client = app.store.client
+			Task {
+				try? await client.sessionClosed(id)
+				// проект без единого агента и без ответа Claude ничего не хранит: сессия не копится
+				if empty { try? await client.deleteSession(id) }
+			}
 		}
 		app.forget(window: self)
 	}
@@ -333,6 +350,9 @@ private struct ProjectSwitcher: View {
 					.help("Ждут вас: \(sum.needsYou)")
 			} else if sum.working > 0 {
 				DSStateGlyph(state: .working, size: 11).help("Работают: \(sum.working)")
+			} else if let n = window.session?.unread, n > 0 {
+				// ответы агентов пришли, а Claude их ещё не получил (он занят или ждёт, пока вы напишете)
+				Image(systemName: "tray.full").font(.system(size: 11)).help("Ответов агентов, которые Claude ещё не получил: \(n)")
 			}
 		}
 	}

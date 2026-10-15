@@ -52,20 +52,23 @@ struct ProjectTests {
 @Suite("Команда агента")
 struct LeadCommandTests {
 	@Test func resumeIsAddedForKnownAgents() {
-		#expect(LeadCommand.build(base: "claude", resumeChat: nil) == "claude")
-		#expect(LeadCommand.build(base: "  ", resumeChat: nil) == "claude", "пусто — значение по умолчанию")
-		#expect(LeadCommand.build(base: "claude --model opus", resumeChat: "abc-1") == "claude --model opus --resume 'abc-1'")
-		#expect(LeadCommand.build(base: "/usr/local/bin/nessy", resumeChat: "x") == "/usr/local/bin/nessy --resume 'x'")
-		#expect(LeadCommand.build(base: "claude --resume old", resumeChat: "new") == "claude --resume old", "свой resume пользователя не трогаем")
-		#expect(LeadCommand.build(base: "claude -c", resumeChat: "x") == "claude -c")
-		#expect(LeadCommand.build(base: "my-agent --fast", resumeChat: "x") == "my-agent --fast", "неизвестный агент не знает --resume")
+		#expect(LeadCommand.build(base: "claude", newChat: nil, resumeChat: nil) == "claude")
+		#expect(LeadCommand.build(base: "  ", newChat: nil, resumeChat: nil) == "claude", "пусто — значение по умолчанию")
+		#expect(LeadCommand.build(base: "claude --model opus", newChat: nil, resumeChat: "abc-1") == "claude --model opus --resume 'abc-1'")
+		#expect(LeadCommand.build(base: "tclaude", newChat: "u-1", resumeChat: nil) == "tclaude --session-id 'u-1'", "новый чат: id задан заранее")
+		#expect(LeadCommand.build(base: "/opt/bin/tclaude --x", newChat: "u-1", resumeChat: "old") == "/opt/bin/tclaude --x --resume 'old'", "продолжение важнее нового")
+		#expect(LeadCommand.build(base: "claude --resume old", newChat: "n", resumeChat: "new") == "claude --resume old", "свой resume пользователя не трогаем")
+		#expect(LeadCommand.build(base: "claude -c", newChat: "n", resumeChat: nil) == "claude -c")
+		#expect(LeadCommand.build(base: "claude --session-id mine", newChat: "n", resumeChat: nil) == "claude --session-id mine")
+		#expect(LeadCommand.build(base: "my-agent --fast", newChat: "n", resumeChat: "x") == "my-agent --fast", "не Claude Code: флаги не добавляем")
+		#expect(LeadCommand.build(base: "nessy", newChat: "n", resumeChat: "x") == "nessy", "nessy как главный агент не поддерживается")
 	}
 
 	@Test func terminalBecomesTheAgent() {
 		let url = URL(string: "http://127.0.0.1:4337")!
-		let t = TerminalLaunch.terminal(directory: "/w", sessionId: nil, terminalKey: "k", orchestrator: url, base: ["SHELL": "/bin/zsh", "PATH": "/usr/bin"], lead: "claude --resume 'a'", home: "/Users/me")
+		let t = TerminalLaunch.terminal(directory: "/w", sessionId: nil, orchestrator: url, base: ["SHELL": "/bin/zsh", "PATH": "/usr/bin"], lead: "claude --resume 'a'", home: "/Users/me")
 		#expect(t.args == ["-l", "-i", "-c", "exec claude --resume 'a'"], "оболочки после агента нет: выход из агента = конец процесса")
-		#expect(t.env["NESSY_ORCH_TERMINAL"] == "k")
+		#expect(t.env["NESSY_ORCH_TERMINAL"] == nil && t.env["NESSY_ORCH_LEAD"] == nil)
 	}
 }
 
@@ -108,8 +111,7 @@ struct TerminalLaunchTests {
 
 	@Test func nonDefaultPortAndLangFallback() {
 		var b = base; b["LANG"] = "C"; b["PATH"] = "/Users/me/.local/bin:/usr/bin"
-		let e = TerminalLaunch.environment(base: b, sessionId: nil, terminalKey: "term-1", orchestrator: URL(string: "http://127.0.0.1:4338")!, home: "/Users/me")
-		#expect(e["NESSY_ORCH_TERMINAL"] == "term-1", "хуки привязывают сессию чата к терминалу по этому ключу")
+		let e = TerminalLaunch.environment(base: b, sessionId: nil, orchestrator: URL(string: "http://127.0.0.1:4338")!, home: "/Users/me")
 		#expect(e["ORCH_PORT"] == "4338")
 		#expect(e["LANG"] == "en_US.UTF-8")
 		#expect(e["NESSY_ORCH_SESSION"] == nil)
@@ -117,9 +119,8 @@ struct TerminalLaunchTests {
 	}
 
 	@Test func terminalSpec() {
-		let t = TerminalLaunch.terminal(directory: "/w/x", sessionId: nil, terminalKey: "term-1", orchestrator: url, base: base, home: "/Users/me")
+		let t = TerminalLaunch.terminal(directory: "/w/x", sessionId: nil, orchestrator: url, base: base, home: "/Users/me")
 		#expect(t.executable == "/bin/zsh" && t.args == ["-l"] && t.directory == "/w/x")
-		#expect(t.env["NESSY_ORCH_TERMINAL"] == "term-1")
 		#expect(t.env["NESSY_ORCH_DIR"] == "/w/x")
 		#expect(t.env["ZDOTDIR"] == nil, "файлы оболочки пользователя не подменяются")
 		#expect(TerminalLaunch.userShell(env: ["SHELL": "/definitely/missing"]) == "/bin/zsh")

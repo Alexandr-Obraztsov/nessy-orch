@@ -61,6 +61,13 @@ function roleCell(id: string | null, roles: ReadonlyMap<string, RoleView>): stri
 }
 
 /** Таблица агентов; hiddenArchived — сколько архивных скрыто (подсказка про --all). */
+/** Заполнение окна контекста агента: от 60% красим — новую задачу такому агенту лучше не давать. */
+function contextCell(a: AgentView): string {
+	const pct = a.stats.contextPct
+	if (pct === null || pct === undefined) return dim('—')
+	return pct >= 60 ? red(`${pct}%`) : `${pct}%`
+}
+
 export function agentsTable(agents: readonly AgentView[], spaces: readonly SpaceView[], roles: readonly RoleView[] = [], hiddenArchived = 0): string {
 	const hint = hiddenArchived ? dim(`в архиве: ${hiddenArchived} (показать: nessy-orch ls --all)`) : ''
 	if (!agents.length) return [dim('активных агентов нет. Создайте: nessy-orch spawn --session <id> "поручение"'), hint].filter(Boolean).join('\n')
@@ -73,9 +80,10 @@ export function agentsTable(agents: readonly AgentView[], spaces: readonly Space
 			roleCell(a.role, rl),
 			status(a.status) + (a.archived ? dim(' · архив') : '') + (a.queued ? dim(` +${a.queued}`) : ''),
 			a.space + (sp.get(a.space)?.status === 'failed' ? red(' (!)') : ''),
+			contextCell(a),
 			a.lastTool ? dim(`⚙ ${a.lastTool.name}`) : a.preview ? dim(a.preview.replace(/\s+/g, ' ').slice(0, 50)) : '',
 		]),
-		['ID', 'ИМЯ', 'РОЛЬ', 'СТАТУС', 'ПРОСТРАНСТВО', 'ПОСЛЕДНЕЕ'],
+		['ID', 'ИМЯ', 'РОЛЬ', 'СТАТУС', 'ПРОСТРАНСТВО', 'КОНТЕКСТ', 'ПОСЛЕДНЕЕ'],
 	)
 	return hint ? `${rows}\n${hint}` : rows
 }

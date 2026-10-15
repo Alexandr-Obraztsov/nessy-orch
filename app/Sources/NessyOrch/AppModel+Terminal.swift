@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 import NessyKit
 
-/// Терминалы: запуск оболочки пользователя в папке окна, прозрачные хуки Claude, выбор папки (layout-v2.md).
+/// Терминалы: запуск Claude Code в папке окна, выбор папки (layout-v2.md).
 extension AppModel {
 	// MARK: папки
 
@@ -46,8 +46,8 @@ extension AppModel {
 	/// `-debug.terminalCommand "<команда>"` — выполнить команду и остаться в оболочке (для проверок).
 	func startTerminal(for win: SessionWindowModel) {
 		let debugCommand = UserDefaults.standard.string(forKey: "debug.terminalCommand")
-		let lead = debugCommand == nil ? LeadCommand.build(base: AppSettings.leadCommand, resumeChat: win.value.chat) : nil
-		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, terminalKey: win.key, orchestrator: AppSettings.serverURL,
+		let lead = debugCommand == nil ? LeadCommand.build(base: AppSettings.leadCommand, newChat: win.newChat, resumeChat: win.newChat == nil ? win.value.chat : nil) : nil
+		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, orchestrator: AppSettings.serverURL,
 										   base: ProcessInfo.processInfo.environment, command: debugCommand, lead: lead, token: OrchToken.read())
 		// `nessy-orch` из приложения доступен и в терминале агента (его Bash-инструментах)
 		let bundledBin = Bundle.main.resourceURL.map { $0.appendingPathComponent("orch/bin").path }.flatMap { FileManager.default.fileExists(atPath: $0 + "/nessy-orch") ? $0 : nil }

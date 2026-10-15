@@ -152,8 +152,9 @@ enum ChatEntries {
 				switch e {
 				case .user(let u):
 					let p = Brief.plain(u.text)
+					let mine = u.from == "you" || u.from == "user" // оркестратор и человек: один вид, как у цели
 					if !skippedGoal { skippedGoal = true; if p == goal { continue } }
-					out.append(LogEntry(id: row.id, label: (u.from == "you" || u.from == "user") ? "" : "Сообщение от \(u.from)", body: u.from == "you" ? .mine(p) : .other(p)))
+					out.append(LogEntry(id: row.id, label: mine ? "" : "Сообщение от \(u.from)", body: mine ? .mine(p) : .other(p)))
 				case .text(let t):
 					let s = t.text.trimmingCharacters(in: .whitespacesAndNewlines)
 					if !s.isEmpty { out.append(LogEntry(id: row.id, label: "", body: .answer(s))) }
@@ -182,10 +183,7 @@ struct LogEntryView: View {
 	@ViewBuilder private var content: some View {
 		switch entry.body {
 		case .mine(let t):
-			Text(t).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary).textSelection(.enabled)
-				.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
-				.background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))
-				.frame(maxWidth: .infinity, alignment: .trailing)
+			MessageCard(text: t)
 		case .other(let t):
 			Text("«\(t)»").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).lineLimit(4).textSelection(.enabled)
 		case .answer(let t):

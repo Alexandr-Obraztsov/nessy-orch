@@ -92,21 +92,3 @@ public struct MergedSource: Identifiable, Sendable {
 		}
 	}
 }
-
-/// Какую сессию оркестратора показывать в окне: окно ведёт чаты Claude подряд (новый чат, `/clear`, `/resume` — каждый со своей сессией),
-/// показывается сессия чата, с которым Claude работает сейчас.
-public enum WindowSessions {
-	/// - sessions: все сессии; origin — первая сессия окна (сессии окна: она сама и те, у кого `origin` = она).
-	/// Предпочтение: чаты, чьё состояние не «завершён», по свежести хука; затем завершённые (по свежести); затем по `updatedAt`; без сессий — origin.
-	public static func current(_ sessions: [SessionView], origin: String, initial: String? = nil) -> String {
-		// сессии терминала: привязанные к его ключу хуками, а у терминала, открытого по сессии, ещё и она сама и её «семья»
-		let mine = sessions.filter { $0.id == origin || $0.origin == origin || (initial != nil && ($0.id == initial || $0.origin == initial)) }
-		func at(_ s: SessionView) -> String { s.lead?.at ?? "" }
-		let live = mine.filter { $0.lead != nil && $0.lead?.state != .ended }
-		if let best = live.max(by: { at($0) < at($1) }) { return best.id }
-		let ended = mine.filter { $0.lead != nil }
-		if let best = ended.max(by: { at($0) < at($1) }) { return best.id }
-		if let best = mine.max(by: { $0.updatedAt < $1.updatedAt }) { return best.id }
-		return initial ?? origin
-	}
-}

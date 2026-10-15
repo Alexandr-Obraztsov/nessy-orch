@@ -92,8 +92,12 @@ public final class OrchClient: @unchecked Sendable {
 	public func deleteRole(_ id: String) async throws { try await raw("DELETE", "/roles/\(id)") }
 
 	// MARK: сессии
-	/// Терминал проекта закрыт: сервер завершает его сессии и останавливает работающих агентов.
-	public func terminalClosed(_ key: String) async throws { try await raw("POST", "/terminals/\(key)/closed", body: [String: String]()) }
+	/// Новая сессия вкладки проекта: папка и id чата Claude (`--session-id`).
+	public func createSession(cwd: String, chatId: String) async throws -> SessionView {
+		try await send("POST", "/sessions", body: SessionBody(cwd: cwd, chatId: chatId))
+	}
+	/// Вкладка закрыта: сервер останавливает работающих агентов сессии (сама сессия остаётся для `--resume`).
+	public func sessionClosed(_ id: String) async throws { try await raw("POST", "/sessions/\(id)/closed", body: [String: String]()) }
 	public func deleteSession(_ id: String) async throws { try await raw("DELETE", "/sessions/\(id)") }
 	// MARK: потоки
 	public func stream() -> SSEStream { SSEStream(url: url("/stream")) }
@@ -101,6 +105,12 @@ public final class OrchClient: @unchecked Sendable {
 }
 
 // MARK: тела запросов
+
+/// Тело `POST /sessions` вкладки проекта.
+struct SessionBody: Encodable {
+	var cwd: String
+	var chatId: String
+}
 
 /// Тело `POST/PUT /roles`: без color.
 struct RoleBody: Encodable {

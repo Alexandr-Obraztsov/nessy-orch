@@ -38,7 +38,6 @@ struct GeneralSettings: View {
 				Button("Роли агентов…") { openWindow(id: "roles") }
 			}
 			InstallSettingsSection()
-			NessySettingsSection()
 		}
 		.formStyle(.grouped)
 	}
@@ -54,7 +53,7 @@ struct TerminalSettings: View {
 				TextField("Команда агента", text: $leadCommand, prompt: Text("claude"))
 				Stepper(value: $fontSize, in: 10...24, step: 1) { LabeledContent("Размер шрифта", value: "\(Int(fontSize)) pt") }
 			} footer: {
-				Text("Команда вводится в терминал сразу после старта оболочки, например `claude --model opus`. Команда `claude` уже идёт с хуками оркестратора. Размер шрифта применяется ко всем терминалам сразу.")
+				Text("Главный агент — Claude Code (`claude`, `tclaude`…), можно с флагами: `claude --model opus`. Приложение само добавляет `--session-id` (новый чат) или `--resume` (продолжение). Размер шрифта применяется ко всем терминалам сразу.")
 					.foregroundStyle(DS.Palette.textSecondary)
 			}
 		}

@@ -118,9 +118,10 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	public var sources: Int
 	/// состояние главного агента по хукам; nil — сервер не сообщает (старый сервер или хуки не подключены)
 	public var lead: LeadState?
-	/// чат главного агента, к которому привязана сессия, и окно (id первой сессии окна), в котором он ведётся
+	/// чат главного агента (id для `claude --resume`); хук Stop обновляет его после /clear
 	public var chatId: String?
-	public var origin: String?
+	/// сколько ответов и вопросов агентов Claude ещё не получил (считает сервер)
+	public var unread: Int
 	/// папка чата главного агента (из хука); по ней сессию можно открыть снова
 	public var cwd: String?
 
@@ -136,7 +137,7 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 		sources = try c.decodeIfPresent(Int.self, forKey: .sources) ?? 0
 		lead = (try? c.decodeIfPresent(LeadState.self, forKey: .lead)) ?? nil
 		chatId = try c.decodeIfPresent(String.self, forKey: .chatId)
-		origin = try c.decodeIfPresent(String.self, forKey: .origin)
+		unread = try c.decodeIfPresent(Int.self, forKey: .unread) ?? 0
 		cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
 	}
 }

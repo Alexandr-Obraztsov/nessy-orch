@@ -137,10 +137,7 @@ struct AgentIntro: View {
 	@Environment(AppModel.self) private var model
 	var agent: AgentView
 	var goal: String
-	@State private var open = false
-
 	private var role: String? { model.roleInfo(of: agent)?.name }
-	private var long: Bool { goal.count > 280 || goal.split(separator: "\n").count > 6 }
 
 	var body: some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
@@ -156,27 +153,7 @@ struct AgentIntro: View {
 				}
 			}
 			.font(DS.Typography.secondary)
-			if !goal.isEmpty {
-				VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-					Text(goal).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
-						.lineLimit(open ? nil : 6).textSelection(.enabled)
-						.frame(maxWidth: .infinity, alignment: .leading)
-						.mask {
-							if long && !open {
-								LinearGradient(stops: [.init(color: .black, location: 0.7), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
-							} else {
-								Color.black
-							}
-						}
-					if long {
-						Button(open ? "Свернуть" : "Показать ещё") { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } }
-							.buttonStyle(.plain).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
-					}
-				}
-				.padding(DS.Metrics.s3)
-				.frame(maxWidth: .infinity, alignment: .leading)
-				.background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous))
-			}
+			if !goal.isEmpty { MessageCard(text: goal) }
 		}
 	}
 }
@@ -434,5 +411,36 @@ struct ThoughtView: View {
 			.contentShape(Rectangle())
 			.onTapGesture { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } }
 			.help(open ? "Свернуть" : "Показать целиком")
+	}
+}
+
+/// Сообщение оркестратора (поручение) или человека агенту: карточка на всю ширину, длинный текст сворачивается. Один вид для цели и
+/// для следующих сообщений в ленте агента.
+struct MessageCard: View {
+	var text: String
+	@State private var open = false
+
+	private var long: Bool { text.count > 280 || text.split(separator: "\n").count > 6 }
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+			Text(text).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
+				.lineLimit(open ? nil : 6).textSelection(.enabled)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.mask {
+					if long && !open {
+						LinearGradient(stops: [.init(color: .black, location: 0.7), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+					} else {
+						Color.black
+					}
+				}
+			if long {
+				Button(open ? "Свернуть" : "Показать ещё") { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } }
+					.buttonStyle(.plain).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+			}
+		}
+		.padding(DS.Metrics.s3)
+		.frame(maxWidth: .infinity, alignment: .leading)
+		.background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous))
 	}
 }
