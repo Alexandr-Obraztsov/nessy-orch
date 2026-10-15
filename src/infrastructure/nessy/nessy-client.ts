@@ -6,7 +6,10 @@
  * Права подтверждаем голосованием (POST /session/:id/permission/:requestId):
  * POST /session/:id/approval-mode требует токена, которого у оркестратора нет.
  */
+import * as fs from 'node:fs'
 import * as http from 'node:http'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { URL } from 'node:url'
 import type { NessyGateway, SessionSubscription, SubscribeOptions } from '../../application/ports'
 import { AppError, NessyBusyError } from '../../domain/errors'
@@ -18,13 +21,26 @@ import { SseParser } from '../sse/sse-parser'
 import { NessyEventMapper } from './event-mapper'
 import { extractContext, extractUsage } from './usage'
 
-/** Сырой ответ nessy на /stats и /context-usage — один раз в лог оркестратора: формат в контракте не зафиксирован, по этой строке его можно сверить. */
-const seenRaw = new Set<string>()
+/**
+ * Сырой ответ nessy на /stats и /context-usage — в файл `<home>/logs/usage-raw.log` (и в лог оркестратора): формат в контракте не
+ * зафиксирован, по этим строкам его можно сверить. Пишем первые несколько ответов каждого вида, дальше не засоряем.
+ */
+const rawCount = new Map<string, number>()
 function noteRaw(kind: string, status: number, body: unknown): void {
+	if (process.env['NODE_TEST_CONTEXT']) return // тесты не пишут в настоящий лог
 	const key = `${kind}:${status}`
-	if (seenRaw.has(key)) return
-	seenRaw.add(key)
-	console.log(`[nessy-orch] nessy ${kind}: HTTP ${status} ${JSON.stringify(body).slice(0, 800)}`)
+	const n = rawCount.get(key) ?? 0
+	if (n >= 5) return
+	rawCount.set(key, n + 1)
+	const line = `${new Date().toISOString()} nessy ${kind}: HTTP ${status} ${JSON.stringify(body).slice(0, 1500)}`
+	console.log(`[nessy-orch] ${line}`)
+	try {
+		const dir = path.join(process.env['NESSY_ORCH_HOME'] ?? path.join(os.homedir(), '.nessy-orch'), 'logs')
+		fs.mkdirSync(dir, { recursive: true })
+		fs.appendFileSync(path.join(dir, 'usage-raw.log'), line + '\n')
+	} catch {
+		/* лог необязателен */
+	}
 }
 import type { NessyResponse } from './protocol.types'
 import type { TokenUsage } from '../../../shared/types'
