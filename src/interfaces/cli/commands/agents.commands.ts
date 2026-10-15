@@ -67,6 +67,7 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(flagStr(p, 'space')),
 		cwd: process.cwd(), // пространство по умолчанию, если --space не указан и пространств не одно
+		name: flagStr(p, 'name'),
 		title: flagStr(p, 'title'),
 		role: flagStr(p, 'role'),
 		session: sessionOption(p),

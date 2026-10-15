@@ -23,6 +23,9 @@ describe('имена и заголовки агентов', () => {
 		assert.equal(r.agent.title, 'Проверка MR !512')
 		assert.equal(orch.getAgent(r.agent.id).title, 'Проверка MR !512')
 		assert.equal((await orch.spawn({ space: 'main' })).agent.title, null)
+		// имя от вызывающего: занятое получает суффикс
+		assert.equal((await orch.spawn({ space: 'main', name: 'repo-api' })).agent.name, 'repo-api')
+		assert.equal((await orch.spawn({ space: 'main', name: 'Repo-API' })).agent.name, 'Repo-API-2')
 	})
 
 	it('cleanTitle: пробелы схлопнуты, длинное обрезается, пустое — null', () => {

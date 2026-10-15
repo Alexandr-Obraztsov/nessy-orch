@@ -47,7 +47,7 @@
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
 | GET | `/agents?session=<id>` | — | `AgentView[]` (включая архивных — фильтрует клиент по `archived`); `session` — только агенты сессии, неизвестная → `404 no_session` |
-| POST | `/agents` | `SpawnRequest` (`title?` — короткий заголовок; `name` обычно не задаётся: оркестратор назначает уникальное имя и возвращает в `agent.name`) | `201 SpawnResponse`. `session` — id сессии (`404 no_session`); без него агент получает сессию родителя (`parent`/`from`-агента) или `null` |
+| POST | `/agents` | `SpawnRequest` (`title?` — короткий заголовок; `name` — техническое имя; занятое получает суффикс -2, -3, настоящее возвращается в `agent.name`) | `201 SpawnResponse`. `session` — id сессии (`404 no_session`); без него агент получает сессию родителя (`parent`/`from`-агента) или `null` |
 | GET | `/agents/:ref/wait?timeout=СЕК` | — | `WaitResponse {done, agent, reply?}`: дождаться, пока агент освободится (ход и очередь закончены), и получить его последний ответ; `done:false` — время вышло, агент ещё работает |
 | GET | `/agents/:ref` | — | `AgentView` |
 | DELETE | `/agents/:ref` | — | `{ok:true}` (отмена хода, закрытие сессии, архив истории) |

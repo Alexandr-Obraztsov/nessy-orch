@@ -50,11 +50,10 @@ export class AgentsService {
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)
 		while (registry.agents.has(id))
-		// служебное имя назначаем сами и возвращаем в ответе: роль, роль-2, … (без роли — agent, agent-2, …); коллизий у вызывающего не бывает.
-		// Явное имя (только через API) занятым быть не может
-		const explicit = req.name?.trim()
-		const name = explicit || uniqueName(role?.id ?? 'agent', n => registry.isNameTaken(n))
-		if (registry.isNameTaken(name)) throw new AppError(409, 'name_taken', `имя «${name}» уже занято`)
+		// служебное имя даёт вызывающий (`--name`, латиницей коротко) или подбираем сами: роль, роль-2, … (без роли — agent, agent-2, …).
+		// Занятое имя не ошибка: добавляется суффикс (-2, -3), а настоящее имя возвращается в `agent.name`, так что коллизий у вызывающего нет
+		const base = req.name?.trim() || role?.id || 'agent'
+		const name = uniqueName(base, n => registry.isNameTaken(n))
 
 		const agent = new Agent({ id, name, space: space.name, parent, session, role: role?.id ?? null }, this.ctx.agentDeps)
 		agent.title = cleanTitle(req.title)

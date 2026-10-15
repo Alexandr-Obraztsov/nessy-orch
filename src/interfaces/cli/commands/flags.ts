@@ -3,7 +3,7 @@ import type { FlagSpec } from '../args.types'
 export const COMMON: FlagSpec = { bool: ['json', 'help'] }
 export const WAIT_FLAGS: FlagSpec = {
 	bool: ['json', 'help', 'wait', 'no-wait'],
-	value: ['timeout', 'from', 'space', 'title', 'key'],
+	value: ['timeout', 'from', 'space', 'name', 'title', 'key'],
 	short: { w: 'wait' },
 }
 /** send: --interrupt — прервать текущий ход адресата и доставить сообщение первым (по умолчанию работающего не прерываем) */

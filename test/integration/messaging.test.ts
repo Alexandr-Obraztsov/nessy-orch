@@ -40,9 +40,11 @@ describe('сообщения и маршрутизация', () => {
 		beta = r.body.agent.id
 		assert.notEqual(h.orch.resolveAgent(alpha).nessyId, h.orch.resolveAgent(beta).nessyId)
 		assert.equal(r.body.reply?.text, 'ответ: второй')
-		const dup = await h.api<ApiError>('POST', '/agents', { space: 'main', name: 'BETA' })
-		assert.equal(dup.status, 409)
-		assert.equal(dup.body.code, 'name_taken')
+		// занятое имя — не ошибка: добавляется суффикс, настоящее имя возвращается
+		const dup = await h.api<SpawnResponse>('POST', '/agents', { space: 'main', name: 'BETA' })
+		assert.equal(dup.status, 201)
+		assert.equal(dup.body.agent.name, 'BETA-2')
+		await h.api('DELETE', `/agents/${dup.body.agent.id}`)
 	})
 
 	it('первый промпт содержит вводную, следующие — нет', T, () => {
