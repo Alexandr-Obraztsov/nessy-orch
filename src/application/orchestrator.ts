@@ -3,11 +3,13 @@
  * реализует AgentHost и отдаёт интерфейсному слою (HTTP) готовые сценарии.
  */
 import * as crypto from 'node:crypto'
-import { USER, YOU } from '../domain/constants'
+import { SYSTEM, USER, YOU } from '../domain/constants'
 import { AppError } from '../domain/errors'
 import type {
 	AgentBrief,
 	AgentEvent,
+	DigestResponse,
+	LeadReport,
 	LeadState,
 	AgentView,
 	GraphView,
@@ -43,6 +45,7 @@ import type { OrchestratorDeps } from './orchestrator.types'
 import type { PersistedState } from './persisted.types'
 import type { SpaceRuntime, StorePort } from './ports'
 import { Registry } from './registry'
+import { buildDigest } from '../domain/digest'
 import { SessionPool } from './session-pool'
 import { AgentsService } from './services/agents.service'
 import type { ServiceContext } from './services/context.types'
@@ -87,6 +90,9 @@ export class Orchestrator implements AgentHost {
 			ids,
 			onChange: () => this.saveSoon(),
 			sessionOf: id => this.registry.agents.get(id)?.session ?? null,
+			onInbound: session => {
+				if (session) this.sessionsSvc.refresh(session)
+			},
 			activeAgents: session =>
 				[...this.registry.agents.values()].filter(a => (session === undefined || a.session === session) && !a.archived && (a.isBusy || a.queue.length > 0)).length,
 		})
@@ -402,6 +408,41 @@ export class Orchestrator implements AgentHost {
 			}
 		}
 		return { sessions: sessions.map(s => s.id), cancelled }
+	}
+
+	/** Хук Stop: главный агент закончил ход; chatId — актуальный чат Claude (меняется после /clear, /resume). */
+	reportLead(id: string, report: LeadReport): SessionView {
+		return this.sessionsSvc.reportLead(id, report)
+	}
+
+	/**
+	 * Сводка непрочитанных Claude сообщений сессии (ответы и вопросы агентов) для ввода в его терминал. Курсор не двигает:
+	 * `ack` ставит приложение после того, как ввод подтверждён, иначе сводка придёт снова.
+	 */
+	digest(id: string): DigestResponse {
+		const session = this.sessionsSvc.resolve(id).id
+		const { registry, feed } = this
+		const working = [...registry.agents.values()]
+			.filter(a => a.session === session && !a.archived && (a.isBusy || a.queue.length > 0))
+			.map(a => a.name)
+		return buildDigest(feed.pending(session), {
+			nameOf: n => (n === SYSTEM ? 'система' : n === USER ? 'человек' : (registry.agents.get(n)?.name ?? n)),
+			taskOf: m => (m.replyTo ? (feed.byId(m.replyTo)?.text ?? null) : null),
+			working,
+		})
+	}
+
+	/** Вкладка закрыта: работающие агенты сессии останавливаются (без хозяина они жгли бы токены); сессия и ответы остаются. */
+	async sessionClosed(id: string): Promise<{ cancelled: number }> {
+		const session = this.sessionsSvc.resolve(id).id
+		this.sessionsSvc.setLeadState(session, 'ended')
+		let cancelled = 0
+		for (const a of this.registry.agents.values()) {
+			if (a.session !== session || !a.isBusy) continue
+			cancelled++
+			await a.cancel()
+		}
+		return { cancelled }
 	}
 
 	setLeadState(id: string, state: LeadState): SessionView {

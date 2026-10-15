@@ -101,10 +101,37 @@ export interface RoleRequest {
 
 /** POST /sessions — завести сессию; PATCH /sessions/:id — переименовать, закрыть, записать итог. */
 export interface SessionRequest {
-	title: string
+	/** заголовок; без него — имя каталога `cwd` (вкладка проекта приложения) */
+	title?: string
 	owner?: string
 	/** slug; по умолчанию — из заголовка + короткий суффикс */
 	id?: string
+	/** каталог проекта (абсолютный путь): агенты сессии запускаются в нём */
+	cwd?: string
+	/** id чата Claude Code (uuid, `--session-id`): сессия = вкладка этого чата */
+	chatId?: string
+}
+
+/** Отчёт хука Stop: главный агент закончил ход; `chatId` — актуальный id чата (меняется после /clear и /resume). */
+export interface LeadReport {
+	idle: boolean
+	chatId?: string
+}
+
+/** Сводка непрочитанных Claude ответов и вопросов агентов (`GET /sessions/:id/digest`). */
+export interface DigestResponse {
+	/** строка-заголовок, которую приложение набирает клавишами перед вставкой тела */
+	header: string
+	/** тело для вставки (очищено от управляющих символов, ≤8 КБ); пусто — нечего доставлять */
+	text: string
+	/** курсор для `POST /sessions/:id/ack` — последнее реально вошедшее в text сообщение */
+	cursor: number
+	/** сколько сообщений вошло в text */
+	count: number
+	/** сколько не поместилось (придут следующей пачкой) */
+	hidden: number
+	/** имена агентов сессии, которые ещё работают */
+	working: string[]
 }
 
 export interface SessionPatch {

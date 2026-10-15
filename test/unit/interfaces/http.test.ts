@@ -107,9 +107,10 @@ describe('HTTP: разбор тел запросов', () => {
 		assert.equal(parseApprove(null), true)
 	})
 	it('сессии', () => {
-		assert.deepEqual(parseSessionRequest({ title: 'T', owner: 'claude', junk: 1 }), { title: 'T', owner: 'claude', id: undefined })
-		assert.deepEqual(parseSessionRequest({ title: 'T', owner: null, id: 'x' }), { title: 'T', owner: undefined, id: 'x' })
+		assert.deepEqual(parseSessionRequest({ title: 'T', owner: 'claude', junk: 1 }), { title: 'T', owner: 'claude' })
+		assert.deepEqual(parseSessionRequest({ title: 'T', owner: null, id: 'x' }), { title: 'T', id: 'x' })
 		assert.equal(errCode(() => parseSessionRequest({})), '400:bad_request')
+		assert.deepEqual(parseSessionRequest({ cwd: '/p', chatId: 'abcdefgh' }), { cwd: '/p', chatId: 'abcdefgh' })
 		assert.equal(errCode(() => parseSessionRequest({ title: 'T', id: 1 })), '400:bad_request')
 		assert.deepEqual(parseSessionPatch({ status: 'done', summary: null, junk: 1 }), { status: 'done', summary: null })
 		assert.deepEqual(parseSessionPatch({}), {})

@@ -55,6 +55,23 @@ export class Feed {
 		if (cursor > this.seq || cursor <= (this.sessionCursors.get(session) ?? 0)) return
 		this.sessionCursors.set(session, cursor)
 		this.deps.onChange()
+		this.deps.onInbound?.(session)
+	}
+
+	/**
+	 * Сообщения для главного агента сессии, которые он ещё не получил (после курсора сессии): ответы агентов и их вопросы.
+	 * Ответ на вызов с `--wait` вернулся прямо в вызов — его здесь нет.
+	 */
+	pending(session: string): Message[] {
+		const from = this.sessionCursors.get(session) ?? 0
+		return this.messages.filter(
+			m => m.seq > from && m.to === YOU && (m.session ?? this.deps.sessionOf(m.from)) === session && (m.kind === 'msg' || (m.kind === 'reply' && !m.wait)),
+		)
+	}
+
+	/** Сообщение по id (в окне памяти) или undefined. */
+	byId(id: string): Message | undefined {
+		return this.messages.findLast(m => m.id === id)
 	}
 
 	/** У сессии открыто фоновое ожидание ответов. */
@@ -85,7 +102,10 @@ export class Feed {
 		this.deps.store.appendMessage(msg)
 		this.deps.hub.publish({ t: 'message', message: msg })
 		this.deps.onChange()
-		if (msg.to === YOU) for (const wake of [...this.inboxWaiters]) wake()
+		if (msg.to === YOU) {
+			for (const wake of [...this.inboxWaiters]) wake()
+			this.deps.onInbound?.(msg.session ?? null)
+		}
 		const waiter = msg.replyTo ? this.waiters.get(msg.replyTo) : undefined
 		if (waiter && msg.kind === 'reply') waiter(msg)
 		return msg

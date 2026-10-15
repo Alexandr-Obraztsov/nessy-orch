@@ -12,6 +12,8 @@ export interface FeedDeps {
 	sessionOf: (nodeId: string) => string | null
 	/** сколько агентов ещё работают или ждут в очереди (session — только этой сессии; без неё — все) */
 	activeAgents: (session?: string) => number
+	/** пришло сообщение для главного агента сессии (или без сессии): обновить счётчик непрочитанных */
+	onInbound?: (session: string | null) => void
 }
 
 export interface FeedQuery {

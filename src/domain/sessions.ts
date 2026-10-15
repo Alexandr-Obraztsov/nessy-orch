@@ -14,6 +14,7 @@ export const SESSION_ID_MAX = 48
 /** длина основы slug из заголовка (без суффикса) */
 const SESSION_SLUG_BASE_MAX = 40
 
+const CHAT_ID_RE = /^[A-Za-z0-9-]{8,64}$/
 const SESSION_ID_RE = /^[a-z0-9][a-z0-9-]*$/
 const STATUSES: readonly SessionStatus[] = ['active', 'done']
 
@@ -54,12 +55,21 @@ function checkTitle(raw: string): string {
 
 /** Проверить запрос на создание сессии. `id` — null, если его надо сгенерировать из заголовка. */
 export function validateSessionRequest(req: SessionRequest): SessionFields {
-	const title = checkTitle(req.title)
+	const cwd = req.cwd === undefined ? null : req.cwd.trim()
+	if (cwd !== null && (!cwd.startsWith('/') || cwd.length > 1024)) throw bad('cwd — абсолютный путь')
+	const chatId = req.chatId === undefined ? null : req.chatId.trim()
+	if (chatId !== null && !CHAT_ID_RE.test(chatId)) throw bad('chatId — до 64 символов [A-Za-z0-9-]')
+	const title = checkTitle(req.title ?? (cwd ? baseName(cwd) : ''))
 	const owner = req.owner?.trim() || null
 	if (owner && owner.length > SESSION_OWNER_MAX) throw bad(`owner длиннее ${SESSION_OWNER_MAX} символов`)
 	const id = req.id === undefined ? null : req.id.trim()
 	if (id !== null && !isSessionId(id)) throw bad(`id «${id}» должен состоять из [a-z0-9-] (до ${SESSION_ID_MAX} символов)`)
-	return { id, title, owner }
+	return { id, title, owner, cwd: cwd || null, chatId: chatId || null }
+}
+
+/** Имя последнего каталога пути: `/a/b/proj/` → `proj`. */
+function baseName(path: string): string {
+	return path.split('/').filter(Boolean).pop() ?? ''
 }
 
 /** Проверить правку сессии: только известные поля, пустой summary → null. */

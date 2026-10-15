@@ -1,7 +1,7 @@
 /** Маршруты сессий оркестраторов. */
 import { AppError } from '../../../domain/errors'
 import { isObject } from '../../../lib/json'
-import { parseLeadState, parseSessionPatch, parseSessionRequest, parseSessionStatus } from '../parsers'
+import { parseLeadReport, parseLeadState, parseSessionPatch, parseSessionRequest, parseSessionStatus } from '../parsers'
 import { readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -35,6 +35,11 @@ export function registerSessionRoutes(r: Router): void {
 	r.add('POST', '/terminals/:key/closed', async ({ res, orch, params }) => {
 		sendJson(res, 200, await orch.terminalClosed(params['key'] ?? ''))
 	})
+	r.add('POST', '/sessions/:id/lead', async ({ req, res, orch, params }) => {
+		sendJson(res, 200, orch.reportLead(params['id'] ?? '', parseLeadReport(await readBody(req))))
+	})
+	r.add('GET', '/sessions/:id/digest', ({ res, orch, params }) => sendJson(res, 200, orch.digest(params['id'] ?? '')))
+	r.add('POST', '/sessions/:id/closed', async ({ res, orch, params }) => sendJson(res, 200, await orch.sessionClosed(params['id'] ?? '')))
 	r.add('POST', '/sessions/:id/lead-state', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)
 		sendJson(res, 200, orch.setLeadState(params['id'] ?? '', parseLeadState(body)))

@@ -1,5 +1,5 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
-import type { LeadState, RoleRequest, SendRequest, SpaceRequest, SpawnBatchRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
+import type { LeadReport, LeadState, RoleRequest, SendRequest, SpaceRequest, SpawnBatchRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { isSessionStatus } from '../../domain/sessions'
 import { isObject } from '../../lib/json'
@@ -93,12 +93,32 @@ export function parseApprove(b: unknown): boolean {
 
 /** Тело новой сессии: title — строка, owner и id — необязательные строки (формат проверяет домен). */
 export function parseSessionRequest(b: unknown): SessionRequest {
-	if (!isObject(b) || typeof b['title'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле title (строка)')
+	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
+	const { title, cwd, chatId } = b
+	if (title !== undefined && typeof title !== 'string') throw new AppError(400, 'bad_request', 'title — строка')
+	if (cwd !== undefined && typeof cwd !== 'string') throw new AppError(400, 'bad_request', 'cwd — строка')
+	if (chatId !== undefined && typeof chatId !== 'string') throw new AppError(400, 'bad_request', 'chatId — строка')
+	if (title === undefined && cwd === undefined) throw new AppError(400, 'bad_request', 'нужно поле title или cwd')
 	const owner = b['owner']
 	if (owner !== undefined && owner !== null && typeof owner !== 'string') throw new AppError(400, 'bad_request', 'owner — строка')
 	const id = b['id']
 	if (id !== undefined && typeof id !== 'string') throw new AppError(400, 'bad_request', 'id — строка')
-	return { title: b['title'], owner: typeof owner === 'string' ? owner : undefined, id }
+	return {
+		...(title !== undefined ? { title } : {}),
+		...(typeof owner === 'string' ? { owner } : {}),
+		...(id !== undefined ? { id } : {}),
+		...(cwd !== undefined ? { cwd } : {}),
+		...(chatId !== undefined ? { chatId } : {}),
+	}
+}
+
+/** Отчёт хука Stop: idle (boolean, по умолчанию true) и необязательный chatId. */
+export function parseLeadReport(b: unknown): LeadReport {
+	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
+	const { idle, chatId } = b
+	if (idle !== undefined && typeof idle !== 'boolean') throw new AppError(400, 'bad_request', 'idle — boolean')
+	if (chatId !== undefined && typeof chatId !== 'string') throw new AppError(400, 'bad_request', 'chatId — строка')
+	return { idle: idle ?? true, ...(chatId ? { chatId } : {}) }
 }
 
 /** Правка сессии: title — строка, status — active|done, summary — строка или null. */

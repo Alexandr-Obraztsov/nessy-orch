@@ -97,4 +97,6 @@ export interface SessionFields {
 	id: string | null
 	title: string
 	owner: string | null
+	cwd: string | null
+	chatId: string | null
 }

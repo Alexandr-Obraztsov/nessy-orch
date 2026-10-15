@@ -107,6 +107,8 @@ export interface SessionView {
 	origin?: string | null
 	/** каталог чата Claude (cwd из хука): агенты сессии запускаются здесь, отдельные каталоги не нужны */
 	cwd?: string | null
+	/** сколько ответов и вопросов агентов Claude ещё не получил (считает сервер по курсору сессии; не хранится) */
+	unread?: number
 }
 
 export interface AgentView {
