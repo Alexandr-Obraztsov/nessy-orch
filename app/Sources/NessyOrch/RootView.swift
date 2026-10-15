@@ -305,13 +305,12 @@ struct ShellBlock: View {
 						ForEach(win.shellTabs) { t in ShellTabPill(win: win, tab: t) }
 					}
 				}
-				.scrollIndicators(.hidden).fixedSize(horizontal: true, vertical: false).frame(maxWidth: .infinity, alignment: .leading)
+				.scrollIndicators(.hidden).fixedSize(horizontal: true, vertical: false)
 			} else {
 				Text("Терминал").font(DS.Typography.groupTitle).foregroundStyle(DS.Palette.textSecondary).padding(.leading, DS.Metrics.s1)
-				Spacer(minLength: 0)
 			}
 			ShellIcon(symbol: "plus", help: "Новый терминал (\(Hotkeys.shared.display(.newShellTab)))") { win.addShellTab() }
-			if win.shellTabs.count > 1 { Spacer(minLength: 0) }
+			Spacer(minLength: 0)
 			Menu {
 				Button("Новый терминал") { win.addShellTab() }
 				if let id = win.activeShellId { Button("Закрыть этот терминал") { win.closeShellTab(id) } }
@@ -320,9 +319,11 @@ struct ShellBlock: View {
 				Button(win.shellExpanded ? "Свернуть блок" : "Развернуть блок") { withAnimation(dsAnimation(DS.Motion.panel)) { win.shellExpanded.toggle() } }
 				Button("Скрыть блок") { win.toggleShell() }
 			} label: {
-				Image(systemName: "ellipsis").rotationEffect(.degrees(90)).font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 24)
+				Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 24)
 			}
 			.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+			.tint(DS.Palette.textSecondary)
+			.rotationEffect(.degrees(90)) // вертикальное «⋮», как в остальных блоках
 			.help("Ещё")
 			ShellIcon(symbol: win.shellExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
 					  help: (win.shellExpanded ? "Свернуть" : "Развернуть") + " (\(Hotkeys.shared.display(.expandShell)))") {
