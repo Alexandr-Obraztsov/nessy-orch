@@ -1,8 +1,8 @@
 {
   "name": "nessy",
   "displayName": "nessy",
-  "version": "2.0.0",
-  "description": "Оркестратор над агентами nessy: скилл nessy-orch, CLI nessy-orch (bin/), хуки сессий Claude и команда /nessy:status",
+  "version": "2.1.0",
+  "description": "Оркестратор над агентами nessy: скилл nessy-orch, CLI nessy-orch (bin/) и команда /nessy:status",
   "author": {
     "name": "a.s.obraztsov"
   },
