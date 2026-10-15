@@ -46,7 +46,7 @@ final class AppModel {
 		return w > 0 ? min(DS.Metrics.sidePanelWidth.max, max(DS.Metrics.sidePanelWidth.min, CGFloat(w))) : DS.Metrics.sidePanelWidth.ideal
 	}() { didSet { UserDefaults.standard.set(Double(leftPanelWidth), forKey: "leftPanelWidth") } }
 	func width(of side: DockSide) -> CGFloat { side == .left ? leftPanelWidth : panelWidth }
-	func setWidth(_ v: CGFloat, of side: DockSide) { if side == .left { leftPanelWidth = v } else { panelWidth = v } }
+	func setWidth(_ v: CGFloat, of side: DockSide) { if side == .left { leftPanelWidth = v } else if side == .right { panelWidth = v } }
 	var showAgents = UserDefaults.standard.object(forKey: "showAgents") as? Bool ?? true { didSet { UserDefaults.standard.set(showAgents, forKey: "showAgents") } }
 	/// высота терминала проекта в правой колонке (тянется за верхний край), общая для окон
 	var shellHeight: CGFloat = {
@@ -78,14 +78,29 @@ final class AppModel {
 		return shellFirst ? out.reversed() : out
 	}
 
+	/// Куда попадёт блок, отпущенный в точке окна: низ посередине — нижняя полоса под центральным терминалом (углы остаются за колонками),
+	/// иначе левая или правая колонка по половине окна.
+	func zone(at p: CGPoint) -> DockSide {
+		let w = windowSize.width, h = windowSize.height
+		if p.y > h * 0.72, p.x > w * 0.25, p.x < w * 0.75 { return .bottom }
+		return p.x < w / 2 ? .left : .right
+	}
+
+	/// высота нижней полосы блоков (тянется за верхний край)
+	var bottomHeight: CGFloat = {
+		let h = UserDefaults.standard.double(forKey: "bottomHeight")
+		return h > 0 ? CGFloat(h) : 220
+	}() { didSet { UserDefaults.standard.set(Double(bottomHeight), forKey: "bottomHeight") } }
+
 	/// Блок отпущен в точке окна: колонка — по половине окна, место в колонке — по верхней/нижней половине.
 	func drop(_ block: DockBlock, at p: CGPoint) {
-		let side: DockSide = p.x < windowSize.width / 2 ? .left : .right
-		let above = p.y < windowSize.height / 2
+		let side = zone(at: p)
+		// в колонке «первый» — верхний, в нижней полосе — левый
+		let first = side == .bottom ? p.x < windowSize.width / 2 : p.y < windowSize.height / 2
 		withAnimation(dsAnimation(DS.Motion.panel)) {
 			switch block {
-			case .agents: agentsSide = side; shellFirst = !above
-			case .shell: shellSide = side; shellFirst = above
+			case .agents: agentsSide = side; shellFirst = !first
+			case .shell: shellSide = side; shellFirst = first
 			}
 			draggingBlock = nil; dragOffset = .zero; dropSide = nil
 		}
@@ -415,4 +430,4 @@ enum Daemon {
 
 /// Блоки колонок вокруг центрального терминала.
 enum DockBlock: String { case agents, shell }
-enum DockSide: String { case left, right }
+enum DockSide: String { case left, right, bottom }

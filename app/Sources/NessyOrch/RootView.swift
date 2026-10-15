@@ -211,17 +211,35 @@ private struct MainWindowBody: View {
 			// терминал стоит слева и не двигается; панель справа забирает только ширину
 			HStack(spacing: 0) {
 				if model.activeWindow != nil { DockColumn(side: .left) }
-				CenterView()
+				// центр: терминал и под ним нижняя полоса блоков; колонки по краям занимают всю высоту (за ними нижние углы)
+				VStack(spacing: 0) {
+					CenterView()
+					if model.activeWindow != nil { DockRow() }
+				}
+				.zIndex(model.draggingBlock.map { model.blocks(on: .bottom).contains($0) } == true ? 2 : 1)
 				if model.activeWindow != nil { DockColumn(side: .right) }
 			}
 			// куда упадёт переносимый блок: подсвечена колонка у края окна
 			if model.draggingBlock != nil, let side = model.dropSide {
-				RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
-					.strokeBorder(DS.Palette.accent.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
-					.frame(width: model.width(of: side))
-					.padding(SessionWindowModel.panelMargin)
-					.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side == .left ? .topLeading : .topTrailing)
-					.allowsHitTesting(false)
+				let m = SessionWindowModel.panelMargin
+				let hasL = !model.blocks(on: .left).isEmpty, hasR = !model.blocks(on: .right).isEmpty
+				let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
+				Group {
+					if side == .bottom {
+						shape.strokeBorder(DS.Palette.accent.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
+							.frame(height: model.bottomHeight)
+							.padding(.leading, (hasL ? model.width(of: .left) + 1.5 * m : 0) + m)
+							.padding(.trailing, (hasR ? model.width(of: .right) + 1.5 * m : 0) + m)
+							.padding(.bottom, m)
+							.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+					} else {
+						shape.strokeBorder(DS.Palette.accent.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
+							.frame(width: model.width(of: side))
+							.padding(m)
+							.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side == .left ? .topLeading : .topTrailing)
+					}
+				}
+				.allowsHitTesting(false)
 			}
 			WindowBar()
 		}
@@ -346,7 +364,7 @@ private struct DockTile: View {
 					guard dragging else { return }
 					model.dragOffset = g.translation
 					let p = CGPoint(x: origin.x + g.startLocation.x + g.translation.width, y: origin.y + g.startLocation.y + g.translation.height)
-					model.dropSide = p.x < model.windowSize.width / 2 ? .left : .right
+					model.dropSide = model.zone(at: p)
 				}
 				.onEnded { g in
 					guard dragging else { return }
@@ -360,6 +378,55 @@ private struct DockTile: View {
 		case .agents: AgentsPanel().id(model.activeKey)
 		case .shell: if let win = model.activeWindow { ShellBlock(win: win) }
 		}
+	}
+}
+
+/// Нижняя полоса блоков под центральным терминалом: блоки в ряд (поровну), высота тянется за верхний край.
+private struct DockRow: View {
+	@Environment(AppModel.self) private var model
+	@State private var heightStart: CGFloat?
+	@State private var hovering = false
+	private let m = SessionWindowModel.panelMargin
+
+	var body: some View {
+		let blocks = model.blocks(on: .bottom)
+		let hidden = !model.showAgents || blocks.isEmpty
+		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
+		let h = min(max(model.bottomHeight, AppModel.shellHeightMin), max(model.windowSize.height * 0.6, AppModel.shellHeightMin))
+		GeometryReader { geo in
+			let n = max(blocks.count, 1)
+			let tileW = max((geo.size.width - 2 * m - CGFloat(n - 1) * m) / CGFloat(n), 0)
+			HStack(spacing: m) {
+				ForEach(blocks, id: \.rawValue) { b in
+					DockTile(block: b, side: .bottom, height: h, width: tileW, shape: shape, glow: heightStart != nil || hovering)
+				}
+			}
+			.padding(.horizontal, m)
+			.overlay(alignment: .top) { handle(h) }
+		}
+		.frame(height: hidden ? 0 : h + m)
+		.mask { Rectangle().padding(model.draggingBlock != nil ? -4000 : 0) }
+		.opacity(hidden ? 0 : 1)
+		.allowsHitTesting(!hidden)
+		.accessibilityHidden(hidden)
+	}
+
+	/// Полоса захвата по верхнему краю: курсор «↕», потянуть вверх — выше; двойной щелчок — обычная высота.
+	private func handle(_ h: CGFloat) -> some View {
+		Color.clear.frame(height: 8).contentShape(Rectangle())
+			.onHover { over in
+				hovering = over
+				if over { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+			}
+			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+				.onChanged { g in
+					if heightStart == nil { heightStart = model.bottomHeight }
+					model.bottomHeight = min(max((heightStart ?? 220) - g.translation.height, AppModel.shellHeightMin), max(model.windowSize.height * 0.6, AppModel.shellHeightMin))
+				}
+				.onEnded { _ in heightStart = nil })
+			.onTapGesture(count: 2) { model.bottomHeight = 220 }
+			.help("Потяните, чтобы изменить высоту; двойной щелчок — по умолчанию")
+			.offset(y: -4)
 	}
 }
 
@@ -378,21 +445,27 @@ private struct SplitGrip: View {
 	var body: some View {
 		// центр зазора: терминал снизу — на высоте (total − shellH − m/2), сверху — на (shellH + m/2)
 		let y = shellFirst ? shellH + m / 2 : total - shellH - m / 2
-		Color.clear.frame(height: 16).contentShape(Rectangle())
+		Color.clear.frame(height: 12).contentShape(Rectangle())
 			.overlay { Capsule().fill(DS.Palette.textTertiary).frame(width: 36, height: 4).opacity(visible ? 0.9 : 0) }
 			.position(x: width / 2, y: y)
 			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+			// полоска и курсор «↕» появляются, только если долго держать курсор между блоками
 			.onHover { h in
 				hover = h
-				if h { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
 				if h {
-					DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { if hover { withAnimation(.easeOut(duration: 0.15)) { visible = true } } }
-				} else {
+					DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+						guard hover, !visible else { return }
+						withAnimation(.easeOut(duration: 0.15)) { visible = true }
+						NSCursor.resizeUpDown.push()
+					}
+				} else if visible {
+					NSCursor.pop()
 					withAnimation(.easeOut(duration: 0.12)) { visible = false }
 				}
 			}
 			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
 				.onChanged { g in
+					guard visible else { return }
 					if startH == nil { startH = model.shellHeight }
 					let dy = shellFirst ? g.translation.height : -g.translation.height
 					model.shellHeight = min(max((startH ?? 240) + dy, AppModel.shellHeightMin), max(total - 160 - m, AppModel.shellHeightMin))
