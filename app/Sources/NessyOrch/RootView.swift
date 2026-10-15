@@ -347,9 +347,8 @@ private struct ProjectSwitcher: View {
 		var close: () -> Void
 		@State private var hover = false
 
-		private var sum: SessionSummary { window.agents.summary }
 
-		/// Боковые слоты одинаковой ширины: индикатор слева, «×» справа (по наведению), название между ними. Отступы с обеих сторон равны по построению.
+		/// Боковые слоты одинаковой ширины: «×» справа (по наведению) и пустой слева — название стоит по центру.
 		private let slot: CGFloat = 20
 
 		var body: some View {
@@ -357,7 +356,6 @@ private struct ProjectSwitcher: View {
 				.frame(maxWidth: 140)
 				.padding(.horizontal, slot + 4)
 				.frame(height: 22)
-				.overlay(alignment: .leading) { indicator.frame(width: slot, height: 14).padding(.leading, 4) }
 				.overlay(alignment: .trailing) {
 					Button(action: close) {
 						Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).frame(width: 14, height: 14)
@@ -378,17 +376,6 @@ private struct ProjectSwitcher: View {
 				.contextMenu { Button("Закрыть проект") { close() } }
 				.accessibilityElement(children: .combine)
 				.accessibilityAddTraits(selected ? .isSelected : [])
-		}
-
-		/// Ждут вас — число на акценте; иначе работают — вращающийся глиф; иначе ничего.
-		@ViewBuilder private var indicator: some View {
-			if sum.needsYou > 0 {
-				DSCount(value: sum.needsYou).font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
-					.padding(.horizontal, 5).background(DS.Palette.accent, in: Capsule())
-					.help("Ждут вас: \(sum.needsYou)")
-			} else if sum.working > 0 {
-				DSStateGlyph(state: .working, size: 11).help("Работают: \(sum.working)")
-			}
 		}
 	}
 }

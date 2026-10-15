@@ -91,8 +91,11 @@ final class AppModel {
 	/// Проекты в порядке открытия (переключатель в шапке, меню и ⌘1…⌘9).
 	var projectWindows: [SessionWindowModel] { tabs }
 
-	/// Подпись проекта: имя папки; одинаковые отличаются номером («proj», «proj 2»).
+	/// Подпись вкладки: сокращённый заголовок сессии (название чата); пока его нет — имя папки, одинаковые отличаются номером («proj», «proj 2»).
 	func label(of w: SessionWindowModel) -> String {
+		if let id = w.currentSessionId, let t = store.session(id)?.title.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+			return t.count > 24 ? String(t.prefix(23)) + "…" : t
+		}
 		let name = Projects.name(ofPath: w.dir)
 		let same = tabs.filter { Projects.name(ofPath: $0.dir) == name }
 		guard same.count > 1, let i = same.firstIndex(where: { $0 === w }), i > 0 else { return name }
