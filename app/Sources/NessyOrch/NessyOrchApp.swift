@@ -53,7 +53,7 @@ struct AppCommands: Commands {
 	var body: some Commands {
 		// ⌘N/⌘W — окна; когда фокус в терминале, остальные клавиши достаются ему (команд без ⌘ здесь нет)
 		CommandGroup(replacing: .newItem) {
-			Button("Новый терминал") { model.newWindowHere() }.keyboardShortcut(Hotkeys.shared.shortcut(.newTerminal))
+			Button("Новая сессия") { model.newWindowHere() }.keyboardShortcut(Hotkeys.shared.shortcut(.newTerminal))
 			Button("Открыть папку…") { model.openFolderPanel() }.keyboardShortcut(Hotkeys.shared.shortcut(.openFolder))
 		}
 		CommandGroup(replacing: .saveItem) {

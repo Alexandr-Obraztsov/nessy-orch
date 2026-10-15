@@ -82,7 +82,8 @@ extension AppModel {
 		let tab = terminals.add(spec, key: win.shellKey)
 		tab.container.fontOffset = -2
 		tab.container.padTopLines(for: ShellBlock.reservedTop)
-		tab.container.backgroundOverride = NSColor(DS.Palette.panelSurface)
+		tab.container.backgroundOverride = NSColor(DS.Palette.terminalBackground)
+		tab.container.terminal.getTerminal().setCursorStyle(.blinkBar) // каретка — мигающая палочка
 		// `exit` в оболочке: блок закрывается, следующее открытие запускает новую
 		tab.onExit = { [weak win] _ in
 			guard let win else { return }

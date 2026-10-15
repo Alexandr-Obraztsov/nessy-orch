@@ -79,21 +79,17 @@ final class AppModel {
 	var previewFirst = false
 	var windowSize: CGSize = .zero
 
-	/// Раскладка с учётом переноса: пока блок тащат, он уже стоит там, где окажется при отпускании, а остальные подстроены под это место
-	/// (оптимистичное обновление, как при реальном броске).
-	private var effAgentsSide: DockSide { draggingBlock == .agents ? (previewSide ?? agentsSide) : agentsSide }
-	private var effShellSide: DockSide { draggingBlock == .shell ? (previewSide ?? shellSide) : shellSide }
-	private var effShellFirst: Bool {
-		guard let d = draggingBlock, previewSide != nil else { return shellFirst }
-		return d == .shell ? previewFirst : !previewFirst
-	}
-
-	/// Блоки колонки сверху вниз (в нижней полосе слева направо); терминал — только если открыт.
-	func blocks(on side: DockSide) -> [DockBlock] {
+	/// Блоки колонки сверху вниз (в нижней полосе слева направо). Агенты — пока шторка открыта, терминал — пока он открыт: у каждого своё
+	/// состояние. `preview` — как было бы после отпускания переносимого блока (для синей зоны; сама раскладка во время переноса не меняется).
+	func blocks(on side: DockSide, preview: Bool = false) -> [DockBlock] {
+		let aSide = preview && draggingBlock == .agents ? (previewSide ?? agentsSide) : agentsSide
+		let sSide = preview && draggingBlock == .shell ? (previewSide ?? shellSide) : shellSide
+		var first = shellFirst
+		if preview, let d = draggingBlock, previewSide != nil { first = d == .shell ? previewFirst : !previewFirst }
 		var out: [DockBlock] = []
-		if effAgentsSide == side { out.append(.agents) }
-		if effShellSide == side, activeWindow?.shellOpen == true { out.append(.shell) }
-		return effShellFirst ? out.reversed() : out
+		if aSide == side, showAgents { out.append(.agents) }
+		if sSide == side, activeWindow?.shellOpen == true { out.append(.shell) }
+		return first ? out.reversed() : out
 	}
 
 	/// Куда попадёт блок, отпущенный в точке окна: низ посередине — нижняя полоса под центральным терминалом (углы остаются за колонками),

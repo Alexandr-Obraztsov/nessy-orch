@@ -93,7 +93,6 @@ final class SessionWindowModel {
 		if !shellOpen, shell == nil { app.startShell(for: self) }
 		withAnimation(dsAnimation(DS.Motion.panel)) {
 			shellOpen.toggle()
-			if shellOpen { app.showAgents = true }
 		}
 		if !shellOpen {
 			// фокус возвращается главному терминалу
@@ -234,10 +233,13 @@ private struct MainWindowBody: View {
 	}
 }
 
-/// Терминал проекта: содержимое блока. Терминал занимает весь блок, а шапка — плавающая «стеклянная» капсула (Liquid Glass) поверх него:
-/// первые строки терминала пустые (см. `padTopLines`), чтобы вывод начинался ниже шапки.
+/// Терминал проекта: содержимое блока. Терминал занимает весь блок (свой «консольный» фон), шапка — как у агентов: прозрачная, без
+/// отдельной плашки; под ней плавное затемнение и размытие (Liquid Glass). Первые строки терминала пустые (`padTopLines`), чтобы вывод
+/// начинался ниже шапки.
 struct ShellBlock: View {
 	var win: SessionWindowModel
+
+	static func title(_ dir: String) -> String { "Терминал (\(Projects.name(ofPath: dir)))" }
 
 	var body: some View {
 		ZStack(alignment: .top) {
@@ -246,33 +248,40 @@ struct ShellBlock: View {
 					.id(tab.id)
 					.accessibilityLabel("Терминал проекта")
 			}
+			// затемнение и размытие под шапкой: материал и фон терминала, проявляющиеся сверху вниз
+			ZStack {
+				Rectangle().fill(.ultraThinMaterial)
+				LinearGradient(colors: [DS.Palette.terminalBackground.opacity(0.85), DS.Palette.terminalBackground.opacity(0)], startPoint: .top, endPoint: .bottom)
+			}
+			.frame(height: ShellBlock.reservedTop + 8)
+			.mask(LinearGradient(colors: [.black, .black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
+			.allowsHitTesting(false)
 			header
-				.padding(.horizontal, DS.Metrics.s2).padding(.top, DS.Metrics.s2)
 		}
 	}
 
 	private var header: some View {
 		HStack(spacing: DS.Metrics.s2) {
-			Image(systemName: "terminal").font(.system(size: 11, weight: .medium))
-			Text(Projects.name(ofPath: win.dir)).font(DS.Typography.caption.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+			Image(systemName: "terminal").font(.system(size: 12, weight: .medium))
+			Text(Self.title(win.dir)).font(DS.Typography.groupTitle).lineLimit(1).truncationMode(.middle)
 			Spacer(minLength: 0)
 			Button { win.toggleShell() } label: {
-				Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).frame(width: 18, height: 18).contentShape(Circle())
+				Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).frame(width: 22, height: 22).contentShape(Circle())
 			}
 			.buttonStyle(.plain).focusEffectDisabled().help("Скрыть терминал")
 		}
 		.foregroundStyle(DS.Palette.textSecondary)
-		.padding(.horizontal, DS.Metrics.s3).frame(height: ShellBlock.headerHeight)
-		.glassEffect(.regular, in: Capsule())
+		.padding(.horizontal, DS.Metrics.s4).frame(height: ShellBlock.headerHeight)
+		.padding(.top, DS.Metrics.s1)
 	}
 
-	/// высота шапки и отступ над ней: под них резервируются верхние строки терминала
-	static let headerHeight: CGFloat = 30
-	static var reservedTop: CGFloat { headerHeight + 2 * DS.Metrics.s2 }
+	/// высота шапки: под неё резервируются верхние строки терминала
+	static let headerHeight: CGFloat = 32
+	static var reservedTop: CGFloat { headerHeight + DS.Metrics.s1 + DS.Metrics.s2 }
 }
 
 /// Переключатель проектов в шапке на Liquid Glass: вкладка на проект (активная подсвечена), у каждой — состояние агентов проекта
-/// (работают / ждут вас) и «×» по наведению; справа «+» с меню (новый терминал здесь, открыть папку, недавние). Много проектов —
+/// (работают / ждут вас) и «×» по наведению; справа «+» с меню (новая сессия здесь, открыть папку, недавние). Много проектов —
 /// полоса прокручивается, активный всегда виден. Один проект — просто его название и «+».
 private struct ProjectSwitcher: View {
 	@Environment(AppModel.self) private var model
@@ -303,7 +312,7 @@ private struct ProjectSwitcher: View {
 		.animation(dsAnimation(DS.Motion.panel), value: model.activeKey)
 	}
 
-	/// «+»: новый терминал в папке текущего проекта, выбор папки и недавние проекты, которые ещё не открыты.
+	/// «+»: новая сессия в папке текущего проекта, выбор папки и недавние проекты, которые ещё не открыты.
 	private struct AddMenu: View {
 		@Environment(AppModel.self) private var model
 		private var recent: [String] {
@@ -320,7 +329,7 @@ private struct ProjectSwitcher: View {
 		var body: some View {
 			Menu {
 				if model.activeWindow != nil {
-					Button("Новый терминал здесь") { model.newWindowHere() }
+					Button("Новая сессия здесь") { model.newWindowHere() }
 				}
 				Button("Открыть папку…") { model.openFolderPanel() }
 				let sessions = model.recentSessions(limit: 20)
@@ -347,7 +356,7 @@ private struct ProjectSwitcher: View {
 			}
 			.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).focusEffectDisabled()
 			.foregroundStyle(DS.Palette.textTertiary)
-			.help("Новый терминал (\(Hotkeys.shared.display(.newTerminal))) · открыть папку (\(Hotkeys.shared.display(.openFolder)))")
+			.help("Новая сессия (\(Hotkeys.shared.display(.newTerminal))) · открыть папку (\(Hotkeys.shared.display(.openFolder)))")
 		}
 	}
 

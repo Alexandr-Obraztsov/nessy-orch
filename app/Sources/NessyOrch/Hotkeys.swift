@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Настраиваемые горячие клавиши приложения: переключение проектов, панель агентов, новый терминал, открытие папки.
+/// Настраиваемые горячие клавиши приложения: переключение проектов, панель агентов, новая сессия, открытие папки.
 /// Хранятся в UserDefaults («hotkey.<действие>» = «клавиша|модификаторы»); значения по умолчанию — ниже.
 enum HotkeyAction: String, CaseIterable, Identifiable {
 	case togglePanel, nextProject, prevProject, newTerminal, openFolder
@@ -12,7 +12,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 		case .togglePanel: "Показать / скрыть панель агентов"
 		case .nextProject: "Следующий проект"
 		case .prevProject: "Предыдущий проект"
-		case .newTerminal: "Новый терминал в этой папке"
+		case .newTerminal: "Новая сессия в этой папке"
 		case .openFolder: "Открыть папку…"
 		}
 	}

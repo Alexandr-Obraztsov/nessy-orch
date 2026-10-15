@@ -29,19 +29,19 @@ extension AppModel {
 
 	/// Точка окна (от левого верхнего угла) лежит на шапке плитки — за неё блок переносится.
 	func isDockHeader(at p: CGPoint) -> Bool {
-		guard showAgents, activeWindow != nil else { return false }
+		guard activeWindow != nil else { return false }
 		return dockGeometry().places.values.contains { place in
 			let inset: CGFloat = place.side == .left && place.index == 0 && !isFullScreen ? 28 : 0
 			return CGRect(x: place.frame.minX, y: place.frame.minY, width: place.frame.width, height: 34 + inset).contains(p)
 		}
 	}
 
-	func dockGeometry() -> DockGeometry {
+	func dockGeometry(preview: Bool = false) -> DockGeometry {
 		var g = DockGeometry()
 		let W = windowSize.width, H = windowSize.height, m = Self.dockMargin
 		// нет открытого проекта — нет и блоков: центр занимает всё окно
 		guard W > 0, H > 0, activeWindow != nil else { return g }
-		let lists: [DockSide: [DockBlock]] = [.left: blocks(on: .left), .right: blocks(on: .right), .bottom: blocks(on: .bottom)]
+		let lists: [DockSide: [DockBlock]] = [.left: blocks(on: .left, preview: preview), .right: blocks(on: .right, preview: preview), .bottom: blocks(on: .bottom, preview: preview)]
 		let wl = width(of: .left), wr = width(of: .right)
 		let total = max(H - 2 * m, 0)
 		let minH = Self.shellHeightMin
@@ -76,7 +76,7 @@ extension AppModel {
 			}
 			g.bottomEdge = CGRect(x: x0, y: H - m - bottomH - 5, width: max(x1 - x0, 0), height: 10)
 		}
-		if showAgents {
+		do {
 			g.leftSlot = (lists[.left]?.isEmpty ?? true) ? 0 : wl + 1.5 * m
 			g.rightSlot = (lists[.right]?.isEmpty ?? true) ? 0 : wr + 1.5 * m
 			g.bottomSlot = (lists[.bottom]?.isEmpty ?? true) ? 0 : bottomH + 1.5 * m
@@ -85,23 +85,26 @@ extension AppModel {
 	}
 }
 
-/// Слой плиток поверх окна: каждая плитка стоит по своей рамке; полосы захвата размеров — рядом.
+/// Слой плиток поверх окна: каждая плитка стоит по своей рамке; полосы захвата размеров — рядом. Пока блок переносят, раскладка не
+/// меняется (терминалы не двигаются и не пересчитываются): за указателем едет лёгкая «карточка-призрак», а на месте назначения лежит
+/// синяя зона точного размера. Блок занимает новое место после отпускания.
 struct DockLayer: View {
 	@Environment(AppModel.self) private var model
 
 	var body: some View {
 		let g = model.dockGeometry()
 		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
+		let dragging = model.draggingBlock
+		let zone = dragging.flatMap { model.dockGeometry(preview: true).places[$0]?.frame }
 		ZStack(alignment: .topLeading) {
 			ForEach([DockBlock.agents, .shell], id: \.rawValue) { b in
 				if let p = g.places[b] {
-					let dragged = model.draggingBlock == b
 					DockTile(block: b, place: p, shape: shape)
 						.frame(width: p.frame.width, height: p.frame.height)
 						.offset(x: p.frame.minX, y: p.frame.minY)
-						// остальные плитки плавно перестраиваются, переносимая встаёт в своё место сразу
-						.animation(dragged ? nil : dsAnimation(DS.Motion.panel), value: p.frame)
-						.zIndex(dragged ? 10 : 0)
+						// плитки плавно перестраиваются, когда меняется раскладка (после отпускания, показ/скрытие, размеры)
+						.animation(dsAnimation(DS.Motion.panel), value: p.frame)
+						.transition(.opacity)
 				}
 			}
 			if model.draggingBlock == nil {
@@ -111,66 +114,78 @@ struct DockLayer: View {
 				}
 				if let r = g.bottomEdge { HeightHandle().frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY) }
 			}
+			if let zone, let block = dragging {
+				shape.fill(DS.Palette.accent.opacity(0.14))
+					.overlay(shape.strokeBorder(DS.Palette.accent.opacity(0.75), style: StrokeStyle(lineWidth: 2, dash: [6, 5])))
+					.frame(width: zone.width, height: zone.height)
+					.offset(x: zone.minX, y: zone.minY)
+					.animation(dsAnimation(DS.Motion.panel), value: zone)
+					.allowsHitTesting(false)
+				DragGhost(block: block, dir: model.activeWindow?.dir ?? "")
+					.offset(x: model.dragPointer.x - DragGhost.size.width / 2, y: model.dragPointer.y - DragGhost.size.height / 2)
+					.allowsHitTesting(false)
+					.zIndex(20)
+			}
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-		.opacity(model.showAgents ? 1 : 0)
-		.allowsHitTesting(model.showAgents)
-		.accessibilityHidden(!model.showAgents)
 	}
 }
 
-/// Плитка: содержимое блока, рамка и перенос за шапку (верхние 34 pt). Пока её тащат, на её месте по раскладке стоит синяя зона — столько
-/// блок и займёт при отпускании, — а сама плитка едет за указателем.
+/// Лёгкая карточка, которая едет за указателем вместо самого блока.
+private struct DragGhost: View {
+	var block: DockBlock
+	var dir: String
+	static let size = CGSize(width: 220, height: 44)
+
+	var body: some View {
+		HStack(spacing: DS.Metrics.s2) {
+			Image(systemName: block == .agents ? "person.2" : "terminal").font(.system(size: 13, weight: .medium))
+			Text(block == .agents ? "Агенты" : ShellBlock.title(dir)).font(DS.Typography.secondary.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+			Spacer(minLength: 0)
+		}
+		.foregroundStyle(DS.Palette.textPrimary)
+		.padding(.horizontal, DS.Metrics.s4)
+		.frame(width: Self.size.width, height: Self.size.height)
+		.glassEffect(.regular, in: RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous))
+		.shadow(color: .black.opacity(0.3), radius: 14, y: 6)
+	}
+}
+
+/// Плитка: содержимое блока и рамка; перенос — за шапку (верхние 34 pt). Сама плитка при этом стоит на месте и лишь притухает.
 private struct DockTile: View {
 	@Environment(AppModel.self) private var model
 	var block: DockBlock
 	var place: DockPlace
 	var shape: RoundedRectangle
 	@State private var dragging = false
-	/// размер блока, пока его несут
-	static let carried = CGSize(width: 280, height: 200)
 
 	var body: some View {
 		let f = place.frame
 		let isDragged = model.draggingBlock == block
 		// слева кнопки окна (светофор) попадают в верхний блок, и он делает отступ содержимому
 		let topInset: CGFloat = place.side == .left && place.index == 0 && !model.isFullScreen ? 28 : 0
-		let off = isDragged ? CGSize(width: model.dragPointer.x - model.dragGrab.x - f.minX, height: model.dragPointer.y - model.dragGrab.y - f.minY) : .zero
-		// пока блок несут, у него фиксированный (уменьшенный) размер: терминал внутри не пересчитывается за указателем и не лагает,
-		// а на месте назначения он растягивается до синей зоны, когда блок отпустили
-		let size = isDragged ? CGSize(width: min(f.width, Self.carried.width), height: min(f.height, Self.carried.height)) : f.size
-		ZStack(alignment: .topLeading) {
-			if isDragged {
-				shape.fill(DS.Palette.accent.opacity(0.10))
-					.overlay(shape.strokeBorder(DS.Palette.accent.opacity(0.7), style: StrokeStyle(lineWidth: 2, dash: [6, 5])))
-			}
-			content
-				.padding(.top, topInset)
-				.frame(width: size.width, height: size.height, alignment: .top)
-				.clipShape(shape)
-				.background(DS.Palette.panelSurface, in: shape)
-				.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
-				.shadow(color: .black.opacity(isDragged ? 0.35 : 0), radius: 16, y: 6)
-				.opacity(isDragged ? 0.92 : 1)
-				.offset(off)
-				.animation(DS.Motion.pick(DS.Motion.layout, reduceMotion: false), value: isDragged)
-				.simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)
-					.onChanged { g in
-						if !dragging {
-							guard g.startLocation.y - f.minY < 34 + topInset else { return }
-							dragging = true
-							// точка захвата переносится на уменьшенный блок пропорционально
-							let w = min(f.width, Self.carried.width)
-							model.dragGrab = CGPoint(x: (g.startLocation.x - f.minX) * w / max(f.width, 1), y: min(g.startLocation.y - f.minY, 17))
-						}
-						model.dragMoved(block, pointer: g.location)
+		content
+			.padding(.top, topInset)
+			.frame(width: f.width, height: f.height, alignment: .top)
+			.clipShape(shape)
+			// терминал — другого, «консольного» цвета, чтобы было видно, что сюда можно вводить
+			.background(block == .shell ? DS.Palette.terminalBackground : DS.Palette.panelSurface, in: shape)
+			.overlay(shape.strokeBorder(block == .shell ? DS.Palette.separator.opacity(1.6) : DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+			.opacity(isDragged ? 0.55 : 1)
+			.animation(.easeOut(duration: 0.15), value: isDragged)
+			.simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)
+				.onChanged { g in
+					if !dragging {
+						guard g.startLocation.y - f.minY < 34 + topInset else { return }
+						dragging = true
 					}
-					.onEnded { _ in
-						guard dragging else { return }
-						dragging = false
-						model.dropBlock()
-					})
-		}
+					model.dragMoved(block, pointer: g.location)
+				}
+				.onEnded { _ in
+					guard dragging else { return }
+					dragging = false
+					model.dropBlock()
+				})
 	}
 
 	@ViewBuilder private var content: some View {
