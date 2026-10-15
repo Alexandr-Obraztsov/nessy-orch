@@ -7,9 +7,13 @@ import * as path from 'node:path'
 import { buildApp } from './app'
 import { ensureToken } from './infrastructure/config/auth-token'
 import { loadConfig } from './infrastructure/config/load-config'
+import { readVersion } from './interfaces/cli/runtime'
 import { errMsg } from './lib/json'
 
 function version(root: string): string {
+	// сборка приложения кладёт рядом файл VERSION: по нему приложение понимает, что служба уже свежая
+	const build = readVersion(root)
+	if (build) return build
 	try {
 		const raw: unknown = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 		if (typeof raw === 'object' && raw !== null && 'version' in raw && typeof raw.version === 'string') return raw.version

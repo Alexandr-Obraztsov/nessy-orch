@@ -22,7 +22,12 @@ final class SetupModel {
 		guard autoService, service.isBundled else { return }
 		// первый запуск приложения: прежний процесс службы (любой версии) сбиваем и поднимаем последнюю установленную копию;
 		// дальше службу трогает только сторож, когда она перестала отвечать
-		Task { _ = await restartService() }
+		Task {
+			// служба уже работает на этой же или более новой сборке — не трогаем (запуск без ожидания); иначе сбиваем и поднимаем свежую
+			await AppModel.shared.store.refreshStatus()
+			if case .online(let running) = AppModel.shared.store.daemon, let bundled = bundledVersion, BuildVersion.compare(running, bundled) >= 0 { return }
+			_ = await restartService()
+		}
 		watchService()
 	}
 
@@ -62,6 +67,11 @@ final class SetupModel {
 				await AppModel.shared.store.refreshStatus()
 			}
 		}
+	}
+
+	/// версия сборки внутри приложения (файл VERSION рядом с сервером)
+	private var bundledVersion: String? {
+		service.bundleRoot.flatMap { try? String(contentsOf: $0.appendingPathComponent("VERSION"), encoding: .utf8) }?.trimmingCharacters(in: .whitespacesAndNewlines)
 	}
 
 	/// Идёт перезапуск службы: в приложении показываем загрузку.
