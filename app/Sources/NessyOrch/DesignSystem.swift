@@ -66,7 +66,7 @@ extension DS {
 		static let caption = Font.subheadline
 		static let mono = Font.system(.callout, design: .monospaced)
 		static let monoCaption = Font.system(.subheadline, design: .monospaced)
-		static let timer = Font.callout.monospacedDigit()
+		static let timer = Font.subheadline.monospacedDigit()
 		static let readingLineSpacing: CGFloat = 3
 	}
 }

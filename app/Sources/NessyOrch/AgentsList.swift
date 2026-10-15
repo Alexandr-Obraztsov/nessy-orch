@@ -159,7 +159,7 @@ struct AgentRow: View {
 				.alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
 			VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 				HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s2) {
-					Text(model.store.title(of: a)).font(.system(size: 13, weight: .semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(2).layoutPriority(1)
+					Text(model.store.title(of: a)).font(DS.Typography.secondary.weight(.semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(2).layoutPriority(1)
 					Spacer(minLength: DS.Metrics.s2)
 					trailing
 				}
@@ -254,7 +254,8 @@ struct AgentStageLine: View {
 				}
 			}
 		}
-		.font(DS.Typography.secondary)
+		// все строки под заголовком — одного мелкого размера, как «роль · токены · вызовы»
+		.font(DS.Typography.caption)
 	}
 
 	/// «Ошибка: причина» — первое слово цветом состояния, остальное вторичным.
