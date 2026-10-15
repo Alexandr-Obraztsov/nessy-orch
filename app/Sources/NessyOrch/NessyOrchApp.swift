@@ -64,6 +64,16 @@ struct AppCommands: Commands {
 				.keyboardShortcut(Hotkeys.shared.shortcut(.togglePanel))
 			Button("Показать / скрыть терминал проекта") { active?.toggleShell() }
 				.keyboardShortcut(Hotkeys.shared.shortcut(.toggleShell)).disabled(active == nil)
+			Button("Новый терминал в блоке") { active?.addShellTab() }
+				.keyboardShortcut(Hotkeys.shared.shortcut(.newShellTab)).disabled(active == nil)
+			Button("Закрыть терминал блока") { if let a = active, let id = a.activeShellId { a.closeShellTab(id) } }
+				.keyboardShortcut(Hotkeys.shared.shortcut(.closeShellTab)).disabled(active?.shellOpen != true)
+			Button("Следующий терминал блока") { active?.cycleShellTab(1) }
+				.keyboardShortcut(Hotkeys.shared.shortcut(.nextShellTab)).disabled(active?.shellOpen != true)
+			Button("Предыдущий терминал блока") { active?.cycleShellTab(-1) }
+				.keyboardShortcut(Hotkeys.shared.shortcut(.prevShellTab)).disabled(active?.shellOpen != true)
+			Button("Развернуть / свернуть терминал") { if let a = active { withAnimation(dsAnimation(DS.Motion.panel)) { a.shellExpanded.toggle() } } }
+				.keyboardShortcut(Hotkeys.shared.shortcut(.expandShell)).disabled(active?.shellOpen != true)
 		}
 		CommandGroup(replacing: .help) {
 			Button("Горячие клавиши и настройки…") { openSettings(); NSApp.activate() }.keyboardShortcut("/")

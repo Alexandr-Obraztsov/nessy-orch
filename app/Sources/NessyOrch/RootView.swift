@@ -83,23 +83,65 @@ final class SessionWindowModel {
 	var targetAgent: AgentView? { openAgent ?? selectedAgentId.flatMap { app.store.agents[$0] }.flatMap { $0.session == currentSessionId ? $0 : nil } }
 	var terminal: TerminalTab? { app.terminals.tab(for: key) }
 
-	/// Терминал-блок в правой колонке (оболочка в папке проекта): по умолчанию закрыт, открывается кнопкой в шапке; процесс живёт, пока жив проект.
+	/// Терминал-блок (оболочки в папке проекта): по умолчанию закрыт, открывается кнопкой в шапке. В нём можно держать несколько терминалов
+	/// (вкладки «Терминал 1», «Терминал 2»…); закрытие блока оболочки не убивает — они живут, пока жив проект или пока их не закрыли.
 	var shellOpen = false
-	var shellKey: String { key + "#shell" }
-	var shell: TerminalTab? { app.terminals.tab(for: shellKey) }
+	/// блок развёрнут на всё окно
+	var shellExpanded = false
+	struct ShellTabInfo: Identifiable, Equatable { var id: Int; var title: String }
+	private(set) var shellTabs: [ShellTabInfo] = []
+	var activeShellId: Int?
+	private var shellCounter = 0
+
+	func shellKey(_ id: Int) -> String { key + "#shell\(id)" }
+	var shell: TerminalTab? { activeShellId.flatMap { app.terminals.tab(for: shellKey($0)) } }
 
 	func toggleShell() {
-		// оболочка стартует до показа блока: к первому кадру вид терминала уже есть
-		if !shellOpen, shell == nil { app.startShell(for: self) }
+		if !shellOpen, shellTabs.isEmpty { addShellTab(open: false) }
 		withAnimation(dsAnimation(DS.Motion.panel)) {
 			shellOpen.toggle()
+			if !shellOpen { shellExpanded = false }
 		}
-		if !shellOpen {
-			// фокус возвращается главному терминалу
-			DispatchQueue.main.async { [weak self] in
-				guard let c = self?.terminal?.container else { return }
-				c.window?.makeFirstResponder(c.terminal)
-			}
+		if !shellOpen { focusMainTerminal() }
+	}
+
+	/// Новый терминал в блоке (блок открывается, если закрыт). Оболочка стартует до показа: к первому кадру вид терминала уже есть.
+	func addShellTab(open: Bool = true) {
+		shellCounter += 1
+		let info = ShellTabInfo(id: shellCounter, title: "Терминал \(shellCounter)")
+		shellTabs.append(info)
+		activeShellId = info.id
+		app.startShell(for: self, tab: info.id)
+		if open, !shellOpen { withAnimation(dsAnimation(DS.Motion.panel)) { shellOpen = true } }
+	}
+
+	func selectShellTab(_ id: Int) { if shellTabs.contains(where: { $0.id == id }) { activeShellId = id } }
+
+	/// Соседний терминал по кругу (+1 / −1).
+	func cycleShellTab(_ delta: Int) {
+		guard shellTabs.count > 1, let i = shellTabs.firstIndex(where: { $0.id == activeShellId }) else { return }
+		activeShellId = shellTabs[(i + delta + shellTabs.count) % shellTabs.count].id
+	}
+
+	/// Закрыть терминал блока; последний закрыт — закрывается и блок.
+	func closeShellTab(_ id: Int) {
+		guard let i = shellTabs.firstIndex(where: { $0.id == id }) else { return }
+		app.terminals.close(key: shellKey(id))
+		shellTabs.remove(at: i)
+		if activeShellId == id { activeShellId = shellTabs.isEmpty ? nil : shellTabs[min(i, shellTabs.count - 1)].id }
+		if shellTabs.isEmpty {
+			withAnimation(dsAnimation(DS.Motion.panel)) { shellOpen = false; shellExpanded = false }
+			focusMainTerminal()
+		}
+	}
+
+	func closeAllShellTabs() { for t in shellTabs { closeShellTab(t.id) } }
+
+	/// Фокус возвращается главному терминалу.
+	private func focusMainTerminal() {
+		DispatchQueue.main.async { [weak self] in
+			guard let c = self?.terminal?.container else { return }
+			c.window?.makeFirstResponder(c.terminal)
 		}
 	}
 
@@ -170,7 +212,7 @@ final class SessionWindowModel {
 	/// Окно закрыто: терминал завершается; пустая сессия (ни одного агента) удаляется.
 	func closed() {
 		app.terminals.close(key: key)
-		app.terminals.close(key: shellKey)
+		for t in shellTabs { app.terminals.close(key: shellKey(t.id)) }
 		// сервер останавливает работающих агентов сессии (они без хозяина жгли бы токены); сессия остаётся — её можно продолжить (`--resume`)
 		let client = app.store.client
 		for id in sessionChain {
@@ -236,12 +278,11 @@ private struct MainWindowBody: View {
 	}
 }
 
-/// Терминал проекта: содержимое блока. Сверху сплошная шапка (название и «×»), под ней терминал со своим «консольным» фоном: терминал
+/// Терминал проекта: содержимое блока. Сверху сплошная шапка: вкладки терминалов («Терминал 1», «Терминал 2»…) и «+», справа меню «⋮»,
+/// «развернуть» и «закрыть блок»; один терминал — просто заголовок «Терминал». Под шапкой терминал со своим «консольным» фоном: он
 /// начинается ниже шапки, поэтому отступ не пропадает ни при `clear`, ни при прокрутке.
 struct ShellBlock: View {
 	var win: SessionWindowModel
-
-	static func title(_ dir: String) -> String { "Терминал" }
 
 	var body: some View {
 		VStack(spacing: 0) {
@@ -258,20 +299,83 @@ struct ShellBlock: View {
 
 	private var header: some View {
 		HStack(spacing: DS.Metrics.s2) {
-			Image(systemName: "terminal").font(.system(size: 12, weight: .medium))
-			Text(Self.title(win.dir)).font(DS.Typography.groupTitle).lineLimit(1)
-			Spacer(minLength: 0)
-			Button { win.toggleShell() } label: {
-				Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).frame(width: 22, height: 22).contentShape(Circle())
+			if win.shellTabs.count > 1 {
+				ScrollView(.horizontal) {
+					HStack(spacing: DS.Metrics.s1) {
+						ForEach(win.shellTabs) { t in ShellTabPill(win: win, tab: t) }
+					}
+				}
+				.scrollIndicators(.hidden).fixedSize(horizontal: true, vertical: false).frame(maxWidth: .infinity, alignment: .leading)
+			} else {
+				Text("Терминал").font(DS.Typography.groupTitle).foregroundStyle(DS.Palette.textSecondary).padding(.leading, DS.Metrics.s1)
+				Spacer(minLength: 0)
 			}
-			.buttonStyle(.plain).focusEffectDisabled().help("Скрыть терминал")
+			ShellIcon(symbol: "plus", help: "Новый терминал (\(Hotkeys.shared.display(.newShellTab)))") { win.addShellTab() }
+			if win.shellTabs.count > 1 { Spacer(minLength: 0) }
+			Menu {
+				Button("Новый терминал") { win.addShellTab() }
+				if let id = win.activeShellId { Button("Закрыть этот терминал") { win.closeShellTab(id) } }
+				if win.shellTabs.count > 1 { Button("Закрыть все терминалы") { win.closeAllShellTabs() } }
+				Divider()
+				Button(win.shellExpanded ? "Свернуть блок" : "Развернуть блок") { withAnimation(dsAnimation(DS.Motion.panel)) { win.shellExpanded.toggle() } }
+				Button("Скрыть блок") { win.toggleShell() }
+			} label: {
+				Image(systemName: "ellipsis").rotationEffect(.degrees(90)).font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 24)
+			}
+			.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+			.help("Ещё")
+			ShellIcon(symbol: win.shellExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+					  help: (win.shellExpanded ? "Свернуть" : "Развернуть") + " (\(Hotkeys.shared.display(.expandShell)))") {
+				withAnimation(dsAnimation(DS.Motion.panel)) { win.shellExpanded.toggle() }
+			}
+			ShellIcon(symbol: "xmark", help: "Скрыть терминал (\(Hotkeys.shared.display(.toggleShell)))") { win.toggleShell() }
 		}
 		.foregroundStyle(DS.Palette.textSecondary)
-		.padding(.horizontal, DS.Metrics.s4).frame(height: ShellBlock.headerHeight)
+		.padding(.horizontal, DS.Metrics.s3).padding(.top, DS.Metrics.s1).frame(height: ShellBlock.headerHeight)
 		.background(DS.Palette.terminalBackground)
 	}
 
-	static let headerHeight: CGFloat = 34
+	static let headerHeight: CGFloat = 38
+}
+
+/// Вкладка терминала в шапке: название и «×»; активная светлее.
+private struct ShellTabPill: View {
+	var win: SessionWindowModel
+	var tab: SessionWindowModel.ShellTabInfo
+	@State private var hover = false
+
+	var body: some View {
+		let active = win.activeShellId == tab.id
+		HStack(spacing: DS.Metrics.s1) {
+			Text(tab.title).font(DS.Typography.secondary).lineLimit(1)
+			Button { win.closeShellTab(tab.id) } label: {
+				Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).frame(width: 16, height: 16).contentShape(Circle())
+			}
+			.buttonStyle(.plain).focusEffectDisabled().opacity(active || hover ? 1 : 0.5).help("Закрыть терминал")
+		}
+		.foregroundStyle(active ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+		.padding(.leading, DS.Metrics.s2).padding(.trailing, DS.Metrics.s1).frame(height: 26)
+		.background(active ? DS.Palette.hover : (hover ? DS.Palette.hover.opacity(0.5) : .clear), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+		.contentShape(Rectangle())
+		.onTapGesture { win.selectShellTab(tab.id) }
+		.onHover { hover = $0 }
+	}
+}
+
+private struct ShellIcon: View {
+	var symbol: String
+	var help: String
+	var action: () -> Void
+	@State private var hover = false
+	var body: some View {
+		Button(action: action) {
+			Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 24)
+				.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+				.background(hover ? DS.Palette.hover : .clear, in: Circle())
+				.contentShape(Circle())
+		}
+		.buttonStyle(.plain).focusEffectDisabled().onHover { hover = $0 }.help(help).accessibilityLabel(help)
+	}
 }
 
 /// Переключатель проектов в шапке на Liquid Glass: вкладка на проект (активная подсвечена), у каждой — состояние агентов проекта

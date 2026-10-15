@@ -86,11 +86,6 @@ struct HotkeySettings: View {
 				Text("Нажмите на сочетание и введите новое (нужен ⌘, ⌃ или ⌥); Esc — отмена. Остальные клавиши достаются терминалу и Claude.")
 					.foregroundStyle(DS.Palette.textSecondary)
 			}
-			Section("Остальные (не меняются)") {
-				ForEach(Shortcuts.fixed, id: \.0) { k in
-					LabeledContent(k.1) { Text(k.0).font(DS.Typography.mono).foregroundStyle(DS.Palette.textSecondary) }
-				}
-			}
 			Section { Button("Сбросить все") { Hotkeys.shared.resetAll() } }
 		}
 		.formStyle(.grouped)

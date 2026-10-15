@@ -72,23 +72,19 @@ extension AppModel {
 	}
 
 	/// Оболочка проекта для терминал-блока: login shell в папке окна, окружение как у главного терминала (`nessy-orch` в PATH).
-	func startShell(for win: SessionWindowModel) {
+	func startShell(for win: SessionWindowModel, tab id: Int) {
 		var spec = TerminalLaunch.terminal(directory: win.dir, sessionId: win.sessionId, orchestrator: AppSettings.serverURL,
 										   base: ProcessInfo.processInfo.environment, command: nil, lead: nil, token: OrchToken.read())
 		if let bin = Bundle.main.resourceURL.map({ $0.appendingPathComponent("orch/bin").path }), FileManager.default.fileExists(atPath: bin + "/nessy-orch"),
 		   let i = spec.environment.firstIndex(where: { $0.hasPrefix("PATH=") }) {
 			spec.environment[i] = "PATH=" + bin + ":" + String(spec.environment[i].dropFirst(5))
 		}
-		let tab = terminals.add(spec, key: win.shellKey)
+		let tab = terminals.add(spec, key: win.shellKey(id))
 		tab.container.fontOffset = -2
 		tab.container.backgroundOverride = NSColor(DS.Palette.terminalBackground)
 		tab.container.terminal.getTerminal().setCursorStyle(.blinkBar) // каретка — мигающая палочка
-		// `exit` в оболочке: блок закрывается, следующее открытие запускает новую
-		tab.onExit = { [weak win] _ in
-			guard let win else { return }
-			win.app.terminals.close(key: win.shellKey)
-			withAnimation(dsAnimation(DS.Motion.panel)) { win.shellOpen = false }
-		}
+		// `exit` в оболочке закрывает этот терминал блока (последний — и сам блок)
+		tab.onExit = { [weak win] _ in win?.closeShellTab(id) }
 	}
 
 	/// ⌘W: в главном окне — закрыть проект (с предупреждением); в окне «Роли» или «Настройки» — закрыть само это окно.

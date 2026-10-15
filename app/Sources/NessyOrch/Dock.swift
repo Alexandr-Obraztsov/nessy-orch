@@ -31,8 +31,7 @@ extension AppModel {
 	func isDockHeader(at p: CGPoint) -> Bool {
 		guard activeWindow != nil else { return false }
 		return dockGeometry().places.values.contains { place in
-			let inset: CGFloat = place.side == .left && place.index == 0 && !isFullScreen ? 28 : 0
-			return CGRect(x: place.frame.minX, y: place.frame.minY, width: place.frame.width, height: 34 + inset).contains(p)
+			return CGRect(x: place.frame.minX, y: place.frame.minY, width: place.frame.width, height: 14).contains(p)
 		}
 	}
 
@@ -76,6 +75,10 @@ extension AppModel {
 			}
 			g.bottomEdge = CGRect(x: x0, y: H - m - bottomH - 5, width: max(x1 - x0, 0), height: 10)
 		}
+		// развёрнутый терминал занимает всё окно поверх остальных
+		if activeWindow?.shellExpanded == true, let p = g.places[.shell] {
+			g.places[.shell] = DockPlace(side: p.side, index: p.index, count: p.count, frame: CGRect(x: m, y: m, width: W - 2 * m, height: H - 2 * m))
+		}
 		do {
 			g.leftSlot = (lists[.left]?.isEmpty ?? true) ? 0 : wl + 1.5 * m
 			g.rightSlot = (lists[.right]?.isEmpty ?? true) ? 0 : wr + 1.5 * m
@@ -103,7 +106,7 @@ struct DockLayer: View {
 						.offset(x: p.frame.minX, y: p.frame.minY)
 						// остальные плитки плавно перестраиваются, переносимая встаёт в своё место сразу (за указателем едет её копия-карточка)
 						.animation(dragged ? nil : dsAnimation(DS.Motion.panel), value: p.frame)
-						.zIndex(dragged ? 10 : 0)
+						.zIndex(dragged ? 10 : (b == .shell && model.activeWindow?.shellExpanded == true ? 5 : 0))
 						.transition(.opacity)
 				}
 			}
@@ -154,22 +157,22 @@ private struct DockTile: View {
 				.opacity(isDragged ? 0.94 : 1)
 				.offset(off)
 				.animation(DS.Motion.pick(DS.Motion.layout, reduceMotion: false), value: isDragged)
-				.simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .global)
-					.onChanged { g in
+				// перенос — за «ярлычок» у верхнего края (появляется, когда подвести курсор к верху блока)
+				.overlay(alignment: .top) {
+					DragPill { g in
 						if !dragging {
-							guard g.startLocation.y - f.minY < 34 + topInset else { return }
 							dragging = true
 							// точка захвата переносится на уменьшенный блок пропорционально
 							let w = min(f.width, Self.carried.width)
-							model.dragGrab = CGPoint(x: (g.startLocation.x - f.minX) * w / max(f.width, 1), y: min(g.startLocation.y - f.minY, 17))
+							model.dragGrab = CGPoint(x: (g.startLocation.x - f.minX) * w / max(f.width, 1), y: min(max(g.startLocation.y - f.minY, 6), 17))
 						}
 						model.dragMoved(block, pointer: g.location)
-					}
-					.onEnded { _ in
+					} ended: {
 						guard dragging else { return }
 						dragging = false
 						model.dropBlock()
-					})
+					}
+				}
 		}
 	}
 
@@ -178,6 +181,30 @@ private struct DockTile: View {
 		case .agents: AgentsPanel().id(model.activeKey)
 		case .shell: if let win = model.activeWindow { ShellBlock(win: win) }
 		}
+	}
+}
+
+/// «Ярлычок» переноса блока: тонкая полоска у верхнего края, при наведении проявляется плашка-ручка; потянуть за неё — перенести блок.
+private struct DragPill: View {
+	var changed: (DragGesture.Value) -> Void
+	var ended: () -> Void
+	@State private var hover = false
+	@State private var active = false
+
+	init(_ changed: @escaping (DragGesture.Value) -> Void, ended: @escaping () -> Void) { self.changed = changed; self.ended = ended }
+
+	var body: some View {
+		Color.clear.frame(height: 14).frame(maxWidth: .infinity).contentShape(Rectangle())
+			.overlay(alignment: .top) {
+				Capsule().fill(DS.Palette.textSecondary.opacity(0.7)).frame(width: 40, height: 4).padding(.top, 5)
+					.opacity(hover || active ? 1 : 0)
+			}
+			.animation(.easeOut(duration: 0.15), value: hover)
+			.onHover { hover = $0 }
+			.help("Перенести")
+			.gesture(DragGesture(minimumDistance: 4, coordinateSpace: .global)
+				.onChanged { active = true; changed($0) }
+				.onEnded { _ in active = false; ended() })
 	}
 }
 
