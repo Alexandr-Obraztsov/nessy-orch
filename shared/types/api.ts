@@ -159,29 +159,6 @@ export interface InboxResponse {
 	active: number
 }
 
-/** Краткая сводка агента для хуков Claude Code. */
-export interface AgentBrief {
-	id: string
-	name: string
-	role: string | null
-	status: 'starting' | 'working' | 'idle' | 'error'
-	archived: boolean
-	/** последняя команда/инструмент */
-	lastTool: string | null
-	/** шаги плана: выполнено / всего (null — плана нет) */
-	plan: { done: number; total: number } | null
-}
-
-/** GET /sessions/:id/updates — что нового для Claude: агенты сессии и новые ответы (курсор общий с inbox сессии). */
-export interface SessionUpdates {
-	agents: AgentBrief[]
-	replies: Message[]
-	/** курсор после последнего из `replies`: его подтверждают `POST /sessions/:id/ack` после того, как ответы реально выведены */
-	cursor: number
-	/** у сессии сейчас висит фоновое ожидание ответов (`inbox --session … --wait`) */
-	watching: boolean
-}
-
 export interface StatusResponse {
 	version: string
 	pid: number

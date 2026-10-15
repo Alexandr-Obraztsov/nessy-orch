@@ -146,51 +146,6 @@ export class SessionsService {
 		this.ctx.hub.publish({ t: 'session_removed', id: session.id })
 	}
 
-	/**
-	 * Привязка чата Claude к сессии: уже привязанная к этому чату (resume) → она; иначе заданная `ref`, если она свободна
-	 * (первый запуск в окне приложения); иначе новая сессия (новый чат в том же окне). `source: 'clear'` — продолжение разговора после /clear:
-	 * сессия прежняя (с её агентами), меняется только чат. Привязка сохраняется на диск.
-	 */
-	bind(chatId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null, source: string | null = null): SessionView {
-		const id = chatId.trim()
-		if (!id) throw new AppError(400, 'bad_request', 'chatId не задан')
-		const free = ref ? this.sessions.get(ref.trim().toLowerCase()) : undefined
-		// терминал приложения, в котором идёт чат (из окружения хука): по нему окно находит свою сессию без заранее созданной пустой
-		const origin = terminal?.trim() || (free ? (free.origin ?? free.id) : null)
-		const hit = [...this.sessions.values()].find(s => s.chatId === id)
-		const dir = cwd && cwd.startsWith('/') ? cwd : null
-		if (hit) {
-			// чат продолжили в другом терминале (/resume) или в другой папке: сессия переезжает
-			const move = !!origin && hit.origin !== origin && hit.id !== origin
-			if (move || (dir && hit.cwd !== dir)) {
-				const moved: SessionView = { ...hit, origin: move ? origin : hit.origin, cwd: dir ?? hit.cwd ?? null }
-				this.put(moved)
-				return moved
-			}
-			return hit
-		}
-		// /clear в том же терминале: чат новый, а разговор тот же — агенты и курсор остаются в прежней сессии, у неё меняется chatId
-		if (source === 'clear' && origin) {
-			const prev = [...this.sessions.values()]
-				.filter(s => s.chatId && s.chatId !== id && (s.origin === origin || s.id === origin))
-				.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]
-			if (prev) {
-				const moved: SessionView = { ...prev, chatId: id, origin, cwd: dir ?? prev.cwd ?? null }
-				this.put(moved)
-				return moved
-			}
-		}
-		if (free && !free.chatId) {
-			const next: SessionView = { ...free, chatId: id, origin, cwd: dir }
-			this.put(next)
-			return next
-		}
-		const made = this.create({ title: title || free?.title || 'Главный агент', owner: 'lead' })
-		const next: SessionView = { ...made, chatId: id, origin, cwd: dir }
-		this.put(next)
-		return next
-	}
-
 	/** Состояние Claude Code по хукам (в памяти: после рестарта сервиса неизвестно). */
 	setLeadState(ref: string, state: LeadState): SessionView {
 		const s = this.raw(ref)

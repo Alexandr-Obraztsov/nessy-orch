@@ -153,26 +153,26 @@ describe('сессии: сервис', () => {
 		const a = (await ctx.orch.spawn({ space: 'main', name: 'gone', session: t.id })).agent.id
 		ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'последнее слово' })
 		ctx.orch.getAgent(a) // агент ещё есть
-		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).replies.length, 1)
+		assert.equal(ctx.orch.digest(t.id).count, 1)
 		const r = await ctx.orch.inbox({ session: t.id, peek: true })
 		assert.equal(r.messages[0]?.session, t.id, 'сессия записана в сообщение при отправке')
 	})
 
-	it('watching: пока висит inbox --wait по сессии, sessionUpdates видит ожидание; после — нет', async () => {
+	it('watching: пока висит inbox --wait по сессии, сводка видит ожидание; после — нет', async () => {
 		const t = ctx.orch.createSession({ title: 'Ожидание' })
-		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, false)
+		assert.equal(ctx.orch.digest(t.id).watching, false)
 		const a = (await ctx.orch.spawn({ space: 'main', name: 'w', session: t.id })).agent.id
 		markBusy(a)
 		const waiting = ctx.orch.inbox({ session: t.id, wait: 5 })
 		await new Promise(r => setTimeout(r, 20))
-		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, true)
+		assert.equal(ctx.orch.digest(t.id).watching, true)
 		ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'вот' })
 		await waiting
-		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, false)
+		assert.equal(ctx.orch.digest(t.id).watching, false)
 		// peek и запрос без wait ожиданием не считаются
 		const peeking = ctx.orch.inbox({ session: t.id, wait: 1, peek: true })
 		await new Promise(r => setTimeout(r, 20))
-		assert.equal((await ctx.orch.sessionUpdates(t.id, false)).watching, false)
+		assert.equal(ctx.orch.digest(t.id).watching, false)
 		await peeking
 	})
 
@@ -196,44 +196,38 @@ describe('сессии: сервис', () => {
 		assert.ok(Date.now() - t1 < 2000, 'ожидание сняло изменение состояния агента')
 	})
 
-	it('агент без --space запускается в каталоге оркестратора (cwd чата Claude), а не в единственном существующем пространстве', async () => {
+	it('агент без --space запускается в каталоге сессии (cwd вкладки), а не в единственном существующем пространстве', async () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-cwd-'))
-		const t = ctx.orch.bindChat('chat-cwd', null, 'proj', 'term-1', dir)
+		const t = ctx.orch.createSession({ cwd: dir, chatId: 'chat-cwd-0001' })
 		assert.equal(t.cwd, dir)
 		const a = (await ctx.orch.spawn({ name: 'here', session: t.id })).agent
 		const space = ctx.orch.graph().spaces.find(x => x.name === a.space)
-		assert.equal(fs.realpathSync(space?.path ?? ''), fs.realpathSync(dir), 'пространство = каталог чата; отдельных каталогов не заводится')
+		assert.equal(fs.realpathSync(space?.path ?? ''), fs.realpathSync(dir), 'пространство = каталог сессии; отдельных каталогов не заводится')
 		// явный space важнее
 		const b = (await ctx.orch.spawn({ name: 'there', session: t.id, space: 'main' })).agent
 		assert.equal(b.space, 'main')
-		// чат переехал в другую папку (/resume там): cwd сессии обновляется
-		const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-cwd-'))
-		assert.equal(ctx.orch.bindChat('chat-cwd', null, 'proj', 'term-1', dir2).cwd, dir2)
 	})
 
-	it('/clear в том же терминале: чат меняется, а сессия и её агенты остаются; без source — новая сессия', async () => {
-		const first = ctx.orch.bindChat('chat-1', null, 'proj', 'term-9', '/x')
+	it('/clear: хук Stop меняет чат, а сессия и её агенты остаются; чужой чат не перехватывается', async () => {
+		const first = ctx.orch.createSession({ cwd: '/x', chatId: 'chat-0000001' })
 		const agent = (await ctx.orch.spawn({ space: 'main', name: 'worker', session: first.id })).agent.id
-		const cleared = ctx.orch.bindChat('chat-2', null, 'proj', 'term-9', '/x', 'clear')
+		const cleared = ctx.orch.reportLead(first.id, { idle: true, chatId: 'chat-0000002' })
 		assert.equal(cleared.id, first.id)
-		assert.equal(cleared.chatId, 'chat-2')
+		assert.equal(cleared.chatId, 'chat-0000002')
 		assert.equal(ctx.orch.getAgent(agent).session, first.id)
-		const other = ctx.orch.bindChat('chat-3', null, 'proj', 'term-9', '/x')
-		assert.notEqual(other.id, first.id, 'новый чат без /clear — отдельная сессия')
-		const elsewhere = ctx.orch.bindChat('chat-4', null, 'proj', 'term-other', '/x', 'clear')
-		assert.notEqual(elsewhere.id, first.id, 'в чужом терминале прежней сессии нет')
+		const other = ctx.orch.createSession({ cwd: '/y', chatId: 'chat-0000003' })
+		assert.throws(() => ctx.orch.reportLead(other.id, { idle: true, chatId: 'chat-0000002' }), /chat_bound|уже привязан/)
 	})
 
-	it('терминал закрыт: сессии терминала завершены, работающие агенты остановлены, записи остаются', async () => {
-		const s = ctx.orch.bindChat('chat-1', null, 'proj', 'term-7', '/x')
+	it('вкладка закрыта: работающие агенты остановлены, сессия и записи остаются, lead = ended', async () => {
+		const s = ctx.orch.createSession({ cwd: '/x', chatId: 'chat-0000011' })
 		const agent = (await ctx.orch.spawn({ space: 'main', name: 'busy', session: s.id, prompt: 'работай' })).agent.id
 		await new Promise(r => setTimeout(r, 20))
-		const r = await ctx.orch.terminalClosed('term-7')
-		assert.deepEqual(r.sessions, [s.id])
+		const r = await ctx.orch.sessionClosed(s.id)
 		assert.equal(r.cancelled, 1)
 		assert.equal(ctx.orch.getSession(s.id).lead?.state, 'ended')
 		assert.equal(ctx.orch.getAgent(agent).session, s.id, 'агент и сессия не удалены')
-		assert.deepEqual((await ctx.orch.terminalClosed('term-none')).sessions, [])
+		await assert.rejects(() => ctx.orch.sessionClosed('нет-такой'), /не найдена/)
 	})
 
 	it('send: свободного агента запускает (started), работающего прерывает (--interrupt) или ставит в очередь', async () => {

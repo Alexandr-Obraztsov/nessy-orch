@@ -40,8 +40,8 @@ describe('доступ: токен оператора и ключи агенто
 		assert.equal((await h.api<SessionView>('POST', '/sessions', { title: 'с токеном' }, op)).status, 201)
 		assert.equal((await h.api('POST', `/agents/${a}/cancel`, {})).status, 403)
 		assert.equal((await h.api('DELETE', `/agents/${b}`, undefined)).status, 403)
-		assert.equal((await h.api('POST', '/sessions/bind', { chatId: 'x' })).status, 403)
-		assert.equal((await h.api('POST', '/terminals/t/closed', {})).status, 403)
+		assert.equal((await h.api('POST', '/sessions/nope/lead', { idle: true })).status, 403)
+		assert.equal((await h.api('POST', '/sessions/nope/closed', {})).status, 403)
 	})
 
 	it('ключ агента не попадает ни в граф, ни в список, ни в историю', T, async () => {

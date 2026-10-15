@@ -6,11 +6,9 @@ import * as crypto from 'node:crypto'
 import { SYSTEM, USER, YOU } from '../domain/constants'
 import { AppError } from '../domain/errors'
 import type {
-	AgentBrief,
 	AgentEvent,
 	DigestResponse,
 	LeadReport,
-	LeadState,
 	AgentView,
 	GraphView,
 	InboxResponse,
@@ -30,7 +28,6 @@ import type {
 	SessionPatch,
 	SessionRequest,
 	SettledResponse,
-	SessionUpdates,
 	SessionStatus,
 	SessionView,
 	SourceView,
@@ -388,30 +385,6 @@ export class Orchestrator implements AgentHost {
 		return this.feed.list({ involving, since: opts.since, limit: opts.limit })
 	}
 
-	/** Входящие для you; с session — только ответы агентов сессии, со своим курсором (неизвестная → 404 no_session). */
-	/** Состояние главного агента сессии по хуку (`POST /sessions/:id/lead-state`). */
-	bindChat(chatId: string, ref: string | null, title: string, terminal: string | null = null, cwd: string | null = null, source: string | null = null): SessionView {
-		return this.sessionsSvc.bind(chatId, ref, title, terminal, cwd, source)
-	}
-
-	/**
-	 * Терминал приложения закрыт (проект закрыт): главный агент в нём завершён. Сессии терминала помечаются завершёнными, а работающие
-	 * агенты останавливаются (они без хозяина жгли бы токены); записи, чаты и результаты остаются — сессию можно продолжить (`--resume`).
-	 */
-	async terminalClosed(key: string): Promise<{ sessions: string[]; cancelled: number }> {
-		const sessions = this.sessionsSvc.list().filter(s => s.origin === key || s.id === key)
-		let cancelled = 0
-		for (const s of sessions) {
-			this.sessionsSvc.setLeadState(s.id, 'ended')
-			for (const a of this.registry.agents.values()) {
-				if (a.session !== s.id || !a.isBusy) continue
-				cancelled++
-				await a.cancel()
-			}
-		}
-		return { sessions: sessions.map(s => s.id), cancelled }
-	}
-
 	/** Хук Stop: главный агент закончил ход; chatId — актуальный чат Claude (меняется после /clear, /resume). */
 	reportLead(id: string, report: LeadReport): SessionView {
 		return this.sessionsSvc.reportLead(id, report)
@@ -457,35 +430,6 @@ export class Orchestrator implements AgentHost {
 			await a.cancel()
 		}
 		return { cancelled }
-	}
-
-	setLeadState(id: string, state: LeadState): SessionView {
-		return this.sessionsSvc.setLeadState(id, state)
-	}
-
-	/**
-	 * Что нового для Claude (хуки): краткая сводка агентов сессии и новые ответы. consume=true сдвигает тот же курсор, что и
-	 * `inbox --session` — ответ доставляется Claude один раз, либо хуком, либо inbox.
-	 */
-	async sessionUpdates(id: string, consume: boolean): Promise<SessionUpdates> {
-		const session = this.sessionsSvc.resolve(id).id
-		const agents: AgentBrief[] = [...this.registry.agents.values()]
-			.filter(a => a.session === session)
-			.map(a => {
-				const v = a.toJSON()
-				const entries = v.plan?.entries ?? []
-				return {
-					id: v.id,
-					name: v.name,
-					role: v.role,
-					status: v.status,
-					archived: v.archived,
-					lastTool: v.lastTool ? (v.lastTool.title || v.lastTool.name).slice(0, 80) : null,
-					plan: entries.length ? { done: entries.filter(e => e.status === 'completed').length, total: entries.length } : null,
-				}
-			})
-		const { messages, cursor } = await this.feed.inbox({ session, peek: !consume })
-		return { agents, replies: messages, cursor, watching: this.feed.isWatching(session) }
 	}
 
 	/** Хук вывел ответы Claude — сдвинуть курсор сессии (до этого ответы считаются недоставленными и придут снова). */

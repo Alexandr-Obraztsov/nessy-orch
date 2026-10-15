@@ -1,5 +1,5 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
-import type { LeadReport, LeadState, RoleRequest, SendRequest, SpaceRequest, SpawnBatchRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
+import type { LeadReport, RoleRequest, SendRequest, SpaceRequest, SpawnBatchRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { isSessionStatus } from '../../domain/sessions'
 import { isObject } from '../../lib/json'
@@ -29,13 +29,6 @@ export function parseSpawnRequest(b: unknown): SpawnRequest {
 		wait: b['wait'] === true,
 		waitTimeoutSec: optNum(b['waitTimeoutSec']),
 	}
-}
-
-/** Тело ping: {state: working | idle | ended}. */
-export function parseLeadState(b: unknown): LeadState {
-	const s = isObject(b) ? b['state'] : undefined
-	if (s === 'working' || s === 'idle' || s === 'ended') return s
-	throw new AppError(400, 'bad_request', 'state — working | idle | ended')
 }
 
 /** Тело пакета агентов: общие поля и массив поручений (каждое проверяется как обычный spawn). */

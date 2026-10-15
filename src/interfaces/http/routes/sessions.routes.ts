@@ -1,7 +1,7 @@
 /** Маршруты сессий оркестраторов. */
 import { AppError } from '../../../domain/errors'
 import { isObject } from '../../../lib/json'
-import { parseLeadReport, parseLeadState, parseSessionPatch, parseSessionRequest, parseSessionStatus } from '../parsers'
+import { parseLeadReport, parseSessionPatch, parseSessionRequest, parseSessionStatus } from '../parsers'
 import { readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -16,24 +16,12 @@ export function registerSessionRoutes(r: Router): void {
 	})
 	r.add('GET', '/sessions/:id', ({ res, orch, params }) => sendJson(res, 200, orch.getSession(params['id'] ?? '')))
 	r.add('GET', '/sessions/:id/sources', ({ res, orch, params }) => sendJson(res, 200, orch.sessionSources(params['id'] ?? '')))
-	r.add('GET', '/sessions/:id/updates', async ({ res, orch, params, query }) =>
-		sendJson(res, 200, await orch.sessionUpdates(params['id'] ?? '', query.get('consume') === '1')),
-	)
 	r.add('POST', '/sessions/:id/ack', async ({ req, res, orch, params }) => {
 		const b = await readBody(req)
 		const cursor = isObject(b) && typeof b['cursor'] === 'number' && Number.isFinite(b['cursor']) ? b['cursor'] : null
 		if (cursor === null) throw new AppError(400, 'bad_request', 'нужно число cursor')
 		orch.ackSession(params['id'] ?? '', cursor)
 		sendJson(res, 200, { ok: true })
-	})
-	r.add('POST', '/sessions/bind', async ({ req, res, orch }) => {
-		const b = await readBody(req)
-		const o = isObject(b) ? b : {}
-		const str = (k: string): string => (typeof o[k] === 'string' ? o[k] : '')
-		sendJson(res, 200, orch.bindChat(str('chatId'), str('session') || null, str('title'), str('terminal') || null, str('cwd') || null, str('source') || null))
-	})
-	r.add('POST', '/terminals/:key/closed', async ({ res, orch, params }) => {
-		sendJson(res, 200, await orch.terminalClosed(params['key'] ?? ''))
 	})
 	r.add('POST', '/sessions/:id/lead', async ({ req, res, orch, params }) => {
 		sendJson(res, 200, orch.reportLead(params['id'] ?? '', parseLeadReport(await readBody(req))))
@@ -44,10 +32,6 @@ export function registerSessionRoutes(r: Router): void {
 		sendJson(res, 200, await orch.waitSession(params['id'] ?? '', Number.isFinite(sec) ? Math.min(Math.max(sec, 0), 3600) : 0))
 	})
 	r.add('POST', '/sessions/:id/closed', async ({ res, orch, params }) => sendJson(res, 200, await orch.sessionClosed(params['id'] ?? '')))
-	r.add('POST', '/sessions/:id/lead-state', async ({ req, res, orch, params }) => {
-		const body = await readBody(req)
-		sendJson(res, 200, orch.setLeadState(params['id'] ?? '', parseLeadState(body)))
-	})
 	r.add('PATCH', '/sessions/:id', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)
 		sendJson(res, 200, orch.updateSession(params['id'] ?? '', parseSessionPatch(body)))

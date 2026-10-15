@@ -171,28 +171,23 @@ describe('хук Stop и ожидание пачки (updates, ping, CLI)', () =
 			p.stdin.end(stdin)
 		})
 
-	it('ping меняет состояние Claude и публикуется; updates отдаёт агентов и ответы с общим курсором inbox', T, async () => {
+	it('ack двухфазный: сводка не двигает курсор, подтверждение идемпотентно и не откатывает его; неверный ack — 400', T, async () => {
 		h = await startHarness()
 		await h.api('POST', '/spaces', { path: h.ws, name: 'main' })
 		const s = await h.api<SessionView>('POST', '/sessions', { title: 'Хуки' })
-		const ping = await h.api<SessionView>('POST', `/sessions/${s.body.id}/lead-state`, { state: 'working' })
-		assert.equal(ping.body.lead?.state, 'working')
-		assert.equal((await h.api('POST', `/sessions/${s.body.id}/lead-state`, { state: 'sleeping' })).status, 400)
-		assert.equal((await h.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.lead?.state, 'working')
-
 		await h.api('POST', '/agents', { space: 'main', name: 'worker', session: s.body.id, prompt: 'сделай', wait: true, waitTimeoutSec: 8 })
-		const peek = await h.api<{ agents: Array<{ name: string }>; replies: unknown[]; cursor: number }>('GET', `/sessions/${s.body.id}/updates`)
-		assert.equal(peek.body.agents[0]?.name, 'worker')
-		assert.equal(peek.body.replies.length, 1, 'просмотр ответ не потребляет')
-		assert.ok(peek.body.cursor > 0, 'в ответе есть курсор для подтверждения')
-		// двухфазная доставка: пока не подтверждено, ответ приходит снова; подтверждение идемпотентно и не откатывает курсор
-		assert.equal((await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates`)).body.replies.length, 1)
+		const d = (await h.api<{ count: number; cursor: number }>('GET', `/sessions/${s.body.id}/digest`)).body
+		assert.equal(d.count, 0, 'ответ вернулся прямо в вызов (--wait) и в сводку не попадает')
+		await h.api('POST', '/agents/worker/send', { text: 'ещё' })
+		for (let i = 0; i < 200 && (await h.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.unread !== 1; i++) await new Promise(r => setTimeout(r, 20))
+		const peek = (await h.api<{ count: number; cursor: number }>('GET', `/sessions/${s.body.id}/digest`)).body
+		assert.equal(peek.count, 1)
+		assert.equal((await h.api<{ count: number }>('GET', `/sessions/${s.body.id}/digest`)).body.count, 1, 'пока не подтверждено, сводка приходит снова')
 		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, {})).status, 400)
-		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, { cursor: peek.body.cursor })).status, 200)
-		assert.equal((await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates`)).body.replies.length, 0, 'после ack пусто')
+		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, { cursor: peek.cursor })).status, 200)
+		assert.equal((await h.api<{ count: number }>('GET', `/sessions/${s.body.id}/digest`)).body.count, 0, 'после ack пусто')
 		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, { cursor: 0 })).status, 200)
-		assert.equal((await h.api<{ replies: unknown[] }>('GET', `/sessions/${s.body.id}/updates`)).body.replies.length, 0, 'ack назад курсор не двигает')
-		assert.equal((await h.api<InboxResponse>('GET', `/inbox?session=${s.body.id}&peek=1`)).body.messages.length, 0, 'курсор общий с inbox сессии')
+		assert.equal((await h.api<{ count: number }>('GET', `/sessions/${s.body.id}/digest`)).body.count, 0, 'ack назад курсор не двигает')
 	})
 
 	it('CLI hook stop: без переменной — тишина; ответы — код 2 со сводкой и ack; агенты работают без ожидания — просьба один раз; chatId и idle', T, async () => {
