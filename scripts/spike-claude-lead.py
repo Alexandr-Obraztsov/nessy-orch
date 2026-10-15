@@ -71,6 +71,10 @@ class Term:
         last = 0
         for m in OSC.finditer(chunk):
             self.events.append((time.time() - self.t0, 'osc', m.group(1), m.group(2)[:160]))
+            if m.group(1) == '7501' and m.group(2).strip() == '?':
+                # обнаружение поддержки: терминал обязан ответить «?» (спека Program Status Protocol)
+                self.send('\x1b]7501;?:states=idle,working,done,blocked,error:kinds=permission,question,auth\x1b\\')
+                self.events.append((time.time() - self.t0, 'osc', 'reply', '7501 ? отправлен'))
             last = m.end()
         self._seen += last if last else max(0, len(chunk) - 400)  # хвост оставляем: последовательность могла оборваться
 
@@ -121,7 +125,9 @@ class Term:
         for _ in range(4):
             self.quiet(3, 40)
             if re.search(r'trust|доверя', self.plain(30), re.I):
-                notes.append('диалог доверия папке: нажали Enter')
+                notes.append('диалог доверия папке: Up + Enter (фокус по умолчанию на «No, exit»)')
+                self.send('\x1b[A')
+                time.sleep(0.5)
                 self.send('\r')
             else:
                 break
