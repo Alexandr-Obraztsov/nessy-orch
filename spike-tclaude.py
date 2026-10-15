@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-Спайки Claude Code как главного агента (docs/design/architecture-v4.md §13): что реально делает `claude` в терминале.
-Запускает настоящий `claude` в псевдотерминале во временной папке на модели haiku (несколько коротких ходов) и пишет отчёт `claude-spike-report.md`.
+Спайки tclaude (Claude Code) как главного агента (docs/design/architecture-v4.md §13): что реально делает `tclaude` в терминале.
+Запускает настоящий `tclaude` в псевдотерминале во временной папке на модели haiku (несколько коротких ходов) и пишет отчёт `claude-spike-report.md`.
 
-  python3 scripts/spike-claude-lead.py            # весь набор (~15 коротких ходов haiku)
-  SPIKE_ONLY=osc,input python3 scripts/spike-claude-lead.py     # только части: flags, osc, input, resume, term
+  python3 spike-tclaude.py            # весь набор (~15 коротких ходов haiku)
+  SPIKE_ONLY=osc,input python3 spike-tclaude.py     # только части: flags, osc, input, resume, term
 
-Нужна рабочая авторизация claude в вашем терминале (ANTHROPIC_API_KEY или вход). Скрипт ничего не читает из ваших настроек и ключей,
+Нужна рабочая авторизация tclaude в вашем терминале (ANTHROPIC_API_KEY или вход). Скрипт ничего не читает из ваших настроек и ключей,
 работает в пустой папке, права не обходит: на диалоги разрешений отвечает только там, где это часть проверки.
-Переменные: CLAUDE_BIN (по умолчанию claude), SPIKE_MODEL (haiku), SPIKE_KEEP=1 (не удалять временную папку).
+Переменные: TCLAUDE_BIN (по умолчанию tclaude), SPIKE_MODEL (haiku), SPIKE_KEEP=1 (не удалять временную папку).
 """
 import fcntl, json, os, pty, re, select, shutil, signal, struct, subprocess, sys, tempfile, termios, threading, time, uuid
 
-CLAUDE = os.environ.get('CLAUDE_BIN', 'claude')
+CLAUDE = os.environ.get('TCLAUDE_BIN', 'tclaude')
 MODEL = os.environ.get('SPIKE_MODEL', 'haiku')
 ONLY = set(filter(None, os.environ.get('SPIKE_ONLY', '').split(',')))
-REPORT = os.path.abspath('claude-spike-report.md')
+REPORT = os.path.abspath('tclaude-spike-report.md')
 T0 = time.time()
-out = ['# Спайки Claude Code как главного агента\n', f'Дата: {time.strftime("%Y-%m-%d %H:%M:%S")}, модель: {MODEL}\n']
+out = ['# Спайки tclaude (Claude Code) как главного агента\n', f'Дата: {time.strftime("%Y-%m-%d %H:%M:%S")}, модель: {MODEL}\n']
 
 ANSI = re.compile(r'\x1b\[[0-9;?<>=]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Z0-9]|\x1b[=>78MDEHc]')
 OSC = re.compile(r'\x1b\](\d+);([^\x07\x1b]*)(?:\x07|\x1b\\)')
@@ -167,7 +167,7 @@ def run(name, fn):
 
 
 # ---------- пробы ----------
-tmp = tempfile.mkdtemp(prefix='claude-spike-')
+tmp = tempfile.mkdtemp(prefix='tclaude-spike-')
 proj = os.path.join(tmp, 'proj')
 os.makedirs(proj)
 hooklog = os.path.join(tmp, 'hooks.log')
@@ -178,7 +178,7 @@ json.dump({'name': 'spike', 'version': '0.0.1'}, open(os.path.join(plugin, '.cla
 cmd = f"python3 -c \"import sys,time,json;d=sys.stdin.read();open('{hooklog}','a').write(str(round(time.time(),1))+' '+d+'\\n')\""
 json.dump({'hooks': {ev: [{'hooks': [{'type': 'command', 'command': cmd}]}] for ev in ('Stop', 'StopFailure', 'SessionStart', 'SessionEnd', 'UserPromptSubmit')}},
           open(os.path.join(plugin, 'hooks', 'hooks.json'), 'w'))
-log('Окружение', f'claude={CLAUDE}\nпапка={proj}\nhooks.log={hooklog}')
+log('Окружение', f'tclaude={CLAUDE}\nпапка={proj}\nhooks.log={hooklog}')
 
 
 def flags():
