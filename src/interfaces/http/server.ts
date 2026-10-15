@@ -9,10 +9,11 @@
  *   POST /agents/:ref/permission/:requestId {approve}
  *   GET  /agents/:ref/history         GET  /agents/:ref/stream (SSE)
  *   GET  /roles   POST /roles   GET|PUT|DELETE /roles/:id
- *   GET  /sessions?status=   POST /sessions {title,owner?,id?}   GET|PATCH|DELETE /sessions/:id
+ *   GET  /sessions?status=   POST /sessions {title?,owner?,id?,cwd?,chatId?}   GET|PATCH|DELETE /sessions/:id
  *   GET  /agents?session=                (агенты сессии)
  *   GET  /messages?agent=&since=&limit=
- *   GET  /inbox?wait=&peek=1&after=&session=   (session — свой курсор на сессию)
+ *   GET  /agents/:ref/wait?timeout=      (дождаться, пока агент освободится, и получить его последний ответ)
+ *   POST /sessions/:id/closed            (вкладка закрыта: работающие агенты остановлены)
  *   GET  /stream (SSE: snapshot + все события)
  */
 import * as http from 'node:http'

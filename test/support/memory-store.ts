@@ -5,7 +5,7 @@ import { NessyBusyError } from '../../src/domain/errors'
 import type { NessyGateway, SessionSubscription, SpaceListener, SpaceRuntime, StorePort, SubscribeOptions } from '../../src/application/ports'
 
 export class MemoryStore implements StorePort {
-	state: PersistedState = { spaces: [], agents: [], msgSeq: 0, inboxCursor: 0 }
+	state: PersistedState = { spaces: [], agents: [], msgSeq: 0 }
 	messages: Message[] = []
 	events = new Map<string, AgentEvent[]>()
 	roles: RoleView[] = []
@@ -87,7 +87,13 @@ export class FakeGateway implements NessyGateway {
 	sessionDelayMs = 0
 	/** сколько ближайших созданий сессии отклонить лимитом сессий демона (503 session_limit_exceeded) */
 	busySessions = 0
+	/** сколько ближайших созданий сессии завершить обычной ошибкой (нет сети, nessy недоступен) */
+	failCreate = 0
 	async createSession(): Promise<{ sessionId: string }> {
+		if (this.failCreate > 0) {
+			this.failCreate--
+			throw new Error('nessy недоступен')
+		}
 		if (this.busySessions > 0) {
 			this.busySessions--
 			throw new NessyBusyError('unavailable', 'nessy POST /session → 503: session_limit_exceeded', 5)

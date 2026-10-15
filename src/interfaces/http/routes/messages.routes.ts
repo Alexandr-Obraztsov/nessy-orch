@@ -15,17 +15,4 @@ export function registerMessageRoutes(r: Router): void {
 			}),
 		)
 	})
-	r.add('GET', '/inbox', async ({ res, orch, query }) => {
-		const after = query.get('after')
-		sendJson(
-			res,
-			200,
-			await orch.inbox({
-				session: query.get('session') ?? undefined,
-				wait: queryNum(query.get('wait'), 0),
-				peek: query.get('peek') === '1',
-				after: after === null ? undefined : queryNum(after, 0),
-			}),
-		)
-	})
 }

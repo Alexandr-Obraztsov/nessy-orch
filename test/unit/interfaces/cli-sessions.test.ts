@@ -1,11 +1,11 @@
-/** CLI сессий: разбор флагов session/spawn/inbox/ls, NESSY_ORCH_SESSION по умолчанию, ссылка на панель, итог из файла. */
+/** CLI сессий: разбор флагов session/spawn/wait/ls, NESSY_ORCH_SESSION по умолчанию, ссылка на панель, итог из файла. */
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { describe, it } from 'node:test'
 import { flagBool, flagStr, parseArgs } from '../../../src/interfaces/cli/args'
-import { INBOX_FLAGS, LS_FLAGS, SPAWN_FLAGS } from '../../../src/interfaces/cli/commands/flags'
+import { LS_FLAGS, SPAWN_FLAGS, WAIT_CMD_FLAGS } from '../../../src/interfaces/cli/commands/flags'
 import { readSummary, SESSION_FLAGS, sessionOption, sessionUrl } from '../../../src/interfaces/cli/commands/sessions.commands'
 import { CliError } from '../../../src/interfaces/cli/errors'
 
@@ -38,16 +38,20 @@ describe('CLI: сессии', () => {
 			fs.rmSync(dir, { recursive: true, force: true })
 		}
 	})
-	it('--session у spawn, inbox, ls; NESSY_ORCH_SESSION — значение по умолчанию, флаг важнее', () => {
+	it('--session у spawn, ls; NESSY_ORCH_SESSION — значение по умолчанию, флаг важнее', () => {
 		const spawn = parseArgs(['--session', 'fix-ci', '--role', 'code-explorer', 'сессия'], SPAWN_FLAGS)
 		assert.equal(sessionOption(spawn, {}), 'fix-ci')
 		assert.equal(sessionOption(spawn, { NESSY_ORCH_SESSION: 'other' }), 'fix-ci')
-		const inbox = parseArgs(['--wait', '1500'], INBOX_FLAGS)
-		assert.equal(sessionOption(inbox, { NESSY_ORCH_SESSION: 'env-session' }), 'env-session')
-		assert.equal(sessionOption(inbox, { NESSY_ORCH_SESSION: '  ' }), undefined)
-		assert.equal(sessionOption(inbox, {}), undefined)
+		const ls = parseArgs(['--all'], LS_FLAGS)
+		assert.equal(sessionOption(ls, { NESSY_ORCH_SESSION: 'env-session' }), 'env-session')
+		assert.equal(sessionOption(ls, { NESSY_ORCH_SESSION: '  ' }), undefined)
+		assert.equal(sessionOption(ls, {}), undefined)
 		assert.equal(sessionOption(parseArgs(['--all', '--session=t1'], LS_FLAGS), {}), 't1')
-		assert.throws(() => parseArgs(['--session'], INBOX_FLAGS), /требует значение/)
+		assert.throws(() => parseArgs(['--session'], LS_FLAGS), /требует значение/)
+	})
+	it('spawn/send: --no-wait; wait: --timeout', () => {
+		assert.equal(flagBool(parseArgs(['--no-wait', 'задача'], SPAWN_FLAGS), 'no-wait'), true)
+		assert.equal(flagStr(parseArgs(['--timeout', '60', 'a'], WAIT_CMD_FLAGS), 'timeout'), '60')
 	})
 	it('ссылка на сессию — схема приложения nessy-orch://', () => {
 		assert.equal(sessionUrl({ host: '127.0.0.1', port: 4337 }, 'fix-ci-3f2a'), 'nessy-orch://session/fix-ci-3f2a')

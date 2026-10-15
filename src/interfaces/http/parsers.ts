@@ -1,11 +1,8 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
-import type { LeadReport, RoleRequest, SendRequest, SpaceRequest, SpawnBatchRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
+import type { RoleRequest, SendRequest, SpaceRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { isSessionStatus } from '../../domain/sessions'
 import { isObject } from '../../lib/json'
-
-/** максимум агентов в одном пакете */
-const MAX_BATCH = 20
 
 const optStr = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
 const optNum = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
@@ -31,19 +28,6 @@ export function parseSpawnRequest(b: unknown): SpawnRequest {
 	}
 }
 
-/** Тело пакета агентов: общие поля и массив поручений (каждое проверяется как обычный spawn). */
-export function parseSpawnBatch(b: unknown): SpawnBatchRequest {
-	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
-	const list = b['agents']
-	if (!Array.isArray(list) || list.length < 1 || list.length > MAX_BATCH) throw new AppError(400, 'bad_request', `agents — массив от 1 до ${MAX_BATCH} агентов`)
-	return {
-		space: optStr(b['space']),
-		cwd: optStr(b['cwd']),
-		session: optStr(b['session']),
-		from: optStr(b['from']),
-		agents: (list as unknown[]).map(parseSpawnRequest),
-	}
-}
 
 export function parseSendRequest(b: unknown): SendRequest {
 	if (!isObject(b) || typeof b['text'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле text (строка)')
@@ -107,14 +91,6 @@ export function parseSessionRequest(b: unknown): SessionRequest {
 	}
 }
 
-/** Отчёт хука Stop: idle (boolean, по умолчанию true) и необязательный chatId. */
-export function parseLeadReport(b: unknown): LeadReport {
-	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
-	const { idle, chatId } = b
-	if (idle !== undefined && typeof idle !== 'boolean') throw new AppError(400, 'bad_request', 'idle — boolean')
-	if (chatId !== undefined && typeof chatId !== 'string') throw new AppError(400, 'bad_request', 'chatId — строка')
-	return { idle: idle ?? true, ...(chatId ? { chatId } : {}) }
-}
 
 /** Правка сессии: title — строка, status — active|done, summary — строка или null. */
 export function parseSessionPatch(b: unknown): SessionPatch {

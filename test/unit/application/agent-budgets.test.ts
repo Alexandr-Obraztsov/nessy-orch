@@ -50,13 +50,19 @@ describe('бюджеты порождения', () => {
 		assert.equal(await code(() => orch.spawn({ space: 'main', name: 'w3', session: session.id })), 'ok')
 	})
 
-	it('общее число агентов в сессии ограничено (подсказка — kill или переиспользовать)', async () => {
-		const { orch, session } = setup({ maxAgentsPerSession: 2 })
+	it('всего агентов не больше maxAgents: простаивающих давних удаляем сами, отказ — только если все работают', async () => {
+		const { orch, gw, session } = setup({ maxAgents: 3 })
 		await orch.spawn({ space: 'main', name: 'x1', session: session.id })
 		await orch.spawn({ space: 'main', name: 'x2', session: session.id })
-		assert.equal(await code(() => orch.spawn({ space: 'main', name: 'x3', session: session.id })), '429 too_many_agents')
-		await orch.removeAgent('x1')
-		assert.equal(await code(() => orch.spawn({ space: 'main', name: 'x3', session: session.id })), 'ok')
+		await orch.spawn({ space: 'main', name: 'x3', session: session.id })
+		// все свободны: четвёртый вытесняет самого давнего
+		assert.equal(await code(() => orch.spawn({ space: 'main', name: 'x4', session: session.id })), 'ok')
+		assert.equal(orch.listAgents().length, 3)
+		assert.ok(!orch.listAgents().some(a => a.name === 'x1'), 'удалён самый давний простаивающий')
+		// все работают: вытеснять некого
+		for (const n of ['x2', 'x3', 'x4']) orch.resolveAgent(n).queue.push({ seq: 0, id: 'm-busy', ts: 0, from: 'you', to: n, kind: 'msg', text: 'ждёт', hops: 0 })
+		assert.equal(await code(() => orch.spawn({ space: 'main', name: 'x5', session: session.id })), '429 too_many_agents')
+		assert.equal(gw.prompts.length, 0)
 	})
 
 	it('автоудаление: завершённых (архивных) агентов, которым давно не писали, удаляет сборщик; занятых и свежих — нет', async () => {
@@ -85,21 +91,16 @@ describe('ответ удалённому отправителю', () => {
 })
 
 describe('сообщения человека из приложения (отправитель user)', () => {
-	it('агент отвечает человеку; главный агент сессии получает служебную запись о сообщении и копию ответа в свой inbox', async () => {
+	it('агент отвечает человеку; карточка агента показывает ответ, в ленте один ответ человеку', async () => {
 		const { orch, gw, session } = setup()
 		const id = (await orch.spawn({ space: 'main', name: 'helper', session: session.id })).agent.id
 		await orch.send(id, { from: 'user', text: 'как дела?' })
 		await until(() => gw.prompts.length === 1, 2000, 'агент получил сообщение')
-		const notice = (await orch.inbox({ session: session.id, peek: true })).messages
-		assert.equal(notice.length, 1)
-		assert.match(notice[0]?.text ?? '', /пользователь написал агенту helper.*как дела\?/s)
 		gw.emit({ kind: 'text', text: 'нормально', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
 		await until(() => orch.listMessages().some(m => m.kind === 'reply' && m.to === 'user' && m.text === 'нормально'), 2000, 'ответ человеку')
-		const inbox = (await orch.inbox({ session: session.id })).messages
-		assert.equal(inbox.length, 2, 'служебная запись и копия ответа')
-		assert.match(inbox[1]?.text ?? '', /ответ пользователю.*нормально/s)
 		assert.equal(orch.getAgent(id).lastReply?.preview, 'нормально', 'карточка агента показывает ответ')
 		assert.equal(orch.listMessages().filter(m => m.to === 'user').length, 1)
+		assert.equal(orch.listMessages().filter(m => m.to === 'you').length, 0, 'главному агенту копий нет: ящика входящих нет')
 	})
 })
 

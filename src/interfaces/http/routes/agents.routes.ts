@@ -1,5 +1,5 @@
 /** Маршруты агентов. */
-import { parseApprove, parsePlanRequest, parseSendRequest, parseSpawnBatch, parseSpawnRequest } from '../parsers'
+import { parseApprove, parsePlanRequest, parseSendRequest, parseSpawnRequest } from '../parsers'
 import { queryNum, readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -12,16 +12,11 @@ export function registerAgentRoutes(r: Router): void {
 		if (!caller.operator) delete spawn.parent
 		sendJson(res, 201, await orch.spawn(spawn))
 	})
-	r.add('POST', '/agents/batch', async ({ req, res, orch, caller }) => {
-		const batch = parseSpawnBatch(await readBody(req))
-		orch.authorizeSender(batch.from, caller)
-		for (const a of batch.agents) {
-			orch.authorizeSender(a.from ?? batch.from, caller)
-			if (!caller.operator) delete a.parent
-		}
-		sendJson(res, 201, await orch.spawnMany(batch))
-	})
 	r.add('GET', '/agents/:ref', ({ res, orch, params }) => sendJson(res, 200, orch.getAgent(params['ref'] ?? '')))
+	r.add('GET', '/agents/:ref/wait', async ({ res, orch, params, query }) => {
+		const sec = Number(query.get('timeout') ?? '0')
+		sendJson(res, 200, await orch.waitAgent(params['ref'] ?? '', Number.isFinite(sec) ? Math.min(Math.max(sec, 0), 3600) : 0))
+	})
 	r.add('DELETE', '/agents/:ref', async ({ res, orch, params }) => {
 		await orch.removeAgent(params['ref'] ?? '')
 		sendJson(res, 200, { ok: true })

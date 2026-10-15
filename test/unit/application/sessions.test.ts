@@ -108,92 +108,41 @@ describe('сессии: сервис', () => {
 		assert.ok(ctx.hub.some(e => e.t === 'agent' && e.agent.id === a.id && e.agent.session === null))
 	})
 
-	it('inbox по сессии: свои ответы и свой курсор; общий inbox не трогается', async () => {
-		const t1 = ctx.orch.createSession({ title: 'Первая' })
-		const t2 = ctx.orch.createSession({ title: 'Вторая' })
-		const a1 = (await ctx.orch.spawn({ space: 'main', name: 'a1', session: t1.id })).agent.id
-		const a2 = (await ctx.orch.spawn({ space: 'main', name: 'a2', session: t2.id })).agent.id
-		ctx.orch.post({ from: a1, to: 'you', kind: 'reply', text: 'от a1' })
-		ctx.orch.post({ from: a2, to: 'you', kind: 'reply', text: 'от a2' })
-		const r1 = await ctx.orch.inbox({ session: t1.id })
-		assert.deepEqual(r1.messages.map(m => m.text), ['от a1'])
-		assert.deepEqual((await ctx.orch.inbox({ session: t1.id })).messages, [], 'курсор сессии сдвинут')
-		assert.deepEqual((await ctx.orch.inbox({ session: t2.id, peek: true })).messages.map(m => m.text), ['от a2'])
-		assert.deepEqual((await ctx.orch.inbox({ session: t2.id })).messages.map(m => m.text), ['от a2'], 'peek не сдвинул')
-		assert.deepEqual((await ctx.orch.inbox()).messages.map(m => m.text), ['от a1', 'от a2'], 'общий курсор отдельно')
-		await assert.rejects(ctx.orch.inbox({ session: 'nope' }), (e: unknown) => e instanceof AppError && e.code === 'no_session')
-	})
-
-	it('long-poll сессии не просыпается от ответа чужой сессии', async () => {
-		const t1 = ctx.orch.createSession({ title: 'Первая' })
-		const t2 = ctx.orch.createSession({ title: 'Вторая' })
-		const a1 = (await ctx.orch.spawn({ space: 'main', name: 'a1', session: t1.id })).agent.id
-		const a2 = (await ctx.orch.spawn({ space: 'main', name: 'a2', session: t2.id })).agent.id
-		markBusy(a1)
-		markBusy(a2)
-		const waiting = ctx.orch.inbox({ session: t1.id, wait: 5 })
-		setTimeout(() => ctx.orch.post({ from: a2, to: 'you', kind: 'reply', text: 'чужое' }), 20)
-		setTimeout(() => ctx.orch.post({ from: a1, to: 'you', kind: 'reply', text: 'своё' }), 80)
-		assert.deepEqual((await waiting).messages.map(m => m.text), ['своё'])
-	})
-
-	it('два ожидающих сборщика одной сессии не получают один ответ дважды', async () => {
-		const t = ctx.orch.createSession({ title: 'Дубли' })
-		const a = (await ctx.orch.spawn({ space: 'main', name: 'a', session: t.id })).agent.id
-		markBusy(a)
-		const w1 = ctx.orch.inbox({ session: t.id, wait: 5 })
-		const w2 = ctx.orch.inbox({ session: t.id, wait: 5 })
-		setTimeout(() => ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'один' }), 20)
-		const got = [...(await w1).messages, ...(await Promise.race([w2, new Promise<{ messages: [] }>(r => setTimeout(() => r({ messages: [] }), 300))])).messages]
-		assert.deepEqual(got.map(m => m.text), ['один'], 'ответ достался ровно одному сборщику')
-	})
-
-	it('ответ не теряется, если агента удалили или отвязали от сессии после ответа', async () => {
-		const t = ctx.orch.createSession({ title: 'Память' })
-		const a = (await ctx.orch.spawn({ space: 'main', name: 'gone', session: t.id })).agent.id
-		ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'последнее слово' })
-		ctx.orch.getAgent(a) // агент ещё есть
-		assert.equal(ctx.orch.digest(t.id).count, 1)
-		const r = await ctx.orch.inbox({ session: t.id, peek: true })
-		assert.equal(r.messages[0]?.session, t.id, 'сессия записана в сообщение при отправке')
-	})
-
-	it('watching: пока висит inbox --wait по сессии, сводка видит ожидание; после — нет', async () => {
+	it('wait: свободный агент — сразу done с последним ответом; ответов не было — без reply', async () => {
 		const t = ctx.orch.createSession({ title: 'Ожидание' })
-		assert.equal(ctx.orch.digest(t.id).watching, false)
-		const a = (await ctx.orch.spawn({ space: 'main', name: 'w', session: t.id })).agent.id
-		markBusy(a)
-		const waiting = ctx.orch.inbox({ session: t.id, wait: 5 })
-		await new Promise(r => setTimeout(r, 20))
-		assert.equal(ctx.orch.digest(t.id).watching, true)
-		ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'вот' })
-		await waiting
-		assert.equal(ctx.orch.digest(t.id).watching, false)
-		// peek и запрос без wait ожиданием не считаются
-		const peeking = ctx.orch.inbox({ session: t.id, wait: 1, peek: true })
-		await new Promise(r => setTimeout(r, 20))
-		assert.equal(ctx.orch.digest(t.id).watching, false)
-		await peeking
+		const a = (await ctx.orch.spawn({ space: 'main', name: 'w1', session: t.id })).agent.id
+		const none = await ctx.orch.waitAgent(a, 5)
+		assert.equal(none.done, true)
+		assert.equal(none.reply, undefined)
+		ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'готово' })
+		assert.equal((await ctx.orch.waitAgent(a, 5)).reply?.text, 'готово')
 	})
 
-	it('inbox: нет работающих агентов — сразу возврат (не висим весь wait); есть — ждём; агент закончил без ответа — просыпаемся', async () => {
-		const t = ctx.orch.createSession({ title: 'Некого ждать' })
-		const t0 = Date.now()
-		const none = await ctx.orch.inbox({ session: t.id, wait: 30 })
-		assert.deepEqual({ n: none.messages.length, active: none.active }, { n: 0, active: 0 })
-		assert.ok(Date.now() - t0 < 1000, 'без агентов ждать нечего')
-		const a = (await ctx.orch.spawn({ space: 'main', name: 'idle-one', session: t.id })).agent.id
-		const idleNow = await ctx.orch.inbox({ session: t.id, wait: 30 })
-		assert.equal(idleNow.active, 0, 'свободный агент — не повод ждать')
+	it('wait: работающего ждёт и просыпается, когда он освободился; возвращает его последний ответ', async () => {
+		const t = ctx.orch.createSession({ title: 'Ждём' })
+		const a = (await ctx.orch.spawn({ space: 'main', name: 'w2', session: t.id })).agent.id
 		markBusy(a)
-		const waiting = ctx.orch.inbox({ session: t.id, wait: 30 })
-		await new Promise(r => setTimeout(r, 30))
-		const t1 = Date.now()
-		ctx.orch.resolveAgent(a).queue.length = 0 // агент освободился без ответа (прерван/удалён)
-		ctx.orch.resolveAgent(a).publishNode()
+		const t0 = Date.now()
+		const waiting = ctx.orch.waitAgent(a, 30)
+		setTimeout(() => {
+			ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'итог' })
+			ctx.orch.resolveAgent(a).queue.length = 0
+			ctx.orch.resolveAgent(a).publishNode()
+		}, 40)
 		const r = await waiting
-		assert.equal(r.active, 0)
-		assert.ok(Date.now() - t1 < 2000, 'ожидание сняло изменение состояния агента')
+		assert.equal(r.done, true)
+		assert.equal(r.reply?.text, 'итог')
+		assert.ok(Date.now() - t0 < 2000)
+	})
+
+	it('wait: время вышло — done=false, агент продолжает; удаление агента завершает ожидание', async () => {
+		const t = ctx.orch.createSession({ title: 'Таймаут' })
+		const a = (await ctx.orch.spawn({ space: 'main', name: 'w3', session: t.id })).agent.id
+		markBusy(a)
+		assert.equal((await ctx.orch.waitAgent(a, 0.05)).done, false)
+		const waiting = ctx.orch.waitAgent(a, 30)
+		setTimeout(() => void ctx.orch.removeAgent(a), 30)
+		assert.equal((await waiting).done, true)
 	})
 
 	it('агент без --space запускается в каталоге сессии (cwd вкладки), а не в единственном существующем пространстве', async () => {
@@ -208,25 +157,13 @@ describe('сессии: сервис', () => {
 		assert.equal(b.space, 'main')
 	})
 
-	it('/clear: хук Stop меняет чат, а сессия и её агенты остаются; чужой чат не перехватывается', async () => {
-		const first = ctx.orch.createSession({ cwd: '/x', chatId: 'chat-0000001' })
-		const agent = (await ctx.orch.spawn({ space: 'main', name: 'worker', session: first.id })).agent.id
-		const cleared = ctx.orch.reportLead(first.id, { idle: true, chatId: 'chat-0000002' })
-		assert.equal(cleared.id, first.id)
-		assert.equal(cleared.chatId, 'chat-0000002')
-		assert.equal(ctx.orch.getAgent(agent).session, first.id)
-		const other = ctx.orch.createSession({ cwd: '/y', chatId: 'chat-0000003' })
-		assert.throws(() => ctx.orch.reportLead(other.id, { idle: true, chatId: 'chat-0000002' }), /chat_bound|уже привязан/)
-	})
-
 	it('вкладка закрыта: работающие агенты остановлены, сессия и записи остаются, lead = ended', async () => {
 		const s = ctx.orch.createSession({ cwd: '/x', chatId: 'chat-0000011' })
 		const agent = (await ctx.orch.spawn({ space: 'main', name: 'busy', session: s.id, prompt: 'работай' })).agent.id
 		await new Promise(r => setTimeout(r, 20))
 		const r = await ctx.orch.sessionClosed(s.id)
 		assert.equal(r.cancelled, 1)
-		assert.equal(ctx.orch.getSession(s.id).lead?.state, 'ended')
-		assert.equal(ctx.orch.getAgent(agent).session, s.id, 'агент и сессия не удалены')
+				assert.equal(ctx.orch.getAgent(agent).session, s.id, 'агент и сессия не удалены')
 		await assert.rejects(() => ctx.orch.sessionClosed('нет-такой'), /не найдена/)
 	})
 
@@ -241,11 +178,9 @@ describe('сессии: сервис', () => {
 		assert.equal(queued.queued, true)
 	})
 
-	it('рестарт: сессии, привязка агентов и курсоры сессий восстанавливаются; старые агенты → session=null', async () => {
+	it('рестарт: сессии и привязка агентов восстанавливаются; старые агенты → session=null', async () => {
 		const t = ctx.orch.createSession({ title: 'Живучая' })
-		const a = (await ctx.orch.spawn({ space: 'main', name: 'keeper', session: t.id })).agent.id
-		ctx.orch.post({ from: a, to: 'you', kind: 'reply', text: 'раз' })
-		await ctx.orch.inbox({ session: t.id })
+		await ctx.orch.spawn({ space: 'main', name: 'keeper', session: t.id })
 		await ctx.orch.shutdown()
 		// агент из старой версии состояния — без поля session
 		const legacy = { ...(ctx.store.state.agents[0] as (typeof ctx.store.state.agents)[number]), id: 'a-old', name: 'old' }
@@ -255,7 +190,6 @@ describe('сессии: сервис', () => {
 		assert.deepEqual(next.orch.listSessions().map((x: SessionView) => x.id), [t.id])
 		assert.equal(next.orch.getAgent('keeper').session, t.id)
 		assert.equal(next.orch.getAgent('old').session, null)
-		assert.deepEqual((await next.orch.inbox({ session: t.id })).messages, [], 'курсор сессии сохранён')
 		await next.orch.shutdown()
 	})
 })

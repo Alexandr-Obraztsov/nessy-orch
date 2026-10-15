@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { after, describe, it } from 'node:test'
-import type { InboxResponse, SendResponse, SpawnResponse, UserEvent } from '../../shared/types'
+import type { SendResponse, SpawnResponse, UserEvent } from '../../shared/types'
 import { startHarness } from '../support/harness'
 import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
@@ -25,7 +25,6 @@ describe('рестарт и восстановление', () => {
 		const id = sp.body.agent.id
 		const sessionBefore = first.orch.resolveAgent(id).nessyId
 		await first.api('POST', '/agents', { space: 'main', name: 'doomed', prompt: '#fail', wait: true, waitTimeoutSec: 8 })
-		await first.api('GET', '/inbox') // сдвинуть курсор
 		const seqBefore = first.orch.listMessages({ limit: 1000 }).at(-1)?.seq ?? 0
 		const base = first.base
 		await first.close({ keepFiles: true })
@@ -46,7 +45,6 @@ describe('рестарт и восстановление', () => {
 		assert.equal(second.orch.graph().spaces[0]?.name, 'main')
 		assert.equal(second.orch.listMessages({ limit: 1000 }).at(-1)?.seq, seqBefore)
 		assert.ok(second.orch.agentHistory('keeper').some(e => e.kind === 'text' && e.text === 'ответ: запомни'))
-		assert.deepEqual((await second.api<InboxResponse>('GET', '/inbox?peek=1')).body.messages, [], 'курсор inbox сохранён')
 
 		// serve новый — старой сессии в нём нет: создаётся новая с пометкой о сбросе контекста
 		const r = await second.api<SendResponse>('POST', '/agents/keeper/send', { text: 'снова', wait: true, waitTimeoutSec: 10 })

@@ -52,7 +52,4 @@ export interface PersistedState {
 	spaces: PersistedSpace[]
 	agents: PersistedAgent[]
 	msgSeq: number
-	inboxCursor: number
-	/** курсоры inbox по сессиям (id сессии → seq); нет в состояниях старых версий */
-	sessionCursors?: Record<string, number>
 }

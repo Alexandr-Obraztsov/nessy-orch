@@ -26,22 +26,6 @@ export interface SpawnRequest {
 	waitTimeoutSec?: number
 }
 
-/** POST /agents/batch — запустить несколько агентов за один вызов; общие поля применяются к каждому, у агента могут быть свои. */
-export interface SpawnBatchRequest {
-	space?: string
-	cwd?: string
-	session?: string
-	from?: NodeId
-	agents: SpawnRequest[]
-}
-
-/** Результат одного агента пакета: создан (`agent`) либо ошибка (`error`, `code`) — остальные агенты запускаются независимо. */
-export type SpawnBatchItem = { ok: true; agent: AgentView; message?: Message } | { ok: false; error: string; code: string; name?: string }
-
-export interface SpawnBatchResponse {
-	results: SpawnBatchItem[]
-}
-
 export interface SendRequest {
 	from?: NodeId
 	text: string
@@ -114,51 +98,19 @@ export interface SessionRequest {
 	chatId?: string
 }
 
-/** Отчёт хука Stop: главный агент закончил ход; `chatId` — актуальный id чата (меняется после /clear и /resume). */
-export interface LeadReport {
-	idle: boolean
-	chatId?: string
-}
-
-/** Сводка непрочитанных Claude ответов и вопросов агентов (`GET /sessions/:id/digest`). */
-export interface DigestResponse {
-	/** строка-заголовок, которую приложение набирает клавишами перед вставкой тела */
-	header: string
-	/** тело для вставки (очищено от управляющих символов, ≤8 КБ); пусто — нечего доставлять */
-	text: string
-	/** курсор для `POST /sessions/:id/ack` — последнее реально вошедшее в text сообщение */
-	cursor: number
-	/** сколько сообщений вошло в text */
-	count: number
-	/** сколько не поместилось (придут следующей пачкой) */
-	hidden: number
-	/** имена агентов сессии, которые ещё работают */
-	working: string[]
-	/** у сессии сейчас висит фоновое ожидание (`inbox --session S --all`): второе запускать не нужно */
-	watching?: boolean
-}
-
-/** Итог ожидания пачки (`GET /sessions/:id/wait`): почему вернулись и сводка. */
-export interface SettledResponse {
-	/** idle — все агенты закончили; question — агент задал вопрос; timeout — агенты ещё работают; nothing — ждать нечего; watching — ожидание этой сессии уже запущено */
-	reason: 'idle' | 'question' | 'timeout' | 'nothing' | 'watching'
-	digest: DigestResponse
-	/** сколько агентов сессии ещё работает */
-	active: number
-}
-
 export interface SessionPatch {
 	title?: string
 	status?: SessionStatus
 	summary?: string | null
 }
 
-/** GET /inbox?session=<id> — только ответы агентов этой сессии, со своим курсором на каждую сессию. */
-export interface InboxResponse {
-	messages: Message[]
-	cursor: number
-	/** сколько агентов сессии (без `session` — всех) ещё работают или ждут в очереди; 0 и нет сообщений — ждать нечего */
-	active: number
+/** GET /agents/:ref/wait?timeout=СЕК — дождаться, пока агент освободится, и получить его последний ответ. */
+export interface WaitResponse {
+	/** агент свободен (ход и очередь закончены); false — время вышло, агент ещё работает */
+	done: boolean
+	agent: AgentView
+	/** последний ответ агента (после ожидания); undefined — агент ещё ничего не отвечал */
+	reply?: Message
 }
 
 export interface StatusResponse {

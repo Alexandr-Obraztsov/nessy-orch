@@ -1,11 +1,11 @@
 /**
- * Сессии оркестраторов («ящики»): хранение (sessions.json), создание, правка, закрытие и удаление.
- * Каждый Claude заводит свою сессию, агенты привязываются к ней, у сессии свой inbox (курсор — в ленте).
+ * Сессии оркестраторов (вкладки проектов): хранение (sessions.json), создание, правка, закрытие и удаление.
+ * Каждый Claude (вкладка приложения) работает в своей сессии, агенты привязываются к ней.
  * Правила полей — domain/sessions.ts.
  */
-import type { LeadReport, LeadState, SessionPatch, SessionRequest, SessionStatus, SessionView } from '../../../shared/types'
+import type { SessionPatch, SessionRequest, SessionStatus, SessionView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
-import { isChatId, isSessionId, sessionIdFrom, validateSessionPatch, validateSessionRequest } from '../../domain/sessions'
+import { isSessionId, sessionIdFrom, validateSessionPatch, validateSessionRequest } from '../../domain/sessions'
 import { hexId } from '../../lib/ids'
 import type { ServiceContext } from './context.types'
 
@@ -30,7 +30,7 @@ export class SessionsService {
 	/** Сессии: сначала активные, внутри — по свежести (updatedAt). */
 	list(status?: SessionStatus): SessionView[] {
 		return [...this.sessions.values()]
-			.map(s => this.view(s))
+			
 			.filter(t => status === undefined || t.status === status)
 			.sort((a, b) => (a.status === b.status ? b.updatedAt.localeCompare(a.updatedAt) : a.status === 'active' ? -1 : 1))
 	}
@@ -46,25 +46,9 @@ export class SessionsService {
 
 	/** Сессия по id; неизвестная → 404 no_session. */
 	resolve(ref: string): SessionView {
-		return this.view(this.raw(ref))
-	}
-
-	/** Сессия как хранится (без вычисляемых полей). */
-	private raw(ref: string): SessionView {
 		const hit = this.sessions.get(ref.trim().toLowerCase())
 		if (!hit) throw new AppError(404, 'no_session', `сессия «${ref}» не найдена`)
 		return hit
-	}
-
-	/** Сессия с вычисляемым `unread` (сколько сообщений главный агент ещё не получил). */
-	private view(s: SessionView): SessionView {
-		return { ...s, unread: this.ctx.feed.pending(s.id).length }
-	}
-
-	/** Пересчитать и разослать счётчик непрочитанных (без записи на диск). */
-	refresh(id: string): void {
-		const s = this.sessions.get(id)
-		if (s) this.ctx.hub.publish({ t: 'session', session: this.view(s) })
 	}
 
 	create(req: SessionRequest): SessionView {
@@ -85,33 +69,12 @@ export class SessionsService {
 		if (f.cwd) session.cwd = f.cwd
 		if (f.chatId) session.chatId = f.chatId
 		this.put(session)
-		return this.view(session)
-	}
-
-	/**
-	 * Отчёт хука Stop: главный агент закончил ход (`idle`) или начал работу. `chatId` обновляет привязку: после /clear и /resume
-	 * в том же терминале чат другой, а сессия — прежняя (вкладка). Чат, уже занятый другой сессией, не перехватываем.
-	 */
-	reportLead(ref: string, report: LeadReport): SessionView {
-		const s = this.raw(ref)
-		const chat = report.chatId?.trim()
-		if (chat && !isChatId(chat)) throw new AppError(400, 'bad_request', 'chatId — до 64 символов [A-Za-z0-9-]')
-		if (chat && chat !== s.chatId) {
-			const other = [...this.sessions.values()].find(x => x.id !== s.id && x.chatId === chat)
-			if (other) throw new AppError(409, 'chat_bound', `чат уже привязан к сессии «${other.id}»`)
-		}
-		const next: SessionView = { ...s, ...(chat ? { chatId: chat } : {}), lead: { state: report.idle ? 'idle' : 'working', at: this.isoNow() } }
-		if (chat && chat !== s.chatId) this.put(next)
-		else {
-			this.sessions.set(s.id, next)
-			this.ctx.hub.publish({ t: 'session', session: this.view(next) })
-		}
-		return this.view(next)
+		return session
 	}
 
 	/** Частичная правка: заголовок, статус (done ставит оркестратор), итог. */
 	update(ref: string, patch: SessionPatch): SessionView {
-		const prev = this.raw(ref)
+		const prev = this.resolve(ref)
 		const p = validateSessionPatch(patch)
 		const session: SessionView = {
 			...prev,
@@ -143,17 +106,7 @@ export class SessionsService {
 		this.ctx.store.removeSources(session.id)
 		this.save()
 		for (const a of inside) a.setSession(null)
-		this.ctx.feed.forgetSession(session.id)
 		this.ctx.hub.publish({ t: 'session_removed', id: session.id })
-	}
-
-	/** Состояние Claude Code по хукам (в памяти: после рестарта сервиса неизвестно). */
-	setLeadState(ref: string, state: LeadState): SessionView {
-		const s = this.raw(ref)
-		const next: SessionView = { ...s, lead: { state, at: this.isoNow() } }
-		this.sessions.set(s.id, next)
-		this.ctx.hub.publish({ t: 'session', session: this.view(next) }) // без записи на диск: состояние временное
-		return next
 	}
 
 	/** Обновить счётчик источников (updatedAt не трогаем — это не действие оператора). */
@@ -165,12 +118,11 @@ export class SessionsService {
 	private put(session: SessionView): void {
 		this.sessions.set(session.id, session)
 		this.save()
-		this.ctx.hub.publish({ t: 'session', session: this.view(session) })
+		this.ctx.hub.publish({ t: 'session', session })
 	}
 
 	private save(): void {
-		// состояние Claude и счётчик непрочитанных временные: после рестарта сервиса они неизвестны
-		this.ctx.store.saveSessions([...this.sessions.values()].map(({ lead: _lead, unread: _unread, ...s }) => s))
+		this.ctx.store.saveSessions([...this.sessions.values()])
 	}
 
 	private isoNow(): string {

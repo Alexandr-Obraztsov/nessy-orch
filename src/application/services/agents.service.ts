@@ -1,5 +1,5 @@
 /** Жизненный цикл агентов: создание, удаление, прерывание, архив, разрешения, история чата. */
-import type { AgentEvent, AgentView, Message, PlanRequest, SendResponse, SpawnBatchItem, SpawnBatchRequest, SpawnBatchResponse, SpawnRequest, SpawnResponse, RoleView } from '../../../shared/types'
+import type { AgentEvent, AgentView, Message, PlanRequest, SendResponse, SpawnRequest, SpawnResponse, RoleView, WaitResponse } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { uniqueName } from '../../domain/naming'
 import { validatePlanEntries } from '../../domain/plan'
@@ -46,7 +46,7 @@ export class AgentsService {
 		const session = req.session?.trim() ? this.sessions.resolve(req.session).id : (registry.agents.get(parent)?.session ?? null)
 		// без --space агент запускается в каталоге оркестратора — там, где идёт чат Claude (cwd сессии), отдельные каталоги не создаются
 		const space = this.spaces.resolve(req.space, (session ? this.sessions.cwdOf(session) : null) ?? req.cwd)
-		this.assertBudget(parent, session)
+		await this.assertBudget(parent, session)
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)
 		while (registry.agents.has(id))
@@ -90,21 +90,65 @@ export class AgentsService {
 		return depth
 	}
 
-	/** Бюджеты порождения: глубина, число одновременно работающих и общее число агентов сессии. 429 с подсказкой, что делать. */
-	private assertBudget(parent: string, session: string | null): void {
+	/**
+	 * Бюджеты порождения: глубина, число одновременно работающих агентов сессии и общее число агентов (не больше `maxAgents`).
+	 * Лишних простаивающих агентов (завершённых, с ошибкой, свободных) удаляем сами, самых давних первыми; отказ (429) — только если
+	 * все агенты работают. Агента, который запускает нового, не трогаем.
+	 */
+	private async assertBudget(parent: string, session: string | null): Promise<void> {
 		const s = this.ctx.settings
 		const maxDepth = s.maxDepth ?? 2
 		if (this.depthOf(parent) > maxDepth)
 			throw new AppError(429, 'depth_exceeded', `агент не может порождать агентов глубже ${maxDepth} уровней: выполни поручение сам или верни результат запустившему`)
-		if (!session) return
-		const mine = [...this.ctx.registry.agents.values()].filter(a => a.session === session)
-		const active = mine.filter(a => a.isBusy || a.queue.length > 0 || a.status === 'starting').length
-		const maxActive = s.maxActivePerSession ?? 12
-		if (active >= maxActive)
-			throw new AppError(429, 'too_many_active', `в сессии уже работают ${active} агентов (лимит ${maxActive}): дождись ответов (inbox) или останови лишних (cancel)`)
-		const maxAll = s.maxAgentsPerSession ?? 40
-		if (mine.length >= maxAll)
-			throw new AppError(429, 'too_many_agents', `в сессии уже ${mine.length} агентов (лимит ${maxAll}): удали завершённых (kill) или переиспользуй их — сообщение будит агента с прежним контекстом`)
+		if (session) {
+			const mine = [...this.ctx.registry.agents.values()].filter(a => a.session === session)
+			const active = mine.filter(a => a.isBusy || a.queue.length > 0 || a.status === 'starting').length
+			const maxActive = s.maxActivePerSession ?? 12
+			if (active >= maxActive)
+				throw new AppError(429, 'too_many_active', `в сессии уже работают ${active} агентов (лимит ${maxActive}): дождись ответов (wait) или останови лишних (cancel)`)
+		}
+		const maxAll = s.maxAgents ?? 20
+		await this.evictIdle(maxAll - 1, parent)
+		if (this.ctx.registry.agents.size >= maxAll)
+			throw new AppError(429, 'too_many_agents', `уже ${this.ctx.registry.agents.size} агентов (лимит ${maxAll}) и все работают: дождись ответов (wait) или останови лишних (cancel)`)
+	}
+
+	/** Удалить простаивающих агентов, пока их больше `keep`: самые давние по активности первыми; `except` не трогаем. */
+	private async evictIdle(keep: number, except: string): Promise<void> {
+		const all = [...this.ctx.registry.agents.values()]
+		if (all.length <= keep) return
+		const idle = all
+			.filter(a => a.id !== except && !a.isBusy && a.queue.length === 0 && a.status !== 'starting')
+			.sort((a, b) => Date.parse(a.lastActivityAt) - Date.parse(b.lastActivityAt))
+		for (const a of idle) {
+			if (this.ctx.registry.agents.size <= keep) break
+			await this.remove(a.id).catch(() => undefined)
+		}
+	}
+
+	/**
+	 * Дождаться, пока агент освободится (ход и очередь закончены), и вернуть его последний ответ. Время вышло — `done: false`,
+	 * агент продолжает работать (вызвать снова). Удаление агента во время ожидания тоже завершает его.
+	 */
+	async waitIdle(ref: string, timeoutSec: number): Promise<WaitResponse> {
+		const agent = this.ctx.registry.resolveAgent(ref)
+		const busy = (): boolean => agent.isBusy || agent.queue.length > 0 || agent.status === 'starting'
+		let done = !busy()
+		if (!done) {
+			done = await new Promise<boolean>(resolve => {
+				const finish = (v: boolean): void => {
+					clearTimeout(timer)
+					off()
+					resolve(v)
+				}
+				const timer = setTimeout(() => finish(false), Math.max(0, timeoutSec) * 1000)
+				const off = this.ctx.hub.subscribe(e => {
+					if ((e.t === 'agent' && e.agent.id === agent.id && !busy()) || (e.t === 'agent_removed' && e.id === agent.id)) finish(true)
+				})
+			})
+		}
+		const reply = this.ctx.feed.lastReplyOf(agent.id)
+		return { done, agent: agent.toJSON(), ...(reply ? { reply } : {}) }
 	}
 
 	/**
@@ -119,30 +163,6 @@ export class AgentsService {
 		return old.length
 	}
 
-	/**
-	 * Пакет агентов за один вызов: общие поля (space, cwd, session, from) применяются к каждому, ошибка одного не мешает остальным.
-	 * Агенты создаются по порядку (имена уникальны), поручения уходят сразу: `wait` в пакете не поддерживается.
-	 */
-	async spawnMany(req: SpawnBatchRequest): Promise<SpawnBatchResponse> {
-		const results: SpawnBatchItem[] = []
-		for (const a of req.agents) {
-			try {
-				const r = await this.spawn({
-					...a,
-					space: a.space ?? req.space,
-					cwd: a.cwd ?? req.cwd,
-					session: a.session ?? req.session,
-					from: a.from ?? req.from,
-					wait: false,
-				})
-				results.push({ ok: true, agent: r.agent, message: r.message })
-			} catch (e) {
-				const err = e instanceof AppError ? e : new AppError(500, 'internal', e instanceof Error ? e.message : String(e))
-				results.push({ ok: false, error: err.message, code: err.code, ...(a.name ? { name: a.name } : {}) })
-			}
-		}
-		return { results }
-	}
 
 	async remove(ref: string): Promise<void> {
 		const { registry } = this.ctx

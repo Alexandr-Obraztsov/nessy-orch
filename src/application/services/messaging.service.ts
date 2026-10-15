@@ -6,12 +6,9 @@ import { RateLimiter } from '../../domain/rate-limiter'
 import { assertHops, expectsReply, isAgentSender, nextHops, replyDraft, shouldDeliver } from '../../domain/routing'
 import type { AgentIdentity, MessageDraft, TurnOutcome } from '../../domain/types'
 import { WaitGraph } from '../../domain/wait-graph'
-import { clip } from '../../lib/text'
 import type { ServiceContext } from './context.types'
 
 const DEFAULT_WAIT_SEC = 600
-/** длина копии ответа агента человеку, которую получает главный агент */
-const COPY_MAX = 300
 
 export class MessagingService {
 	private readonly limiter: RateLimiter
@@ -67,7 +64,6 @@ export class MessagingService {
 		const wasBusy = !!target && (target.isBusy || target.queue.length > 0)
 		const state: Pick<SendResponse, 'started' | 'interrupted' | 'queued'> = target ? (wasBusy ? (interrupt ? { interrupted: true } : { queued: true }) : { started: true }) : {}
 		const message = this.post({ from, to, kind: 'msg', text, hops, wait }, interrupt)
-		if (from === USER && target) this.noteUserMessage(target.id, text, target.session)
 		if (!wait) return { message, ...state }
 		return { ...(await this.waitReply(message, from, to, req.waitTimeoutSec)), ...state }
 	}
@@ -81,12 +77,6 @@ export class MessagingService {
 		} finally {
 			this.waitGraph.remove(from, to)
 		}
-	}
-
-	/** Человек написал агенту из приложения: главный агент сессии узнает об этом (служебная запись в его inbox) и ничего не потеряет из виду. */
-	private noteUserMessage(agentId: string, text: string, session: string | null): void {
-		const label = this.ctx.registry.labelOf(agentId)
-		this.ctx.feed.append({ from: SYSTEM, to: YOU, kind: 'reply', text: `[пользователь написал агенту ${label} из приложения]\n${text}`, ...(session ? { session } : {}) })
 	}
 
 	forget(agentId: string): void {
@@ -105,14 +95,6 @@ export class MessagingService {
 			delete draft.wait
 		}
 		const reply = this.ctx.feed.append(draft)
-		// ответ человеку (не главному агенту): главный агент получает копию — он ведёт разговор и должен знать, что ответил его агент
-		if (msg.from === USER) {
-			const self = this.ctx.registry.agents.get(agent.id)
-			const session = self?.session ?? null
-			// главному агенту — короткая копия: полный ответ человек уже видит, лишние токены в контексте Claude не нужны
-			const copy = reply.text.length > COPY_MAX ? `${clip(reply.text, COPY_MAX)}\n(полностью: nessy-orch show ${self?.name ?? agent.id})` : reply.text
-			this.ctx.feed.append({ from: agent.id, to: YOU, kind: 'reply', text: `(ответ пользователю на его сообщение)\n${copy}`, ...(session ? { session } : {}) })
-		}
 		const back = this.ctx.registry.agents.get(msg.from)
 		if (back && !msg.wait) back.deliver(reply)
 		return reply

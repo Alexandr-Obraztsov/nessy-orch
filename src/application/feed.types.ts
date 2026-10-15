@@ -8,12 +8,6 @@ export interface FeedDeps {
 	ids: IdGenerator
 	/** состояние изменилось — сохранить позже */
 	onChange: () => void
-	/** сессия узла-отправителя (агента) или null — для inbox по сессии */
-	sessionOf: (nodeId: string) => string | null
-	/** сколько агентов ещё работают или ждут в очереди (session — только этой сессии; без неё — все) */
-	activeAgents: (session?: string) => number
-	/** пришло сообщение для главного агента сессии (или без сессии): обновить счётчик непрочитанных */
-	onInbound?: (session: string | null) => void
 }
 
 export interface FeedQuery {
@@ -21,12 +15,4 @@ export interface FeedQuery {
 	involving?: string
 	since?: number
 	limit?: number
-}
-
-export interface InboxQuery {
-	/** только ответы агентов этой сессии; курсор — свой для каждой сессии */
-	session?: string
-	wait?: number
-	peek?: boolean
-	after?: number
 }

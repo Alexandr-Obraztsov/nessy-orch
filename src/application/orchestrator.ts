@@ -3,15 +3,12 @@
  * реализует AgentHost и отдаёт интерфейсному слою (HTTP) готовые сценарии.
  */
 import * as crypto from 'node:crypto'
-import { SYSTEM, USER, YOU } from '../domain/constants'
+import { USER, YOU } from '../domain/constants'
 import { AppError } from '../domain/errors'
 import type {
 	AgentEvent,
-	DigestResponse,
-	LeadReport,
 	AgentView,
 	GraphView,
-	InboxResponse,
 	Message,
 	RoleRequest,
 	RoleView,
@@ -19,17 +16,15 @@ import type {
 	SendResponse,
 	SpaceRequest,
 	SpaceView,
-	SpawnBatchRequest,
-	SpawnBatchResponse,
 	SpawnRequest,
 	SpawnResponse,
 	StatusResponse,
 	StreamEvent,
 	SessionPatch,
 	SessionRequest,
-	SettledResponse,
 	SessionStatus,
 	SessionView,
+	WaitResponse,
 	SourceView,
 } from '../../shared/types'
 import type { AgentIdentity, MessageDraft, RolePresetFile, RoleSeedResult, TurnOutcome } from '../domain/types'
@@ -37,13 +32,11 @@ import { rid } from '../lib/ids'
 import { Agent } from './agent/agent'
 import type { AgentHost } from './agent/agent.types'
 import { Feed } from './feed'
-import type { InboxQuery } from './feed.types'
 import { Hub } from './hub'
 import type { OrchestratorDeps } from './orchestrator.types'
 import type { PersistedState } from './persisted.types'
 import type { RolePackagePort, SpaceRuntime, StorePort } from './ports'
 import { Registry } from './registry'
-import { buildDigest } from '../domain/digest'
 import { SessionPool } from './session-pool'
 import { AgentsService } from './services/agents.service'
 import type { ServiceContext } from './services/context.types'
@@ -57,6 +50,9 @@ const SNAPSHOT_MESSAGES = 300
 const DEFAULT_CANCEL_GRACE_MS = 3000
 const DEFAULT_IDLE_CLOSE_MS = 120_000
 const GC_INTERVAL_MS = 5 * 60_000
+
+/** Сессия, в которой что-то происходило недавно, при уборке не удаляется */
+const SESSION_FRESH_MS = 30 * 60_000
 
 /** Пакеты ролей не подключены (тесты, встраивание): роль с packageDir отклоняется понятной ошибкой. */
 const NO_ROLE_PACKAGES: RolePackagePort = {
@@ -96,16 +92,6 @@ export class Orchestrator implements AgentHost {
 			clock,
 			ids,
 			onChange: () => this.saveSoon(),
-			sessionOf: id => this.registry.agents.get(id)?.session ?? null,
-			onInbound: session => {
-				if (session) this.sessionsSvc.refresh(session)
-			},
-			activeAgents: session =>
-				[...this.registry.agents.values()].filter(a => (session === undefined || a.session === session) && !a.archived && (a.isBusy || a.queue.length > 0)).length,
-		})
-		// кто-то закончил, был прерван или удалён: ожидающие inbox пересчитывают, есть ли ещё кого ждать
-		this.hub.subscribe(e => {
-			if (e.t === 'agent' || e.t === 'agent_removed') this.feed.wake()
 		})
 		this.pool = new SessionPool({
 			target: () => deps.settings.warmSessions ?? 0,
@@ -158,9 +144,7 @@ export class Orchestrator implements AgentHost {
 		const st = this.store.loadState()
 		this.rolesSvc.load()
 		this.sessionsSvc.load()
-		// курсоры удалённых (пропавших из sessions.json) сессий не восстанавливаем
-		const cursors = Object.fromEntries(Object.entries(st.sessionCursors ?? {}).filter(([t]) => this.sessionsSvc.has(t)))
-		this.feed.load(st.msgSeq, st.inboxCursor, cursors)
+		this.feed.load(st.msgSeq)
 		for (const s of st.spaces) this.registry.spaces.set(s.name, this.spacesSvc.make(s))
 		for (const p of st.agents) {
 			// пространство пропало из состояния: агент остаётся (его чат и ответы не теряем), а статус — ошибка с причиной
@@ -201,8 +185,6 @@ export class Orchestrator implements AgentHost {
 			spaces: [...this.registry.spaces.values()].map(s => ({ name: s.name, path: s.path, url: s.url, color: s.color })),
 			agents: [...this.registry.agents.values()].map(a => a.persist()),
 			msgSeq: this.feed.msgSeq,
-			inboxCursor: this.feed.inboxCursor,
-			sessionCursors: this.feed.sessionCursorsSnapshot(),
 		}
 	}
 
@@ -268,10 +250,6 @@ export class Orchestrator implements AgentHost {
 
 	spawn(req: SpawnRequest): Promise<SpawnResponse> {
 		return this.agentsSvc.spawn(req)
-	}
-
-	spawnMany(req: SpawnBatchRequest): Promise<SpawnBatchResponse> {
-		return this.agentsSvc.spawnMany(req)
 	}
 
 	removeAgent(ref: string): Promise<void> {
@@ -348,7 +326,39 @@ export class Orchestrator implements AgentHost {
 	}
 
 	createSession(req: SessionRequest): SessionView {
-		return this.sessionsSvc.create(req)
+		const session = this.sessionsSvc.create(req)
+		void this.pruneSessions(session.id).catch(() => undefined)
+		return session
+	}
+
+	/**
+	 * Не держим много сессий: сверх `maxSessions` удаляем самые давние, в которых никто не работает и ничего не происходило последние
+	 * полчаса, вместе с их (простаивающими) агентами. Свежие и работающие не трогаем: лимит может быть временно превышен.
+	 */
+	async pruneSessions(keepId: string): Promise<number> {
+		const max = this.ctx.settings.maxSessions ?? 10
+		const all = this.sessionsSvc.list()
+		let over = all.length - max
+		if (over <= 0) return 0
+		const now = this.ctx.clock.now()
+		const agentsOf = (id: string): Agent[] => [...this.registry.agents.values()].filter(a => a.session === id)
+		const lastActivity = (s: SessionView): number => Math.max(Date.parse(s.updatedAt), ...agentsOf(s.id).map(a => Date.parse(a.lastActivityAt)))
+		const candidates = all
+			.filter(s => s.id !== keepId && agentsOf(s.id).every(a => !a.isBusy && a.queue.length === 0) && now - lastActivity(s) > SESSION_FRESH_MS)
+			.sort((a, b) => lastActivity(a) - lastActivity(b))
+		let removed = 0
+		for (const s of candidates) {
+			if (over <= 0) break
+			for (const a of agentsOf(s.id)) await this.agentsSvc.remove(a.id).catch(() => undefined)
+			try {
+				this.removeSession(s.id)
+				over--
+				removed++
+			} catch {
+				/* сессия снова занята — пропускаем */
+			}
+		}
+		return removed
 	}
 
 	updateSession(id: string, patch: SessionPatch): SessionView {
@@ -397,44 +407,17 @@ export class Orchestrator implements AgentHost {
 		return this.feed.list({ involving, since: opts.since, limit: opts.limit })
 	}
 
-	/** Хук Stop: главный агент закончил ход; chatId — актуальный чат Claude (меняется после /clear, /resume). */
-	reportLead(id: string, report: LeadReport): SessionView {
-		return this.sessionsSvc.reportLead(id, report)
-	}
-
 	/**
-	 * Сводка непрочитанных Claude сообщений сессии (ответы и вопросы агентов) для ввода в его терминал. Курсор не двигает:
-	 * `ack` ставит приложение после того, как ввод подтверждён, иначе сводка придёт снова.
+	 * Дождаться, пока агент освободится (его ход и очередь закончились), и вернуть его последний ответ. Так `nessy-orch wait <агент>`
+	 * (и `spawn` / `send`, которые ждут сами) возвращает результат одному вызову, которому он нужен; ящика входящих нет.
 	 */
-	digest(id: string): DigestResponse {
-		const session = this.sessionsSvc.resolve(id).id
-		const { registry, feed } = this
-		const working = [...registry.agents.values()]
-			.filter(a => a.session === session && !a.archived && (a.isBusy || a.queue.length > 0))
-			.map(a => a.name)
-		const digest = buildDigest(feed.pending(session), {
-			nameOf: n => (n === SYSTEM ? 'система' : n === USER ? 'человек' : (registry.agents.get(n)?.name ?? n)),
-			taskOf: m => (m.replyTo ? (feed.byId(m.replyTo)?.text ?? null) : null),
-			working,
-		})
-		return { ...digest, watching: feed.isWatching(session) }
-	}
-
-	/**
-	 * Дождаться пачки: все агенты сессии закончили, либо агент задал вопрос, либо вышло время; вернуть сводку.
-	 * Курсор не двигает — подтверждает вызывающий (`ack`) после того, как напечатал сводку.
-	 */
-	async waitSession(id: string, waitSec: number): Promise<SettledResponse> {
-		const session = this.sessionsSvc.resolve(id).id
-		const reason = await this.feed.settled(session, waitSec)
-		const active = [...this.registry.agents.values()].filter(a => a.session === session && !a.archived && (a.isBusy || a.queue.length > 0)).length
-		return { reason, digest: this.digest(session), active }
+	waitAgent(ref: string, timeoutSec: number): Promise<WaitResponse> {
+		return this.agentsSvc.waitIdle(ref, timeoutSec)
 	}
 
 	/** Вкладка закрыта: работающие агенты сессии останавливаются (без хозяина они жгли бы токены); сессия и ответы остаются. */
 	async sessionClosed(id: string): Promise<{ cancelled: number }> {
 		const session = this.sessionsSvc.resolve(id).id
-		this.sessionsSvc.setLeadState(session, 'ended')
 		let cancelled = 0
 		for (const a of this.registry.agents.values()) {
 			if (a.session !== session || !a.isBusy) continue
@@ -442,16 +425,6 @@ export class Orchestrator implements AgentHost {
 			await a.cancel()
 		}
 		return { cancelled }
-	}
-
-	/** Хук вывел ответы Claude — сдвинуть курсор сессии (до этого ответы считаются недоставленными и придут снова). */
-	ackSession(id: string, cursor: number): void {
-		this.feed.ack(this.sessionsSvc.resolve(id).id, cursor)
-	}
-
-	async inbox(opts: InboxQuery = {}): Promise<InboxResponse> {
-		if (opts.session !== undefined) return this.feed.inbox({ ...opts, session: this.sessionsSvc.resolve(opts.session).id })
-		return this.feed.inbox(opts)
 	}
 
 	// ---------- чтение ----------

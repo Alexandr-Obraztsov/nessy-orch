@@ -59,7 +59,8 @@ describe('HTTP: маршрутизатор', () => {
 			['DELETE', ['roles', 'r']],
 			['POST', ['agents', 'x', 'permission', 'r']],
 			['GET', ['messages']],
-			['GET', ['inbox']],
+			['GET', ['agents', 'x', 'wait']],
+			['POST', ['sessions', 's', 'closed']],
 		]
 		for (const [m, seg] of routes) assert.ok(r.match(m, seg), `${m} /${seg.join('/')}`)
 	})

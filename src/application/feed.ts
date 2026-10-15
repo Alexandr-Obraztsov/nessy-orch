@@ -1,11 +1,10 @@
 /**
- * Feed — общая лента сообщений («группчат»): нумерация, хранение, ожидание ответов (--wait)
- * и входящие для `you` (inbox с курсором и long-poll): общий курсор и отдельный курсор на каждую сессию.
+ * Feed — общая лента сообщений («группчат»): нумерация, хранение и ожидание ответов (--wait).
+ * Ящика входящих нет: ответ агента возвращается тому, кто его запустил или написал ему (`spawn` / `send` ждут результат сами).
  */
-import type { InboxResponse, Message } from '../../shared/types'
-import { YOU } from '../domain/constants'
+import type { Message } from '../../shared/types'
 import type { MessageDraft } from '../domain/types'
-import type { FeedDeps, FeedQuery, InboxQuery } from './feed.types'
+import type { FeedDeps, FeedQuery } from './feed.types'
 
 const MAX_MEMORY_MESSAGES = 5000
 /** сколько последних сообщений читаем с диска, когда истории узла не хватает в памяти */
@@ -14,71 +13,17 @@ const DISK_HISTORY_LIMIT = 100_000
 export class Feed {
 	private messages: Message[] = []
 	private seq = 0
-	private cursor = 0
-	/** курсоры inbox по сессиям: каждый оркестратор читает ответы своей сессии, не сдвигая чужие */
-	private readonly sessionCursors = new Map<string, number>()
-	private closed = false
 	private readonly waiters = new Map<string, (reply: Message) => void>()
-	private readonly inboxWaiters = new Set<() => void>()
-	/** сколько фоновых ожиданий (`inbox --wait`) сейчас открыто по каждой сессии */
-	private readonly watchers = new Map<string, number>()
 
 	constructor(private readonly deps: FeedDeps) {}
 
-	load(msgSeq: number, inboxCursor: number, sessionCursors: Readonly<Record<string, number>> = {}): void {
+	load(msgSeq: number): void {
 		this.messages = this.deps.store.loadMessages(MAX_MEMORY_MESSAGES)
 		this.seq = Math.max(msgSeq, ...this.messages.map(m => m.seq), 0)
-		this.cursor = inboxCursor
-		this.sessionCursors.clear()
-		for (const [session, c] of Object.entries(sessionCursors)) this.sessionCursors.set(session, c)
 	}
 
 	get msgSeq(): number {
 		return this.seq
-	}
-
-	get inboxCursor(): number {
-		return this.cursor
-	}
-
-	/** Курсоры inbox по сессиям (для сохранения). */
-	sessionCursorsSnapshot(): Record<string, number> {
-		return Object.fromEntries(this.sessionCursors)
-	}
-
-	/** Сессию удалили — её курсор больше не нужен. */
-	forgetSession(session: string): void {
-		if (this.sessionCursors.delete(session)) this.deps.onChange()
-	}
-
-	/** Подтвердить доставку: курсор сессии двигается вперёд до `cursor` (назад — никогда: повтор подтверждения безопасен). */
-	ack(session: string, cursor: number): void {
-		// курсор «из будущего» спрятал бы ещё не пришедшие ответы
-		if (cursor > this.seq || cursor <= (this.sessionCursors.get(session) ?? 0)) return
-		this.sessionCursors.set(session, cursor)
-		this.deps.onChange()
-		this.deps.onInbound?.(session)
-	}
-
-	/**
-	 * Сообщения для главного агента сессии, которые он ещё не получил (после курсора сессии): ответы агентов и их вопросы.
-	 * Ответ на вызов с `--wait` вернулся прямо в вызов — его здесь нет.
-	 */
-	pending(session: string): Message[] {
-		const from = this.sessionCursors.get(session) ?? 0
-		return this.messages.filter(
-			m => m.seq > from && m.to === YOU && (m.session ?? this.deps.sessionOf(m.from)) === session && (m.kind === 'msg' || (m.kind === 'reply' && !m.wait)),
-		)
-	}
-
-	/** Сообщение по id (в окне памяти) или undefined. */
-	byId(id: string): Message | undefined {
-		return this.messages.findLast(m => m.id === id)
-	}
-
-	/** У сессии открыто фоновое ожидание ответов. */
-	isWatching(session: string): boolean {
-		return (this.watchers.get(session) ?? 0) > 0
 	}
 
 	append(draft: MessageDraft): Message {
@@ -95,19 +40,11 @@ export class Feed {
 		if (draft.replyTo) msg.replyTo = draft.replyTo
 		if (draft.wait) msg.wait = true
 		if (draft.failed) msg.failed = draft.failed
-		if (draft.to === YOU) {
-			const session = draft.session ?? this.deps.sessionOf(draft.from)
-			if (session) msg.session = session
-		}
 		this.messages.push(msg)
 		if (this.messages.length > MAX_MEMORY_MESSAGES) this.messages.splice(0, this.messages.length - MAX_MEMORY_MESSAGES)
 		this.deps.store.appendMessage(msg)
 		this.deps.hub.publish({ t: 'message', message: msg })
 		this.deps.onChange()
-		if (msg.to === YOU) {
-			for (const wake of [...this.inboxWaiters]) wake()
-			this.deps.onInbound?.(msg.session ?? null)
-		}
 		const waiter = msg.replyTo ? this.waiters.get(msg.replyTo) : undefined
 		if (waiter && msg.kind === 'reply') waiter(msg)
 		return msg
@@ -135,6 +72,16 @@ export class Feed {
 		return this.messages.slice(-n)
 	}
 
+	/** Сообщение по id (в окне памяти) или undefined. */
+	byId(id: string): Message | undefined {
+		return this.messages.findLast(m => m.id === id)
+	}
+
+	/** Последний ответ агента (в окне памяти) или undefined. */
+	lastReplyOf(agentId: string): Message | undefined {
+		return this.messages.findLast(m => m.kind === 'reply' && m.from === agentId)
+	}
+
 	list(q: FeedQuery = {}): Message[] {
 		let list = this.messages
 		const { involving, since } = q
@@ -151,90 +98,8 @@ export class Feed {
 		return list.slice(-limit)
 	}
 
-	/**
-	 * Входящие для `you`. peek=true не двигает курсор. wait — long-poll (сек).
-	 * session — только ответы агентов этой сессии, со своим курсором (по умолчанию — с начала ленты).
-	 */
-	async inbox(q: InboxQuery = {}): Promise<InboxResponse> {
-		const session = q.session
-		// курсор читается заново после каждого пробуждения: два ожидающих сборщика одной сессии не получают одни и те же ответы дважды
-		const after = (): number => q.after ?? (session === undefined ? this.cursor : (this.sessionCursors.get(session) ?? 0))
-		const mine = (m: Message): boolean => session === undefined || (m.session ?? this.deps.sessionOf(m.from)) === session
-		const read = (): Message[] => {
-			const from = after()
-			return this.messages.filter(m => m.to === YOU && m.kind === 'reply' && m.seq > from && mine(m))
-		}
-		let list = read()
-		const deadline = Date.now() + (q.wait ?? 0) * 1000
-		const watch = session !== undefined && !q.peek && q.wait !== undefined && q.wait > 0
-		if (watch) this.watchers.set(session, (this.watchers.get(session) ?? 0) + 1)
-		try {
-			// ждём, только пока есть кого ждать: нет работающих агентов и нет ответов — возвращаемся сразу (иначе Claude завис бы на всё время wait)
-			while (!list.length && !this.closed && Date.now() < deadline && this.deps.activeAgents(session) > 0) {
-				await this.sleepUntilMessage(deadline - Date.now())
-				list = read()
-			}
-		} finally {
-			if (watch) {
-				const n = (this.watchers.get(session) ?? 1) - 1
-				if (n > 0) this.watchers.set(session, n)
-				else this.watchers.delete(session)
-			}
-		}
-		const cursor = list.length ? (list[list.length - 1] as Message).seq : after()
-		if (!q.peek && q.after === undefined && list.length) {
-			if (session === undefined) this.cursor = cursor
-			else this.sessionCursors.set(session, cursor)
-			this.deps.onChange()
-		}
-		return { messages: list, cursor, active: this.deps.activeAgents(session) }
-	}
-
-	/**
-	 * Дождаться, пока вся пачка агентов сессии закончит (или появится вопрос агента к главному), и вернуть причину.
-	 * Одно ожидание на пачку: не просыпаемся на каждый ответ. Пока ждём, сессия считается «наблюдаемой» (isWatching).
-	 */
-	async settled(session: string, waitSec: number): Promise<'idle' | 'question' | 'timeout' | 'nothing' | 'watching'> {
-		// ожидание на сессию одно: второе сразу отказывается, а не печатает ту же сводку и не двигает курсор повторно
-		if (this.isWatching(session)) return 'watching'
-		const deadline = Date.now() + waitSec * 1000
-		this.watchers.set(session, (this.watchers.get(session) ?? 0) + 1)
-		try {
-			for (;;) {
-				const pending = this.pending(session)
-				if (pending.some(m => m.kind === 'msg')) return 'question'
-				if (this.deps.activeAgents(session) === 0) return pending.length ? 'idle' : 'nothing'
-				if (this.closed || Date.now() >= deadline) return 'timeout'
-				await this.sleepUntilMessage(deadline - Date.now())
-			}
-		} finally {
-			const n = (this.watchers.get(session) ?? 1) - 1
-			if (n > 0) this.watchers.set(session, n)
-			else this.watchers.delete(session)
-		}
-	}
-
-	/** Ждать нового сообщения к you не дольше ms. */
-	private sleepUntilMessage(ms: number): Promise<void> {
-		return new Promise<void>(resolve => {
-			const done = (): void => {
-				clearTimeout(timer)
-				this.inboxWaiters.delete(done)
-				resolve()
-			}
-			const timer = setTimeout(done, ms)
-			this.inboxWaiters.add(done)
-		})
-	}
-
-	/** Разбудить ожидающих inbox: изменилось число работающих агентов (кто-то закончил без ответа, удалён, прерван). */
-	wake(): void {
-		for (const w of [...this.inboxWaiters]) w()
-	}
-
-	/** Освободить висящие long-poll/ожидания (при остановке). */
+	/** Освободить ожидающих (при остановке). */
 	close(): void {
-		this.closed = true
-		for (const wake of [...this.inboxWaiters]) wake()
+		this.waiters.clear()
 	}
 }

@@ -492,9 +492,17 @@ export class Agent implements AgentIdentity {
 		try {
 			await this.ensureAttached()
 		} catch (e) {
+			this.pumping = false
+			// нет соединения с nessy: поручение повторяем с паузой, как и после ошибки хода
+			const first = this.queue[0]
+			const retry = first ? this.planRetry(first.id, errMsg(e), false) : null
+			if (retry) {
+				this.addSystem(`не удалось подключиться к nessy: ${errMsg(e)} — повтор ${retry.n}/${this.deps.turnRetries ?? 0} через ${Math.round(retry.delayMs / 1000)} с`, 'error')
+				this.armRetry(retry.delayMs)
+				return
+			}
 			const failed = this.queue.splice(0)
 			this.urgent = 0
-			this.pumping = false
 			for (const m of failed) this.noteReply(this.deps.host.onTurnDone(this, m, '', { error: errMsg(e) }))
 			if (failed.length) this.publishNode()
 			return
@@ -834,7 +842,7 @@ export class Agent implements AgentIdentity {
 		const text = finalText(cur.texts)
 		if (text) this.lastReply = text
 		// ошибка хода: повторяем то же поручение (2 раза с растущей паузой), ответ с ошибкой — только когда повторы кончились
-		const retry = this.planRetry(cur, info, cancelled)
+		const retry = this.planRetry(cur.msg.id, info.error, cancelled || cur.cancelRequested)
 		if (info.error) this.addSystem('ход завершился ошибкой: ' + info.error + (retry ? ` — повтор ${retry.n}/${this.deps.turnRetries ?? 0} через ${Math.round(retry.delayMs / 1000)} с` : ''), 'error')
 		else if (cancelled) this.addSystem('ход прерван')
 		if (!info.error) this.retryState = null
@@ -861,16 +869,16 @@ export class Agent implements AgentIdentity {
 		void this.refreshUsage()
 	}
 
-	/** Нужен ли повтор: ошибка хода (не отмена), агент жив и повторы не исчерпаны. */
-	private planRetry(cur: CurrentTurn, info: TurnOutcome, cancelled: boolean): { n: number; delayMs: number } | null {
+	/** Нужен ли повтор: любая ошибка (кроме отмены), агент жив и повторы не исчерпаны. */
+	private planRetry(msgId: string, error: string | undefined, noRetry: boolean): { n: number; delayMs: number } | null {
 		const max = this.deps.turnRetries ?? 0
-		if (!info.error || cancelled || cur.cancelRequested || this.removed || max <= 0) return null
-		const n = (this.retryState?.id === cur.msg.id ? this.retryState.n : 0) + 1
+		if (!error || noRetry || this.removed || max <= 0) return null
+		const n = (this.retryState?.id === msgId ? this.retryState.n : 0) + 1
 		if (n > max) {
 			this.retryState = null
 			return null
 		}
-		this.retryState = { id: cur.msg.id, n, error: info.error }
+		this.retryState = { id: msgId, n, error }
 		return { n, delayMs: (this.deps.turnRetryBaseMs ?? 3000) * 2 ** (n - 1) }
 	}
 
@@ -879,6 +887,11 @@ export class Agent implements AgentIdentity {
 		this.queue.unshift(cur.msg)
 		this.urgent++
 		this.queue.splice(this.urgent, 0, ...cur.injected.map(i => i.msg))
+		this.armRetry(delayMs)
+	}
+
+	/** Пауза перед повтором: очередь не разбирается, агент считается работающим. */
+	private armRetry(delayMs: number): void {
 		this.holdPump = true
 		this.setStatus('working')
 		this.publishNode()

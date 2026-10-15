@@ -1,9 +1,9 @@
-/** Сессии по HTTP: CRUD, spawn в сессии и наследование, inbox по сессиям (два оркестратора), поток, рестарт. */
+/** Сессии по HTTP: CRUD, spawn в сессии и наследование, поток, рестарт; CLI: ожидание результата. */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import * as path from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import type { AgentView, ApiError, GraphView, InboxResponse, SpawnBatchResponse, SpawnResponse, StreamEvent, SessionView } from '../../shared/types'
+import type { AgentView, ApiError, GraphView, SpawnResponse, StreamEvent, SessionView } from '../../shared/types'
 import { startHarness } from '../support/harness'
 import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
@@ -57,25 +57,6 @@ describe('сессии (HTTP)', () => {
 		assert.equal((await h.api<AgentView[]>('GET', '/agents')).body.length, 3)
 	})
 
-	it('два оркестратора: у каждой сессии свой inbox и курсор, ответы не крадутся', T, async () => {
-		await h.api('GET', '/inbox') // общий курсор — в конец
-		await h.api('POST', '/agents/lead-2/send', { text: 'для второго' })
-		await h.api('POST', '/agents/lead-1/send', { text: 'для первого' })
-		const w1 = h.api<InboxResponse>('GET', `/inbox?session=${t1.id}&wait=10`)
-		const w2 = h.api<InboxResponse>('GET', `/inbox?session=${t2.id}&wait=10`)
-		const [r1, r2] = await Promise.all([w1, w2])
-		assert.deepEqual(r1.body.messages.map(m => m.text), ['ответ: для первого'])
-		assert.deepEqual(r2.body.messages.map(m => m.text), ['ответ: для второго'])
-		assert.deepEqual((await h.api<InboxResponse>('GET', `/inbox?session=${t1.id}`)).body.messages, [], 'курсор первой сессии сдвинут')
-		assert.deepEqual((await h.api<InboxResponse>('GET', `/inbox?session=${t2.id}&peek=1`)).body.messages, [])
-		// прежний общий inbox без session видит всё, со своим курсором
-		const all = await h.api<InboxResponse>('GET', '/inbox?peek=1')
-		assert.deepEqual(all.body.messages.map(m => m.text).sort(), ['ответ: для второго', 'ответ: для первого'])
-		const again = await h.api<InboxResponse>('GET', `/inbox?session=${t1.id}&after=0`)
-		assert.equal(again.body.messages.length, 1, 'after читает с позиции, не двигая курсор')
-		assert.equal((await h.api<ApiError>('GET', '/inbox?session=nope')).body.code, 'no_session')
-	})
-
 	it('PATCH /sessions/:id: done с итогом и reopen; события session в /stream', T, async () => {
 		const s = await h.sse('/stream')
 		const snap = await s.waitFor((e): e is Extract<StreamEvent, { t: 'snapshot' }> => (e as StreamEvent).t === 'snapshot')
@@ -114,177 +95,64 @@ describe('сессии (HTTP)', () => {
 		assert.deepEqual(h.orch.listSessions().map(t => t.id), [t1.id])
 		assert.equal(h.orch.getAgent('lead-1').session, t1.id)
 		assert.equal(h.orch.getAgent('sub-1').session, t1.id)
-		assert.deepEqual((await h.api<InboxResponse>('GET', `/inbox?session=${t1.id}`)).body.messages, [], 'курсор сессии сохранён')
 	})
 })
 
-describe('пакетный запуск агентов', () => {
+describe('CLI: spawn и send ждут результат сами, wait, --no-wait', () => {
 	let h: Harness | null = null
 	after(async () => {
 		await h?.close()
 	})
 
-	it('POST /agents/batch: несколько агентов за вызов, ошибка одного не мешает остальным, cwd выбирает пространство', T, async () => {
-		h = await startHarness()
-		const s = await h.api<SessionView>('POST', '/sessions', { title: 'Пакет' })
-		const r = await h.api<SpawnBatchResponse>('POST', '/agents/batch', {
-			cwd: h.ws,
-			session: s.body.id,
-			agents: [
-				{ name: 'one', prompt: 'первое' },
-				{ name: 'two', prompt: 'второе' },
-				{ name: 'one', prompt: 'дубль имени' },
-			],
-		})
-		assert.equal(r.status, 201)
-		assert.deepEqual(
-			r.body.results.map(x => (x.ok ? ['ok', x.agent.name, x.agent.session] : ['fail', x.code])),
-			[
-				['ok', 'one', s.body.id],
-				['ok', 'two', s.body.id],
-				['fail', 'name_taken'],
-			],
-		)
-		assert.equal(h.orch.graph().spaces.length, 1, 'пространство создано по cwd вызывающего')
-		const bad = await h.api('POST', '/agents/batch', { agents: [] })
-		assert.equal(bad.status, 400)
-	})
-})
-
-describe('хук Stop и ожидание пачки (updates, ping, CLI)', () => {
-	let h: Harness | null = null
-	after(async () => {
-		await h?.close()
-	})
-
-	const runHook = (port: number, session: string | undefined, event: string, stdin = '{}', extraEnv: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; stdout: string; stderr: string }> =>
+	const cli = (port: number, args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; stdout: string; stderr: string }> =>
 		new Promise(resolve => {
-			const env: NodeJS.ProcessEnv = { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', ...extraEnv }
-			delete env['NESSY_ORCH_SESSION']
-			if (session) env['NESSY_ORCH_SESSION'] = session
-			const p = spawn(process.execPath, [CLI_MAIN, 'hook', event], { env })
+			const p = spawn(process.execPath, [CLI_MAIN, ...args], { env: { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', NESSY_ORCH_SESSION: '', ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
 			let stdout = ''
 			let stderr = ''
 			p.stdout.on('data', (d: Buffer) => (stdout += d.toString()))
 			p.stderr.on('data', (d: Buffer) => (stderr += d.toString()))
 			p.on('close', code => resolve({ code, stdout, stderr }))
-			p.stdin.end(stdin)
 		})
 
-	it('ack двухфазный: сводка не двигает курсор, подтверждение идемпотентно и не откатывает его; неверный ack — 400', T, async () => {
+	it('spawn по умолчанию ждёт и печатает ответ агента; send тоже; --no-wait возвращается сразу', T, async () => {
 		h = await startHarness()
-		await h.api('POST', '/spaces', { path: h.ws, name: 'main' })
-		const s = await h.api<SessionView>('POST', '/sessions', { title: 'Хуки' })
-		await h.api('POST', '/agents', { space: 'main', name: 'worker', session: s.body.id, prompt: 'сделай', wait: true, waitTimeoutSec: 8 })
-		const d = (await h.api<{ count: number; cursor: number }>('GET', `/sessions/${s.body.id}/digest`)).body
-		assert.equal(d.count, 0, 'ответ вернулся прямо в вызов (--wait) и в сводку не попадает')
-		await h.api('POST', '/agents/worker/send', { text: 'ещё' })
-		for (let i = 0; i < 200 && (await h.api<SessionView>('GET', `/sessions/${s.body.id}`)).body.unread !== 1; i++) await new Promise(r => setTimeout(r, 20))
-		const peek = (await h.api<{ count: number; cursor: number }>('GET', `/sessions/${s.body.id}/digest`)).body
-		assert.equal(peek.count, 1)
-		assert.equal((await h.api<{ count: number }>('GET', `/sessions/${s.body.id}/digest`)).body.count, 1, 'пока не подтверждено, сводка приходит снова')
-		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, {})).status, 400)
-		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, { cursor: peek.cursor })).status, 200)
-		assert.equal((await h.api<{ count: number }>('GET', `/sessions/${s.body.id}/digest`)).body.count, 0, 'после ack пусто')
-		assert.equal((await h.api('POST', `/sessions/${s.body.id}/ack`, { cursor: 0 })).status, 200)
-		assert.equal((await h.api<{ count: number }>('GET', `/sessions/${s.body.id}/digest`)).body.count, 0, 'ack назад курсор не двигает')
+		const hh = h
+		await hh.api('POST', '/spaces', { path: hh.ws, name: 'main' })
+		const s = (await hh.api<SessionView>('POST', '/sessions', { title: 'CLI' })).body.id
+		const a = await cli(hh.port, ['spawn', '--session', s, '--space', 'main', '--name', 'w1', 'сделай раз'])
+		assert.equal(a.code, 0, a.stderr)
+		assert.equal(a.stdout.trim(), 'ответ: сделай раз')
+		const b = await cli(hh.port, ['send', 'w1', 'сделай два'])
+		assert.equal(b.code, 0, b.stderr)
+		assert.equal(b.stdout.trim(), 'ответ: сделай два')
+		const c = await cli(hh.port, ['send', 'w1', 'без ожидания', '--no-wait'])
+		assert.equal(c.code, 0)
+		assert.equal(c.stdout.trim(), '', 'ответа в выводе нет')
+		assert.match(c.stderr, /nessy-orch wait/)
 	})
 
-	it('CLI hook stop: без переменной — тишина; ответы — код 2 со сводкой и ack; агенты работают без ожидания — просьба один раз; chatId и idle', T, async () => {
+	it('wait: свободный агент — сразу его последний ответ; работающий — код 3 по таймауту и подсказка; затем ответ', T, async () => {
 		const hh = h
 		assert.ok(hh)
-		const s = (await hh.api<SessionView>('POST', '/sessions', { cwd: '/tmp/stop-proj', chatId: 'chat-before-1' })).body
-		const silent = await runHook(hh.port, undefined, 'stop')
-		assert.deepEqual(silent, { code: 0, stdout: '', stderr: '' }, 'без NESSY_ORCH_SESSION хук молчит')
-
-		// пусто: Claude останавливается, хук отчитывается: свободен, чат сменился (/clear)
-		const calm = await runHook(hh.port, s.id, 'stop', JSON.stringify({ session_id: 'chat-after-clear' }))
-		assert.deepEqual(calm, { code: 0, stdout: '', stderr: '' })
-		const v = (await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body
-		assert.equal(v.chatId, 'chat-after-clear')
-		assert.equal(v.lead?.state, 'idle')
-
-		// пришёл ответ: не останавливаться, причина — сводка; повторный Stop молчит (ответ доставлен один раз)
-		await hh.api('POST', '/agents', { space: 'main', name: 'helper', session: s.id, prompt: 'сделай', wait: false })
-		for (let i = 0; i < 200 && (await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.unread !== 1; i++) await new Promise(r => setTimeout(r, 20))
-		const stop = await runHook(hh.port, s.id, 'stop')
-		assert.equal(stop.code, 2, 'код 2: не останавливаться; причина — в stderr')
-		assert.match(stop.stderr, /Ответы агентов nessy/)
-		assert.match(stop.stderr, /\[helper/)
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.lead?.state, 'working')
-		assert.equal((await runHook(hh.port, s.id, 'stop')).code, 0)
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.unread, 0)
-
-		// агент работает, ожидания нет: просим запустить его — один раз
-		await hh.api('POST', '/agents', { space: 'main', name: 'slowpoke', session: s.id, prompt: '#slow' })
-		const ask = await runHook(hh.port, s.id, 'stop')
-		assert.equal(ask.code, 2)
-		assert.match(ask.stderr, /inbox --session .* --all --wait 1500/)
-		const again = await runHook(hh.port, s.id, 'stop', JSON.stringify({ stop_hook_active: true }))
-		assert.equal(again.code, 0, 'при stop_hook_active повторно не просим: цикла нет')
+		const s = (await hh.api<SessionView>('POST', '/sessions', { title: 'Ожидание' })).body.id
+		await hh.api('POST', '/agents', { space: 'main', name: 'slow', session: s, prompt: '#slow' })
+		const early = await cli(hh.port, ['wait', 'slow', '--timeout', '0'])
+		assert.equal(early.code, 3)
+		assert.match(early.stderr, /ещё работает/)
+		const done = await cli(hh.port, ['wait', 'slow', '--timeout', '20'])
+		assert.equal(done.code, 0, done.stderr)
+		assert.match(done.stdout, /медленный ответ/)
+		const idle = await cli(hh.port, ['wait', 'slow'])
+		assert.equal(idle.code, 0, 'свободный агент — сразу')
 	})
 
-	it('inbox --all: ждёт всю пачку одной сводкой, вопрос агента завершает ожидание; ждать нечего — код 4', T, async () => {
+	it('агент (--from) по умолчанию не ждёт: ответ придёт ему сообщением', T, async () => {
 		const hh = h
 		assert.ok(hh)
-		const s = (await hh.api<SessionView>('POST', '/sessions', { title: 'Пачка' })).body
-		const run = (args: string[]): Promise<{ code: number | null; stdout: string }> =>
-			new Promise(resolve => {
-				const env: NodeJS.ProcessEnv = { ...process.env, ORCH_PORT: String(hh.port), NO_COLOR: '1' }
-				delete env['NESSY_ORCH_SESSION']
-				const p = spawn(process.execPath, [CLI_MAIN, 'inbox', '--session', s.id, ...args], { env })
-				let stdout = ''
-				p.stdout.on('data', (d: Buffer) => (stdout += d.toString()))
-				p.on('close', code => resolve({ code, stdout }))
-			})
-		assert.equal((await run(['--all', '--wait', '5'])).code, 4, 'агентов нет — ждать нечего')
-		await hh.api('POST', '/agents', { space: 'main', name: 'p1', session: s.id, prompt: '#slow' })
-		await hh.api('POST', '/agents', { space: 'main', name: 'p2', session: s.id, prompt: 'быстро' })
-		const r = await run(['--all', '--wait', '30'])
-		assert.equal(r.code, 0)
-		assert.match(r.stdout, /\[p1/)
-		assert.match(r.stdout, /\[p2/, 'обе ответа — в одной сводке: ожидание не просыпается на каждый')
-		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.unread, 0, 'сводка напечатана — курсор сдвинут')
-		// второе ожидание той же сессии отказывается сразу, первое остаётся единственным
-		await hh.api('POST', '/agents', { space: 'main', name: 'p4', session: s.id, prompt: '#slow' })
-		const first = run(['--all', '--wait', '30'])
-		await new Promise(r => setTimeout(r, 400))
-		assert.equal((await run(['--all', '--wait', '30'])).code, 5)
-		assert.equal((await first).code, 0)
-		// таймаут: агент ещё работает → код 3
-		await hh.api('POST', '/agents', { space: 'main', name: 'p3', session: s.id, prompt: '#work 0 шаг => Bash: x' })
-		assert.equal((await run(['--all', '--wait', '1'])).code, 3)
-	})
-
-	it('CLI: inbox без работающих агентов — код 4 сразу; spawn-many позиционно создаёт агентов в сессии', T, async () => {
-		const hh = h
-		assert.ok(hh)
-		const cli = (args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> =>
-			new Promise(resolve => {
-				const p = spawn(process.execPath, [CLI_MAIN, ...args], { env: { ...process.env, ORCH_PORT: String(hh.port), NO_COLOR: '1', NESSY_ORCH_SESSION: '' }, stdio: ['ignore', 'pipe', 'pipe'] })
-				let stdout = ''
-				let stderr = ''
-				p.stdout.on('data', (d: Buffer) => (stdout += d.toString()))
-				p.stderr.on('data', (d: Buffer) => (stderr += d.toString()))
-				p.on('close', code => resolve({ code, stdout, stderr }))
-			})
-		const sess = (await hh.api<SessionView>('POST', '/sessions', { title: 'CLI-ожидание' })).body.id
-		const t0 = Date.now()
-		const idle = await cli(['inbox', '--session', sess, '--wait', '30'])
-		assert.equal(idle.code, 4)
-		assert.match(idle.stderr, /ждать нечего/)
-		assert.ok(Date.now() - t0 < 5000, 'не зависает на весь --wait')
-		const many = await cli(['spawn-many', '--session', sess, 'пара-1||Сделай раз', 'пара-2||Сделай два'])
-		assert.equal(many.code, 0, many.stderr)
-		assert.match(many.stdout, /пара-1/)
-		assert.match(many.stdout, /пара-2/)
-		const bad = await cli(['spawn-many', '--session', sess])
-		assert.equal(bad.code, 2)
-		assert.match(bad.stderr, /имя\|роль\|поручение/)
-	})
-
-	it('хук не ломает Claude при недоступном оркестраторе', T, async () => {
-		const r = await runHook(1, 'any', 'stop')
-		assert.deepEqual(r, { code: 0, stdout: '', stderr: '' })
+		const lead = (await hh.api<SpawnResponse>('POST', '/agents', { space: 'main', name: 'boss' })).body.agent
+		await hh.api('POST', '/agents', { space: 'main', name: 'helper2' })
+		const r = await cli(hh.port, ['send', 'helper2', 'привет', '--from', lead.id])
+		assert.equal(r.code, 0, r.stderr)
+		assert.equal(r.stdout.trim(), '')
 	})
 })

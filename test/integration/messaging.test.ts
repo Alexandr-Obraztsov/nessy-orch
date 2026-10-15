@@ -1,7 +1,7 @@
-/** Сообщения: spawn --wait, send/reply, inbox, очередь, межагентная переписка и защиты. */
+/** Сообщения: spawn --wait, send/reply, wait, очередь, межагентная переписка и защиты. */
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
-import type { ApiError, InboxResponse, Message, SendResponse, SpawnResponse, UserEvent } from '../../shared/types'
+import type { ApiError, Message, SendResponse, SpawnResponse, UserEvent, WaitResponse } from '../../shared/types'
 import { startHarness } from '../support/harness'
 import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
@@ -51,34 +51,29 @@ describe('сообщения и маршрутизация', () => {
 		assert.equal(h.orch.resolveAgent(alpha).introduced, true)
 	})
 
-	it('send без wait → ответ в inbox, курсор сдвигается; peek не двигает', T, async () => {
-		await h.api('GET', '/inbox') // сбросить накопленное
+	it('send без wait: ответ появляется в ленте, wait отдаёт его', T, async () => {
 		const s = await h.api<SendResponse>('POST', '/agents/alpha/send', { text: 'асинхронно' })
 		assert.equal(s.status, 200)
 		assert.equal(s.body.reply, undefined)
-		const peek = await h.api<InboxResponse>('GET', '/inbox?wait=5&peek=1')
-		assert.equal(peek.body.messages[0]?.text, 'ответ: асинхронно')
-		const inbox = await h.api<InboxResponse>('GET', '/inbox')
-		assert.equal(inbox.body.messages.length, 1)
-		assert.equal((await h.api<InboxResponse>('GET', '/inbox')).body.messages.length, 0)
-		const afterCursor = await h.api<InboxResponse>('GET', `/inbox?after=0`)
-		assert.ok(afterCursor.body.messages.length >= 1, 'after=N читает историю, не трогая курсор')
+		const w = await h.api<WaitResponse>('GET', '/agents/alpha/wait?timeout=10')
+		assert.equal(w.body.done, true)
+		assert.equal(w.body.reply?.text, 'ответ: асинхронно')
+		assert.ok(h.orch.listMessages({ agent: 'alpha' }).some(m => m.kind === 'reply' && m.text === 'ответ: асинхронно'))
 	})
 
-	it('inbox без работающих агентов возвращается сразу (active=0), с работающим — ждёт таймаут', T, async () => {
+	it('wait: свободный агент — сразу; работающий — ждёт, по таймауту done=false', T, async () => {
 		const t0 = Date.now()
-		const idle = await h.api<InboxResponse>('GET', '/inbox?wait=20')
-		assert.equal(idle.body.messages.length, 0)
-		assert.equal(idle.body.active, 0)
+		const idle = await h.api<WaitResponse>('GET', '/agents/alpha/wait?timeout=20')
+		assert.equal(idle.body.done, true)
 		assert.ok(Date.now() - t0 < 1500, 'ждать некого — не висим')
 		await h.api('POST', '/agents/beta/send', { text: '#long' })
 		await until(() => h.orch.getAgent('beta').status === 'working', 4000, 'beta working')
 		const t1 = Date.now()
-		const r = await h.api<InboxResponse>('GET', '/inbox?wait=1&peek=1')
-		assert.equal(r.body.messages.length, 0)
-		assert.ok(r.body.active >= 1)
+		const r = await h.api<WaitResponse>('GET', '/agents/beta/wait?timeout=1')
+		assert.equal(r.body.done, false)
 		assert.ok(Date.now() - t1 >= 900)
 		await until(() => h.orch.getAgent('beta').status !== 'working', 8000, 'beta done')
+		assert.equal((await h.api<ApiError>('GET', '/agents/no-such-agent/wait')).status, 404)
 	})
 
 	it('сообщения работающему агенту доходят в идущий ход по порядку, ход не прерывается, в очередь они не встают', T, async () => {

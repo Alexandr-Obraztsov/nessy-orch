@@ -40,7 +40,7 @@ describe('доступ: токен оператора и ключи агенто
 		assert.equal((await h.api<SessionView>('POST', '/sessions', { title: 'с токеном' }, op)).status, 201)
 		assert.equal((await h.api('POST', `/agents/${a}/cancel`, {})).status, 403)
 		assert.equal((await h.api('DELETE', `/agents/${b}`, undefined)).status, 403)
-		assert.equal((await h.api('POST', '/sessions/nope/lead', { idle: true })).status, 403)
+		assert.equal((await h.api('POST', '/sessions', { title: 'x' })).status, 403)
 		assert.equal((await h.api('POST', '/sessions/nope/closed', {})).status, 403)
 	})
 
@@ -74,9 +74,6 @@ describe('доступ: токен оператора и ключи агенто
 		const plan = await h.api<AgentView>('POST', `/agents/${a}/plan`, { from: a, entries: [{ content: 'шаг', status: 'in_progress' }] }, { 'X-Agent-Key': key(a) })
 		assert.equal(plan.status, 200)
 		assert.equal((await h.api('POST', `/agents/${a}/plan`, { from: b, entries: [] }, { 'X-Agent-Key': key(b) })).status, 403, 'чужой план — только сам агент')
-		const batch = await h.api('POST', '/agents/batch', { from: a, agents: [{ name: 'b1' }] }, { 'X-Agent-Key': key(a) })
-		assert.equal(batch.status, 201)
-		assert.equal((await h.api('POST', '/agents/batch', { from: a, agents: [{ name: 'b2', from: 'you' }] }, { 'X-Agent-Key': key(a) })).status, 403)
 	})
 
 	it('CLI: токен оператора берётся из NESSY_ORCH_TOKEN, ключ агента — из --key', T, async () => {

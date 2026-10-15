@@ -1,9 +1,7 @@
 /** Команды агентов: spawn, send, ask, ls, show, watch, plan, cancel, archive, restore, kill. */
 import * as path from 'node:path'
-import * as fs from 'node:fs'
-import type { AgentEvent, AgentView, GraphView, SendResponse, SpawnBatchResponse, SpawnRequest, SpawnResponse } from '../../../../shared/types'
+import type { AgentEvent, AgentView, GraphView, SendResponse, SpawnResponse, WaitResponse } from '../../../../shared/types'
 import { parsePlanArgs } from '../../../domain/plan'
-import { parseBatchSpecs, parseBatchText } from '../../../domain/spawn-batch'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { Parsed } from '../args.types'
 import { asAgentStreamEvent, sse } from '../client'
@@ -12,8 +10,20 @@ import { agentsTable, bold, dim, green, planText, red, status, time } from '../f
 import { del, enc, ep, get, info, json, out, post } from '../io'
 import { renderEvent } from '../render-event'
 import type { CommandTable } from './command.types'
-import { ASK_FLAGS, COMMON, LS_FLAGS, PLAN_FLAGS, SEND_FLAGS, SPAWN_FLAGS, SPAWN_MANY_FLAGS } from './flags'
+import { ASK_FLAGS, COMMON, LS_FLAGS, PLAN_FLAGS, SEND_FLAGS, SPAWN_FLAGS, WAIT_CMD_FLAGS } from './flags'
 import { sessionOption } from './sessions.commands'
+
+/** Сколько ждём результат по умолчанию, секунд (по истечении — код 3 и подсказка `wait`). */
+const DEFAULT_WAIT_SEC = 1500
+
+/**
+ * Ждать ли результата: оператор (Claude) по умолчанию ждёт, а запущенная им команда живёт в фоне и будит Claude по завершении.
+ * `--no-wait` — отправить и вернуться. Агент (`--from`) по умолчанию не ждёт: ответ придёт ему сообщением; `--wait` — ждать.
+ */
+function waits(p: Parsed): boolean {
+	if (flagBool(p, 'no-wait')) return false
+	return flagBool(p, 'wait') || flagStr(p, 'from') === undefined
+}
 
 /** Пространство задают именем или путём; относительный путь считаем от текущего каталога CLI, а не сервера. */
 function spaceArg(v: string | undefined): string | undefined {
@@ -29,13 +39,12 @@ function printSendResult(p: Parsed, agent: AgentView | null, r: SendResponse): v
 		if (r.reply.failed) info(red(`агент ответил с ошибкой: ${r.reply.failed}`))
 		out(r.reply.text)
 	} else if (r.timedOut) {
-		throw new CliError(`ответ не получен за отведённое время; агент продолжает работу: nessy-orch watch ${agent?.id ?? r.message.to}`, 3)
+		throw new CliError(`ответ не получен за отведённое время; агент продолжает работу. Дождаться снова (в фоне): nessy-orch wait ${agent?.id ?? r.message.to}`, 3)
 	} else {
-		const session = agent?.session ? ` --session ${agent.session}` : ''
 		if (r.started && !agent) info(dim('агент был свободен — сообщение запустило его в работу'))
 		else if (r.interrupted) info(dim('агент работал — его ход прерван этим сообщением (--interrupt)'))
 		else if (r.queued) info(dim('агент работает — сообщение доставлено в идущий ход (или встанет в очередь), ход не прерван'))
-		info(dim(`отправлено ${r.message.id} → ${r.message.to}. Ответ придёт в inbox: nessy-orch inbox${session} --wait 1500 (в фоне)`))
+		info(dim(`отправлено ${r.message.id} → ${r.message.to}. Результат: nessy-orch wait ${agent?.id ?? r.message.to} (в фоне)`))
 	}
 }
 
@@ -51,8 +60,8 @@ async function cmdLs(p: Parsed): Promise<void> {
 
 async function cmdSpawn(p: Parsed): Promise<void> {
 	const prompt = p.positionals.join(' ').trim()
-	const wait = flagBool(p, 'wait')
-	if (wait && !prompt) throw new CliError('--wait требует текст поручения', 2)
+	const wait = waits(p) && prompt !== ''
+	if (flagBool(p, 'wait') && !prompt) throw new CliError('--wait требует текст поручения', 2)
 	const r = await post<SpawnResponse>('/agents', {
 		space: spaceArg(flagStr(p, 'space')),
 		cwd: process.cwd(), // пространство по умолчанию, если --space не указан и пространств не одно
@@ -62,56 +71,22 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 		from: flagStr(p, 'from'),
 		prompt: prompt || undefined,
 		wait,
-		waitTimeoutSec: flagNum(p, 'timeout'),
+		waitTimeoutSec: flagNum(p, 'timeout') ?? DEFAULT_WAIT_SEC,
 	})
 	printSendResult(p, r.agent, r)
-}
-
-/**
- * Пакет агентов одним вызовом. Основной способ — позиционные аргументы «имя|роль|поручение» (heredoc и stdin в песочнице Claude
- * не работают); запасные — `--file` (блоки «@@ имя role=…» или JSON) и `--stdin`.
- */
-async function cmdSpawnMany(p: Parsed): Promise<void> {
-	const file = flagStr(p, 'file')
-	let agents: SpawnRequest[]
-	if (p.positionals.length) agents = parseBatchSpecs(p.positionals)
-	else if (file !== undefined) agents = parseBatchText(fs.readFileSync(file, 'utf8'))
-	else if (flagBool(p, 'stdin')) agents = parseBatchText(fs.readFileSync(0, 'utf8'))
-	else
-		throw new CliError(
-			'использование: nessy-orch spawn-many [--session S] "имя|роль|поручение" "имя2|роль2|поручение2" …\n(пустая роль — «имя||поручение»; длинные поручения — --file <файл> с блоками «@@ имя role=роль»)',
-			2,
-		)
-	agents = agents.map(a => ({ ...a, space: spaceArg(a.space) }))
-	const r = await post<SpawnBatchResponse>('/agents/batch', {
-		agents,
-		space: spaceArg(flagStr(p, 'space')),
-		cwd: process.cwd(),
-		session: sessionOption(p),
-		from: flagStr(p, 'from'),
-	})
-	if (flagBool(p, 'json')) json(r)
-	else
-		for (const x of r.results) {
-			if (x.ok) out(`${green('✓')} ${bold(x.agent.id)}${x.agent.name !== x.agent.id ? ` (${x.agent.name})` : ''}  «${x.agent.space}»`)
-			else out(red(`✗ ${x.name ?? 'агент'}: ${x.error} [${x.code}]`))
-		}
-	const failed = r.results.filter(x => !x.ok).length
-	if (failed) throw new CliError(`не запущено агентов: ${failed} из ${r.results.length}`)
-	if (!flagBool(p, 'json')) info(dim(`запущено: ${r.results.length}. Ответы придут в inbox: nessy-orch inbox${sessionOption(p) ? ` --session ${sessionOption(p)}` : ''} --wait 1500`))
 }
 
 async function cmdSend(p: Parsed): Promise<void> {
 	const [to, ...rest] = p.positionals
 	const text = rest.join(' ').trim()
-	if (!to || !text) throw new CliError('использование: nessy-orch send <агент|you> "текст" [--wait] [--interrupt] [--from ID]', 2)
+	if (!to || !text) throw new CliError('использование: nessy-orch send <агент|you> "текст" [--no-wait] [--interrupt] [--from ID]', 2)
 	const r = await post<SendResponse>(`/agents/${enc(to)}/send`, {
 		text,
 		from: flagStr(p, 'from'),
 		// работающего агента сообщение не прерывает (доставляется в идущий ход); --interrupt — прервать и доставить первым
 		interrupt: flagBool(p, 'interrupt') ? true : undefined,
-		wait: flagBool(p, 'wait'),
-		waitTimeoutSec: flagNum(p, 'timeout'),
+		wait: to !== 'you' && waits(p),
+		waitTimeoutSec: flagNum(p, 'timeout') ?? DEFAULT_WAIT_SEC,
 	})
 	printSendResult(p, null, r)
 }
@@ -125,9 +100,21 @@ async function cmdAsk(p: Parsed): Promise<void> {
 		session: sessionOption(p),
 		prompt,
 		wait: true,
-		waitTimeoutSec: flagNum(p, 'timeout'),
+		waitTimeoutSec: flagNum(p, 'timeout') ?? DEFAULT_WAIT_SEC,
 	})
 	printSendResult(p, r.agent, r)
+}
+
+/** `wait <агент>`: дождаться, пока агент освободится, и вывести его последний ответ (в фоне: Claude Code разбудит по завершении). */
+async function cmdWait(p: Parsed): Promise<void> {
+	const ref = p.positionals[0]
+	if (!ref) throw new CliError('использование: nessy-orch wait <агент> [--timeout СЕК]', 2)
+	const r = await get<WaitResponse>(`/agents/${enc(ref)}/wait?timeout=${flagNum(p, 'timeout') ?? DEFAULT_WAIT_SEC}`)
+	if (flagBool(p, 'json')) return json(r)
+	if (!r.done) throw new CliError(`агент ${r.agent.name} ещё работает; дождаться снова (в фоне): nessy-orch wait ${ref}`, 3)
+	if (!r.reply) return info(dim(`агент ${r.agent.name} свободен и ничего не отвечал`))
+	if (r.reply.failed) info(red(`агент ответил с ошибкой: ${r.reply.failed}`))
+	out(r.reply.text)
 }
 
 async function cmdShow(p: Parsed): Promise<void> {
@@ -236,7 +223,7 @@ async function cmdKill(p: Parsed): Promise<void> {
 export const agentCommands: CommandTable = {
 	ls: { run: cmdLs, spec: LS_FLAGS },
 	spawn: { run: cmdSpawn, spec: SPAWN_FLAGS },
-	'spawn-many': { run: cmdSpawnMany, spec: SPAWN_MANY_FLAGS },
+	wait: { run: cmdWait, spec: WAIT_CMD_FLAGS },
 	send: { run: cmdSend, spec: SEND_FLAGS },
 	ask: { run: cmdAsk, spec: ASK_FLAGS },
 	show: { run: cmdShow, spec: { bool: ['json', 'help'], value: ['n'] } },

@@ -45,14 +45,12 @@ export class FileStore implements StorePort {
 
 	loadState(): PersistedState {
 		const raw = parseJson(readText(this.statePath))
-		if (!isObject(raw)) return { spaces: [], agents: [], msgSeq: 0, inboxCursor: 0 }
+		if (!isObject(raw)) return { spaces: [], agents: [], msgSeq: 0 }
 		return {
 			spaces: arr(raw['spaces']) as PersistedSpace[],
 			// состояния до переименования «задачи → сессии» хранили поле task
 			agents: (arr(raw['agents']) as Array<PersistedAgent & { task?: string | null }>).map(a => (a.session === undefined && a.task !== undefined ? { ...a, session: a.task } : a)),
 			msgSeq: typeof raw['msgSeq'] === 'number' ? raw['msgSeq'] : 0,
-			inboxCursor: typeof raw['inboxCursor'] === 'number' ? raw['inboxCursor'] : 0,
-			sessionCursors: parseCursors(raw['sessionCursors'] ?? raw['taskCursors']),
 		}
 	}
 
@@ -197,12 +195,4 @@ function isSessionView(v: unknown): v is SessionView {
 		typeof v['createdAt'] === 'string' &&
 		typeof v['updatedAt'] === 'string'
 	)
-}
-
-/** Курсоры inbox по сессиям: только числовые значения. */
-function parseCursors(v: unknown): Record<string, number> {
-	const out: Record<string, number> = {}
-	if (!isObject(v)) return out
-	for (const [k, n] of Object.entries(v)) if (typeof n === 'number' && Number.isFinite(n)) out[k] = n
-	return out
 }

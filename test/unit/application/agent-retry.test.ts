@@ -57,6 +57,26 @@ describe('авто-повтор после ошибки хода', () => {
 		assert.equal(orch.getAgent('w').status, 'error')
 	})
 
+	it('нет соединения с nessy при запуске: поручение повторяется, после восстановления выполняется без ошибки', async () => {
+		const { orch, gw, replies } = setup()
+		gw.failCreate = 2
+		await orch.spawn({ space: 'main', name: 'w', prompt: 'сделай X' }).catch(() => undefined)
+		await until(() => gw.prompts.length === 1, 3000, 'промпт после повторов')
+		assert.equal(gw.failCreate, 0)
+		gw.emit({ kind: 'text', text: 'ок', messageId: 'm' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
+		await until(() => replies().length === 1, 2000, 'ответ')
+		assert.equal(replies()[0]?.failed, undefined)
+	})
+
+	it('нет соединения всё время: после двух повторов ответ с ошибкой', async () => {
+		const { orch, gw, replies } = setup()
+		gw.failCreate = 10
+		await orch.spawn({ space: 'main', name: 'w', prompt: 'сделай X' }).catch(() => undefined)
+		await until(() => replies().length === 1, 3000, 'ответ с ошибкой')
+		assert.match(replies()[0]?.failed ?? '', /nessy недоступен/)
+		assert.equal(gw.failCreate, 10 - 3, 'попыток три: исходная и два повтора')
+	})
+
 	it('turnRetries=0 — как раньше: сразу ответ с ошибкой', async () => {
 		const { orch, gw, replies } = setup({ turnRetries: 0 })
 		await orch.spawn({ space: 'main', name: 'w', prompt: 'сделай X' })

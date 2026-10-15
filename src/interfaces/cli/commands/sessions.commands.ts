@@ -1,7 +1,7 @@
 /**
  * Команды сессий: session new|ls|show|sources|done|reopen|rm. Сессия — одна работа одного оркестратора (Claude):
- * Claude заводит её один раз в начале, все его агенты запускаются в ней (spawn --session), ответы читаются из её
- * inbox (inbox --session) — так несколько Claude работают параллельно и не забирают ответы друг друга.
+ * В приложении её создаёт вкладка проекта; вне приложения Claude заводит её один раз в начале, все его агенты запускаются в ней
+ * (spawn --session) — так несколько Claude работают параллельно.
  * В сессии копятся источники (ссылки из ответов и инструментов) и счётчики (ходы, инструменты, токены).
  */
 import * as fs from 'node:fs'
@@ -88,7 +88,7 @@ async function cmdSession(p: Parsed): Promise<void> {
 		if (asJson) return json({ ...t, url: sessionUrl(ep, t.id) })
 		out(t.id)
 		out(sessionUrl(ep, t.id))
-		return info(dim(`сессия заведена один раз на весь разговор. Агенты: nessy-orch spawn --session ${t.id} …; ответы: nessy-orch inbox --session ${t.id} --wait 1500`))
+		return info(dim(`сессия заведена один раз на весь разговор. Агенты: nessy-orch spawn --session ${t.id} …`))
 	}
 	if (sub === 'ls' || sub === undefined) {
 		const g = await get<GraphView>('/graph')
