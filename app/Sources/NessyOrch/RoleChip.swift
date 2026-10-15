@@ -4,10 +4,10 @@ import NessyKit
 /// Цвет роли из оттенка 0…360 (0 — серый).
 /// Единственное место интерфейса с разными цветами.
 enum RoleTint {
-	/// значок — белый на насыщенно-приглушённой подложке (читается в обеих темах)
+	/// значок — белый на насыщенной подложке (приглушённая, «бледная» подложка выглядела грязно, особенно синяя) (читается в обеих темах)
 	static func foreground(_ hue: Double, dark: Bool) -> Color { .white }
 	static func background(_ hue: Double, dark: Bool) -> Color {
-		hue <= 0 ? Color(white: dark ? 0.42 : 0.58) : Color(hue: hue / 360, saturation: dark ? 0.50 : 0.58, brightness: dark ? 0.56 : 0.70)
+		hue <= 0 ? Color(white: dark ? 0.42 : 0.58) : Color(hue: hue / 360, saturation: dark ? 0.78 : 0.72, brightness: dark ? 0.62 : 0.78)
 	}
 }
 

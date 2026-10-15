@@ -35,7 +35,6 @@ struct GeneralSettings: View {
 	@AppStorage("menuBarOnly") private var menuBarOnly = false
 	@State private var login = LoginItem.isEnabled
 	@State private var finder = FinderSupport.isEnabled
-	@Environment(\.openWindow) private var openWindow
 
 	var body: some View {
 		Form {
@@ -51,7 +50,6 @@ struct GeneralSettings: View {
 					.onChange(of: menuBarOnly) { _, v in NSApp.setActivationPolicy(v ? .accessory : .regular) }
 				Toggle("Открывать при входе в систему", isOn: $login)
 					.onChange(of: login) { _, v in LoginItem.set(v); login = LoginItem.isEnabled }
-				Button("Роли агентов…") { openWindow(id: "roles") }
 			}
 			InstallSettingsSection()
 		}

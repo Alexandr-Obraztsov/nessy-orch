@@ -426,9 +426,9 @@ private struct WindowBar: View {
 				Spacer(minLength: 0)
 				HStack(spacing: 2) {
 					if let win = model.activeWindow {
-						BarIcon(systemImage: win.shellOpen ? "terminal.fill" : "terminal", help: win.shellOpen ? "Скрыть терминал проекта" : "Терминал проекта") { win.toggleShell() }
+						BarIcon(systemImage: win.shellOpen ? "terminal.fill" : "terminal", help: (win.shellOpen ? "Скрыть терминал проекта" : "Терминал проекта") + " (\(Hotkeys.shared.display(.toggleShell)))") { win.toggleShell() }
 					}
-					BarIcon(systemImage: "person.text.rectangle", help: "Роли агентов (⇧⌘R)") { openWindow(id: "roles") }
+					BarIcon(systemImage: "person.text.rectangle", help: "Роли агентов (\(Hotkeys.shared.display(.roles)))") { openWindow(id: "roles") }
 					BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
 					SettingsButton()
 				}

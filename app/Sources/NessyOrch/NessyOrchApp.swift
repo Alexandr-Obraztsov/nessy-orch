@@ -62,6 +62,8 @@ struct AppCommands: Commands {
 		CommandGroup(after: .toolbar) {
 			Button("Показать / скрыть панель агентов") { model.toggleAgents() }
 				.keyboardShortcut(Hotkeys.shared.shortcut(.togglePanel))
+			Button("Показать / скрыть терминал проекта") { active?.toggleShell() }
+				.keyboardShortcut(Hotkeys.shared.shortcut(.toggleShell)).disabled(active == nil)
 		}
 		CommandGroup(replacing: .help) {
 			Button("Горячие клавиши и настройки…") { openSettings(); NSApp.activate() }.keyboardShortcut("/")
@@ -78,7 +80,7 @@ struct AppCommands: Commands {
 		}
 		CommandMenu("Сессия") {
 			Button("Перейти к…") { model.showPalette = true }.keyboardShortcut("k")
-			Button("Роли…") { openWindow(id: "roles") }.keyboardShortcut("r", modifiers: [.command, .shift])
+			Button("Роли…") { openWindow(id: "roles") }.keyboardShortcut(Hotkeys.shared.shortcut(.roles))
 		}
 		CommandMenu("Агент") {
 			Button("Остановить ход") { if let a = model.targetAgent { model.stop(a) } }
