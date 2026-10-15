@@ -3,9 +3,9 @@
  * Каждый Claude (вкладка приложения) работает в своей сессии, агенты привязываются к ней.
  * Правила полей — domain/sessions.ts.
  */
-import type { SessionPatch, SessionRequest, SessionStatus, SessionView } from '../../../shared/types'
+import type { AttachRequest, SessionPatch, SessionRequest, SessionStatus, SessionView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
-import { isSessionId, sessionIdFrom, validateSessionPatch, validateSessionRequest } from '../../domain/sessions'
+import { isChatId, isSessionId, sessionIdFrom, validateSessionPatch, validateSessionRequest } from '../../domain/sessions'
 import { hexId } from '../../lib/ids'
 import type { ServiceContext } from './context.types'
 
@@ -70,6 +70,28 @@ export class SessionsService {
 		if (f.chatId) session.chatId = f.chatId
 		this.put(session)
 		return session
+	}
+
+	/**
+	 * Чат Claude начался или сменился (`/clear`, `/resume`, запуск): сессия привязана к чату всегда. Есть сессия этого чата — возвращаем её,
+	 * иначе создаём новую (в каталоге чата или прежней сессии). Прежняя сессия (`from`) получает `successor`: вкладка приложения идёт по цепочке.
+	 */
+	attach(req: AttachRequest): SessionView {
+		const chat = req.chatId.trim()
+		if (!isChatId(chat)) throw new AppError(400, 'bad_request', 'chatId — до 64 символов [A-Za-z0-9-]')
+		const prev = req.from ? this.sessions.get(req.from.trim().toLowerCase()) : undefined
+		const found = [...this.sessions.values()].find(s => s.chatId === chat)
+		const cwd = req.cwd?.startsWith('/') ? req.cwd : (prev?.cwd ?? undefined)
+		let target = found ?? this.create({ title: prev?.title ?? (cwd ? undefined : 'Чат Claude'), ...(cwd ? { cwd } : {}), chatId: chat })
+		if (prev && prev.id !== target.id) {
+			// вкладка переходит к целевой сессии; у целевой своего преемника быть не должно (она теперь последняя в цепочке)
+			if (target.successor) {
+				target = { ...target, successor: null }
+				this.put(target)
+			}
+			this.put({ ...prev, successor: target.id })
+		}
+		return target
 	}
 
 	/** Частичная правка: заголовок, статус (done ставит оркестратор), итог. */

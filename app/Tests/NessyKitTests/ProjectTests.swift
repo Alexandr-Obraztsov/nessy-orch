@@ -161,3 +161,39 @@ struct HooksTests {
 	}
 
 }
+
+@Suite("Перезапуск службы")
+struct ServiceWatchdogTests {
+	@Test func restartsOnlyAfterGraceAndWithBackoff() {
+		let w = ServiceWatchdog()
+		#expect(w.decide(offlineFor: nil, sinceRestart: nil, failures: 0) == .none, "служба доступна")
+		#expect(w.decide(offlineFor: 3, sinceRestart: nil, failures: 0) == .none, "короткий обрыв")
+		#expect(w.decide(offlineFor: 7, sinceRestart: nil, failures: 0) == .restart)
+		#expect(w.decide(offlineFor: 20, sinceRestart: 10, failures: 0) == .none, "только что перезапускали")
+		#expect(w.decide(offlineFor: 40, sinceRestart: 31, failures: 0) == .restart)
+		#expect(w.decide(offlineFor: 90, sinceRestart: 31, failures: 1) == .none, "после неудачи пауза вдвое длиннее")
+		#expect(w.decide(offlineFor: 90, sinceRestart: 61, failures: 1) == .restart)
+		#expect(w.decide(offlineFor: 900, sinceRestart: 299, failures: 9) == .none, "потолок — 5 минут")
+		#expect(w.decide(offlineFor: 900, sinceRestart: 301, failures: 9) == .restart)
+		#expect(w.shouldReport(failures: 3) && !w.shouldReport(failures: 2))
+	}
+}
+
+@Suite("Название чата")
+struct ChatTitleTests {
+	@Test func cleansTerminalTitle() {
+		#expect(ChatTitle.clean("✳ Починить CI") == "Починить CI")
+		#expect(ChatTitle.clean("◐ Починить CI") == "Починить CI")
+		#expect(ChatTitle.clean("⠋ Разбор MR") == "Разбор MR")
+		#expect(ChatTitle.clean("✳ Claude Code") == nil, "название ещё не придумано")
+		#expect(ChatTitle.clean("  ") == nil)
+		#expect(ChatTitle.clean("Просто текст") == "Просто текст")
+		#expect(ChatTitle.clean("✳ " + String(repeating: "я", count: 120))?.count == 80)
+	}
+
+	@Test func labelsSessions() {
+		#expect(ChatTitle.label(title: "proj", cwd: "/Users/me/proj") == "proj", "название ещё папочное")
+		#expect(ChatTitle.label(title: "Починить CI", cwd: "/Users/me/proj") == "Починить CI · proj")
+		#expect(ChatTitle.label(title: "Чат", cwd: nil) == "Чат")
+	}
+}

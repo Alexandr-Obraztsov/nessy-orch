@@ -101,6 +101,8 @@ public final class OrchClient: @unchecked Sendable {
 	}
 	/// Вкладка закрыта: сервер останавливает работающих агентов сессии (сама сессия остаётся для `--resume`).
 	public func sessionClosed(_ id: String) async throws { try await raw("POST", "/sessions/\(id)/closed", body: [String: String]()) }
+	/// Название сессии (по чату Claude).
+	public func renameSession(_ id: String, title: String) async throws { try await raw("PATCH", "/sessions/\(id)", body: ["title": title]) }
 	public func deleteSession(_ id: String) async throws { try await raw("DELETE", "/sessions/\(id)") }
 	// MARK: потоки
 	public func stream() -> SSEStream { SSEStream(url: url("/stream")) }

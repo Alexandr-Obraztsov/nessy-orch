@@ -145,7 +145,7 @@ final class AppModel {
 
 	private func rememberRecent(_ dir: String) {
 		guard !dir.isEmpty, dir != NSHomeDirectory() else { return }
-		recentProjects = Array(([dir] + recentProjects.filter { $0 != dir }).prefix(10))
+		recentProjects = Array(([dir] + recentProjects.filter { $0 != dir }).prefix(30))
 		UserDefaults.standard.set(recentProjects, forKey: "recentProjects")
 	}
 
@@ -175,10 +175,12 @@ final class AppModel {
 	}
 
 	/// Последние сессии главного агента, которые сейчас не открыты (их можно продолжить: `--resume`): свежие сверху.
-	var recentSessions: [SessionView] {
+	var recentSessions: [SessionView] { recentSessions(limit: 8) }
+
+	func recentSessions(limit: Int) -> [SessionView] {
 		let open = tabs
 		let list = store.sessions.filter { s in s.chatId != nil && s.status == .active && !open.contains { $0.owns(s.id) } }
-		return Array(list.sorted { $0.updatedAt > $1.updatedAt }.prefix(8))
+		return Array(list.sorted { $0.updatedAt > $1.updatedAt }.prefix(limit))
 	}
 
 	/// Перейти к агенту: окно его сессии и карточка агента в боковой панели.

@@ -104,6 +104,8 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 	public var sources: Int
 	/// чат главного агента (id для `claude --resume`)
 	public var chatId: String?
+	/// после `/clear` и `/resume` вкладка продолжается в сессии нового чата: её id (вкладка идёт по цепочке)
+	public var successor: String?
 	/// папка чата главного агента (из хука); по ней сессию можно открыть снова
 	public var cwd: String?
 
@@ -118,6 +120,7 @@ public struct SessionView: Codable, Hashable, Identifiable, Sendable {
 		updatedAt = try c.decode(String.self, forKey: .updatedAt)
 		sources = try c.decodeIfPresent(Int.self, forKey: .sources) ?? 0
 		chatId = try c.decodeIfPresent(String.self, forKey: .chatId)
+		successor = try c.decodeIfPresent(String.self, forKey: .successor)
 		cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
 	}
 }

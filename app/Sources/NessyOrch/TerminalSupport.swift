@@ -156,6 +156,8 @@ final class TerminalTab: NSObject, Identifiable, LocalProcessTerminalViewDelegat
 	private(set) var startedAt = Date()
 	/// оболочка завершилась сама (`exit`): окно можно закрыть
 	@ObservationIgnored var onExit: ((Int32?) -> Void)?
+	/// Claude Code поменял заголовок окна (название чата со значком состояния)
+	@ObservationIgnored var onTitle: ((String) -> Void)?
 	@ObservationIgnored let container = TerminalContainer(frame: .zero)
 
 	init(key: String, spec: LaunchSpec) {
@@ -185,7 +187,9 @@ final class TerminalTab: NSObject, Identifiable, LocalProcessTerminalViewDelegat
 
 	// MARK: LocalProcessTerminalViewDelegate
 	func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
-	func setTerminalTitle(source: LocalProcessTerminalView, title: String) {}
+	func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+		DispatchQueue.main.async { [self] in onTitle?(title) }
+	}
 	func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 	func processTerminated(source: TerminalView, exitCode code: Int32?) {
 		DispatchQueue.main.async { [self] in

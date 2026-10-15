@@ -1,0 +1,16 @@
+{
+  "description": "SessionStart: привязывает чат Claude к сессии оркестратора (после /clear и /resume — своя сессия); работает только в терминале приложения TClaude-Orch",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook start",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

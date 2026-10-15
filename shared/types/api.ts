@@ -98,6 +98,16 @@ export interface SessionRequest {
 	chatId?: string
 }
 
+/** POST /sessions/attach — Claude начал (или продолжил) чат: сессия этого чата (есть — берём, нет — создаём) и переход вкладки к ней. */
+export interface AttachRequest {
+	/** id чата Claude (session_id хука SessionStart) */
+	chatId: string
+	/** каталог чата (cwd хука); без него — каталог прежней сессии */
+	cwd?: string
+	/** сессия, из которой пришёл вызов (`NESSY_ORCH_SESSION`): её `successor` указывает на результат */
+	from?: string
+}
+
 export interface SessionPatch {
 	title?: string
 	status?: SessionStatus

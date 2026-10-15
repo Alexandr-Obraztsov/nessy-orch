@@ -1,5 +1,5 @@
 /** Маршруты сессий оркестраторов. */
-import { parseSessionPatch, parseSessionRequest, parseSessionStatus } from '../parsers'
+import { parseAttachRequest, parseSessionPatch, parseSessionRequest, parseSessionStatus } from '../parsers'
 import { readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -12,6 +12,7 @@ export function registerSessionRoutes(r: Router): void {
 		const body = await readBody(req)
 		sendJson(res, 201, orch.createSession(parseSessionRequest(body)))
 	})
+	r.add('POST', '/sessions/attach', async ({ req, res, orch }) => sendJson(res, 200, orch.attachSession(parseAttachRequest(await readBody(req)))))
 	r.add('GET', '/sessions/:id', ({ res, orch, params }) => sendJson(res, 200, orch.getSession(params['id'] ?? '')))
 	r.add('GET', '/sessions/:id/sources', ({ res, orch, params }) => sendJson(res, 200, orch.sessionSources(params['id'] ?? '')))
 	r.add('POST', '/sessions/:id/closed', async ({ res, orch, params }) => sendJson(res, 200, await orch.sessionClosed(params['id'] ?? '')))

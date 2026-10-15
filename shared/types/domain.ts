@@ -98,6 +98,8 @@ export interface SessionView {
 	chatId?: string | null
 	/** каталог чата Claude (cwd из хука): агенты сессии запускаются здесь, отдельные каталоги не нужны */
 	cwd?: string | null
+	/** после `/clear` или `/resume` внутри Claude вкладка продолжается в другой сессии (чат другой): id её; вкладка идёт по цепочке к последней */
+	successor?: string | null
 }
 
 export interface AgentView {

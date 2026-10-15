@@ -157,7 +157,7 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 
 ## Плагин для Claude Code
 
-Плагин Claude Code `nessy` лежит в [`plugins/nessy/`](plugins/nessy/): один скилл, команда `/nessy:status` и CLI в `bin/`; хуков нет.
+Плагин Claude Code `nessy` лежит в [`plugins/nessy/`](plugins/nessy/): один скилл, команда `/nessy:status`, хук SessionStart и CLI в `bin/`. Хук привязывает чат Claude к сессии: после `/clear` и `/resume` чат другой, поэтому сессия всегда новая (или найденная по этому чату), а вкладка приложения идёт за ней по цепочке `successor`; новый id хук записывает в `CLAUDE_ENV_FILE`, и Bash-команды Claude работают в нужной сессии.
 Главный агент здесь только Claude Code (`claude`, `tclaude`…); исполнители — агенты nessy. Плагин переводит Claude в роль ведущего: работая через
 nessy-orch, Claude не выполняет задачу сам, а проходит цикл:
 
@@ -214,6 +214,7 @@ nessy-orch, Claude не выполняет задачу сам, а проход�
 | `GET /sessions?status=`, `POST /sessions {title,owner?,id?}` | Сессии оркестраторов; id по умолчанию — slug заголовка + 4 hex (`409 session_exists` при занятом) |
 | `GET /sessions/:id`, `PATCH /sessions/:id {title?,status?,summary?}`, `DELETE /sessions/:id` | Сессия: правка/закрытие (`status: done`), удаление (`409 session_busy`, если агенты работают; агенты → `session: null`) |
 | `POST /sessions {cwd, chatId, title?}` | Сессия вкладки проекта: заголовок по умолчанию — имя папки; чат Claude (`--session-id`) уже привязан к другой сессии — `409 chat_bound` |
+| `POST /sessions/attach {chatId, cwd?, from?}` | Чат Claude начался или сменился (хук SessionStart): сессия этого чата (создаётся, если нет), у прежней `successor` указывает на неё |
 | `POST /sessions/:id/closed` | Вкладка закрыта: работающие агенты остановлены, сессия остаётся |
 | `GET /sessions/:id/sources` | Источники сессии: ссылки из ответов и вызовов инструментов агентов, без дублей |
 | `GET /spaces`, `POST /spaces {path,name?,url?}`, `DELETE /spaces/:name?force=1` | Пространства |

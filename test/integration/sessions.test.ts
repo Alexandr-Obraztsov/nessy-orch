@@ -1,6 +1,7 @@
 /** Сессии по HTTP: CRUD, spawn в сессии и наследование, поток, рестарт; CLI: ожидание результата. */
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import type { AgentView, ApiError, GraphView, SpawnResponse, StreamEvent, SessionView } from '../../shared/types'
@@ -95,6 +96,58 @@ describe('сессии (HTTP)', () => {
 		assert.deepEqual(h.orch.listSessions().map(t => t.id), [t1.id])
 		assert.equal(h.orch.getAgent('lead-1').session, t1.id)
 		assert.equal(h.orch.getAgent('sub-1').session, t1.id)
+	})
+})
+
+describe('чат Claude ↔ сессия: attach и хук SessionStart', () => {
+	let h: Harness | null = null
+	after(async () => {
+		await h?.close()
+	})
+
+	const hook = (port: number, session: string, stdin: object, extra: NodeJS.ProcessEnv = {}): Promise<number | null> =>
+		new Promise(resolve => {
+			const p = spawn(process.execPath, [CLI_MAIN, 'hook', 'start'], { env: { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', NESSY_ORCH_SESSION: session, ...extra } })
+			p.on('close', code => resolve(code))
+			p.stdin.end(JSON.stringify(stdin))
+		})
+
+	it('attach: чат уже привязан — та же сессия; новый чат (/clear) — новая сессия в той же папке, прежняя получает successor', T, async () => {
+		h = await startHarness()
+		const hh = h
+		const first = (await hh.api<SessionView>('POST', '/sessions', { cwd: '/tmp/attach-proj', chatId: 'chat-aaaa-0001' })).body
+		const same = await hh.api<SessionView>('POST', '/sessions/attach', { chatId: 'chat-aaaa-0001', from: first.id })
+		assert.equal(same.body.id, first.id)
+		assert.ok(!(await hh.api<SessionView>('GET', `/sessions/${first.id}`)).body.successor)
+		const next = await hh.api<SessionView>('POST', '/sessions/attach', { chatId: 'chat-aaaa-0002', cwd: '/tmp/attach-proj', from: first.id })
+		assert.notEqual(next.body.id, first.id)
+		assert.equal(next.body.chatId, 'chat-aaaa-0002')
+		assert.equal(next.body.cwd, '/tmp/attach-proj')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${first.id}`)).body.successor, next.body.id)
+		// /resume старого чата: сессия находится, цепочка разворачивается (у возвращённой преемника нет)
+		const back = await hh.api<SessionView>('POST', '/sessions/attach', { chatId: 'chat-aaaa-0001', from: next.body.id })
+		assert.equal(back.body.id, first.id)
+		assert.ok(!back.body.successor)
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${next.body.id}`)).body.successor, first.id)
+		assert.equal((await hh.api<ApiError>('POST', '/sessions/attach', { chatId: 'плохой id' })).status, 400)
+		assert.equal((await hh.api<ApiError>('POST', '/sessions/attach', {})).status, 400)
+	})
+
+	it('hook start: после /clear создаёт сессию нового чата и записывает её id в CLAUDE_ENV_FILE; тот же чат — файл не трогает', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		const first = (await hh.api<SessionView>('POST', '/sessions', { cwd: '/tmp/hook-proj', chatId: 'chat-bbbb-0001' })).body
+		const envFile = path.join(hh.base, 'claude-env')
+		assert.equal(await hook(hh.port, first.id, { session_id: 'chat-bbbb-0001', cwd: '/tmp/hook-proj', source: 'startup' }, { CLAUDE_ENV_FILE: envFile }), 0)
+		assert.ok(!fs.existsSync(envFile), 'сессия та же — переменную менять незачем')
+		assert.equal(await hook(hh.port, first.id, { session_id: 'chat-bbbb-0002', cwd: '/tmp/hook-proj', source: 'clear' }, { CLAUDE_ENV_FILE: envFile }), 0)
+		const created = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.chatId === 'chat-bbbb-0002')
+		assert.ok(created)
+		assert.match(fs.readFileSync(envFile, 'utf8'), new RegExp(`export NESSY_ORCH_SESSION='${created.id}'`))
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${first.id}`)).body.successor, created.id)
+		// без переменной окружения (вне приложения) и без чата хук молчит
+		assert.equal(await hook(hh.port, '', { session_id: 'chat-bbbb-0003' }, { CLAUDE_ENV_FILE: envFile }), 0)
+		assert.ok(!(await hh.api<SessionView[]>('GET', '/sessions')).body.some(x => x.chatId === 'chat-bbbb-0003'))
 	})
 })
 

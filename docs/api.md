@@ -58,6 +58,7 @@
 | POST | `/agents/:ref/permission/:requestId` | `{approve:boolean}` (по умолчанию `true`) | `{ok:true}`; если запрос не найден (или нет соединения) — `404 {ok:false}`. Тело без `approve:false` означает «разрешить» |
 | GET | `/sessions?status=active\|done` | — | `SessionView[]`: сначала активные, затем по свежести |
 | POST | `/sessions` | `SessionRequest {title?, owner?, id?, cwd?, chatId?}` | `201 SessionView` (с `unread`); без `title` — имя папки `cwd` (вкладка проекта); `chatId` — id чата Claude (`--session-id`), занятый другой сессией — `409 chat_bound`; id по умолчанию — slug заголовка (кириллица транслитерируется, пусто → `session`) + `-` + 4 hex; занятый явный `id` — `409 session_exists` |
+| POST | `/sessions/attach` | `AttachRequest {chatId, cwd?, from?}` | `SessionView`: сессия чата Claude (нет — создаётся в `cwd` или каталоге `from`); у `from` поле `successor` указывает на результат (после `/clear`, `/resume`); оператору |
 | GET | `/sessions/:id` | — | `SessionView` или `404 no_session` |
 | PATCH | `/sessions/:id` | `SessionPatch {title?, status?, summary?}` | `SessionView` (`updatedAt` обновляется); `status: done` ставит оркестратор или человек из приложения |
 | POST | `/sessions/:id/closed` | — | `{cancelled}`: вкладка закрыта, работающие агенты сессии остановлены, сессия остаётся (`lead.state: ended`) |

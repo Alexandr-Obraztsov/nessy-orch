@@ -1,5 +1,5 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
-import type { RoleRequest, SendRequest, SpaceRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
+import type { AttachRequest, RoleRequest, SendRequest, SpaceRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { isSessionStatus } from '../../domain/sessions'
 import { isObject } from '../../lib/json'
@@ -91,6 +91,15 @@ export function parseSessionRequest(b: unknown): SessionRequest {
 	}
 }
 
+
+/** Привязка чата Claude к сессии: chatId обязателен, cwd и from — необязательные строки. */
+export function parseAttachRequest(b: unknown): AttachRequest {
+	if (!isObject(b) || typeof b['chatId'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле chatId (строка)')
+	const { cwd, from } = b
+	if (cwd !== undefined && typeof cwd !== 'string') throw new AppError(400, 'bad_request', 'cwd — строка')
+	if (from !== undefined && typeof from !== 'string') throw new AppError(400, 'bad_request', 'from — строка')
+	return { chatId: b['chatId'], ...(cwd ? { cwd } : {}), ...(from ? { from } : {}) }
+}
 
 /** Правка сессии: title — строка, status — active|done, summary — строка или null. */
 export function parseSessionPatch(b: unknown): SessionPatch {

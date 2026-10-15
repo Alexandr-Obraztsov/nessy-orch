@@ -59,9 +59,22 @@ final class SessionWindowModel {
 		sessionId = value.session
 	}
 
-	var currentSessionId: String? { sessionId.flatMap { app.store.session($0) == nil ? nil : $0 } }
-	/// сессия относится к этому проекту
-	func owns(_ id: String) -> Bool { id == sessionId }
+	/// Цепочка сессий вкладки: после `/clear` и `/resume` Claude начинает другой чат, а сессия привязана к чату всегда, поэтому у прежней
+	/// сессии появляется `successor`. Вкладка идёт по цепочке до последней.
+	var sessionChain: [String] {
+		guard let start = sessionId else { return [] }
+		var out = [start]
+		var cur = start
+		while let next = app.store.session(cur)?.successor, !out.contains(next), out.count < 32 {
+			out.append(next)
+			cur = next
+		}
+		return out
+	}
+	/// текущая сессия вкладки — последняя в цепочке (сессия нового чата после `/clear`)
+	var currentSessionId: String? { sessionChain.last.flatMap { app.store.session($0) == nil ? nil : $0 } }
+	/// сессия относится к этому проекту (текущая или одна из прежних чатов вкладки)
+	func owns(_ id: String) -> Bool { sessionChain.contains(id) }
 
 	var session: SessionView? { currentSessionId.flatMap { app.store.session($0) } }
 	var agents: [AgentView] { currentSessionId.map { app.store.agents(inSession: $0) } ?? [] }
@@ -116,13 +129,28 @@ final class SessionWindowModel {
 		app.startTerminal(for: self)
 	}
 
+	private var pushedTitle: String?
+	@ObservationIgnored private var titleTask: Task<Void, Never>?
+
+	/// Название чата из заголовка окна Claude: становится названием текущей сессии (через паузу, чтобы не писать на каждое изменение).
+	func noteChatTitle(_ osc: String) {
+		guard let title = ChatTitle.clean(osc), title != pushedTitle else { return }
+		titleTask?.cancel()
+		titleTask = Task { [weak self] in
+			try? await Task.sleep(for: .seconds(2))
+			guard !Task.isCancelled, let self, let id = self.currentSessionId, self.app.store.session(id)?.title != title else { return }
+			self.pushedTitle = title
+			try? await self.app.store.client.renameSession(id, title: title)
+		}
+	}
+
 	/// Окно закрыто: терминал завершается; пустая сессия (ни одного агента) удаляется.
 	func closed() {
 		app.terminals.close(key: key)
 		// сервер останавливает работающих агентов сессии (они без хозяина жгли бы токены); сессия остаётся — её можно продолжить (`--resume`)
-		if let id = sessionId {
+		let client = app.store.client
+		for id in sessionChain {
 			let empty = app.store.agents(inSession: id).isEmpty
-			let client = app.store.client
 			Task {
 				try? await client.sessionClosed(id)
 				// проект без единого агента ничего не хранит: сессия не копится
@@ -268,7 +296,14 @@ private struct ProjectSwitcher: View {
 		@Environment(AppModel.self) private var model
 		private var recent: [String] {
 			let open = Set(model.tabs.map(\.dir))
-			return model.recentProjects.filter { !open.contains($0) && FileManager.default.fileExists(atPath: $0) }.prefix(6).map { $0 }
+			return model.recentProjects.filter { !open.contains($0) && FileManager.default.fileExists(atPath: $0) }.prefix(20).map { $0 }
+		}
+		/// Сессия подписана названием чата (если Claude его уже придумал) и папкой.
+		private func sessionButton(_ s: SessionView) -> some View {
+			Button(ChatTitle.label(title: s.title, cwd: s.cwd)) { model.show(session: s.id) }.help(s.cwd ?? s.title)
+		}
+		private func folderButton(_ d: String) -> some View {
+			Button(Projects.name(ofPath: d)) { model.openTerminal(dir: d) }.help(d)
 		}
 		var body: some View {
 			Menu {
@@ -276,17 +311,23 @@ private struct ProjectSwitcher: View {
 					Button("Новый терминал здесь") { model.newWindowHere() }
 				}
 				Button("Открыть папку…") { model.openFolderPanel() }
-				let sessions = Array(model.recentSessions.prefix(4))
+				let sessions = model.recentSessions(limit: 20)
 				if !sessions.isEmpty {
 					Divider()
 					Section("Продолжить сессию") {
-						ForEach(sessions) { s in Button(s.title) { model.show(session: s.id) } }
+						ForEach(sessions.prefix(5)) { s in sessionButton(s) }
+						if sessions.count > 5 {
+							Menu("Ещё сессии") { ForEach(sessions.dropFirst(5)) { s in sessionButton(s) } }
+						}
 					}
 				}
 				if !recent.isEmpty {
 					Divider()
 					Section("Папки") {
-						ForEach(recent, id: \.self) { d in Button(Projects.name(ofPath: d)) { model.openTerminal(dir: d) }.help(d) }
+						ForEach(recent.prefix(5), id: \.self) { d in folderButton(d) }
+						if recent.count > 5 {
+							Menu("Ещё папки") { ForEach(recent.dropFirst(5), id: \.self) { d in folderButton(d) } }
+						}
 					}
 				}
 			} label: {

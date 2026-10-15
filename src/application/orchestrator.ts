@@ -20,6 +20,7 @@ import type {
 	SpawnResponse,
 	StatusResponse,
 	StreamEvent,
+	AttachRequest,
 	SessionPatch,
 	SessionRequest,
 	SessionStatus,
@@ -374,6 +375,11 @@ export class Orchestrator implements AgentHost {
 			}
 		}
 		return removed
+	}
+
+	/** Чат Claude начался или сменился: сессия этого чата (создаётся, если её нет) и переход вкладки к ней. */
+	attachSession(req: AttachRequest): SessionView {
+		return this.sessionsSvc.attach(req)
 	}
 
 	updateSession(id: string, patch: SessionPatch): SessionView {

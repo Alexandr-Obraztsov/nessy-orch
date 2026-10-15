@@ -27,9 +27,27 @@ function authHeaders(env: NodeJS.ProcessEnv = process.env): Record<string, strin
 }
 
 const UNREACHABLE =
-	'оркестратор недоступен. Запустите его в обычном терминале (не из Claude Code): `nessy-orch install` (сервис launchd) или `node ~/Projects/nessy-orch/dist/src/main.js`'
+	'оркестратор недоступен. Приложение TClaude-Orch перезапускает службу само: повторите команду через несколько секунд. Не помогло: попросите пользователя открыть приложение или выполнить `nessy-orch install` в обычном терминале (из Claude Code службу не запустить)'
 
-export function request(ep: Endpoint, method: string, path: string, body?: unknown): Promise<unknown> {
+/** Сколько раз и как часто пробуем подключиться, пока служба перезапускается (отказ в соединении = запрос до сервера не дошёл, повтор безопасен). */
+const CONNECT_ATTEMPTS = 5
+const CONNECT_PAUSE_MS = 1500
+
+export async function request(ep: Endpoint, method: string, path: string, body?: unknown): Promise<unknown> {
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return await requestOnce(ep, method, path, body)
+		} catch (e) {
+			if (!(e instanceof ConnectRefused) || attempt >= CONNECT_ATTEMPTS) throw e instanceof ConnectRefused ? new CliError(UNREACHABLE) : e
+			await new Promise<void>(r => setTimeout(r, CONNECT_PAUSE_MS))
+		}
+	}
+}
+
+/** Соединение не установлено: сервис не слушает порт. */
+class ConnectRefused extends Error {}
+
+function requestOnce(ep: Endpoint, method: string, path: string, body?: unknown): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		const payload = body === undefined ? null : JSON.stringify(body)
 		const req = http.request(
@@ -55,7 +73,7 @@ export function request(ep: Endpoint, method: string, path: string, body?: unkno
 				})
 			},
 		)
-		req.on('error', () => reject(new CliError(UNREACHABLE)))
+		req.on('error', (e: NodeJS.ErrnoException) => reject(e.code === 'ECONNREFUSED' ? new ConnectRefused() : new CliError(UNREACHABLE)))
 		if (payload) req.write(payload)
 		req.end()
 	})

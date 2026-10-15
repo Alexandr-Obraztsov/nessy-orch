@@ -8,6 +8,7 @@ import { errMsg } from '../../lib/json'
 import { flagBool, flagStr, parseArgs } from './args'
 import { agentCommands } from './commands/agents.commands'
 import type { CommandTable } from './commands/command.types'
+import { hookCommands } from './commands/hook.commands'
 import { feedCommands } from './commands/feed.commands'
 import { roleCommands } from './commands/roles.commands'
 import { serviceCommands } from './commands/service.commands'
@@ -20,7 +21,7 @@ import { HELP } from './help'
 import { isPathArg } from './launch'
 import { info, out } from './io'
 
-const COMMANDS: CommandTable = { ...agentCommands, ...feedCommands, ...spaceCommands, ...roleCommands, ...sessionCommands, ...serviceCommands }
+const COMMANDS: CommandTable = { ...agentCommands, ...feedCommands, ...hookCommands, ...spaceCommands, ...roleCommands, ...sessionCommands, ...serviceCommands }
 const ALIASES: Record<string, string> = { list: 'ls', agents: 'ls', rm: 'kill', log: 'feed', messages: 'feed', spaces: 'space', roles: 'role', sessions: 'session' }
 
 async function main(argv: string[]): Promise<void> {

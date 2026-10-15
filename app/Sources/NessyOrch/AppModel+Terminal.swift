@@ -56,6 +56,7 @@ extension AppModel {
 			spec.environment[i] = "PATH=" + (extra + [String(spec.environment[i].dropFirst(5))]).joined(separator: ":")
 		}
 		let tab = terminals.add(spec, key: win.key)
+		tab.onTitle = { [weak win] title in win?.noteChatTitle(title) }
 		tab.onExit = { [weak win, weak tab] code in
 			guard let win, let tab else { return }
 			guard let lead else {

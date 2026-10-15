@@ -26,6 +26,54 @@ final class SetupModel {
 			let online = match == nil ? await daemonOnline() : true
 			if match == false || (match == nil && !online) { await installService() }
 		}
+		watchService()
+	}
+
+	private var watching = false
+	private var offlineSince: Date?
+	private var lastRestart: Date?
+	private var failures = 0
+
+	/// Следит за службой: оркестратор недоступен дольше нескольких секунд — перезапускаем её сами (launchd kickstart, а если службы нет,
+	/// ставим заново). Повторные неудачи пробуем реже, после третьей говорим об этом пользователю.
+	private func watchService() {
+		guard !watching, autoService, service.isBundled else { return }
+		watching = true
+		Task { @MainActor in
+			let dog = ServiceWatchdog()
+			while !Task.isCancelled {
+				try? await Task.sleep(for: .seconds(2))
+				guard autoService else { continue }
+				var offline = false
+				if case .offline = AppModel.shared.store.daemon { offline = true }
+				if !offline {
+					offlineSince = nil
+					failures = 0
+					continue
+				}
+				let now = Date()
+				if offlineSince == nil { offlineSince = now }
+				let action = dog.decide(offlineFor: now.timeIntervalSince(offlineSince ?? now), sinceRestart: lastRestart.map { now.timeIntervalSince($0) }, failures: failures)
+				guard action == .restart else { continue }
+				lastRestart = now
+				let ok = await restartService()
+				if !ok {
+					failures += 1
+					if dog.shouldReport(failures: failures) { AppModel.shared.flash("Служба оркестратора не поднимается. Проверьте, что установлен Node.js", error: true) }
+				}
+				try? await Task.sleep(for: .seconds(3))
+				await AppModel.shared.store.refreshStatus()
+			}
+		}
+	}
+
+	/// Перезапуск службы: `launchctl kickstart -k` (если она загружена), иначе установка заново из встроенной копии.
+	@discardableResult
+	func restartService() async -> Bool {
+		let label = ServiceInstaller.launchLabel
+		let r = await Shell.run("launchctl kickstart -k gui/$(id -u)/\(label)", timeout: 20)
+		if r.status == 0 { return true }
+		return await installService()
 	}
 
 	private func installPluginIfNeeded() {
