@@ -238,7 +238,8 @@ struct AgentRow: View {
 
 	/// Последняя строка: план («▮▮▯ 3 из 5»), кольцо контекста и время. Пустая — не рисуется.
 	@ViewBuilder private var footer: some View {
-		let steps = (a.state == .working || a.state == .starting) ? (a.plan?.entries.map(\.status) ?? []) : []
+		// план показываем в любом состоянии, пока он есть: у ждущего — где остановился, у готового — выполненный
+		let steps = a.plan?.entries.map(\.status) ?? []
 		let showTimer = a.state == .wait || a.canStop || (a.lastTurnMs ?? 0) >= 1000
 		if !steps.isEmpty || (a.stats.contextPct ?? 0) > 0 || showTimer || model.store.isNew(a) {
 			HStack(spacing: DS.Metrics.s3) {
@@ -248,7 +249,6 @@ struct AgentRow: View {
 						Text("\(min(steps.filter { $0 == .completed }.count + (steps.contains(.inProgress) ? 1 : 0), steps.count)) из \(steps.count)").monospacedDigit()
 					}
 				}
-				Spacer(minLength: 0)
 				if let pct = a.stats.contextPct, pct > 0 {
 					HStack(spacing: 4) {
 						DSContextMeter(pct: pct, size: 11)
@@ -259,6 +259,7 @@ struct AgentRow: View {
 				if showTimer { DSTimer(agent: a, frozenAt: model.frozenAt) }
 			}
 			.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+			.frame(maxWidth: .infinity, alignment: .leading)
 			.padding(.top, 2)
 		}
 	}
