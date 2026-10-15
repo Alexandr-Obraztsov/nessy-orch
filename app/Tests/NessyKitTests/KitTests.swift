@@ -559,7 +559,7 @@ struct CodeLocationTests {
 
 @Suite("Заголовок агента")
 struct AgentTitleTests {
-	@Test func titleComesFromOrchestratorThenGoal() throws {
+	@MainActor @Test func titleComesFromOrchestratorThenGoal() throws {
 		let store = OrchStore(client: OrchClient(baseURL: URL(string: "http://127.0.0.1:1")!))
 		var a = try decodeAgent(agentJSON(id: "a-1", status: "idle"))
 		#expect(a.title == nil)
