@@ -125,7 +125,7 @@ struct ServerSettings: View {
 			}
 			Section {
 				HStack {
-					Button("Перезапустить службу") { Task { _ = await Daemon.kickstart() } }
+					Button("Перезапустить службу") { Task { _ = await model.setup.restartService() } }
 					Button("Открыть логи") { Daemon.openLogs() }
 				}
 			}

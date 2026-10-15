@@ -68,13 +68,34 @@ final class SetupModel {
 		}
 	}
 
-	/// Перезапуск службы: `launchctl kickstart -k` (если она загружена), иначе установка заново из встроенной копии.
+	/// Идёт перезапуск службы: в приложении показываем загрузку.
+	private(set) var restarting = false
+
+	/// Перезапуск службы: сначала роняем прежнюю (bootout, а что всё ещё держит порт — добиваем), ждём, пока порт освободится, и только
+	/// потом поднимаем последнюю установленную копию (`install --ensure` из рабочей копии). Пока идёт, `restarting` — приложение показывает загрузку.
 	@discardableResult
 	func restartService() async -> Bool {
+		guard !restarting else { return false }
+		restarting = true
+		defer { restarting = false }
 		let label = ServiceInstaller.launchLabel
-		let r = await Shell.run("launchctl kickstart -k gui/$(id -u)/\(label)", timeout: 20)
-		if r.status == 0 { return true }
-		return await installService()
+		let port = AppModel.shared.store.client.baseURL.port ?? 4337
+		_ = await Shell.run("launchctl bootout gui/$(id -u)/\(label)", timeout: 20)
+		// порт свободен? иначе новый процесс упадёт с EADDRINUSE: сначала вежливо (TERM), потом KILL
+		for attempt in 0..<20 {
+			let pids = await Shell.run("lsof -nP -tiTCP:\(port) -sTCP:LISTEN").output.split(whereSeparator: \.isWhitespace)
+			if pids.isEmpty { break }
+			let sig = attempt < 8 ? "TERM" : "KILL"
+			_ = await Shell.run("kill -\(sig) \(pids.joined(separator: " "))")
+			try? await Task.sleep(for: .milliseconds(400))
+		}
+		guard await installService() else { return false }
+		// ждём, пока новая служба начнёт отвечать
+		for _ in 0..<40 {
+			await AppModel.shared.store.refreshStatus()
+			if case .offline = AppModel.shared.store.daemon { try? await Task.sleep(for: .milliseconds(500)) } else { return true }
+		}
+		return false
 	}
 
 	private func installPluginIfNeeded() {

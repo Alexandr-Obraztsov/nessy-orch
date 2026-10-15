@@ -461,8 +461,13 @@ struct OfflineBanner: View {
 
 	var body: some View {
 		HStack(spacing: DS.Metrics.s3) {
+			if model.setup.restarting {
+				ProgressView().controlSize(.small)
+				Text("Перезапускаю оркестратор…").foregroundStyle(DS.Palette.textPrimary)
+			} else {
 			Image(systemName: "bolt.slash.fill").foregroundStyle(DS.Palette.danger)
 			Text("\(Text("Нет связи с оркестратором").foregroundStyle(DS.Palette.textPrimary))\(Text(" · данные на \(model.store.lastEventAt.formatted(date: .omitted, time: .shortened))").foregroundStyle(DS.Palette.textSecondary))")
+			}
 		}
 		.font(DS.Typography.secondary)
 		.lineLimit(1)

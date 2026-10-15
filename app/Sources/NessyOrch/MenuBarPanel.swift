@@ -42,7 +42,7 @@ struct MenuBarPanel: View {
 					Text("Нет связи с оркестратором").font(DS.Typography.secondary)
 					Spacer(minLength: DS.Metrics.s2)
 					GlassIconButton(systemImage: "power", help: "Запустить службу") {
-						Task { _ = await Daemon.kickstart(); try? await Task.sleep(for: .seconds(2)); await store.refreshStatus() }
+						Task { _ = await model.setup.restartService() }
 					}
 				}
 				.padding(DS.Metrics.s3)
