@@ -80,8 +80,8 @@ final class AppModel {
 	var windowSize: CGSize = .zero
 
 	/// Блоки колонки сверху вниз (в нижней полосе слева направо). Агенты — пока шторка открыта, терминал — пока он открыт: у каждого своё
-	/// состояние. `preview` — как было бы после отпускания переносимого блока (для синей зоны; сама раскладка во время переноса не меняется).
-	func blocks(on side: DockSide, preview: Bool = false) -> [DockBlock] {
+	/// состояние. Пока блок переносят, раскладка уже такая, какой станет после отпускания (`preview`): остальные блоки подстраиваются на лету.
+	func blocks(on side: DockSide, preview: Bool = true) -> [DockBlock] {
 		let aSide = preview && draggingBlock == .agents ? (previewSide ?? agentsSide) : agentsSide
 		let sSide = preview && draggingBlock == .shell ? (previewSide ?? shellSide) : shellSide
 		var first = shellFirst

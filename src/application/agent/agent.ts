@@ -539,6 +539,7 @@ export class Agent implements AgentIdentity {
 		}
 		this.journal.resetTools()
 		this.turnSteps = 0
+		this.startUsageTimer()
 		// новая сессия от оператора после выполненного плана — план сбрасывается (уточнения его сохраняют)
 		this.plan = planOnTurnStart(this.plan, msg.from === YOU || msg.from === USER, this.queue.length)
 		this.setStatus('working')
@@ -644,6 +645,24 @@ export class Agent implements AgentIdentity {
 	private clearCancelTimer(): void {
 		if (this.cancelTimer) clearTimeout(this.cancelTimer)
 		this.cancelTimer = null
+		this.stopUsageTimer()
+	}
+
+	private usageTimer: ReturnType<typeof setInterval> | null = null
+
+	/** Пока идёт ход, токены и контекст опрашиваются у nessy каждые 5 с — карточка живая, а не обновляется в конце хода. */
+	private startUsageTimer(): void {
+		this.stopUsageTimer()
+		this.usageTimer = setInterval(() => {
+			if (this.current) void this.refreshUsage()
+			else this.stopUsageTimer()
+		}, 5000)
+		this.usageTimer.unref()
+	}
+
+	private stopUsageTimer(): void {
+		if (this.usageTimer) clearInterval(this.usageTimer)
+		this.usageTimer = null
 	}
 
 	private rememberDone(promptId: string): void {
