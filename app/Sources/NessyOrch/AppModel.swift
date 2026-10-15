@@ -40,6 +40,13 @@ final class AppModel {
 		return w > 0 ? min(DS.Metrics.sidePanelWidth.max, max(DS.Metrics.sidePanelWidth.min, CGFloat(w))) : DS.Metrics.sidePanelWidth.ideal
 	}() { didSet { UserDefaults.standard.set(Double(panelWidth), forKey: "panelWidth") } }
 	/// правая панель агентов видна (запоминается, общая для всех окон)
+	/// ширина левой колонки блоков (у каждой колонки свой размер); правая — `panelWidth`
+	var leftPanelWidth: CGFloat = {
+		let w = UserDefaults.standard.double(forKey: "leftPanelWidth")
+		return w > 0 ? min(DS.Metrics.sidePanelWidth.max, max(DS.Metrics.sidePanelWidth.min, CGFloat(w))) : DS.Metrics.sidePanelWidth.ideal
+	}() { didSet { UserDefaults.standard.set(Double(leftPanelWidth), forKey: "leftPanelWidth") } }
+	func width(of side: DockSide) -> CGFloat { side == .left ? leftPanelWidth : panelWidth }
+	func setWidth(_ v: CGFloat, of side: DockSide) { if side == .left { leftPanelWidth = v } else { panelWidth = v } }
 	var showAgents = UserDefaults.standard.object(forKey: "showAgents") as? Bool ?? true { didSet { UserDefaults.standard.set(showAgents, forKey: "showAgents") } }
 	/// высота терминала проекта в правой колонке (тянется за верхний край), общая для окон
 	var shellHeight: CGFloat = {

@@ -218,7 +218,7 @@ private struct MainWindowBody: View {
 			if model.draggingBlock != nil, let side = model.dropSide {
 				RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
 					.strokeBorder(DS.Palette.accent.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
-					.frame(width: model.panelWidth)
+					.frame(width: model.width(of: side))
 					.padding(SessionWindowModel.panelMargin)
 					.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side == .left ? .topLeading : .topTrailing)
 					.allowsHitTesting(false)
@@ -255,7 +255,7 @@ private struct DockColumn: View {
 	private let m = SessionWindowModel.panelMargin
 
 	var body: some View {
-		let w = model.panelWidth
+		let w = model.width(of: side)
 		let blocks = model.blocks(on: side)
 		let hidden = !model.showAgents || blocks.isEmpty
 		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
@@ -272,11 +272,12 @@ private struct DockColumn: View {
 			}
 			.frame(height: total, alignment: .top)
 			.overlay(alignment: side == .right ? .leading : .trailing) { handle }
-			.overlay { if blocks.count == 2 { SplitGrip(total: total, shellH: shellH, shellFirst: model.shellFirst) } }
+			.overlay { if blocks.count == 2 { SplitGrip(total: total, shellH: shellH, shellFirst: model.shellFirst, width: w) } }
 			.padding(.top, topPad).padding(.bottom, m)
 			.padding(.leading, side == .right ? m / 2 : m).padding(.trailing, side == .right ? m : m / 2)
 			.frame(width: hidden ? 0 : w + m * 1.5, alignment: side == .right ? .trailing : .leading)
-			.clipped()
+			// блок, который тащат, выходит за границы колонки: обрезка снимается на время переноса
+			.mask { Rectangle().padding(model.draggingBlock != nil ? -4000 : 0) }
 			.opacity(hidden ? 0 : 1)
 			.allowsHitTesting(!hidden)
 			.accessibilityHidden(hidden)
@@ -294,13 +295,13 @@ private struct DockColumn: View {
 			}
 			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
 				.onChanged { g in
-					if widthStart == nil { widthStart = model.panelWidth }
+					if widthStart == nil { widthStart = model.width(of: side) }
 					let r = DS.Metrics.sidePanelWidth
 					let dx = side == .right ? -g.translation.width : g.translation.width
-					model.panelWidth = min(max((widthStart ?? r.ideal) + dx, r.min), r.max)
+					model.setWidth(min(max((widthStart ?? r.ideal) + dx, r.min), r.max), of: side)
 				}
 				.onEnded { _ in widthStart = nil })
-			.onTapGesture(count: 2) { model.panelWidth = DS.Metrics.sidePanelWidth.ideal }
+			.onTapGesture(count: 2) { model.setWidth(DS.Metrics.sidePanelWidth.ideal, of: side) }
 			.help("Потяните, чтобы изменить ширину; двойной щелчок — по умолчанию")
 	}
 }
@@ -364,6 +365,7 @@ private struct SplitGrip: View {
 	var total: CGFloat
 	var shellH: CGFloat
 	var shellFirst: Bool
+	var width: CGFloat
 	@State private var hover = false
 	@State private var visible = false
 	@State private var startH: CGFloat?
@@ -374,7 +376,7 @@ private struct SplitGrip: View {
 		let y = shellFirst ? shellH + m / 2 : total - shellH - m / 2
 		Color.clear.frame(height: 16).contentShape(Rectangle())
 			.overlay { Capsule().fill(DS.Palette.textTertiary).frame(width: 36, height: 4).opacity(visible ? 0.9 : 0) }
-			.position(x: model.panelWidth / 2 + (m / 2), y: y)
+			.position(x: width / 2, y: y)
 			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 			.onHover { h in
 				hover = h
@@ -555,12 +557,11 @@ private struct WindowBar: View {
 
 	var body: some View {
 		let m = SessionWindowModel.panelMargin
-		let colW = model.panelWidth + m * 1.5
 		let hasPanel = model.showAgents && !model.tabs.isEmpty && !model.blocks(on: .right).isEmpty
 		let hasLeft = model.showAgents && !model.tabs.isEmpty && !model.blocks(on: .left).isEmpty
 		// колонка терминала: всё окно минус колонки блоков (если открыты)
-		let slot = hasPanel ? colW : 0
-		let leftSlot = hasLeft ? colW : 0
+		let slot = hasPanel ? model.width(of: .right) + m * 1.5 : 0
+		let leftSlot = hasLeft ? model.width(of: .left) + m * 1.5 : 0
 		// переключатель по центру колонки терминала; поля слева и справа равны, чтобы не наезжать на светофор и кнопки
 		let side = hasLeft ? 12 : max(model.isFullScreen ? 12 : model.lightsTrailing + 12, hasPanel ? 0 : 112)
 		ZStack(alignment: .top) {
