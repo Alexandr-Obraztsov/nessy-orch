@@ -15,8 +15,6 @@ struct AgentsPanel: View {
 					.transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
 			} else {
 				AgentsListView()
-					// подвал («Роли») — только на списке; карточки уходят под него с размытием, как под заголовок
-					.safeAreaBar(edge: .bottom, spacing: 0) { SidebarFooter() }
 					.transition(reduceMotion ? .opacity : .move(edge: .leading).combined(with: .opacity))
 			}
 		}

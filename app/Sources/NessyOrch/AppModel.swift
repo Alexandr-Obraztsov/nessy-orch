@@ -52,6 +52,37 @@ final class AppModel {
 		didSet { if let v = doneGroupOpen { UserDefaults.standard.set(v, forKey: "agents.doneOpen") } else { UserDefaults.standard.removeObject(forKey: "agents.doneOpen") } }
 	}
 	var failedGroupOpen = UserDefaults.standard.bool(forKey: "agents.failedOpen") { didSet { UserDefaults.standard.set(failedGroupOpen, forKey: "agents.failedOpen") } }
+	// MARK: раскладка блоков (агенты, терминал) по колонкам: слева и справа от центрального терминала
+	var agentsSide: DockSide = DockSide(rawValue: UserDefaults.standard.string(forKey: "dock.agentsSide") ?? "") ?? .right { didSet { UserDefaults.standard.set(agentsSide.rawValue, forKey: "dock.agentsSide") } }
+	var shellSide: DockSide = DockSide(rawValue: UserDefaults.standard.string(forKey: "dock.shellSide") ?? "") ?? .right { didSet { UserDefaults.standard.set(shellSide.rawValue, forKey: "dock.shellSide") } }
+	/// в общей колонке терминал выше агентов
+	var shellFirst = UserDefaults.standard.bool(forKey: "dock.shellFirst") { didSet { UserDefaults.standard.set(shellFirst, forKey: "dock.shellFirst") } }
+	/// блок, который тащат за шапку, и его смещение; размер окна нужен, чтобы понять, куда его бросили
+	var draggingBlock: DockBlock?
+	var dragOffset: CGSize = .zero
+	var dropSide: DockSide?
+	var windowSize: CGSize = .zero
+
+	/// Блоки колонки сверху вниз (терминал — только если открыт).
+	func blocks(on side: DockSide) -> [DockBlock] {
+		var out: [DockBlock] = []
+		if agentsSide == side { out.append(.agents) }
+		if shellSide == side, activeWindow?.shellOpen == true { out.append(.shell) }
+		return shellFirst ? out.reversed() : out
+	}
+
+	/// Блок отпущен в точке окна: колонка — по половине окна, место в колонке — по верхней/нижней половине.
+	func drop(_ block: DockBlock, at p: CGPoint) {
+		let side: DockSide = p.x < windowSize.width / 2 ? .left : .right
+		let above = p.y < windowSize.height / 2
+		withAnimation(dsAnimation(DS.Motion.panel)) {
+			switch block {
+			case .agents: agentsSide = side; shellFirst = !above
+			case .shell: shellSide = side; shellFirst = above
+			}
+			draggingBlock = nil; dragOffset = .zero; dropSide = nil
+		}
+	}
 	let terminals = TerminalStore.shared
 	/// первичная установка и проверка окружения (CLI, служба, Claude Code, скилл)
 	let setup = SetupModel()
@@ -374,3 +405,7 @@ enum Daemon {
 		NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".nessy-orch/logs"))
 	}
 }
+
+/// Блоки колонок вокруг центрального терминала.
+enum DockBlock: String { case agents, shell }
+enum DockSide: String { case left, right }

@@ -210,11 +210,22 @@ private struct MainWindowBody: View {
 			DS.Palette.terminalBackground
 			// терминал стоит слева и не двигается; панель справа забирает только ширину
 			HStack(spacing: 0) {
+				if model.activeWindow != nil { DockColumn(side: .left) }
 				CenterView()
-				if model.activeWindow != nil { SidePanel() }
+				if model.activeWindow != nil { DockColumn(side: .right) }
+			}
+			// куда упадёт переносимый блок: подсвечена колонка у края окна
+			if model.draggingBlock != nil, let side = model.dropSide {
+				RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
+					.strokeBorder(DS.Palette.accent.opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
+					.frame(width: model.panelWidth)
+					.padding(SessionWindowModel.panelMargin)
+					.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: side == .left ? .topLeading : .topTrailing)
+					.allowsHitTesting(false)
 			}
 			WindowBar()
 		}
+		.onGeometryChange(for: CGSize.self) { $0.size } action: { model.windowSize = $0 }
 		.ignoresSafeArea()
 		.navigationTitle(model.activeWindow.map { model.label(of: $0) } ?? "TClaude-Orch")
 		.background { WindowConfigurator(app: model) }
@@ -233,52 +244,48 @@ private struct MainWindowBody: View {
 	}
 }
 
-/// Панель агентов справа: плитка одного ровного цвета от верха окна до низа; в её верхней строке заголовок и кнопки (кнопки едут вместе
-/// с панелью). Ширину можно менять, потянув за левый край (двойной щелчок — вернуть обычную). Слот занимает только ширину панели:
-/// терминал слева не двигается и не меняет высоту. Панель показывает агентов активного проекта.
-private struct SidePanel: View {
+/// Колонка блоков (агенты и терминал проекта) слева или справа от центрального терминала. Блок — плитка одного ровного цвета; в колонке их
+/// один или два (между двумя — зазор с «тянучкой», которая появляется с задержкой). Блок переносится за шапку на другую сторону или
+/// выше/ниже соседа. Ширину колонки можно менять, потянув за внутренний край (двойной щелчок — обычная).
+private struct DockColumn: View {
 	@Environment(AppModel.self) private var model
-	@State private var dragStart: CGFloat?
+	var side: DockSide
+	@State private var widthStart: CGFloat?
 	@State private var hovering = false
 	private let m = SessionWindowModel.panelMargin
 
 	var body: some View {
 		let w = model.panelWidth
-		let hidden = !model.showAgents
+		let blocks = model.blocks(on: side)
+		let hidden = !model.showAgents || blocks.isEmpty
 		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
-		let glow = dragStart != nil || hovering
+		// под светофором (слева) верхний блок начинается ниже кнопок окна
+		let topPad = side == .left && !model.isFullScreen ? max(m, 44) : m
 		GeometryReader { geo in
-			let total = max(geo.size.height - 2 * m, 0)
-			let shellOpen = model.activeWindow?.shellOpen == true
-			let shellH = shellOpen ? min(max(model.shellHeight, AppModel.shellHeightMin), max(total - 160 - m, AppModel.shellHeightMin)) : 0
-			// два отдельных блока одной формы и цвета с зазором: агенты сверху, терминал проекта снизу (если открыт)
+			let total = max(geo.size.height - topPad - m, 0)
+			let shellH = blocks.count == 2 ? min(max(model.shellHeight, AppModel.shellHeightMin), max(total - 160 - m, AppModel.shellHeightMin)) : total
 			VStack(spacing: m) {
-				AgentsPanel()
-					.id(model.activeKey)
-					.frame(width: w, height: shellOpen ? max(total - shellH - m, 0) : total)
-					.clipShape(shape)
-					.background(DS.Palette.panelSurface, in: shape)
-					.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
-					.overlay(shape.strokeBorder(glow ? DS.Palette.accent.opacity(0.55) : .clear, lineWidth: 1.5))
-				if let win = model.activeWindow, win.shellOpen {
-					ShellBlock(win: win, height: shellH, maxHeight: max(total - 160 - m, AppModel.shellHeightMin))
-						.frame(width: w)
-						.transition(.move(edge: .bottom).combined(with: .opacity))
+				ForEach(blocks, id: \.rawValue) { b in
+					let h = blocks.count == 1 ? total : (b == .shell ? shellH : max(total - shellH - m, 0))
+					DockTile(block: b, side: side, height: h, width: w, shape: shape, glow: widthStart != nil || hovering)
 				}
 			}
-			.frame(height: max(geo.size.height - 2 * m, 0))
-			.overlay(alignment: .leading) { handle }
-			.padding(.top, m).padding(.bottom, m).padding(.trailing, m).padding(.leading, m / 2)
-			.frame(width: hidden ? 0 : w + m * 1.5, alignment: .trailing)
+			.frame(height: total, alignment: .top)
+			.overlay(alignment: side == .right ? .leading : .trailing) { handle }
+			.overlay { if blocks.count == 2 { SplitGrip(total: total, shellH: shellH, shellFirst: model.shellFirst) } }
+			.padding(.top, topPad).padding(.bottom, m)
+			.padding(.leading, side == .right ? m / 2 : m).padding(.trailing, side == .right ? m : m / 2)
+			.frame(width: hidden ? 0 : w + m * 1.5, alignment: side == .right ? .trailing : .leading)
 			.clipped()
 			.opacity(hidden ? 0 : 1)
 			.allowsHitTesting(!hidden)
 			.accessibilityHidden(hidden)
 		}
 		.frame(width: hidden ? 0 : w + m * 1.5)
+		.zIndex(model.draggingBlock != nil && model.blocks(on: side).contains(model.draggingBlock!) ? 2 : 0)
 	}
 
-	/// Полоса захвата у левого края: курсор «↔», перетаскивание влево расширяет панель в пределах min…max.
+	/// Полоса захвата у внутреннего края: курсор «↔», перетаскивание в сторону центра сужает, от центра — расширяет.
 	private var handle: some View {
 		Color.clear.frame(width: 10).contentShape(Rectangle())
 			.onHover { h in
@@ -287,29 +294,114 @@ private struct SidePanel: View {
 			}
 			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
 				.onChanged { g in
-					if dragStart == nil { dragStart = model.panelWidth }
+					if widthStart == nil { widthStart = model.panelWidth }
 					let r = DS.Metrics.sidePanelWidth
-					model.panelWidth = min(max((dragStart ?? r.ideal) - g.translation.width, r.min), r.max)
+					let dx = side == .right ? -g.translation.width : g.translation.width
+					model.panelWidth = min(max((widthStart ?? r.ideal) + dx, r.min), r.max)
 				}
-				.onEnded { _ in dragStart = nil })
+				.onEnded { _ in widthStart = nil })
 			.onTapGesture(count: 2) { model.panelWidth = DS.Metrics.sidePanelWidth.ideal }
 			.help("Потяните, чтобы изменить ширину; двойной щелчок — по умолчанию")
 	}
 }
 
-/// Терминал проекта: отдельный блок под списком агентов — та же форма, цвет и рамка, что у блока агентов. Высота тянется за верхний край
-/// (двойной щелчок — по умолчанию), заголовок с папкой и кнопкой «закрыть» (процесс остаётся, пока жив проект).
-private struct ShellBlock: View {
+/// Одна плитка колонки: содержимое блока, рамка и перенос за шапку (верхние 34 pt): блок едет за курсором, отпустили — встал в колонку,
+/// над которой бросили.
+private struct DockTile: View {
 	@Environment(AppModel.self) private var model
-	var win: SessionWindowModel
+	var block: DockBlock
+	var side: DockSide
 	var height: CGFloat
-	var maxHeight: CGFloat
-	@State private var dragStart: CGFloat?
-	@State private var hovering = false
+	var width: CGFloat
+	var shape: RoundedRectangle
+	var glow: Bool
+	@State private var origin: CGPoint = .zero
+	@State private var dragging = false
 
 	var body: some View {
-		let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
-		let h = height
+		let isDragged = model.draggingBlock == block
+		content
+			.frame(width: width, height: height)
+			.clipShape(shape)
+			.background(DS.Palette.panelSurface, in: shape)
+			.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+			.overlay(shape.strokeBorder(glow || isDragged ? DS.Palette.accent.opacity(0.55) : .clear, lineWidth: 1.5))
+			.shadow(color: .black.opacity(isDragged ? 0.35 : 0), radius: 16, y: 6)
+			.opacity(isDragged ? 0.92 : 1)
+			.offset(isDragged ? model.dragOffset : .zero)
+			.zIndex(isDragged ? 5 : 0)
+			.onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { if !dragging { origin = $0 } }
+			.simultaneousGesture(DragGesture(minimumDistance: 8, coordinateSpace: .local)
+				.onChanged { g in
+					if !dragging {
+						guard g.startLocation.y < 34 else { return }
+						dragging = true
+						model.draggingBlock = block
+					}
+					guard dragging else { return }
+					model.dragOffset = g.translation
+					let p = CGPoint(x: origin.x + g.startLocation.x + g.translation.width, y: origin.y + g.startLocation.y + g.translation.height)
+					model.dropSide = p.x < model.windowSize.width / 2 ? .left : .right
+				}
+				.onEnded { g in
+					guard dragging else { return }
+					dragging = false
+					model.drop(block, at: CGPoint(x: origin.x + g.startLocation.x + g.translation.width, y: origin.y + g.startLocation.y + g.translation.height))
+				})
+	}
+
+	@ViewBuilder private var content: some View {
+		switch block {
+		case .agents: AgentsPanel().id(model.activeKey)
+		case .shell: if let win = model.activeWindow { ShellBlock(win: win) }
+		}
+	}
+}
+
+/// Тянучка между двумя блоками колонки: простая тонкая плашка по центру зазора, показывается с задержкой при наведении.
+private struct SplitGrip: View {
+	@Environment(AppModel.self) private var model
+	var total: CGFloat
+	var shellH: CGFloat
+	var shellFirst: Bool
+	@State private var hover = false
+	@State private var visible = false
+	@State private var startH: CGFloat?
+	private let m = SessionWindowModel.panelMargin
+
+	var body: some View {
+		// центр зазора: терминал снизу — на высоте (total − shellH − m/2), сверху — на (shellH + m/2)
+		let y = shellFirst ? shellH + m / 2 : total - shellH - m / 2
+		Color.clear.frame(height: 16).contentShape(Rectangle())
+			.overlay { Capsule().fill(DS.Palette.textTertiary).frame(width: 36, height: 4).opacity(visible ? 0.9 : 0) }
+			.position(x: model.panelWidth / 2 + (m / 2), y: y)
+			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+			.onHover { h in
+				hover = h
+				if h { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+				if h {
+					DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { if hover { withAnimation(.easeOut(duration: 0.15)) { visible = true } } }
+				} else {
+					withAnimation(.easeOut(duration: 0.12)) { visible = false }
+				}
+			}
+			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+				.onChanged { g in
+					if startH == nil { startH = model.shellHeight }
+					let dy = shellFirst ? g.translation.height : -g.translation.height
+					model.shellHeight = min(max((startH ?? 240) + dy, AppModel.shellHeightMin), max(total - 160 - m, AppModel.shellHeightMin))
+				}
+				.onEnded { _ in startH = nil })
+			.onTapGesture(count: 2) { model.shellHeight = 240 }
+			.help("Потяните, чтобы изменить высоту блоков; двойной щелчок — по умолчанию")
+	}
+}
+
+/// Терминал проекта: содержимое блока колонки — заголовок с папкой и «×» (процесс остаётся, пока жив проект) и сам терминал.
+private struct ShellBlock: View {
+	var win: SessionWindowModel
+
+	var body: some View {
 		VStack(spacing: 0) {
 			HStack(spacing: DS.Metrics.s2) {
 				Image(systemName: "terminal").font(.system(size: 11, weight: .medium))
@@ -331,29 +423,6 @@ private struct ShellBlock: View {
 				Spacer()
 			}
 		}
-		.frame(height: h)
-		.clipShape(shape)
-		.background(DS.Palette.panelSurface, in: shape)
-		.overlay(shape.strokeBorder(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
-		.overlay(shape.strokeBorder(dragStart != nil || hovering ? DS.Palette.accent.opacity(0.55) : .clear, lineWidth: 1.5))
-		.overlay(alignment: .top) { grip }
-	}
-
-	/// Полоса захвата по верхнему краю: курсор «↕», потянуть вверх — выше.
-	private var grip: some View {
-		Color.clear.frame(height: 8).contentShape(Rectangle())
-			.onHover { h in
-				hovering = h
-				if h { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-			}
-			.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-				.onChanged { g in
-					if dragStart == nil { dragStart = model.shellHeight }
-					model.shellHeight = min(max((dragStart ?? 240) - g.translation.height, AppModel.shellHeightMin), maxHeight)
-				}
-				.onEnded { _ in dragStart = nil })
-			.onTapGesture(count: 2) { model.shellHeight = 240 }
-			.help("Потяните, чтобы изменить высоту; двойной щелчок — по умолчанию")
 	}
 }
 
@@ -482,16 +551,21 @@ private struct ProjectSwitcher: View {
 /// Пока панель открыта, кнопки лежат прямо на её фоне (своей капсулы нет); панель закрыта — они собираются в свою стеклянную капсулу.
 private struct WindowBar: View {
 	@Environment(AppModel.self) private var model
+	@Environment(\.openWindow) private var openWindow
 
 	var body: some View {
 		let m = SessionWindowModel.panelMargin
-		let hasPanel = model.showAgents && !model.tabs.isEmpty
-		// колонка терминала: всё окно минус плитка панели (если открыта)
-		let slot = hasPanel ? model.panelWidth + m * 1.5 : 0
+		let colW = model.panelWidth + m * 1.5
+		let hasPanel = model.showAgents && !model.tabs.isEmpty && !model.blocks(on: .right).isEmpty
+		let hasLeft = model.showAgents && !model.tabs.isEmpty && !model.blocks(on: .left).isEmpty
+		// колонка терминала: всё окно минус колонки блоков (если открыты)
+		let slot = hasPanel ? colW : 0
+		let leftSlot = hasLeft ? colW : 0
 		// переключатель по центру колонки терминала; поля слева и справа равны, чтобы не наезжать на светофор и кнопки
-		let side = max(model.isFullScreen ? 12 : model.lightsTrailing + 12, hasPanel ? 0 : 112)
+		let side = hasLeft ? 12 : max(model.isFullScreen ? 12 : model.lightsTrailing + 12, hasPanel ? 0 : 112)
 		ZStack(alignment: .top) {
 			HStack(spacing: 0) {
+				Color.clear.frame(width: leftSlot, height: 1)
 				HStack {
 					if !model.tabs.isEmpty { ProjectSwitcher() }
 				}
@@ -505,6 +579,7 @@ private struct WindowBar: View {
 					if let win = model.activeWindow {
 						BarIcon(systemImage: win.shellOpen ? "terminal.fill" : "terminal", help: win.shellOpen ? "Скрыть терминал проекта" : "Терминал проекта") { win.toggleShell() }
 					}
+					BarIcon(systemImage: "person.text.rectangle", help: "Роли агентов (⇧⌘R)") { openWindow(id: "roles") }
 					BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
 					SettingsButton()
 				}
