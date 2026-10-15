@@ -38,7 +38,7 @@ export interface PermissionBrief {
 /**
  * Сессия («ящик») — единица работы одного оркестратора (сессии Claude). Каждый Claude заводит свою
  * сессию и запускает агентов в ней; несколько Claude работают параллельно, не мешая друг другу:
- * у каждой сессии свой inbox. UI показывает сессии по отдельности или рядом.
+ * у каждой сессии свои источники и счётчики. UI показывает сессии по отдельности или рядом.
  */
 export type SessionStatus = 'active' | 'done'
 
@@ -81,15 +81,6 @@ export interface SourceView {
 	ts: number
 }
 
-/** Состояние Claude Code этой сессии (сообщают хуки): работает над ходом / ждёт пользователя / сеанс завершён. */
-export type LeadState = 'working' | 'idle' | 'ended'
-
-export interface LeadStatus {
-	state: LeadState
-	/** когда сообщили (ISO) */
-	at: string
-}
-
 export interface SessionView {
 	/** slug: латиница, цифры, дефис (например `fix-ci-3f2a`) */
 	id: string
@@ -103,14 +94,10 @@ export interface SessionView {
 	updatedAt: string
 	/** сколько источников собрано за сессию (список — GET /sessions/:id/sources) */
 	sources: number
-	/** состояние Claude Code (по хукам `nessy-orch hook …`); null — хуки не подключены или сервис перезапускался */
-	lead?: LeadStatus | null
-	/** id чата Claude Code (session_id из хуков), к которому привязана сессия: один чат (в том числе /resume) — одна сессия */
+	/** id чата Claude Code (`--session-id`, для `--resume`), к которому привязана сессия */
 	chatId?: string | null
 	/** каталог чата Claude (cwd из хука): агенты сессии запускаются здесь, отдельные каталоги не нужны */
 	cwd?: string | null
-	/** сколько ответов и вопросов агентов Claude ещё не получил (считает сервер по курсору сессии; не хранится) */
-	unread?: number
 }
 
 export interface AgentView {
