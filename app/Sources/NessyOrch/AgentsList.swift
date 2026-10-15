@@ -100,6 +100,8 @@ struct AgentsListView: View {
 		}
 		.scrollEdgeEffectStyle(.soft, for: .top)
 		.scrollEdgeEffectStyle(.soft, for: .bottom)
+		// полоса прокрутки не мигает при перестройке списка (закрытие сессии, смена группы)
+		.scrollIndicators(.hidden)
 		// Клавиши списка (↑/↓, J/K, ↩) работают, только когда фокус в самом списке (клик по пустому месту); терминал и поле ввода
 		// получают свои клавиши как есть. Фокус сам список не забирает — иначе он отнимал бы его у терминала.
 		.background { Color.clear.contentShape(Rectangle()).onTapGesture { listFocused = true } }

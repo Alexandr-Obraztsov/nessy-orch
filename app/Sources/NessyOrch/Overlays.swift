@@ -208,11 +208,13 @@ struct RolesView: View {
 							RoleFilesSection(role: r)
 						} else {
 							section("Инструкции") {
-								TextEditor(text: $draft.instructions)
+								// поле растёт вместе с текстом и не прокручивается само: прокручивается одна страница
+								TextField("", text: $draft.instructions, axis: .vertical)
+									.textFieldStyle(.plain)
+									.lineLimit(9...)
 									.font(.system(size: 13, design: .monospaced)).lineSpacing(3)
-									.scrollContentBackground(.hidden)
-									.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
-									.frame(minHeight: 180)
+									.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2 + 2)
+									.frame(maxWidth: .infinity, alignment: .topLeading)
 									.background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))
 									.overlay(RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous).stroke(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
 								Text(draft.hasPackage

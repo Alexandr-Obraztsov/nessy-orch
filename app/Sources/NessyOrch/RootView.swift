@@ -150,16 +150,19 @@ final class SessionWindowModel {
 	}
 
 	private var pushedTitle: String?
+	/// сессия, которой отправлено название: после /clear или /resume сессия другая, и то же название надо отправить ей
+	private var pushedSession: String?
 	@ObservationIgnored private var titleTask: Task<Void, Never>?
 
 	/// Название чата из заголовка окна Claude: становится названием текущей сессии (через паузу, чтобы не писать на каждое изменение).
 	func noteChatTitle(_ osc: String) {
-		guard let title = ChatTitle.clean(osc), title != pushedTitle else { return }
+		guard let title = ChatTitle.clean(osc), title != pushedTitle || pushedSession != currentSessionId else { return }
 		titleTask?.cancel()
 		titleTask = Task { [weak self] in
 			try? await Task.sleep(for: .seconds(2))
 			guard !Task.isCancelled, let self, let id = self.currentSessionId, self.app.store.session(id)?.title != title else { return }
 			self.pushedTitle = title
+			self.pushedSession = id
 			try? await self.app.store.client.renameSession(id, title: title)
 		}
 	}
@@ -233,37 +236,31 @@ private struct MainWindowBody: View {
 	}
 }
 
-/// Терминал проекта: содержимое блока. Терминал занимает весь блок (свой «консольный» фон), шапка — как у агентов: прозрачная, без
-/// отдельной плашки; под ней плавное затемнение и размытие (Liquid Glass). Первые строки терминала пустые (`padTopLines`), чтобы вывод
-/// начинался ниже шапки.
+/// Терминал проекта: содержимое блока. Сверху сплошная шапка (название и «×»), под ней терминал со своим «консольным» фоном: терминал
+/// начинается ниже шапки, поэтому отступ не пропадает ни при `clear`, ни при прокрутке.
 struct ShellBlock: View {
 	var win: SessionWindowModel
 
 	static func title(_ dir: String) -> String { "Терминал" }
 
 	var body: some View {
-		ZStack(alignment: .top) {
+		VStack(spacing: 0) {
+			header
+			DSSeparator()
 			if let tab = win.shell {
 				TerminalHost(tab: tab, topInset: 0)
 					.id(tab.id)
 					.accessibilityLabel("Терминал проекта")
+			} else {
+				Spacer()
 			}
-			// затемнение и размытие под шапкой: материал и фон терминала, проявляющиеся сверху вниз
-			ZStack {
-				Rectangle().fill(.ultraThinMaterial)
-				LinearGradient(colors: [DS.Palette.terminalBackground.opacity(0.85), DS.Palette.terminalBackground.opacity(0)], startPoint: .top, endPoint: .bottom)
-			}
-			.frame(height: ShellBlock.reservedTop + 8)
-			.mask(LinearGradient(colors: [.black, .black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
-			.allowsHitTesting(false)
-			header
 		}
 	}
 
 	private var header: some View {
 		HStack(spacing: DS.Metrics.s2) {
 			Image(systemName: "terminal").font(.system(size: 12, weight: .medium))
-			Text(Self.title(win.dir)).font(DS.Typography.groupTitle).lineLimit(1).truncationMode(.middle)
+			Text(Self.title(win.dir)).font(DS.Typography.groupTitle).lineLimit(1)
 			Spacer(minLength: 0)
 			Button { win.toggleShell() } label: {
 				Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).frame(width: 22, height: 22).contentShape(Circle())
@@ -272,12 +269,10 @@ struct ShellBlock: View {
 		}
 		.foregroundStyle(DS.Palette.textSecondary)
 		.padding(.horizontal, DS.Metrics.s4).frame(height: ShellBlock.headerHeight)
-		.padding(.top, DS.Metrics.s1)
+		.background(DS.Palette.panelSurface)
 	}
 
-	/// высота шапки: под неё резервируются верхние строки терминала
-	static let headerHeight: CGFloat = 32
-	static var reservedTop: CGFloat { headerHeight + DS.Metrics.s1 + DS.Metrics.s2 }
+	static let headerHeight: CGFloat = 34
 }
 
 /// Переключатель проектов в шапке на Liquid Glass: вкладка на проект (активная подсвечена), у каждой — состояние агентов проекта
@@ -301,6 +296,7 @@ private struct ProjectSwitcher: View {
 					.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tabsWidth = $0 }
 				}
 				.scrollIndicators(.hidden)
+				.scrollDisabled(tabsWidth <= 560) // вкладки помещаются — прокрутки нет (иначе при закрытии вкладки полоса мигает)
 				// ширина — ровно по вкладкам (но не шире 560 pt: дальше полоса прокручивается)
 				.frame(width: min(tabsWidth, 560))
 				.onChange(of: model.activeKey) { _, k in withAnimation(dsAnimation(DS.Motion.panel)) { proxy.scrollTo(k) } }
