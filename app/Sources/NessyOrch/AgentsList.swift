@@ -186,8 +186,16 @@ struct AgentRow: View {
 	/// Роль · токены · вызовы (в menu bar вместо роли — сессия: агенты там из разных сессий). Что есть, то и пишем.
 	@ViewBuilder private var meta: some View {
 		let parts = metaParts
-		if !parts.isEmpty {
-			Text(parts.joined(separator: " · ")).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1)
+		if !parts.isEmpty || a.stats.contextPct != nil {
+			// кольцо контекста стоит в начале строки и читается вместе с цифрами: «◔ 54 % · Исполнитель · 12 тыс. токенов · 3 вызова»
+			HStack(spacing: DS.Metrics.s1 + 2) {
+				if let pct = a.stats.contextPct {
+					DSContextMeter(pct: pct, size: 12)
+					Text("\(pct) %").monospacedDigit()
+				}
+				Text(parts.joined(separator: " · ")).lineLimit(1)
+			}
+			.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
 		}
 	}
 
@@ -205,7 +213,6 @@ struct AgentRow: View {
 		let steps = (a.state == .working || a.state == .starting) ? (a.plan?.entries.map(\.status) ?? []) : []
 		VStack(alignment: .trailing, spacing: 6) {
 			HStack(spacing: DS.Metrics.s2) {
-				if let pct = a.stats.contextPct { DSContextMeter(pct: pct) }
 				if model.store.isNew(a) { DSNewDot() }
 				if a.state == .wait || a.canStop || (a.lastTurnMs ?? 0) >= 1000 {
 					DSTimer(agent: a, frozenAt: model.frozenAt)
@@ -227,8 +234,10 @@ struct AgentStageLine: View {
 		Group {
 			switch a.state {
 			case .working, .starting:
-				// чем занят агент, последнюю команду и пункт плана не пишем: достаточно заголовка, «роль · токены · вызовы» и индикатора шагов
-				EmptyView()
+				// чем занят агент сейчас: «Ищет в коде», команда и т. п.
+				if let t = a.stage(now: model.frozenAt ?? Date())?.text, !t.isEmpty {
+					Text(t).foregroundStyle(DS.Palette.textSecondary).lineLimit(1).truncationMode(.middle)
+				}
 			case .wait:
 				EmptyView()
 			case .error:

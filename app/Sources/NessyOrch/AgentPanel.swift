@@ -155,7 +155,7 @@ struct PlanBlock: View {
 			let cur = PlanWindowing.current(plan.entries)
 			let n = plan.entries.count
 			let done = plan.entries.filter { $0.status == .completed }.count
-			InfoCard(title: "План", tint: DS.Palette.accent.opacity(0.12), expanded: $expanded, help: expanded ? "Свернуть план" : "Показать весь план", cap: cap) {
+			InfoCard(title: "План", tint: DS.Palette.planSurface, expanded: $expanded, help: expanded ? "Свернуть план" : "Показать весь план", cap: cap) {
 				HStack(spacing: DS.Metrics.s2) {
 					Text("\(done) из \(n)").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).monospacedDigit()
 					DSPlanSegments(steps: plan.entries.map(\.status))

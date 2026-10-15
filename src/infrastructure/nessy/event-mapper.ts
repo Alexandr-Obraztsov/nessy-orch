@@ -128,6 +128,7 @@ function followupText(d: JsonObject): string {
  * Привести кадр nessy к внутренней форме. null — событие оркестратору не нужно.
  * `tools` — буфер инструментов этой подписки (мутируется). Вход — произвольный JSON.
  */
+let loggedNoUsage = false
 export function mapNessyEvent(eventName: string, frame: unknown, tools: Map<string, ToolCallBuffer>): SessionEvent | null {
 	if (!isObject(frame)) return null
 	const type = str(frame['type'], eventName)
@@ -139,6 +140,10 @@ export function mapNessyEvent(eventName: string, frame: unknown, tools: Map<stri
 			tools.clear()
 		{
 			const usage = extractUsage(d['usage'] ?? obj(d['_meta'])['usage'])
+			if (!usage && !loggedNoUsage) {
+				loggedNoUsage = true
+				console.log(`[nessy-orch] nessy turn_complete без токенов: ${JSON.stringify(d).slice(0, 600)}`)
+			}
 			return { kind: 'turn_complete', stopReason: str(d['stopReason'], 'end_turn'), promptId: strOrNull(d['promptId']), ...(usage ? { usage } : {}) }
 		}
 		case 'turn_error':

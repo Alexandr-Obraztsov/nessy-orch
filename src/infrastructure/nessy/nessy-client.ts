@@ -17,6 +17,15 @@ import { clip } from '../../lib/text'
 import { SseParser } from '../sse/sse-parser'
 import { NessyEventMapper } from './event-mapper'
 import { extractContext, extractUsage } from './usage'
+
+/** Сырой ответ nessy на /stats и /context-usage — один раз в лог оркестратора: формат в контракте не зафиксирован, по этой строке его можно сверить. */
+const seenRaw = new Set<string>()
+function noteRaw(kind: string, status: number, body: unknown): void {
+	const key = `${kind}:${status}`
+	if (seenRaw.has(key)) return
+	seenRaw.add(key)
+	console.log(`[nessy-orch] nessy ${kind}: HTTP ${status} ${JSON.stringify(body).slice(0, 800)}`)
+}
 import type { NessyResponse } from './protocol.types'
 import type { TokenUsage } from '../../../shared/types'
 
@@ -147,6 +156,7 @@ export class NessyClient implements NessyGateway {
 	async usage(sessionId: string): Promise<TokenUsage | null> {
 		try {
 			const r = await this.request('GET', `/session/${sessionId}/stats`, undefined, 5000)
+			noteRaw('stats', r.status, r.json)
 			return r.status === 200 ? extractUsage(r.json) : null
 		} catch {
 			return null
@@ -156,6 +166,7 @@ export class NessyClient implements NessyGateway {
 	async contextUsage(sessionId: string): Promise<{ used: number; size: number | null } | null> {
 		try {
 			const r = await this.request('GET', `/session/${sessionId}/context-usage`, undefined, 5000)
+			noteRaw('context-usage', r.status, r.json)
 			return r.status === 200 ? extractContext(r.json) : null
 		} catch {
 			return null

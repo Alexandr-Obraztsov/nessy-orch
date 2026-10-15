@@ -186,7 +186,8 @@ export class Agent implements AgentIdentity {
 			turnSteps: this.turnSteps,
 			lastTurnMs: this.lastTurnMs,
 			lastReply: this.replyBrief,
-			stats: { ...this.stats, tokens: this.stats.tokens && { ...this.stats.tokens } },
+			// на лету: вызовы идущего хода и заполнение контекста — карточка живая, а не обновляется раз за ход
+			stats: { ...this.stats, toolCalls: this.stats.toolCalls + (this.current ? this.turnSteps : 0), tokens: this.stats.tokens && { ...this.stats.tokens }, ...this.contextMetric() },
 		}
 	}
 
@@ -756,7 +757,18 @@ export class Agent implements AgentIdentity {
 		}
 	}
 
+	private lastUsagePoll = 0
+
+	/** Токены и контекст — на лету: во время хода опрашиваем nessy не чаще раза в 8 с (по событиям инструментов). */
+	private pollUsageLive(): void {
+		const now = this.deps.clock.now()
+		if (now - this.lastUsagePoll < 8000) return
+		this.lastUsagePoll = now
+		void this.refreshUsage()
+	}
+
 	private onTool(ev: Extract<SessionEvent, { kind: 'tool' }>): void {
+		this.pollUsageLive()
 		// обновление инструмента, который мы не видели, вне хода — это реплей: пропускаем
 		if (!this.current && !this.journal.hasTool(ev.toolId)) return
 		const [rec, created] = this.journal.upsertTool(ev)

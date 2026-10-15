@@ -115,8 +115,8 @@ struct DockLayer: View {
 				if let r = g.bottomEdge { HeightHandle().frame(width: r.width, height: r.height).offset(x: r.minX, y: r.minY) }
 			}
 			if let zone, let block = dragging {
-				shape.fill(DS.Palette.accent.opacity(0.14))
-					.overlay(shape.strokeBorder(DS.Palette.accent.opacity(0.75), style: StrokeStyle(lineWidth: 2, dash: [6, 5])))
+				shape.fill(DS.Palette.hover)
+					.overlay(shape.strokeBorder(DS.Palette.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 5])))
 					.frame(width: zone.width, height: zone.height)
 					.offset(x: zone.minX, y: zone.minY)
 					.animation(dsAnimation(DS.Motion.panel), value: zone)

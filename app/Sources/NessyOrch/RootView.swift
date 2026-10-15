@@ -239,7 +239,7 @@ private struct MainWindowBody: View {
 struct ShellBlock: View {
 	var win: SessionWindowModel
 
-	static func title(_ dir: String) -> String { "Терминал (\(Projects.name(ofPath: dir)))" }
+	static func title(_ dir: String) -> String { "Терминал" }
 
 	var body: some View {
 		ZStack(alignment: .top) {
