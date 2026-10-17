@@ -408,6 +408,11 @@ final class AppModel {
 			ws.open(u)
 		}
 	}
+	/// Скрыть агента из списка (архив): остановившиеся агенты — готовые и с ошибкой — не должны просто стоять.
+	func hide(_ a: AgentView) { Task { await run("Скрытие") { try await self.store.client.archiveAgent(a.id) } } }
+	func hide(all list: [AgentView]) { for a in list { hide(a) } }
+	/// Перезапустить упавшего агента: его поручение уходит ему снова (контекст прежний, агент поднимется заново).
+	func restart(_ a: AgentView) { send(to: a, text: store.goal(of: a)) }
 	func stop(_ a: AgentView) { Task { await run("Остановка") { try await self.store.client.cancel(a.id) } } }
 }
 

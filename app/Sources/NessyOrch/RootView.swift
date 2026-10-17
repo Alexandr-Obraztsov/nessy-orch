@@ -77,7 +77,8 @@ final class SessionWindowModel {
 	func owns(_ id: String) -> Bool { sessionChain.contains(id) }
 
 	var session: SessionView? { currentSessionId.flatMap { app.store.session($0) } }
-	var agents: [AgentView] { currentSessionId.map { app.store.agents(inSession: $0) } ?? [] }
+	/// агенты вкладки без скрытых (в архиве)
+	var agents: [AgentView] { currentSessionId.map { app.store.agents(inSession: $0).filter { !$0.archived } } ?? [] }
 	/// карточка открытого агента — только если он в показываемой сессии (после /resume или /clear панель возвращается к списку)
 	var openAgent: AgentView? { openAgentId.flatMap { app.store.agents[$0] }.flatMap { $0.session == currentSessionId ? $0 : nil } }
 	var targetAgent: AgentView? { openAgent ?? selectedAgentId.flatMap { app.store.agents[$0] }.flatMap { $0.session == currentSessionId ? $0 : nil } }

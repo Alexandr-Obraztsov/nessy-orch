@@ -75,6 +75,8 @@ public final class OrchClient: @unchecked Sendable {
 	/// Написать агенту от имени человека: по умолчанию не прерывает: сообщение доходит до агента в идущем ходе или встаёт в очередь (docs/api.md, SendRequest).
 	/// Возвращает сохранённое сообщение; тело ответа не критично, поэтому его разбор не роняет вызов.
 	@discardableResult
+	/// Убрать агента в архив (скрыть из списка); работающего нельзя — сначала прервать ход.
+	public func archiveAgent(_ ref: String) async throws { _ = try await raw("POST", "/agents/\(ref)/archive", body: [String: String]()) }
 	public func sendMessage(to ref: String, text: String, interrupt: Bool = false) async throws -> Message? {
 		struct Ack: Decodable { var message: Message? }
 		let data = try await raw("POST", "/agents/\(ref)/send", body: SendBody(text: text, interrupt: interrupt))
