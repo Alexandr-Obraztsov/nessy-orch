@@ -3,7 +3,6 @@
  * реализует AgentHost и отдаёт интерфейсному слою (HTTP) готовые сценарии.
  */
 import * as crypto from 'node:crypto'
-import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { SERVICE_SESSION, USER, YOU } from '../domain/constants'
@@ -180,7 +179,7 @@ export class Orchestrator implements AgentHost {
 				let agentId = ''
 				try {
 					const casesDir = this.deps.learningStore?.casesDir ?? ''
-					fs.mkdirSync(casesDir, { recursive: true })
+					this.deps.learningStore?.ensureCasesDir()
 					this.ensureServiceSession(SERVICE_SESSION, 'Фон', casesDir)
 					const res = await this.spawn({ session: SERVICE_SESSION, name, title, prompt, wait: true, waitTimeoutSec: LEARNING_AGENT_TIMEOUT_SEC })
 					agentId = res.agent.id

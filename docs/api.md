@@ -17,7 +17,7 @@
 - **Ошибки:** статус ≥ 400, тело `{ "error": "<текст>", "code": "<код>" }`. Коды: `bad_request`, `bad_json`, `bad_path`,
   `bad_from`, `empty_text`, `self_send`, `space_required` (все 400), `no_space` (404), `space_exists` (409),
   `space_busy` (409), `no_agent` (404), `ambiguous_agent` (409), `name_taken` (409), `busy` (409, архив работающего агента),
-  `no_role` (404), `role_exists` (409), `hop_limit` (429), `rate_limit` (429),
+  `no_role` (404), `role_exists` (409), `no_case` (404), `no_job` (404), `no_candidate` (404), `case_busy` (409), `job_not_failed` (409), `learning_unavailable` (503), `hop_limit` (429), `rate_limit` (429),
   `deadlock` (409), `nessy_error` (502), `too_large` (413, тело > 5 МБ), `bad_host`/`bad_origin`/`forbidden` (403),
   `not_found` (404), `internal` (500). Пустое тело запроса читается как `{}`.
 - **Ссылка на агента `:ref`** — id (`a-7f3k`) или уникальное имя (без учёта регистра). Особое значение `you` допустимо
@@ -185,6 +185,26 @@
 
 Ошибки: `400 bad_request` (поля), `404 no_role`, `409 role_exists` (занят id или имя). Роли хранятся в `<home>/roles.json`.
 
+## Фоновое обучение
+
+Типы — `shared/types/learning.ts`. Не-`GET` маршруты — только оператору (`403 operator_required`). Нет хранилища обучения — `503 learning_unavailable`.
+
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| GET | `/learning` | — | `LearningView {settings, jobs[], cases[]}` (кейсы по свежести) |
+| PATCH | `/learning/settings` | частичный `LearningSettings` | `LearningSettings`; пишет `<home>/learning.json`, событие `learning_settings`; неверный тип поля — `400 bad_request`, числа ограничиваются |
+| POST | `/learning/run` | `{session?}` | `JobView[]`: итоговое задание `close` по сессии или кейсу (`404 no_case`); без `session` — по всем незакрытым кейсам. Работает и при выключенном обучении |
+| POST | `/learning/jobs/:id/retry` | — | `JobView`; `404 no_job`, `409 job_not_failed` |
+| GET | `/learning/cases/:id` | — | `CaseDetail` = `CaseView` + `summary` (summary.md) и `notes` (notes.md); `404 no_case` |
+| DELETE | `/learning/cases/:id` | — | `{ok:true}`; удаляет кейс, `raw/` и его ждущие задания, событие `learning_case_removed`; идёт задание кейса — `409 case_busy`. Живая сессия заведёт кейс заново на следующем тике (чтобы не заводила — `disabledSessions`) |
+| POST | `/learning/cases/:id/rebuild` | — | `JobView`: сбрасывает `coveredUntil` и `summary.md`, ставит `close`; `409 case_busy` |
+| GET | `/learning/backfill` | — | `BackfillCandidate[]` (`kind: session\|transcript`, `id`, `title`, `date`, `size` — сообщений у сессии, байт у транскрипта): сессии без кейса с сообщениями в ленте и транскрипты Claude Code с вызовами `nessy-orch spawn\|send` (кроме чатов сессий и уже взятых) |
+| POST | `/learning/backfill` | `{ids: string[]}` | `BackfillResult {created: CaseView[], skipped: [{id, reason}]}`: кейсы `source:'backfill'` (транскрипт — `c-t-<чат>`), каждому сразу итоговый `close`. Кейс уже есть — `skipped`, не дубль; неизвестный id — `404 no_candidate` (ничего не создаётся) |
+
+События `GET /stream`: `{"t":"learning_case","rev":…,"case":CaseView}` (upsert),
+`{"t":"learning_case_removed","rev":…,"id"}`, `{"t":"learning_job","rev":…,"job":JobView}` (upsert), `{"t":"learning_settings","rev":…,"settings":LearningSettings}`.
+Служебная сессия `background` (агенты-сборщики) в списки и снапшот не попадает.
+
 ## Сообщения
 
 | Метод | Путь | Ответ |
@@ -211,6 +231,7 @@
 {"t":"role_removed","rev":49,"id":"reviewer"}
 {"t":"session","rev":50,"session":{…SessionView}}
 {"t":"session_removed","rev":51,"id":"fix-ci-3f2a"}
+{"t":"learning_case","rev":52,"case":{…CaseView}}   // также learning_case_removed, learning_job, learning_settings — см. «Фоновое обучение»
 ```
 
 Правила клиента: при **каждом (пере)подключении** приходит новый `snapshot` — состояние заменяется целиком. События чата

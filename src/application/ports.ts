@@ -2,7 +2,7 @@
  * Порты прикладного слоя: что ядру нужно от внешнего мира (nessy, процессы, хранилище, часы, id).
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
-import type { AgentEvent, LearningSettings, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, TokenUsage, ToolStatus } from '../../shared/types'
+import type { AgentEvent, BackfillCandidate, LearningSettings, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, TokenUsage, ToolStatus } from '../../shared/types'
 import type { RawEvent } from '../domain/learning.types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
 import type { CaseState, JobState, TranscriptCursor } from './learning/learning.types'
@@ -111,6 +111,8 @@ export type SpaceFactory = (init: SpaceInit, listener: SpaceListener) => SpaceRu
 // ---------- хранилище ----------
 export interface LearningStorePort {
 	readonly casesDir: string
+	/** Создать каталог кейсов (cwd служебной сессии «Фон»). */
+	ensureCasesDir(): void
 	/** Нет файла — raw undefined, mtimeMs 0; разбирает сервис (parseLearningSettings + defaultOn). */
 	loadSettings(): { raw: unknown; mtimeMs: number }
 	settingsMtime(): number
@@ -131,6 +133,10 @@ export interface LearningStorePort {
 	saveJobs(jobs: readonly JobState[]): void
 	/** <root>/learning/prompts/<name>.md */
 	readPrompt(name: string): string
+	/** Разбор прошлых сессий: транскрипты Claude Code в `dir`, где вызывается nessy-orch, кроме `known` (id чата). */
+	scanTranscripts(dir: string, known: ReadonlySet<string>): BackfillCandidate[]
+	/** Путь транскрипта по id чата (имя файла без `.jsonl`) или null. */
+	findTranscript(dir: string, chatId: string): string | null
 }
 
 export interface StorePort {

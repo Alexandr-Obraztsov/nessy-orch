@@ -12,12 +12,13 @@
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { LearningSettings } from '../../../shared/types'
+import type { BackfillCandidate, LearningSettings } from '../../../shared/types'
 import type { LearningStorePort } from '../../application/ports'
 import type { CaseState, JobState, TranscriptCursor } from '../../application/learning/learning.types'
 import type { RawEvent } from '../../domain/learning.types'
 import { arr, errMsg, isObject, parseJson } from '../../lib/json'
 import { appendJsonl, readJsonl, readText, writeAtomic } from './jsonl'
+import { findTranscript, scanTranscripts } from './transcript-scan'
 
 const RAW_LIMIT = 1_000_000
 
@@ -36,6 +37,18 @@ export class FileLearningStore implements LearningStorePort {
 		this.settingsPath = path.join(home, 'learning.json')
 		this.jobsPath = path.join(home, 'learning', 'jobs.json')
 		this.promptsDir = path.join(root, 'learning', 'prompts')
+	}
+
+	ensureCasesDir(): void {
+		this.safe('каталог кейсов', () => fs.mkdirSync(this.casesDir, { recursive: true }))
+	}
+
+	scanTranscripts(dir: string, known: ReadonlySet<string>): BackfillCandidate[] {
+		return scanTranscripts(dir, known)
+	}
+
+	findTranscript(dir: string, chatId: string): string | null {
+		return findTranscript(dir, chatId)
 	}
 
 	loadSettings(): { raw: unknown; mtimeMs: number } {

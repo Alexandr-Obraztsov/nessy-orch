@@ -1,5 +1,5 @@
 /** LearningStorePort в памяти для unit-тестов прикладного слоя. Транскрипты читаются из `files` (путь → текст). */
-import type { LearningSettings } from '../../shared/types'
+import type { BackfillCandidate, LearningSettings } from '../../shared/types'
 import type { CaseState, JobState, TranscriptCursor } from '../../src/application/learning/learning.types'
 import type { LearningStorePort } from '../../src/application/ports'
 import type { RawEvent } from '../../src/domain/learning.types'
@@ -18,6 +18,20 @@ export class MemoryLearningStore implements LearningStorePort {
 	jobs: JobState[] = []
 	prompts = new Map<string, string>()
 
+	/** кандидаты и пути транскрипта для разбора прошлых сессий */
+	candidates: BackfillCandidate[] = []
+	transcriptPaths = new Map<string, string>()
+	ensured = 0
+
+	ensureCasesDir(): void {
+		this.ensured += 1
+	}
+	scanTranscripts(_dir: string, known: ReadonlySet<string>): BackfillCandidate[] {
+		return this.candidates.filter(c => !known.has(c.id))
+	}
+	findTranscript(_dir: string, chatId: string): string | null {
+		return this.transcriptPaths.get(chatId) ?? null
+	}
 	loadSettings(): { raw: unknown; mtimeMs: number } {
 		return { raw: this.settingsRaw, mtimeMs: this.mtimeMs }
 	}

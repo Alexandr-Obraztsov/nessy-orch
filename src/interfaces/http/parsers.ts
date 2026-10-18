@@ -125,3 +125,17 @@ export function parseSessionStatus(v: unknown): SessionStatus {
 	if (!isSessionStatus(v)) throw new AppError(400, 'bad_request', 'status — active или done')
 	return v
 }
+
+/** Запуск сбора: `session` — id сессии или кейса (нет — все открытые кейсы). */
+export function parseLearningRun(b: unknown): { session?: string } {
+	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
+	const s = b['session']
+	if (s !== undefined && (typeof s !== 'string' || s === '')) throw new AppError(400, 'bad_request', 'session — непустая строка')
+	return s === undefined ? {} : { session: s }
+}
+
+/** Разбор прошлых сессий: `ids` — id кандидатов из `GET /learning/backfill`. */
+export function parseBackfillRequest(b: unknown): string[] {
+	if (!isObject(b) || !Array.isArray(b['ids']) || b['ids'].some(x => typeof x !== 'string' || x === '')) throw new AppError(400, 'bad_request', 'нужно поле ids (массив непустых строк)')
+	return b['ids'] as string[]
+}

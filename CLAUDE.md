@@ -46,5 +46,6 @@ launchd, запускается через login shell с окружением �
   в коде агента сессия nessy называется `nessyId`.
 - Приложение: `app/` — SwiftPM (`NessyKit` — модель, API, SSE, состояние, тесты `swift test`; `NessyOrch` — SwiftUI, macOS 26).
   Сборка `.app`: `app/scripts/build-app.sh`. Схема для ссылок: `nessy-orch://session/<id>`, `nessy-orch://agent/<id>`.
+- Фоновое обучение (этап 1 готов, этапы 2–3 — плейбуки и вкладка «Фон» — впереди): сервис `src/application/learning/` (`LearningService`, `JobQueue`), чистая логика в `src/domain/` (`case-*`, `collector`, `transcript`, `learning-*`), хранилище `src/infrastructure/persistence/learning-store.ts` и `transcript-scan.ts`, API `routes/learning.routes.ts`, CLI `learn`/`case`. Кейсы лежат в `~/.nessy-orch/cases/<id>/`, настройки — в `learning.json`, очередь — `learning/jobs.json`; описание — README, «Фоновое обучение».
 - Проверки: `npm run check` (typecheck + lint + тесты сервера), `cd app && swift test` (тесты NessyKit).
 - Стиль: табы, без точек с запятой, одинарные кавычки, комментарии по-русски. `any` и `@ts-ignore` запрещены.

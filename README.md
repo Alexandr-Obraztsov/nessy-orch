@@ -155,6 +155,11 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 `ls --all` показывает всех. `--session` у `spawn`, `ask`, `ls` по умолчанию берётся из `NESSY_ORCH_SESSION`.
 `session rm` отказывает (`409 session_busy`), пока в сессии работают агенты; агенты удалённой сессии остаются вне сессий.
 
+```text
+nessy-orch learn [status] | on | off [--session S] | run [--session S] | backfill [--all | <id…>]   # фоновое обучение
+nessy-orch case ls | show <id> | rm <id> | rebuild <id>
+```
+
 ## Плагин для Claude Code
 
 Плагин Claude Code `nessy` лежит в [`plugins/nessy/`](plugins/nessy/): один скилл, команда `/nessy:status`, два хука и CLI в `bin/`. Оба хука работают только в терминале приложения (задан `NESSY_ORCH_SESSION`). Хук SessionStart привязывает чат Claude к сессии: после `/clear` и `/resume` чат другой, поэтому сессия всегда новая (или найденная по этому чату), а вкладка приложения идёт за ней по цепочке `successor`; новый id хук записывает в `CLAUDE_ENV_FILE`, и Bash-команды Claude работают в нужной сессии. В ответе он велит Claude первым делом загрузить скилл `nessy:nessy-orch` (и снова после сжатия разговора). Хук PreToolUse на `Agent` отклоняет первый вызов своего субагента в ходе пользователя с напоминанием поручить работу агенту nessy; повторный вызов в том же ходе проходит.
@@ -204,6 +209,17 @@ nessy-orch, Claude не выполняет задачу сам, а проход�
 Одна из них, `code-explorer`, изучает чужой репозиторий: клонирует его во временный каталог, ищет по коду (`rg`, `git grep`),
 отвечает со ссылками `файл:строка` и удаляет клон.
 
+## Фоновое обучение
+
+Этап 1: оркестратор сам, без команд пользователя, превращает сессии в **кейсы** — описания «что делали и чем кончилось». Этапы 2–3 (плейбуки, судья, вкладка «Фон» в приложении) впереди.
+
+- **Что делает.** Раз в `tickMs` (30 с) собирает события сессий (лента оркестратора и транскрипты Claude Code, цепочка `/clear` — один кейс) и ставит задания фоновому агенту-сборщику: он дописывает `summary.md` (порциями, интервал `intervalMin`, закрытие по простою `idleMin` или при закрытии вкладки). Агенты-сборщики работают в служебной сессии `background` (скрыта из списков и шины; в CLI видна через `ls --all`), одновременно не больше `maxAgents`.
+- **Файлы** (`~/.nessy-orch`): `learning.json` — настройки (правится руками, подхватывается на следующем тике без рестарта); `learning/jobs.json` — очередь заданий; `cases/<id>/` — `state.json`, `case.md`, `summary.md`, `notes.md`, `raw/events.jsonl`, `raw/transcript-<чат>.jsonl`. Промпт сборщика — `learning/prompts/session-collector.md`.
+- **`learning.json`:** `enabled`, `autoReview`, `intervalMin` (1–120), `idleMin` (5–1440), `maxAgents` (1–6), `disabledSessions`. Нет файла — умолчания (`ORCH_LEARNING_DEFAULT=0` выключает обучение по умолчанию). Выключенное обучение не заводит кейсы; уже поставленные и ручные задания идут.
+- **CLI:** `learn` (= `learn status`: настройки, очередь, кейсы), `learn on|off [--session S]`, `learn run [--session S]` (собрать итоговое описание сейчас), `case ls|show|rm|rebuild`. Сессию с незакрытым кейсом удалить нельзя, пока кейс не `ready`.
+- **Разбор прошлых сессий.** `learn backfill` печатает кандидатов — сессии без кейса и транскрипты Claude Code (`~/.claude/projects`, `CLAUDE_PROJECTS_DIR`), где вызывался `nessy-orch spawn|send`; `learn backfill --all | <id…>` заводит кейсы `source: backfill` (для транскрипта `c-t-<чат>`) и сразу ставит итоговое задание. Повтор по тому же id ничего не дублирует: id попадает в `skipped`.
+- **API:** `GET /learning` и т. д. — см. [docs/api.md](docs/api.md#фоновое-обучение); события `learning_*` идут в `GET /stream`.
+
 ## HTTP API
 
 `127.0.0.1:4337`, JSON, без аутентификации (только loopback).
@@ -228,6 +244,7 @@ nessy-orch, Claude не выполняет задачу сам, а проход�
 | `GET /agents/:ref/history`, `GET /agents/:ref/stream` (SSE) | Журнал и живой поток событий агента |
 | `GET /messages?agent=&since=&limit=` | Общая лента |
 | `GET /agents/:ref/wait?timeout=` | Дождаться, пока агент освободится, и получить его последний ответ (`WaitResponse {done, agent, reply?}`) |
+| `GET /learning`, `PATCH /learning/settings`, `POST /learning/run`, `…/cases/:id`, `…/backfill` | Фоновое обучение: настройки, очередь, кейсы, разбор прошлых сессий ([docs/api.md](docs/api.md#фоновое-обучение)) |
 | `GET /stream` (SSE) | Снапшот (с `sessions`) и все изменения графа и ленты (в том числе `session` / `session_removed`) |
 
 Типы запросов, ответов и событий описаны в [`shared/types/`](shared/types). Их используют сервер, CLI и приложение (в Swift они продублированы в `app/Sources/NessyKit/Models.swift`).
@@ -255,6 +272,9 @@ nessy-orch, Claude не выполняет задачу сам, а проход�
 | `ORCH_RATE_LIMIT` | `30` | Сообщений на пару в минуту |
 | `ORCH_HEALTH_TIMEOUT_MS` | `60000` | Ожидание готовности `nessy serve` |
 | `ORCH_WARM_SESSIONS` | `2` | Заранее созданных сессий nessy на пространство (быстрый запуск агентов; `0` — выключено) |
+| `ORCH_LEARNING_DEFAULT` | `1` | Фоновое обучение включено, пока нет `learning.json` |
+| `ORCH_LEARNING_TICK_MS` | `30000` | Как часто обучение собирает события сессий (`0` — без таймера) |
+| `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Где искать транскрипты Claude Code (разбор прошлых сессий) |
 | `ORCH_SEED_ROLES` | `1` | Заливать готовые роли из `roles/` (все при первом запуске, потом только новые; роль-пакет — папка с `role.md`, см. [roles/README.md](roles/README.md)) |
 
 Логи: `~/.nessy-orch/logs/space-<имя>.log` (serve). При запуске через launchd лог оркестратора пишется в `orch.{out,err}.log`.

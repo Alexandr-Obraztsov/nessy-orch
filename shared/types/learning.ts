@@ -69,3 +69,15 @@ export interface BackfillCandidate {
 	date: string
 	size: number
 }
+
+/** Кейс с описанием сессии и заметками (`GET /learning/cases/:id`). */
+export interface CaseDetail extends CaseView {
+	summary: string
+	notes: string
+}
+
+/** Итог запуска разбора: заведённые кейсы и пропущенные кандидаты (кейс уже есть, нет транскрипта). */
+export interface BackfillResult {
+	created: CaseView[]
+	skipped: Array<{ id: string; reason: string }>
+}

@@ -1,5 +1,5 @@
 /** Форматирование вывода CLI (для человека; для машин есть --json). */
-import type { AgentPlan, AgentView, Message, RoleView, SpaceView, SessionView } from '../../../shared/types'
+import type { AgentPlan, AgentView, BackfillCandidate, CaseView, JobView, Message, RoleView, SpaceView, SessionView } from '../../../shared/types'
 import { formatPlanLine } from '../../domain/plan'
 
 const tty = process.stdout.isTTY && !process.env['NO_COLOR']
@@ -25,6 +25,10 @@ const STATUS_COLOR: Record<string, (s: string) => string> = {
 	stopped: dim,
 	active: yellow,
 	done: green,
+	collecting: yellow,
+	closing: yellow,
+	running: yellow,
+	queued: dim,
 }
 export const status = (s: string): string => (STATUS_COLOR[s] ?? ((x: string) => x))(s)
 
@@ -153,5 +157,36 @@ export function sessionAgentsTable(agents: readonly AgentView[]): string {
 			a.lastTool ? dim(`⚙ ${a.lastTool.name}`) : a.preview ? dim(a.preview.replace(/\s+/g, ' ').slice(0, 50)) : '',
 		]),
 		['ID', 'ИМЯ', 'РОЛЬ', 'СТАТУС', 'ПЛАН', 'ПОСЛЕДНЕЕ'],
+	)
+}
+
+const when = (iso: string): string => dim(iso.slice(0, 16).replace('T', ' '))
+
+/** Кейсы обучения. */
+export function casesTable(cases: readonly CaseView[]): string {
+	if (!cases.length) return dim('кейсов пока нет')
+	return table(
+		cases.map(c => [bold(c.id), status(c.status), c.source === 'backfill' ? 'разбор' : 'живой', `${c.coveredUntil}/${c.events}`, (c.title ?? '—').slice(0, 60), when(c.updatedAt)]),
+		['ID', 'СТАТУС', 'ОТКУДА', 'СОБЫТИЯ', 'ЗАГОЛОВОК', 'ОБНОВЛЁН'],
+	)
+}
+
+/** Задания обучения. */
+export function jobsTable(jobs: readonly JobView[]): string {
+	if (!jobs.length) return dim('заданий нет')
+	return table(
+		jobs.map(j => [bold(j.id), j.kind, status(j.status), j.caseId, String(j.attempts), j.error ? red(j.error.slice(0, 60)) : (j.note ?? '')]),
+		['ID', 'ВИД', 'СТАТУС', 'КЕЙС', 'ПОПЫТОК', 'ЗАМЕТКА'],
+	)
+}
+
+const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} КБ` : `${n} Б`)
+
+/** Кандидаты разбора прошлых сессий (размер: сессия — сообщений, транскрипт — байты). */
+export function candidatesTable(list: readonly BackfillCandidate[]): string {
+	if (!list.length) return dim('разбирать нечего')
+	return table(
+		list.map(x => [bold(x.id), x.kind === 'session' ? 'сессия' : 'транскрипт', when(x.date), x.kind === 'session' ? `${x.size} сообщ.` : kb(x.size), x.title.slice(0, 60)]),
+		['ID', 'ВИД', 'ДАТА', 'РАЗМЕР', 'ЗАГОЛОВОК'],
 	)
 }

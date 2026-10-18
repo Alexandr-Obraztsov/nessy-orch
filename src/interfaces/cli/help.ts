@@ -41,6 +41,13 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
 ПРОСТРАНСТВА
   space add <путь> [--name N] [--url URL]    space ls    space rm <имя> [--force]
 
+ФОНОВОЕ ОБУЧЕНИЕ (оркестратор сам собирает кейсы из сессий; настройки — ~/.nessy-orch/learning.json)
+  learn [status]       настройки, очередь заданий, кейсы       learn on | off [--session S]   включить/выключить (в целом или для сессии)
+  learn run [--session S]   собрать описание сейчас (сессии или кейса; без --session — все открытые кейсы)
+  learn backfill [--all | <id…>]   без аргументов — кандидаты (прошлые сессии и транскрипты Claude Code), иначе завести кейсы
+  case ls              кейсы        case show <id>   шапка и summary.md        case rm <id>   удалить кейс
+  case rebuild <id>    пересобрать описание заново
+
 ПРИЛОЖЕНИЕ
   .  |  app [папка]    открыть приложение TClaude-Orch с терминалом в этой папке (nessy-orch . — из текущей, nessy-orch ~/proj)
 

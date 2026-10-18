@@ -1,12 +1,15 @@
-import type { CaseView, JobKind, JobView, LearningSettings, LearningView, Message } from '../../../shared/types'
+import type { BackfillCandidate, BackfillResult, CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message } from '../../../shared/types'
 import { renderPortion } from '../../domain/case-events'
 import { buildCollectorPrompt, parseCollectorReply } from '../../domain/collector'
 import { AppError } from '../../domain/errors'
 import { decide } from '../../domain/learning-schedule'
-import { PORTION_CHARS, parseLearningSettings } from '../../domain/learning-settings'
+import { PORTION_CHARS, parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
 import { JobQueue } from './job-queue'
 import type { CaseState, JobState, LearningDeps, TranscriptCursor } from './learning.types'
+
+/** id кейса транскрипта прошлого чата; имя безопасно для пути. */
+export const transcriptCaseId = (chatId: string): string => `c-t-${chatId.replace(/[^\w-]/g, '_')}`
 
 const toView = (c: CaseState): CaseView => ({
 	id: c.id,
@@ -97,8 +100,162 @@ export class LearningService {
 
 	getCase(id: string): CaseState {
 		const c = this.cases.get(id)
-		if (!c) throw new AppError(404, 'not_found', `кейс ${id} не найден`)
+		if (!c) throw new AppError(404, 'no_case', `кейс ${id} не найден`)
 		return c
+	}
+
+	/** Кейс с описанием и заметками. */
+	getCaseDetail(id: string): CaseDetail {
+		const c = this.getCase(id)
+		return { ...toView(c), summary: this.deps.store.readSummary(id), notes: this.deps.store.readNotes(id) }
+	}
+
+	/** Правка настроек из API: сохраняет `learning.json`, публикует `learning_settings`. */
+	updateSettings(patch: unknown): LearningSettings {
+		const next = patchLearningSettings(this.settings, patch)
+		this.deps.store.saveSettings(next)
+		this.settings = next
+		// свою запись заново не читаем
+		this.settingsMtime = this.deps.store.settingsMtime()
+		this.deps.hub.publish({ t: 'learning_settings', settings: next })
+		this.pump()
+		return next
+	}
+
+	/** Удаляет кейс и его `raw/`; пока по кейсу идёт задание — 409 `case_busy`. */
+	removeCase(id: string): void {
+		this.getCase(id)
+		this.assertIdle(id)
+		this.cases.delete(id)
+		this.queue.removeCase(id)
+		this.deps.store.removeCase(id)
+		this.deps.store.saveJobs(this.queue.list())
+		this.deps.hub.publish({ t: 'learning_case_removed', id })
+	}
+
+	/** Пересборка описания: сбрасывает `coveredUntil` и `summary.md`, ставит итоговое задание `close`. */
+	rebuild(id: string): JobView {
+		const c = this.getCase(id)
+		this.assertIdle(id)
+		this.deps.store.writeSummary(id, '')
+		this.update({ ...c, coveredUntil: 0, updatedAt: new Date(this.deps.clock.now()).toISOString() })
+		return this.queue.toView(this.request('close', id, true))
+	}
+
+	/** Все незакрытые кейсы (сбор или ошибка) — на итоговый сбор. */
+	runAll(): JobView[] {
+		const open = [...this.cases.values()].filter(c => c.status === 'collecting' || c.status === 'error')
+		return open.map(c => this.queue.toView(this.request('close', c.id, true)))
+	}
+
+	private assertIdle(caseId: string): void {
+		if (this.queue.running().some(j => j.caseId === caseId)) throw new AppError(409, 'case_busy', `по кейсу ${caseId} идёт задание, дождитесь его окончания`)
+	}
+
+	/**
+	 * Что можно разобрать задним числом: сессии без кейса, у которых в ленте есть сообщения (размер — число сообщений),
+	 * и транскрипты Claude Code с вызовами nessy-orch (размер — байты), кроме чатов сессий и уже взятых в кейсы.
+	 */
+	backfillCandidates(): BackfillCandidate[] {
+		const { host, store, claudeProjectsDir } = this.deps
+		const sessions = host.sessions()
+		const known = new Set<string>()
+		for (const s of sessions) if (s.chatId) known.add(s.chatId)
+		for (const c of this.cases.values()) for (const key of Object.keys(c.transcripts)) known.add(key)
+		const perSession = new Map<string, number>()
+		for (const m of host.messagesSince(0)) {
+			const sid = host.sessionOfMessage(m)
+			if (sid !== null) perSession.set(sid, (perSession.get(sid) ?? 0) + 1)
+		}
+		const byId = new Map(sessions.map(s => [s.id, s]))
+		const roots = new Set<string>()
+		const out: BackfillCandidate[] = []
+		for (const s of sessions) {
+			const chain = chainOf(sessions, s.id)
+			const root = chain[0]
+			if (root === undefined || roots.has(root)) continue
+			roots.add(root)
+			if (this.cases.has(caseIdOf(root))) continue
+			const size = chain.reduce((n, id) => n + (perSession.get(id) ?? 0), 0)
+			if (size === 0) continue
+			const date = chain.reduce((max, id) => (byId.get(id)?.updatedAt ?? '') > max ? (byId.get(id)?.updatedAt ?? '') : max, '')
+			out.push({ kind: 'session', id: root, title: byId.get(root)?.title ?? root, date, size })
+		}
+		out.push(...store.scanTranscripts(claudeProjectsDir, known))
+		return out.sort((a, b) => b.date.localeCompare(a.date))
+	}
+
+	/**
+	 * Заводит кейсы `source: 'backfill'` и ставит каждому итоговое задание `close`.
+	 * Неизвестный id — 404 `no_candidate` до любых изменений; кейс, который уже есть, пропускается (`skipped`), дубля нет.
+	 */
+	backfill(ids: readonly string[]): BackfillResult {
+		const list = this.backfillCandidates()
+		const picked: BackfillCandidate[] = []
+		const skipped: BackfillResult['skipped'] = []
+		for (const id of new Set(ids)) {
+			const cand = list.find(c => c.id === id)
+			if (cand) {
+				picked.push(cand)
+				continue
+			}
+			const root = chainOf(this.deps.host.sessions(), id)[0] ?? id
+			if (this.cases.has(caseIdOf(root)) || this.cases.has(transcriptCaseId(id))) skipped.push({ id, reason: 'кейс уже есть' })
+			else throw new AppError(404, 'no_candidate', `${id} нет среди кандидатов разбора`)
+		}
+		const created: CaseView[] = []
+		for (const cand of picked) {
+			const c = cand.kind === 'session' ? this.backfillSession(cand.id) : this.backfillTranscript(cand.id)
+			if (!c) {
+				skipped.push({ id: cand.id, reason: cand.kind === 'session' ? 'нет событий' : 'транскрипт не найден' })
+				continue
+			}
+			// сразу итоговое описание: без ожидания интервала
+			this.update({ ...c, lastRunAt: 0 })
+			this.request('close', c.id, true)
+			created.push(toView(this.getCase(c.id)))
+		}
+		return { created, skipped }
+	}
+
+	private backfillSession(rootId: string): CaseState | null {
+		const chain = chainOf(this.deps.host.sessions(), rootId)
+		this.collect(rootId, chain, this.deps.host.messagesSince(0), 'backfill')
+		return this.cases.get(caseIdOf(rootId)) ?? null
+	}
+
+	/** Кейс прошлого чата: без сессий, транскрипт читается целиком, вызовы nessy-orch идут событиями `call`. */
+	private backfillTranscript(chatId: string): CaseState | null {
+		const { store, clock, claudeProjectsDir } = this.deps
+		const file = store.findTranscript(claudeProjectsDir, chatId)
+		if (file === null) return null
+		const id = transcriptCaseId(chatId)
+		const iso = new Date(clock.now()).toISOString()
+		const base: CaseState = {
+			id,
+			title: null,
+			sessions: [],
+			status: 'collecting',
+			goals: [],
+			events: 0,
+			coveredUntil: 0,
+			createdAt: iso,
+			updatedAt: iso,
+			closedAt: null,
+			playbook: null,
+			source: 'backfill',
+			feedSeq: 0,
+			transcripts: {},
+			nextN: 1,
+			lastEventAt: 0,
+			lastRunAt: 0,
+			nessyCalls: true,
+		}
+		const r = store.copyTranscript(id, chatId, { path: file, offset: 0 })
+		const { events, state } = ingest(base, { messages: [], transcripts: [{ chatId, text: r.text, next: r.next }] })
+		if (events.length) store.appendRaw(id, events)
+		this.update(state)
+		return state
 	}
 
 	/** Сессию подключили к вкладке (в том числе после `/resume`): сразу подбираем её события. */
@@ -147,7 +304,7 @@ export class LearningService {
 	}
 
 	/** Новые события одной цепочки: лента (только сообщения сессий цепочки) и транскрипты. */
-	private collect(root: string, chain: string[], messages: readonly Message[]): void {
+	private collect(root: string, chain: string[], messages: readonly Message[], source: CaseView['source'] = 'live'): void {
 		const { host, store, clock } = this.deps
 		const id = caseIdOf(root)
 		const existing = this.cases.get(id)
@@ -165,7 +322,7 @@ export class LearningService {
 			updatedAt: iso,
 			closedAt: null,
 			playbook: null,
-			source: 'live',
+			source,
 			feedSeq: 0,
 			transcripts: {},
 			nextN: 1,
@@ -237,7 +394,7 @@ export class LearningService {
 	/** Ручной «Собрать кейс сейчас»: задание `close` по кейсу или по сессии; работает и при выключенном обучении. */
 	runNow(sessionOrCaseId: string): JobView {
 		const c = this.findCase(sessionOrCaseId)
-		if (!c) throw new AppError(404, 'not_found', `нет кейса или сессии ${sessionOrCaseId}`)
+		if (!c) throw new AppError(404, 'no_case', `нет кейса или сессии ${sessionOrCaseId}`)
 		return this.queue.toView(this.request('close', c.id, true))
 	}
 

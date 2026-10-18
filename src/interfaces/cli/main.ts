@@ -10,6 +10,7 @@ import { agentCommands } from './commands/agents.commands'
 import type { CommandTable } from './commands/command.types'
 import { hookCommands } from './commands/hook.commands'
 import { feedCommands } from './commands/feed.commands'
+import { learningCommands } from './commands/learning.commands'
 import { roleCommands } from './commands/roles.commands'
 import { serviceCommands } from './commands/service.commands'
 import { spaceCommands } from './commands/spaces.commands'
@@ -21,8 +22,8 @@ import { HELP } from './help'
 import { isPathArg } from './launch'
 import { info, out } from './io'
 
-const COMMANDS: CommandTable = { ...agentCommands, ...feedCommands, ...hookCommands, ...spaceCommands, ...roleCommands, ...sessionCommands, ...serviceCommands }
-const ALIASES: Record<string, string> = { list: 'ls', agents: 'ls', rm: 'kill', log: 'feed', messages: 'feed', spaces: 'space', roles: 'role', sessions: 'session' }
+const COMMANDS: CommandTable = { ...agentCommands, ...feedCommands, ...hookCommands, ...spaceCommands, ...roleCommands, ...sessionCommands, ...learningCommands, ...serviceCommands }
+const ALIASES: Record<string, string> = { list: 'ls', agents: 'ls', rm: 'kill', log: 'feed', messages: 'feed', spaces: 'space', roles: 'role', sessions: 'session', cases: 'case' }
 
 async function main(argv: string[]): Promise<void> {
 	if (isPathArg(argv[0])) argv = ['app', ...argv]
