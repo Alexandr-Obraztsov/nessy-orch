@@ -1,4 +1,4 @@
-import type { Clock, IdGenerator, RolePackagePort, SpaceFactory, StorePort } from './ports'
+import type { Clock, IdGenerator, LearningStorePort, RolePackagePort, SpaceFactory, StorePort } from './ports'
 import type { OrchSettings } from './settings.types'
 
 export interface OrchestratorDeps {
@@ -13,4 +13,6 @@ export interface OrchestratorDeps {
 	sessionSuffix?: () => string
 	/** пакеты ролей; по умолчанию недоступны (роль с packageDir отклоняется) */
 	rolePackages?: RolePackagePort
+	/** хранилище фонового обучения; без него обучение выключено (learning = null) */
+	learningStore?: LearningStorePort
 }

@@ -31,4 +31,10 @@ export interface OrchSettings {
 	turnRetryBaseMs?: number
 	/** через сколько мс простоя завершённого (архивного) агента удалять автоматически (0 — не удалять; по умолчанию 6 часов) */
 	agentTtlMs?: number
+	/** фоновое обучение включено, пока нет learning.json (по умолчанию true) */
+	learningDefaultOn?: boolean
+	/** период опроса обучения, мс (по умолчанию 30000; 0 — без таймера, тесты вызывают tick сами) */
+	learningTickMs?: number
+	/** каталог транскриптов Claude Code (по умолчанию ~/.claude/projects) */
+	claudeProjectsDir?: string
 }

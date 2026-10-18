@@ -14,6 +14,7 @@ import type { Config } from './infrastructure/config/config.types'
 import { NessyClient } from './infrastructure/nessy/nessy-client'
 import { FileRolePackages } from './infrastructure/persistence/role-packages'
 import { FileRolePresets } from './infrastructure/persistence/role-presets'
+import { FileLearningStore } from './infrastructure/persistence/learning-store'
 import { FileStore } from './infrastructure/persistence/file-store'
 import { ServeSpace } from './infrastructure/process/serve-space'
 import { createServer } from './interfaces/http/server'
@@ -25,6 +26,7 @@ export function buildApp(config: Config, version: string): AppInstance {
 		settings: config,
 		store,
 		rolePackages: new FileRolePackages(path.join(config.home, 'role-packages')),
+		learningStore: new FileLearningStore(config.home, config.root),
 		spaceFactory: (init, listener) =>
 			new ServeSpace(
 				init,

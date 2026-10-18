@@ -3,7 +3,10 @@
  * реализует AgentHost и отдаёт интерфейсному слою (HTTP) готовые сценарии.
  */
 import * as crypto from 'node:crypto'
-import { USER, YOU } from '../domain/constants'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { SERVICE_SESSION, USER, YOU } from '../domain/constants'
 import { AppError } from '../domain/errors'
 import type {
 	AgentEvent,
@@ -34,6 +37,8 @@ import { Agent } from './agent/agent'
 import type { AgentHost } from './agent/agent.types'
 import { Feed } from './feed'
 import { Hub } from './hub'
+import { LearningService } from './learning/learning.service'
+import type { LearningHost } from './learning/learning.types'
 import type { OrchestratorDeps } from './orchestrator.types'
 import type { PersistedState } from './persisted.types'
 import type { RolePackagePort, SpaceRuntime, StorePort } from './ports'
@@ -48,6 +53,10 @@ import { SessionsService } from './services/sessions.service'
 import { SourcesService } from './services/sources.service'
 
 const SNAPSHOT_MESSAGES = 300
+/** сколько последних сообщений читаем с диска, когда окна памяти не хватает (как в Feed) */
+const DISK_HISTORY_LIMIT = 100_000
+/** сколько ждём ответ фонового агента (сек) */
+const LEARNING_AGENT_TIMEOUT_SEC = 1800
 const DEFAULT_CANCEL_GRACE_MS = 3000
 const DEFAULT_IDLE_CLOSE_MS = 120_000
 const GC_INTERVAL_MS = 5 * 60_000
@@ -76,6 +85,8 @@ export class Orchestrator implements AgentHost {
 	readonly store: StorePort
 	readonly feed: Feed
 	readonly startedAt: number
+	/** фоновое обучение; null — хранилище не подключено (тесты, встраивание) */
+	readonly learning: LearningService | null
 
 	private readonly spacesSvc: SpacesService
 	private readonly messaging: MessagingService
@@ -138,6 +149,53 @@ export class Orchestrator implements AgentHost {
 		this.sessionsSvc = new SessionsService(this.ctx, deps.sessionSuffix)
 		this.sourcesSvc = new SourcesService(this.ctx, this.sessionsSvc)
 		this.agentsSvc = new AgentsService(this.ctx, this.spacesSvc, this.messaging, this.rolesSvc, this.sessionsSvc)
+		const learningStore = deps.learningStore
+		this.learning = learningStore
+			? new LearningService({
+					store: learningStore,
+					host: this.learningHost(),
+					hub: this.hub,
+					clock,
+					ids,
+					defaultOn: deps.settings.learningDefaultOn ?? true,
+					tickMs: deps.settings.learningTickMs ?? 30_000,
+					claudeProjectsDir: deps.settings.claudeProjectsDir ?? path.join(os.homedir(), '.claude', 'projects'),
+				})
+			: null
+	}
+
+	/** Что фоновому обучению нужно от оркестратора: сессии, лента, занятость и запуск агентов. */
+	private learningHost(): LearningHost {
+		return {
+			sessions: () => this.sessionsSvc.list(),
+			messagesSince: seq => {
+				const mem = this.feed.recent(Number.MAX_SAFE_INTEGER)
+				const first = mem[0]
+				if (first && first.seq > seq + 1) return this.store.loadMessages(DISK_HISTORY_LIMIT).filter(m => m.seq > seq)
+				return mem.filter(m => m.seq > seq)
+			},
+			sessionOfMessage: m => m.session ?? this.registry.agents.get(m.to)?.session ?? this.registry.agents.get(m.from)?.session ?? null,
+			isBusy: ids => [...this.registry.agents.values()].some(a => a.session !== null && ids.includes(a.session) && (a.isBusy || a.queue.length > 0)),
+			runAgent: async ({ name, title, prompt }) => {
+				let agentId = ''
+				try {
+					const casesDir = this.deps.learningStore?.casesDir ?? ''
+					fs.mkdirSync(casesDir, { recursive: true })
+					this.ensureServiceSession(SERVICE_SESSION, 'Фон', casesDir)
+					const res = await this.spawn({ session: SERVICE_SESSION, name, title, prompt, wait: true, waitTimeoutSec: LEARNING_AGENT_TIMEOUT_SEC })
+					agentId = res.agent.id
+					const ok = !!res.reply && !res.reply.failed
+					try {
+						this.archiveAgent(agentId)
+					} catch {
+						/* архивация не критична */
+					}
+					return { agentId, text: res.reply?.text ?? '', ok, ...(ok ? {} : { error: res.reply?.text || 'агент не ответил' }) }
+				} catch (e) {
+					return { agentId, text: '', ok: false, error: e instanceof Error ? e.message : String(e) }
+				}
+			},
+		}
 	}
 
 	get settings(): OrchestratorDeps['settings'] {
@@ -160,6 +218,7 @@ export class Orchestrator implements AgentHost {
 			if (lost) agent.markLost(`пространство «${p.space}» не найдено — агент недоступен, пока оно не добавлено снова`)
 			this.registry.agents.set(p.id, agent)
 		}
+		this.learning?.load()
 	}
 
 	/**
@@ -168,6 +227,7 @@ export class Orchestrator implements AgentHost {
 	 * оставив запущенный nessy serve.
 	 */
 	start(): void {
+		this.learning?.start()
 		for (const a of this.registry.agents.values()) a.resumeQueue()
 		// пространства, где уже есть агенты, прогреваем сразу: serve и заготовки сессий будут готовы к первому spawn
 		for (const name of new Set([...this.registry.agents.values()].map(a => a.space))) this.pool.warm(name)
@@ -200,6 +260,7 @@ export class Orchestrator implements AgentHost {
 	async shutdown(): Promise<void> {
 		this.shuttingDown = true
 		if (this.gcTimer) clearInterval(this.gcTimer)
+		await this.learning?.stop()
 		await this.pool.closeAll()
 		for (const a of this.registry.agents.values()) a.detach()
 		this.feed.close()
@@ -366,7 +427,7 @@ export class Orchestrator implements AgentHost {
 		const lastActivity = (s: SessionView): number => Math.max(Date.parse(s.updatedAt), ...agentsOf(s.id).map(a => Date.parse(a.lastActivityAt)))
 		const candidates = this.sessionsSvc
 			.list()
-			.filter(s => s.id !== keepId && agentsOf(s.id).every(a => !a.isBusy && a.queue.length === 0) && now - lastActivity(s) > SESSION_FRESH_MS)
+			.filter(s => s.id !== keepId && !this.learning?.isProtected(s.id) && agentsOf(s.id).every(a => !a.isBusy && a.queue.length === 0) && now - lastActivity(s) > SESSION_FRESH_MS)
 			.sort((a, b) => lastActivity(a) - lastActivity(b))
 		let removed = 0
 		for (const s of candidates) {
@@ -390,7 +451,9 @@ export class Orchestrator implements AgentHost {
 
 	/** Чат Claude начался или сменился: сессия этого чата (создаётся, если её нет) и переход вкладки к ней. */
 	attachSession(req: AttachRequest): SessionView {
-		return this.sessionsSvc.attach(req)
+		const session = this.sessionsSvc.attach(req)
+		this.learning?.onAttach(session.id)
+		return session
 	}
 
 	updateSession(id: string, patch: SessionPatch): SessionView {
@@ -456,6 +519,7 @@ export class Orchestrator implements AgentHost {
 			cancelled++
 			await a.cancel()
 		}
+		this.learning?.onSessionClosed(session)
 		return { cancelled }
 	}
 
