@@ -19,7 +19,7 @@ export function mergeMatchPayload(a: Payload, b: Payload): Payload {
 export function onCaseReady(host: CaseReadyHost, caseId: string): void {
 	const c = host.cases.get(caseId)
 	if (!c) return
-	if (c.playbook) host.enqueue('judge', caseId, { caseId })
+	if (c.playbook) host.enqueue('judge', `judge:${caseId}`, { caseId })
 	const batch = host.batch(caseId)
 	const payload: Record<string, unknown> = batch ? { caseIds: [caseId], after: batch } : { caseIds: [caseId] }
 	host.enqueue('match', 'all', { payload, merge: mergeMatchPayload })

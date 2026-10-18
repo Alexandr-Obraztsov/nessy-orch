@@ -98,7 +98,7 @@ describe('обработчики заданий и onCaseReady', () => {
 		assert.equal(svc.playbooks, null)
 	})
 
-	it('кейс с playbook: judge (subject = кейс) и match; без playbook — только match', async () => {
+	it('кейс с playbook: judge (subject = judge:<кейс>) и match; без playbook — только match', async () => {
 		const svc = make(true)
 		const ran: string[] = []
 		svc.registerHandler({ kinds: ['judge', 'match'], run: ctx => Promise.resolve(void ran.push(`${ctx.job.kind}:${ctx.job.subject}`)) })
@@ -110,8 +110,8 @@ describe('обработчики заданий и onCaseReady', () => {
 		await flush()
 		assert.equal(svc.getCase('c-s1').playbook, 'p-aff@0')
 		assert.equal(svc.getCase('c-s2').playbook, null)
-		assert.ok(ran.includes('judge:c-s1'))
-		assert.ok(!ran.includes('judge:c-s2'))
+		assert.ok(ran.includes('judge:judge:c-s1'))
+		assert.ok(!ran.includes('judge:judge:c-s2'))
 		assert.equal(ran.filter(r => r.startsWith('match')).length, 2)
 	})
 
@@ -169,7 +169,7 @@ describe('onCaseReady (без насоса)', () => {
 		assert.deepEqual(queue.list().map(j => j.kind), ['match'])
 		onCaseReady(host(), 'c2')
 		const judge = queue.list().find(j => j.kind === 'judge')
-		assert.equal(judge?.subject, 'c2')
+		assert.equal(judge?.subject, 'judge:c2')
 		assert.equal(judge.caseId, 'c2')
 	})
 

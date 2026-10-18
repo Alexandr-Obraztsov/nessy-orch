@@ -7,6 +7,8 @@ export const EVENTS_TRIGGER = 15
 export const COOLDOWN_MS = 60_000
 /** Размер порции событий для сборщика, знаков (~50 тыс. токенов). */
 export const PORTION_CHARS = 150_000
+/** Сколько знаков материалов сборщик плейбука берёт сразу; больше — сначала разбор каждого кейса отдельным агентом. */
+export const BUILD_CHARS = 300_000
 
 export const DEFAULT_LEARNING: LearningSettings = {
 	enabled: true,
