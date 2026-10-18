@@ -4,8 +4,9 @@
  *   learn journal [--limit N] [--revert <id>]
  *   case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"
  *   playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason] | revert <id> --version N | rm <id> | note <id> "<текст>"
+ *   playbook edits <id> | accept <id> <hash> | reject <id> <hash>   правки улучшателя без авто-ревью (`autoReview: false`)
  */
-import type { BackfillCandidate, BackfillResult, CaseDetail, JobView, JournalEntry, LearningSettings, LearningView, PlaybookDetail, PlaybookView } from '../../../../shared/types'
+import type { BackfillCandidate, BackfillResult, CaseDetail, JobView, JournalEntry, LearningSettings, LearningView, PendingEdit, PlaybookDetail, PlaybookView } from '../../../../shared/types'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { FlagSpec, Parsed } from '../args.types'
 import { CliError } from '../errors'
@@ -24,7 +25,8 @@ const LEARN_USAGE = `использование:
 const CASE_USAGE = `использование:
   nessy-orch case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"`
 const PLAYBOOK_USAGE = `использование:
-  nessy-orch playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason R] | revert <id> --version N | rm <id> | note <id> "<текст>"`
+  nessy-orch playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason R] | revert <id> --version N | rm <id> | note <id> "<текст>"
+  nessy-orch playbook edits <id> | accept <id> <hash> | reject <id> <hash>   правки улучшателя, ждущие решения (авто-ревью выключено)`
 
 function settingsLine(s: LearningSettings): string {
 	const off = s.disabledSessions.length ? ` · выключено для: ${s.disabledSessions.join(', ')}` : ''
@@ -145,6 +147,23 @@ function printPlaybook(p: PlaybookDetail): void {
 	if (p.notes.trim()) out(`\n${bold('Заметки')}\n${p.notes.trim()}`)
 }
 
+/** Правка по хэшу или его началу (от 4 знаков); неоднозначное или неизвестное — ошибка с кодом 2. */
+export function resolveEdit(edits: readonly PendingEdit[], hash: string): PendingEdit {
+	const found = hash.length >= 4 ? edits.filter(e => e.hash.startsWith(hash)) : []
+	const [only] = found
+	if (found.length === 1 && only) return only
+	throw new CliError(found.length ? `хэш ${hash} подходит к нескольким правкам, укажите длиннее` : `нет ждущей правки ${hash}: см. nessy-orch playbook edits <id>`, 2)
+}
+
+function printEdits(id: string, edits: readonly PendingEdit[]): void {
+	if (!edits.length) return out(dim(`у плейбука ${id} нет правок, ждущих решения`))
+	for (const e of edits) {
+		out(`${bold(e.hash.slice(0, 12))}  ${e.file}  (кейс ${e.caseId}, ${e.anchor})`)
+		out(`  - ${e.before.replace(/\n/g, '\n    ')}`)
+		out(`  + ${e.after.replace(/\n/g, '\n    ')}`)
+	}
+}
+
 async function cmdPlaybook(p: Parsed): Promise<void> {
 	const [sub = 'ls', ...rest] = p.positionals
 	const asJson = flagBool(p, 'json')
@@ -169,7 +188,7 @@ async function cmdPlaybook(p: Parsed): Promise<void> {
 		const v = await post<PlaybookView>(`/learning/playbooks/${need()}/approve`, {})
 		return asJson ? json(v) : out(`${green('✓')} ${v.id}: ${v.status}`)
 	}
-	if (sub === 'reject') {
+	if (sub === 'reject' && rest[1] === undefined) {
 		const v = await post<PlaybookView>(`/learning/playbooks/${need()}/reject`, { reason: flagStr(p, 'reason') ?? '' })
 		return asJson ? json(v) : out(`${green('✓')} ${v.id}: ${v.status}`)
 	}
@@ -188,6 +207,20 @@ async function cmdPlaybook(p: Parsed): Promise<void> {
 		const id = need()
 		await put(`/learning/playbooks/${id}/notes`, { text: rest.slice(1).join(' ') })
 		return asJson ? json({ ok: true }) : out(`${green('✓')} заметки плейбука записаны`)
+	}
+	if (sub === 'edits') {
+		const d = await get<PlaybookDetail>(`/learning/playbooks/${need()}`)
+		const edits = d.pendingEdits ?? []
+		return asJson ? json(edits) : printEdits(d.id, edits)
+	}
+	if (sub === 'accept' || sub === 'reject') {
+		// `reject <id> <hash>` — правка улучшателя (без хэша `reject <id>` отклоняет весь плейбук)
+		const id = need()
+		const hash = rest[1]
+		if (!hash) throw new CliError(`использование: nessy-orch playbook ${sub} <id> <hash>\n${PLAYBOOK_USAGE}`, 2)
+		const e = resolveEdit((await get<PlaybookDetail>(`/learning/playbooks/${id}`)).pendingEdits ?? [], hash)
+		const v = await post<PlaybookView>(`/learning/playbooks/${id}/edits/${enc(e.hash)}/${sub}`, {})
+		return asJson ? json(v) : out(`${green('✓')} ${v.id}: правка ${e.hash.slice(0, 12)} ${sub === 'accept' ? 'принята' : 'отклонена'}, теперь v${v.version}`)
 	}
 	throw new CliError(`неизвестная подкоманда playbook ${sub}\n${PLAYBOOK_USAGE}`, 2)
 }

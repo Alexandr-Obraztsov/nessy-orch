@@ -50,6 +50,7 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
   playbook ls | show <id>    плейбуки, которые обучение собрало из кейсов (статусы: draft, review, trial, active, disabled, archived)
   playbook review <id>       запустить авто-ревью            playbook approve <id> | reject <id> [--reason R]   ручное решение
   playbook revert <id> --version N   откат к версии (новой версией)      playbook rm <id>   удалить      playbook note <id> "<текст>"   заметки
+  playbook edits <id>        правки улучшателя, ждущие решения (авто-ревью выключено)      playbook accept <id> <hash> | reject <id> <hash>   принять / отклонить правку
   learn journal [--limit N] [--revert <id>]   журнал автоматических решений и откат одной команды
 
 ПРИЛОЖЕНИЕ

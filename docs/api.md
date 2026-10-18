@@ -203,7 +203,7 @@
 
 ### Плейбуки, журнал, заметки, чат
 
-Плейбук — скилл, который обучение собирает из ≥ 3 кейсов одной задачи; статусы `draft → review → trial → active` (и `disabled`, `archived`). Ошибки: `no_playbook` (404), `no_rule` (404), `no_version` (404), `no_journal` (404), `already_reverted`/`not_revertible` (409), `playbook_busy` (409), `playbooks_unavailable` (503). Типы — `PlaybookView`, `PlaybookDetail`, `JournalEntry`, `ChatMessage`.
+Плейбук — скилл, который обучение собирает из ≥ 3 кейсов одной задачи; статусы `draft → review → trial → active` (и `disabled`, `archived`). Ошибки: `no_playbook` (404), `no_rule` (404), `no_version` (404), `no_journal` (404), `already_reverted`/`not_revertible` (409), `no_edit` (404, правки с таким хэшем в `pendingEdits` нет), `stale_edit` (409, правка больше не применяется к текущему тексту — снимается), `playbook_busy` (409, по плейбуку идёт или ждёт задание, в том числе при принятии правки), `bad_status` (409), `playbooks_unavailable` (503). Типы — `PlaybookView`, `PlaybookDetail`, `JournalEntry`, `ChatMessage`.
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
@@ -214,6 +214,8 @@
 | POST | `/learning/playbooks/:id/reject` | `{reason?}` | `PlaybookView`: плейбук `disabled`, причина в журнале |
 | POST | `/learning/playbooks/:id/status` | `{status}` | `PlaybookView`; `status` — `active`, `disabled` или `archived` (иначе `400`) |
 | POST | `/learning/playbooks/:id/revert` | `{version}` | `PlaybookView`: файлы версии `version` новой версией, статус остаётся |
+| POST | `/learning/playbooks/:id/edits/:hash/accept` | — | `PlaybookView`: принять правку из `pendingEdits` (`autoReview: false`) — применяется к текущему состоянию, новая версия, запись журнала `edit` |
+| POST | `/learning/playbooks/:id/edits/:hash/reject` | — | `PlaybookView`: отклонить правку — снимается из `pendingEdits`, хэш уходит в `rejectedEdits` |
 | DELETE | `/learning/playbooks/:id` | — | `{ok:true}`; идёт или ждёт задание плейбука — `409 playbook_busy` |
 | PUT | `/learning/playbooks/:id/notes` · `/learning/cases/:id/notes` | `{text}` | `{ok:true}`: заметки пользователя (`notes.md`); автоматически не переписываются, уходят следующим сборщикам, судьям и ревьюерам объекта |
 | GET | `/learning/journal?limit=` | — | `JournalEntry[]` (старые первыми): каждое автоматическое решение с отчётом |

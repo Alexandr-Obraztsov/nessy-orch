@@ -12,7 +12,7 @@ import type { JobContext, JobHandler } from './handlers.types'
 import type { PlaybookState } from './learning.types'
 import { untilRemoved } from './playbook-edits'
 import type { PlaybookService } from './playbook.service'
-import type { ReviewEdits, ReviewSink } from './review.types'
+import type { ReviewEdits, ReviewSink, SelectionResult } from './review.types'
 
 /** Отступ вокруг якоря при выборке доказательств, событий. */
 const PAD = 3
@@ -22,8 +22,10 @@ const CASE_CHARS = 40_000
 const MESSAGE_CHARS = 2000
 /** Прогонов отложенного кейса (ступень 5). */
 const RUNS = 3
-/** Кейсов других типов (ступень 6). */
-const OTHER_CASES = 5
+/** Своих сообщений в проверке описания (ступень 6). */
+const OWN_MESSAGES = 3
+/** Чужих сообщений (кейсов других типов) в проверке описания (ступень 6). */
+const OTHER_MESSAGES = 3
 /** Порог сходства описаний и правил (ступень 4). */
 const DUPLICATE = 0.6
 
@@ -178,37 +180,27 @@ async function heldOutStage(ctx: JobContext, ps: PlaybookService, p: PlaybookSta
 	const accepted = ctx.cases.summary(p.heldOut)
 	const playbook = playbookText(ps, p)
 	const ids: string[] = []
-	const outcomes = await Promise.all(
-		Array.from({ length: RUNS }, async (_, i) => {
-			const name = `review-${p.id}-5-${i + 1}`
-			const [withPlan, withoutPlan] = await Promise.all([
-				ask(ctx, ids, `${name}-with`, `Ревью ${p.id}: план с плейбуком`, 'planner', { task, playbook }),
-				ask(ctx, ids, `${name}-without`, `Ревью ${p.id}: план без плейбука`, 'planner', { task, playbook: '(none)' }),
-			])
-			const a = parsePlan(withPlan)
-			const b = parsePlan(withoutPlan)
-			if (!a || !b) throw unparsed('5 (планировщик)')
-			// сторона плана с плейбуком зависит от времени и номера прогона: без постоянного перекоса, но детерминированно
-			const swap = (Math.floor(ctx.now() / 1000) + i) % 2 === 1
-			const [planA, planB] = swap ? [b.plan, a.plan] : [a.plan, b.plan]
-			const cmp = parseComparison(await ask(ctx, ids, `${name}-cmp`, `Ревью ${p.id}: слепое сравнение`, 'comparator', { task, accepted, plan_a: planA, plan_b: planB }))
-			if (!cmp) throw unparsed('5 (сравнение)')
-			const verdict: 'with' | 'without' | 'tie' = cmp.winner === 'tie' ? 'tie' : (cmp.winner === 'A') !== swap ? 'with' : 'without'
-			return { verdict, reason: cmp.reason }
-		}),
-	)
+	// агенты идут по одному: задание не занимает больше одного места из `maxAgents`
+	const outcomes: Array<{ verdict: 'with' | 'without' | 'tie'; reason: string }> = []
+	for (let i = 0; i < RUNS; i++) {
+		const name = `review-${p.id}-5-${i + 1}`
+		const withPlan = await ask(ctx, ids, `${name}-with`, `Ревью ${p.id}: план с плейбуком`, 'planner', { task, playbook })
+		const withoutPlan = await ask(ctx, ids, `${name}-without`, `Ревью ${p.id}: план без плейбука`, 'planner', { task, playbook: '(none)' })
+		const a = parsePlan(withPlan)
+		const b = parsePlan(withoutPlan)
+		if (!a || !b) throw unparsed('5 (планировщик)')
+		// сторона плана с плейбуком зависит от времени и номера прогона: без постоянного перекоса, но детерминированно
+		const swap = (Math.floor(ctx.now() / 1000) + i) % 2 === 1
+		const [planA, planB] = swap ? [b.plan, a.plan] : [a.plan, b.plan]
+		const cmp = parseComparison(await ask(ctx, ids, `${name}-cmp`, `Ревью ${p.id}: слепое сравнение`, 'comparator', { task, accepted, plan_a: planA, plan_b: planB }))
+		if (!cmp) throw unparsed('5 (сравнение)')
+		const verdict: 'with' | 'without' | 'tie' = cmp.winner === 'tie' ? 'tie' : (cmp.winner === 'A') !== swap ? 'with' : 'without'
+		outcomes.push({ verdict, reason: cmp.reason })
+	}
 	const good = outcomes.filter(o => o.verdict !== 'without').length
 	const notes = outcomes.map((o, i) => `run ${i + 1}: ${o.verdict}. ${o.reason}`)
 	const pass = good >= 2
 	return stageReport(5, pass ? 'pass' : 'fail', pass ? [] : [`plan with the playbook was not worse than without in ${good} of ${RUNS} runs (need 2)`], notes, ids)
-}
-
-interface SelectionResult {
-	hits: number
-	own: number
-	falseHits: number
-	misses: string[]
-	agentIds: string[]
 }
 
 /** Ступень 6, один проход: селектор выбирает плейбук по каждому сообщению. */
@@ -221,8 +213,11 @@ async function selectionPass(ctx: JobContext, ps: PlaybookService, p: PlaybookSt
 		if (!sel) throw unparsed('6')
 		return sel.playbookId
 	}
-	const ownPicks = await Promise.all(own.map((m, i) => choose(m, `own${i + 1}`)))
-	const otherPicks = await Promise.all(other.map((m, i) => choose(m, `other${i + 1}`)))
+	// по одному агенту за раз
+	const ownPicks: Array<string | null> = []
+	for (const [i, m] of own.entries()) ownPicks.push(await choose(m, `own${i + 1}`))
+	const otherPicks: Array<string | null> = []
+	for (const [i, m] of other.entries()) otherPicks.push(await choose(m, `other${i + 1}`))
 	const misses = [
 		...own.filter((_, i) => ownPicks[i] !== p.id).map(m => `FAILED TO TRIGGER: "${clip(m, 300)}"`),
 		...other.filter((_, i) => otherPicks[i] === p.id).map(m => `FALSE TRIGGER: "${clip(m, 300)}"`),
@@ -235,14 +230,17 @@ const scoreLine = (r: SelectionResult): string => `own ${r.hits}/${r.own}, false
 
 /** Ступень 6: выбор плейбука по описанию; провал — один раз `description-improver` и повтор; снова провал — только заметка. */
 async function descriptionStage(ctx: JobContext, ps: PlaybookService, p: PlaybookState): Promise<StageReport> {
-	const own = [...new Set([...p.cases, ...(p.heldOut ? [p.heldOut] : [])])].map(id => firstMessage(ctx, id)).filter((m): m is string => m !== null)
+	const own = [...new Set([...p.cases, ...(p.heldOut ? [p.heldOut] : [])])]
+		.map(id => firstMessage(ctx, id))
+		.filter((m): m is string => m !== null)
+		.slice(0, OWN_MESSAGES)
 	const otherCases = ctx.cases
 		.all()
 		.filter(c => c.status === 'ready' && c.goals.length > 0 && !c.goals.some(g => g.type === p.taskType) && !p.cases.includes(c.id) && c.id !== p.heldOut)
 		.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 	const other: string[] = []
 	for (const c of otherCases) {
-		if (other.length >= OTHER_CASES) break
+		if (other.length >= OTHER_MESSAGES) break
 		const m = firstMessage(ctx, c.id)
 		if (m !== null) other.push(m)
 	}

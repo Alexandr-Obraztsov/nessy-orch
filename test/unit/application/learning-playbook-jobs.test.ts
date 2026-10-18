@@ -134,7 +134,10 @@ describe('обработчики заданий и onCaseReady', () => {
 		svc.registerHandler({ kinds: ['match'], run: ctx => Promise.resolve(void payloads.push(ctx.job.payload)) })
 		feed = [msg('s1'), msg('s2'), msg('s3')]
 		svc.backfill(['s1', 's2', 's3'])
+		// пачка лежит в meta.json (переживает рестарт) и стирается, когда кейс стал ready
+		assert.deepEqual(Object.keys(store.meta?.batches ?? {}).sort(), ['c-s1', 'c-s2', 'c-s3'])
 		await flush()
+		assert.deepEqual(Object.keys(store.meta?.batches ?? {}), [])
 		assert.equal(payloads.length, 1)
 		const sorted = (v: unknown): unknown[] => (Array.isArray(v) ? v.map(String).sort() : [])
 		assert.deepEqual(sorted(payloads[0]?.['caseIds']), ['c-s1', 'c-s2', 'c-s3'])
@@ -171,6 +174,8 @@ describe('onCaseReady (без насоса)', () => {
 		const judge = queue.list().find(j => j.kind === 'judge')
 		assert.equal(judge?.subject, 'judge:c2')
 		assert.equal(judge.caseId, 'c2')
+		// замок плейбука читает payload.playbookId: id до `@`
+		assert.equal(judge.payload?.['playbookId'], 'p-x')
 	})
 
 	it('два кейса подряд → один match с двумя caseIds', () => {

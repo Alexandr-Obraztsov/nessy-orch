@@ -3,23 +3,8 @@ import { AppError } from '../../domain/errors'
 import { uniqueName } from '../../domain/naming'
 import { addChangelog, renderPlaybook, skillName } from '../../domain/playbook-render'
 import type { BuildDraft, MatchGroup } from '../../domain/playbook.types'
-import type { Hub } from '../hub'
-import type { Clock, IdGenerator, PlaybookStorePort } from '../ports'
-import type { PlaybookState } from './learning.types'
+import type { NewEntry, PlaybookServiceDeps, PlaybookState } from './learning.types'
 import { applyEdit } from './playbook-edits'
-
-export interface PlaybookServiceDeps {
-	store: PlaybookStorePort
-	hub: Hub
-	clock: Clock
-	ids: IdGenerator
-	/** версия плагина nessy-playbooks при публикации; по умолчанию `1.0.<счётчик публикаций>` */
-	pluginVersion?: () => string
-	/** кейс по id (нужен только `playbook` кейса) */
-	caseOf?: (id: string) => { playbook: string | null } | null
-}
-
-type NewEntry = Omit<JournalEntry, 'id' | 'ts'>
 
 const LIVE: readonly PlaybookStatus[] = ['trial', 'active']
 const isLive = (s: PlaybookStatus): boolean => LIVE.includes(s)

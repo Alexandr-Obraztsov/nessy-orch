@@ -176,7 +176,7 @@ describe('сопоставитель и сборщик плейбука', () => 
 		assert.equal(svc.playbooks?.list().length, 1)
 	})
 
-	it('группа к существующему плейбуку: кейс добавлен в cases, сборки нет; с поправками — improve', async () => {
+	it('группа к существующему плейбуку: кейс добавлен в cases, сборки нет; improve из match не ставится (его ставит судья)', async () => {
 		for (const [i, id] of ['c1', 'c2'].entries()) addCase(id, i)
 		addCase('c4', 4, { playbook: 'p-x@1' }, '- user asked to rerun lint')
 		const p = samplePlaybook()
@@ -186,10 +186,7 @@ describe('сопоставитель и сборщик плейбука', () => 
 		const svc = await run([matchJob(['c4'])])
 		assert.deepEqual(svc.playbooks?.get('p-x')?.cases, ['c1', 'c2', 'c4'])
 		assert.ok(!calls.some(c => c.marker === 'PLAYBOOK BUILDER'))
-		const improve = svc.view().jobs.find(j => j.kind === 'improve')
-		assert.ok(improve)
-		assert.equal(improve.subject, 'improve:c4')
-		assert.equal(improve.caseId, 'c4')
+		assert.ok(!svc.view().jobs.some(j => j.kind === 'improve'))
 	})
 
 	it('большие материалы: case-analyst на каждый кейс сборки, затем один playbook-builder по разборам', async () => {

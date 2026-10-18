@@ -17,7 +17,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { BackfillCandidate, LearningSettings } from '../../../shared/types'
 import type { LearningStorePort } from '../../application/ports'
-import type { CaseState, JobState, LearningMeta, TranscriptCursor } from '../../application/learning/learning.types'
+import type { CaseState, FailedBuild, JobState, LearningMeta, TranscriptCursor } from '../../application/learning/learning.types'
 import type { RawEvent } from '../../domain/learning.types'
 import { arr, errMsg, isObject, parseJson } from '../../lib/json'
 import { appendJsonl, readJsonl, readText, writeAtomic } from './jsonl'
@@ -183,7 +183,19 @@ export class FileLearningStore implements LearningStorePort {
 	loadMeta(): LearningMeta | null {
 		const v = parseJson(readText(this.metaPath))
 		if (!isObject(v) || typeof v['startedAt'] !== 'number' || typeof v['startSeq'] !== 'number') return null
-		return { startedAt: v['startedAt'], startSeq: v['startSeq'], removed: arr(v['removed']).filter((x): x is string => typeof x === 'string') }
+		const meta: LearningMeta = { startedAt: v['startedAt'], startSeq: v['startSeq'], removed: arr(v['removed']).filter((x): x is string => typeof x === 'string') }
+		const failed = arr(v['failedBuilds']).flatMap((f): FailedBuild[] =>
+			isObject(f) && typeof f['hash'] === 'string' && typeof f['at'] === 'number' ? [{ hash: f['hash'], at: f['at'], cases: arr(f['cases']).filter((x): x is string => typeof x === 'string') }] : [],
+		)
+		if (failed.length) meta.failedBuilds = failed
+		const batchesRaw = v['batches']
+		if (isObject(batchesRaw)) {
+			const batches: Record<string, string[]> = {}
+			for (const [k, list] of Object.entries(batchesRaw)) batches[k] = arr(list).filter((x): x is string => typeof x === 'string')
+			if (Object.keys(batches).length) meta.batches = batches
+		}
+		if (typeof v['lastRecountAt'] === 'number') meta.lastRecountAt = v['lastRecountAt']
+		return meta
 	}
 
 	saveMeta(m: LearningMeta): void {

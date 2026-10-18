@@ -158,6 +158,7 @@ nessy-orch status | open [<id сессии>] | install [--print] | uninstall
 ```text
 nessy-orch learn [status] | on | off [--session S] | run [--session S] | backfill [--all | <id…>] | journal [--revert <id>]   # фоновое обучение
 nessy-orch playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason R] | revert <id> --version N | rm <id> | note <id> "…"   # плейбуки
+nessy-orch playbook edits <id> | accept <id> <hash> | reject <id> <hash>   # правки улучшателя, ждущие решения при autoReview: false (хэш можно сокращать от 4 знаков)
 nessy-orch case note <id> "…"   # заметки пользователя кейса
 nessy-orch case ls | show <id> | rm <id> | rebuild <id>
 ```

@@ -1,4 +1,4 @@
-import type { CaseView, JobView, Message, PlaybookView, SessionView } from '../../../shared/types'
+import type { CaseView, JobView, JournalEntry, Message, PlaybookView, SessionView } from '../../../shared/types'
 import type { RuleVerdict } from '../../domain/playbook.types'
 import type { Clock, IdGenerator, LearningStorePort, PlaybookStorePort } from '../ports'
 import type { Hub } from '../hub'
@@ -35,6 +35,19 @@ export interface LearningMeta {
 	startSeq: number
 	/** надгробия: id удалённых кейсов-цепочек, которые не воскресают */
 	removed: string[]
+	/** окончательные провалы сборки: по ним `match` не повторяет сборку той же группы сутки */
+	failedBuilds?: FailedBuild[]
+	/** пачки бэкфилла: кейс → все кейсы его пачки (выдаётся один раз при `ready`, переживает рестарт) */
+	batches?: Record<string, string[]>
+	/** когда последний раз пересчитывались счётчики правил (затухание), мс */
+	lastRecountAt?: number
+}
+
+/** Окончательно проваленная сборка: хэш группы, её кейсы и время провала. */
+export interface FailedBuild {
+	hash: string
+	cases: string[]
+	at: number
 }
 
 export type JobState = JobView & {
@@ -93,3 +106,17 @@ export interface EnqueueOpts {
 	/** как свести `payload` уже ждущего задания с новым */
 	merge?: (a: Record<string, unknown> | null, b: Record<string, unknown> | null) => Record<string, unknown> | null
 }
+
+export interface PlaybookServiceDeps {
+	store: PlaybookStorePort
+	hub: Hub
+	clock: Clock
+	ids: IdGenerator
+	/** версия плагина nessy-playbooks при публикации; по умолчанию `1.0.<счётчик публикаций>` */
+	pluginVersion?: () => string
+	/** кейс по id (нужен только `playbook` кейса) */
+	caseOf?: (id: string) => { playbook: string | null } | null
+}
+
+/** Запись журнала до выдачи `id` и времени. */
+export type NewEntry = Omit<JournalEntry, 'id' | 'ts'>

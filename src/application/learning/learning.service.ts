@@ -15,7 +15,13 @@ import { approvePlaybook, meanCorrections, rejectPlaybook, reviewHandler } from 
 import type { HintHost, JobContext, JobHandler } from './handlers.types'
 import { JobQueue } from './job-queue'
 import { PlaybookService, playbookView } from './playbook.service'
-import type { CaseState, EnqueueOpts, JobState, LearningDeps, LearningMeta, TranscriptCursor } from './learning.types'
+import type { CaseState, EnqueueOpts, FailedBuild, JobState, LearningDeps, LearningMeta, TranscriptCursor } from './learning.types'
+import { recount } from '../../domain/rule-counters'
+
+/** Сколько после окончательного провала сборки `match` не повторяет ту же группу. */
+const FAILED_BUILD_MS = 24 * 3600 * 1000
+/** Как часто пересчитываются счётчики правил (затухание). */
+const RECOUNT_MS = 24 * 3600 * 1000
 
 /** id кейса транскрипта прошлого чата; имя безопасно для пути. */
 export const transcriptCaseId = (chatId: string): string => `c-t-${chatId.replace(/[^\w-]/g, '_')}`
@@ -55,8 +61,6 @@ export class LearningService {
 	private readonly scanned = new Map<string, number>()
 	/** обработчики заданий по виду */
 	private readonly handlers = new Map<JobKind, JobHandler>()
-	/** пачки бэкфилла: кейс → все кейсы его пачки (только в памяти; выдаётся один раз при `ready`, см. `onCaseReady`) */
-	private readonly batches = new Map<string, string[]>()
 	/** плейбуки; null без `deps.playbookStore` — тогда сервис работает как на этапе 1 */
 	readonly playbooks: PlaybookService | null
 	/** подсказка плейбука (хук UserPromptSubmit, сборщик); не сам сервис: имя `playbooks` занято полем */
@@ -335,10 +339,31 @@ export class LearningService {
 		// надгробие: живая сессия этого кейса заново его не заведёт
 		this.tomb([c.rootId ?? c.sessions[0] ?? '', ...c.sessions])
 		this.cases.delete(id)
+		this.takeBatch(id)
 		this.queue.removeCase(id)
 		this.deps.store.removeCase(id)
 		this.deps.store.saveJobs(this.queue.list())
 		this.deps.hub.publish({ t: 'learning_case_removed', id })
+	}
+
+	private saveMeta(next: LearningMeta): void {
+		this.meta = next
+		this.deps.store.saveMeta(next)
+	}
+
+	/** Пачка бэкфилла кейса выдаётся один раз и стирается из `meta.json`. */
+	private takeBatch(caseId: string): string[] | null {
+		const batch = this.meta.batches?.[caseId] ?? null
+		if (batch === null) return null
+		const { [caseId]: _taken, ...rest } = this.meta.batches ?? {}
+		this.saveMeta({ ...this.meta, batches: rest })
+		return batch
+	}
+
+	/** Окончательные провалы сборки за последние сутки. */
+	private recentFailedBuilds(): FailedBuild[] {
+		const from = this.deps.clock.now() - FAILED_BUILD_MS
+		return (this.meta.failedBuilds ?? []).filter(f => f.at > from)
 	}
 
 	private tomb(ids: readonly string[]): void {
@@ -468,7 +493,7 @@ export class LearningService {
 		}
 		// пачка: сопоставитель после неё запускается один раз (`payload.after` у `match`)
 		const batch = created.map(c => c.id)
-		for (const id of batch) this.batches.set(id, batch)
+		if (batch.length) this.saveMeta({ ...this.meta, batches: { ...this.meta.batches, ...Object.fromEntries(batch.map(id => [id, batch])) } })
 		return { created, skipped }
 	}
 
@@ -534,6 +559,7 @@ export class LearningService {
 		// уже поставленные задания (повторы, ручные) идут и при выключенном обучении
 		this.pump()
 		if (!this.settings.enabled) return
+		this.decay()
 		const { host, clock } = this.deps
 		const sessions = host.sessions()
 		const byId = new Map(sessions.map(s => [s.id, s]))
@@ -876,6 +902,7 @@ export class LearningService {
 				writeNotes: (id, text) => store.writeNotes(id, text),
 				seal: id => this.seal(id),
 			},
+			failedBuilds: () => this.recentFailedBuilds(),
 			playbooks: this.playbooks,
 			hints: this.hints,
 			enqueue: (kind, subject, opts) => void this.enqueue(kind, subject, opts),
@@ -894,7 +921,54 @@ export class LearningService {
 			// пауза до следующей автоматической попытки считается от провала
 			if (c) this.update({ ...c, status: 'error', lastRunAt: this.deps.clock.now(), updatedAt: new Date(this.deps.clock.now()).toISOString() })
 		}
+		// провал любой попытки сборки: пока она повторяется или окончательно упала, `match` не ставит ту же группу заново
+		if (j.kind === 'build') this.rememberFailedBuild(j)
 		this.jobsChanged(j)
+	}
+
+	/** Провал сборки: `{ hash, cases, at }` в `meta.json` (старше суток записи отбрасываются). */
+	private rememberFailedBuild(job: JobState): void {
+		const raw: unknown = job.payload?.['cases']
+		const found = new Set<string>()
+		if (Array.isArray(raw)) for (const e of raw as unknown[]) if (typeof e === 'object' && e !== null && 'caseId' in e && typeof e.caseId === 'string') found.add(e.caseId)
+		const cases = [...found].sort()
+		if (!cases.length) return
+		const hash = job.subject.replace(/^g-/, '')
+		const rest = this.recentFailedBuilds().filter(f => f.hash !== hash)
+		this.saveMeta({ ...this.meta, failedBuilds: [...rest, { hash, cases, at: this.deps.clock.now() }] })
+	}
+
+	/** Раз в сутки: счётчики и архив правок всех живых плейбуков без новых вердиктов (затухание); смена статуса правила — версия и журнал. */
+	private decay(): void {
+		const ps = this.playbooks
+		if (!ps) return
+		const now = this.deps.clock.now()
+		if (this.meta.lastRecountAt !== undefined && now - this.meta.lastRecountAt < RECOUNT_MS) return
+		const running = this.queue.running()
+		let skipped = false
+		for (const p of ps.list()) {
+			if (p.status === 'disabled' || p.status === 'archived') continue
+			// плейбук занят заданием: пересчёт в следующий тик, чтобы не затереть его версию
+			if (running.some(j => this.playbookOfJob(j) === p.id)) {
+				skipped = true
+				continue
+			}
+			const { state, changed } = recount(p, now)
+			// только смена статуса правила даёт версию: счётчики без неё пересчитает следующий вердикт судьи
+			if (!changed.length) continue
+			const entry = (c: { ruleId: string; from: string; to: string }): Omit<JournalEntry, 'id' | 'ts'> => ({
+				kind: 'rule_archived',
+				subject: p.id,
+				summary: `${p.id}: правило «${p.rules.find(r => r.id === c.ruleId)?.text ?? c.ruleId}» ${c.from} → ${c.to} (затухание)`,
+				report: JSON.stringify({ ruleId: c.ruleId, prevStatus: c.from }),
+				revertible: true,
+				revertedBy: null,
+			})
+			const [first, ...rest] = changed
+			ps.saveVersion(state, `Decay: ${changed.length} rules archived`, first ? entry(first) : undefined)
+			for (const c of rest) ps.record(entry(c))
+		}
+		if (!skipped) this.saveMeta({ ...this.meta, lastRecountAt: now })
 	}
 
 	/** Итоговое описание готово: кейс `ready`; пустой кейс (нет ни описания, ни событий) удаляется. */
@@ -917,11 +991,7 @@ export class LearningService {
 				{
 					cases: { get: id => this.cases.get(id) ?? null },
 					enqueue: (kind, subject, opts) => void this.enqueue(kind, subject, opts),
-					batch: id => {
-						const b = this.batches.get(id) ?? null
-						this.batches.delete(id)
-						return b
-					},
+					batch: id => this.takeBatch(id),
 				},
 				caseId,
 			)

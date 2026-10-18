@@ -1,6 +1,4 @@
-import type { CaseReadyHost } from './handlers.types'
-
-type Payload = Record<string, unknown> | null
+import type { CaseReadyHost, JobPayload as Payload } from './handlers.types'
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
 
@@ -19,7 +17,8 @@ export function mergeMatchPayload(a: Payload, b: Payload): Payload {
 export function onCaseReady(host: CaseReadyHost, caseId: string): void {
 	const c = host.cases.get(caseId)
 	if (!c) return
-	if (c.playbook) host.enqueue('judge', `judge:${caseId}`, { caseId })
+	// замок плейбука читает `payload.playbookId`: id — часть `case.playbook` до `@`
+	if (c.playbook) host.enqueue('judge', `judge:${caseId}`, { caseId, payload: { playbookId: c.playbook.split('@')[0] ?? '' } })
 	const batch = host.batch(caseId)
 	const payload: Record<string, unknown> = batch ? { caseIds: [caseId], after: batch } : { caseIds: [caseId] }
 	host.enqueue('match', 'all', { payload, merge: mergeMatchPayload })

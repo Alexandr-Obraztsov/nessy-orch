@@ -1,7 +1,10 @@
 import type { JobKind, LearningSettings } from '../../../shared/types'
 import type { RawEvent } from '../../domain/learning.types'
-import type { CaseState, EnqueueOpts, JobState, PlaybookState } from './learning.types'
+import type { CaseState, EnqueueOpts, FailedBuild, JobState, PlaybookState } from './learning.types'
 import type { PlaybookService } from './playbook.service'
+
+/** `payload` задания. */
+export type JobPayload = Record<string, unknown> | null
 
 /** Параметры постановки задания из обработчика (то же, что у очереди). */
 export type JobEnqueueOpts = EnqueueOpts
@@ -28,6 +31,8 @@ export interface JobContext {
 		/** итоговое описание готово: кейс `ready` (пустой удаляется), ставит последующие задания */
 		seal(id: string): void
 	}
+	/** окончательные провалы сборки за последние сутки (память `match`) */
+	failedBuilds?(): FailedBuild[]
 	/** без хранилища плейбуков — null (обработчики плейбуков тогда не регистрируются) */
 	playbooks: PlaybookService | null
 	/** очередь подсказок плейбука (хук UserPromptSubmit); нет — сборщик подсказок не ставит */

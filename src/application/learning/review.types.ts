@@ -10,3 +10,12 @@ export interface ReviewEdits {
 	hashes: string[]
 	baseVersion: number
 }
+
+/** Итог одного прохода выбора плейбука по описанию (ступень 6). */
+export interface SelectionResult {
+	hits: number
+	own: number
+	falseHits: number
+	misses: string[]
+	agentIds: string[]
+}
