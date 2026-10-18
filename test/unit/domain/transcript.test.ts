@@ -51,4 +51,16 @@ describe('parseTranscript', () => {
 		assert.deepEqual(parseTranscript('', { nessyCalls: true }), [])
 		assert.deepEqual(parseTranscript('не json\n[1]\n', { nessyCalls: true }), [])
 	})
+	it('вызов Skill — запись skill независимо от nessyCalls', () => {
+		const lines = [
+			{ type: 'assistant', uuid: 'a', timestamp: '2026-10-01T10:00:00Z', message: { content: [{ type: 'tool_use', id: 'x', name: 'Skill', input: { skill: 'nessy-playbooks:pb-1', args: 'foo' } }] } },
+			{ type: 'assistant', uuid: 'b', timestamp: '2026-10-01T10:00:01Z', message: { content: [{ type: 'tool_use', id: 'y', name: 'Skill', input: { command: 'old-style' } }] } },
+			{ type: 'assistant', uuid: 'c', timestamp: '2026-10-01T10:00:02Z', message: { content: [{ type: 'tool_use', id: 'z', name: 'Skill', input: {} }] } },
+		].map(r => JSON.stringify(r)).join('\n')
+		for (const nessyCalls of [false, true]) {
+			const e = parseTranscript(lines, { nessyCalls })
+			assert.deepEqual(e.map(x => [x.kind, x.text]), [['skill', 'nessy-playbooks:pb-1'], ['skill', 'old-style']])
+			assert.equal(at(e, 0).uuid, 'a:x')
+		}
+	})
 })

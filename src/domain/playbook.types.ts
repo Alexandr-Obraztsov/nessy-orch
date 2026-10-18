@@ -57,3 +57,9 @@ export interface SearchIndex {
 	df: Map<string, number>
 	avgLen: number
 }
+
+/** Диапазон номеров событий кейса (якорь `n a–b`), границы включительно. */
+export interface Range {
+	from: number
+	to: number
+}

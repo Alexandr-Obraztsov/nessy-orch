@@ -1,7 +1,7 @@
 import type { Portion, RawEvent, RawKind } from './learning.types'
 
 /** Лимиты текста события по видам (знаков). */
-const LIMITS: Record<Exclude<RawKind, 'reply'>, number> = { user: 4000, claude: 3000, task: 2000, call: 2000 }
+const LIMITS: Record<Exclude<RawKind, 'reply'>, number> = { user: 4000, claude: 3000, task: 2000, call: 2000, skill: 300 }
 
 /** Заголовок раздела: `**Итог**`, `**Итог:**` или `## Итог` на отдельной строке. */
 const HEADING = /^\s*(?:\*\*(.+?)\*\*:?|#{1,6}\s+(.+?))\s*$/
@@ -50,7 +50,8 @@ export function renderPortion(events: readonly RawEvent[], maxChars: number): Po
 	let until = 0
 	for (const e of events) {
 		const route = e.to ? `${e.from}→${e.to}` : e.from
-		const line = `[${e.n}] ${e.kind} ${route}: ${eventText(e)}`
+		// вызов скилла — без маршрута: `[n] skill: nessy-playbooks:<id>`
+		const line = e.kind === 'skill' ? `[${e.n}] skill: ${eventText(e)}` : `[${e.n}] ${e.kind} ${route}: ${eventText(e)}`
 		const next = length + (lines.length ? 1 : 0) + line.length
 		if (lines.length && next > maxChars) break
 		if (!lines.length) from = e.n

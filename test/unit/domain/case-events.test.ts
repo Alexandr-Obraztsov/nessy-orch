@@ -58,4 +58,8 @@ describe('renderPortion', () => {
 	it('пустой вход', () => {
 		assert.deepEqual(renderPortion([], 100), { text: '', from: 0, until: 0 })
 	})
+	it('skill: строка без маршрута', () => {
+		const p = renderPortion([{ n: 4, ts: 0, kind: 'skill', from: 'claude', to: null, text: 'nessy-playbooks:pb-1', ref: 'u' }], 1000)
+		assert.equal(p.text, '[4] skill: nessy-playbooks:pb-1')
+	})
 })

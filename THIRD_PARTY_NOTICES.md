@@ -3,6 +3,7 @@
 Готовые роли в `roles/` адаптированы (переписаны на русском, с учётом инструментов nessy) из следующих проектов
 под лицензией MIT. Роли `gitlab-mr-reviewer`, `jira-analyst`, `wiki-researcher`, `performance` написаны заново;
 upstream указан там, откуда взяты структура и идеи (см. комментарий в конце каждого файла).
+Промпты фоновых агентов обучения (`learning/prompts/`) частично сделаны из чужих текстов; их источники — в разделах ниже.
 
 ## oh-my-claudecode
 
@@ -27,6 +28,7 @@ upstream указан там, откуда взяты структура и ид
 - Copyright (c) 2025 Jesse Vincent
 - Производные файлы: `roles/executor.md` (`skills/subagent-driven-development/implementer-prompt.md`),
   `roles/verifier.md` (`skills/verification-before-completion/SKILL.md`, `skills/subagent-driven-development/task-reviewer-prompt.md`)
+- Промпты фонового обучения: `learning/prompts/reviewer.md` (`skills/subagent-driven-development/task-reviewer-prompt.md`; изменены: вход — плейбук и сессии, выход — `<result>`)
 
 ## VoltAgent/awesome-claude-code-subagents
 
@@ -37,9 +39,27 @@ upstream указан там, откуда взяты структура и ид
   (`categories/06-developer-experience/refactoring-specialist.md`); `roles/performance.md`
   (`categories/04-quality-security/performance-engineer.md`) использовал только как чек-лист тем, текст написан заново.
 
+## github/spec-kit
+
+- Репозиторий: https://github.com/github/spec-kit
+- Copyright GitHub, Inc.
+- Лицензия: MIT
+- Промпты фонового обучения: `learning/prompts/consistency.md` (`templates/commands/analyze.md`; изменены: вход — плейбук, другие плейбуки и заметки пользователя, выход — `<result>`; хуки расширений, скрипты и предложение правок убраны)
+
+## anthropics/skills, skill-creator (Apache-2.0)
+
+- Репозиторий: https://github.com/anthropics/skills (`skills/skill-creator`)
+- Лицензия: Apache License 2.0, http://www.apache.org/licenses/LICENSE-2.0
+- Авторские права: `LICENSE.txt` скилла содержит стандартный текст Apache-2.0 без заполненной строки Copyright; права принадлежат авторам репозитория (Anthropic, PBC)
+- Промпты фонового обучения, сделанные из его файлов (**файлы изменены**: вход и выход заменены, шаги работы с файлами, метриками и временем убраны; остальной текст сохранён):
+  `learning/prompts/grader.md` (`agents/grader.md`), `learning/prompts/comparator.md` (`agents/comparator.md`),
+  `learning/prompts/description-improver.md` (текст промпта из `scripts/improve_description.py`).
+  `learning/prompts/selector.md` написан заново по смыслу `scripts/run_eval.py` и `scripts/run_loop.py`, текст не копировался.
+- Каждый такой файл начинается с маркера агента и комментария `<!-- Source: …, License: …; changes: … -->`.
+
 ## Текст лицензии MIT
 
-Одинаковый для всех перечисленных проектов; строки Copyright приведены выше для каждого проекта.
+Одинаковый для всех перечисленных MIT-проектов; строки Copyright приведены выше для каждого проекта.
 
 ```
 MIT License
@@ -48,6 +68,7 @@ Copyright (c) 2025 Yeachan Heo
 Copyright (c) 2024 Seth Hobson
 Copyright (c) 2025 Jesse Vincent
 Copyright (c) 2025 VoltAgent
+Copyright GitHub, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -67,3 +88,5 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+Текст Apache-2.0 для skill-creator — по ссылке выше.

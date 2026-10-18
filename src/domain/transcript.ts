@@ -63,8 +63,14 @@ export function parseTranscript(text: string, opts: { nessyCalls: boolean }): Tr
 		}
 		const t = blocksText(content).trim()
 		if (t) out.push({ uuid, ts, kind: 'claude', text: t })
-		if (!opts.nessyCalls) continue
 		for (const b of blockList(content)) {
+			// вызов скилла — всегда, независимо от nessyCalls
+			if (b.type === 'tool_use' && b.name === 'Skill' && isObject(b.input)) {
+				const name = b.input.skill ?? b.input.command
+				if (typeof name === 'string' && name.trim()) out.push({ uuid: `${uuid}:${typeof b.id === 'string' ? b.id : 'skill'}`, ts, kind: 'skill', text: name.trim() })
+				continue
+			}
+			if (!opts.nessyCalls) continue
 			if (b.type !== 'tool_use' || b.name !== 'Bash' || typeof b.id !== 'string' || !isObject(b.input)) continue
 			const command = b.input.command
 			if (typeof command !== 'string' || !NESSY_CALL.test(command)) continue

@@ -1,14 +1,14 @@
 import type { CaseGoal } from '../../shared/types'
 
 /** Вид события в `raw/events.jsonl` кейса. */
-export type RawKind = 'user' | 'claude' | 'task' | 'reply' | 'call'
+export type RawKind = 'user' | 'claude' | 'task' | 'reply' | 'call' | 'skill'
 
 /** Запись транскрипта Claude Code после разбора (`transcript.ts`). */
 export interface TranscriptEntry {
 	uuid: string
 	/** мс */
 	ts: number
-	kind: 'user' | 'claude' | 'call'
+	kind: 'user' | 'claude' | 'call' | 'skill'
 	text: string
 }
 
