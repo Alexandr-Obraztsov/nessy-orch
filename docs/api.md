@@ -17,7 +17,7 @@
 - **Ошибки:** статус ≥ 400, тело `{ "error": "<текст>", "code": "<код>" }`. Коды: `bad_request`, `bad_json`, `bad_path`,
   `bad_from`, `empty_text`, `self_send`, `space_required` (все 400), `no_space` (404), `space_exists` (409),
   `space_busy` (409), `no_agent` (404), `ambiguous_agent` (409), `name_taken` (409), `busy` (409, архив работающего агента),
-  `no_role` (404), `role_exists` (409), `no_case` (404), `no_job` (404), `no_candidate` (404), `case_busy` (409), `job_not_failed` (409), `learning_unavailable` (503), `hop_limit` (429), `rate_limit` (429),
+  `no_role` (404), `role_exists` (409), `no_case` (404), `no_job` (404), `no_candidate` (404), `case_busy` (409), `job_not_failed` (409), `learning_unavailable` (503), `no_playbook` (404), `playbook_busy` (409), `hop_limit` (429), `rate_limit` (429),
   `deadlock` (409), `nessy_error` (502), `too_large` (413, тело > 5 МБ), `bad_host`/`bad_origin`/`forbidden` (403),
   `not_found` (404), `internal` (500). Пустое тело запроса читается как `{}`.
 - **Ссылка на агента `:ref`** — id (`a-7f3k`) или уникальное имя (без учёта регистра). Особое значение `you` допустимо
@@ -200,6 +200,29 @@
 | POST | `/learning/cases/:id/rebuild` | — | `JobView`: сбрасывает `coveredUntil` и `summary.md`, ставит `close`; `409 case_busy` |
 | GET | `/learning/backfill` | — | `BackfillCandidate[]` (`kind: session\|transcript`, `id`, `title`, `date`, `size` — сообщений у сессии, байт у транскрипта): сессии без кейса с сообщениями в ленте (сюда попадают и сессии, созданные до первого запуска обучения: живой кейс для них не заводится) и транскрипты Claude Code с вызовами `nessy-orch spawn\|send` (кроме чатов сессий и уже взятых) |
 | POST | `/learning/backfill` | `{ids: string[]}` | `BackfillResult {created: CaseView[], skipped: [{id, reason}]}`: кейсы `source:'backfill'` (транскрипт — `c-t-<чат>`), каждому сразу итоговый `close`. Кейс уже есть — `skipped`, не дубль; неизвестный id — `404 no_candidate` (ничего не создаётся) |
+
+### Плейбуки, журнал, заметки, чат
+
+Плейбук — скилл, который обучение собирает из ≥ 3 кейсов одной задачи; статусы `draft → review → trial → active` (и `disabled`, `archived`). Ошибки: `no_playbook` (404), `no_rule` (404), `no_version` (404), `no_journal` (404), `already_reverted`/`not_revertible` (409), `playbook_busy` (409), `playbooks_unavailable` (503). Типы — `PlaybookView`, `PlaybookDetail`, `JournalEntry`, `ChatMessage`.
+
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| GET | `/learning/playbooks` | — | `PlaybookView[]` |
+| GET | `/learning/playbooks/:id` | — | `PlaybookDetail` = `PlaybookView` + `notes`, `changelog`, `versions[]`, `reviews[]` (отчёты ревью по версиям) |
+| POST | `/learning/playbooks/:id/review` | — | `JobView`: ручной запуск ревью |
+| POST | `/learning/playbooks/:id/approve` | — | `PlaybookView`: одобрение → `trial`; `trial.before` — среднее число поправок на кейс до плейбука |
+| POST | `/learning/playbooks/:id/reject` | `{reason?}` | `PlaybookView`: плейбук `disabled`, причина в журнале |
+| POST | `/learning/playbooks/:id/status` | `{status}` | `PlaybookView`; `status` — `active`, `disabled` или `archived` (иначе `400`) |
+| POST | `/learning/playbooks/:id/revert` | `{version}` | `PlaybookView`: файлы версии `version` новой версией, статус остаётся |
+| DELETE | `/learning/playbooks/:id` | — | `{ok:true}`; идёт или ждёт задание плейбука — `409 playbook_busy` |
+| PUT | `/learning/playbooks/:id/notes` · `/learning/cases/:id/notes` | `{text}` | `{ok:true}`: заметки пользователя (`notes.md`); автоматически не переписываются, уходят следующим сборщикам, судьям и ревьюерам объекта |
+| GET | `/learning/journal?limit=` | — | `JournalEntry[]` (старые первыми): каждое автоматическое решение с отчётом |
+| POST | `/learning/journal/:id/revert` | — | `JournalEntry` (запись `reverted`): откат статуса, правила или версии; повторный — `409 already_reverted` |
+| GET | `/learning/chat/:subject` | — | `ChatMessage[]` чата кейса (`c-…`) или плейбука (`p-…`); `?limit=` |
+| POST | `/learning/chat/:subject` | `{text}` | `ChatMessage` (сообщение пользователя); ставится задание `edit:<subject>`, агент-редактор отвечает ещё одним `ChatMessage`. У кейса меняется только `summary.md`; у плейбука — поля плейбука, выходит новая версия (журнал `edit`). Постоянная инструкция («всегда проверяй X») дописывается в `notes.md` строкой `- <дата>: <текст>` |
+| POST | `/learning/hint` | `{session, prompt}` | `{playbook: {id, skill, title} \| null}`: подсказка плейбука для хука UserPromptSubmit. Подсказываются только `trial`/`active`, один раз на цепочку сессий и не уже загруженный кейсу. Приоритет: подсказка сборщика (в кейсе появилась цель с типом = `taskType` плейбука), затем BM25 по тексту запроса и целям кейса, порог `HINT_MIN_SCORE = 2.5` (индекс добит пустыми документами до 10, чтобы оценка не зависела от числа плейбуков). `skill` = `nessy-playbooks:<id>`. Обучение недоступно или выключено — `{playbook: null}`; нет `session`/`prompt` (строки) — `400 bad_request`. Подсказанное запоминается в `CaseState.hinted` (переживает рестарт) |
+
+Новые события `GET /stream`: `learning_playbook` (upsert `PlaybookView`), `learning_playbook_removed`, `learning_journal`, `learning_chat` (`subject`, `message`). Активные плейбуки (`trial`, `active`) публикуются как плагин `nessy-playbooks` (`ORCH_PLAYBOOKS_PLUGIN_DIR`, по умолчанию `~/.claude/skills/nessy-playbooks`). Ответы агентов не-кейсовых заданий лежат в `<home>/learning/runs/<объект>/<задание>-<k>.md`, кейсовых — в `cases/<id>/runs/`.
 
 События `GET /stream`: `{"t":"learning_case","rev":…,"case":CaseView}` (upsert),
 `{"t":"learning_case_removed","rev":…,"id"}`, `{"t":"learning_job","rev":…,"job":JobView}` (upsert), `{"t":"learning_settings","rev":…,"settings":LearningSettings}`.

@@ -149,9 +149,15 @@ export class Orchestrator implements AgentHost {
 		this.sourcesSvc = new SourcesService(this.ctx, this.sessionsSvc)
 		this.agentsSvc = new AgentsService(this.ctx, this.spacesSvc, this.messaging, this.rolesSvc, this.sessionsSvc)
 		const learningStore = deps.learningStore
+		// Claude Code перечитывает плагин по версии: счётчик публикаций стартует с текущих секунд, чтобы версия росла и между запусками
+		const pluginVersion = (): (() => string) => {
+			let n = Math.floor(clock.now() / 1000)
+			return () => `1.0.${n++}`
+		}
 		this.learning = learningStore
 			? new LearningService({
 					store: learningStore,
+					...(deps.playbookStore ? { playbookStore: deps.playbookStore, pluginVersion: pluginVersion() } : {}),
 					host: this.learningHost(),
 					hub: this.hub,
 					clock,

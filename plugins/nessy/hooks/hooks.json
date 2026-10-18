@@ -1,5 +1,5 @@
 {
-  "description": "Только в терминале приложения TClaude-Orch. SessionStart: привязывает чат Claude к сессии оркестратора (после /clear и /resume — своя сессия) и велит первым делом загрузить скилл nessy-orch (и после сжатия разговора). PreToolUse на Agent: первый вызов в ходе пользователя отклоняется с напоминанием поручать работу агентам nessy, повторный проходит",
+  "description": "Только в терминале приложения TClaude-Orch. SessionStart: привязывает чат Claude к сессии оркестратора (после /clear и /resume — своя сессия) и велит первым делом загрузить скилл nessy-orch (и после сжатия разговора). PreToolUse на Agent: первый вызов в ходе пользователя отклоняется с напоминанием поручать работу агентам nessy, повторный проходит. UserPromptSubmit: если запрос похож на задачу накопленного плейбука (фоновое обучение), подсказывает загрузить его скилл nessy-playbooks:<id> инструментом Skill (один раз на плейбук в цепочке сессий; сервер недоступен или таймаут 1,5 с — молчит)",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,17 @@
             "type": "command",
             "command": "[ -z \"${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook start",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"${NESSY_ORCH_SESSION}\" ] || \"${CLAUDE_PLUGIN_ROOT}/bin/nessy-orch\" hook prompt",
+            "timeout": 5
           }
         ]
       }

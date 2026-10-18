@@ -14,7 +14,7 @@ import { request, SseClient } from './http-client'
 import type { Harness, HarnessOptions } from './support.types'
 
 const ROOT = path.resolve(__dirname, '..', '..', '..')
-const FAKE = path.join(ROOT, 'dist', 'test', 'support', 'fake-nessy.js')
+const FAKE = path.join(__dirname, 'fake-nessy.js')
 const CLI = path.join(ROOT, 'bin', 'nessy-orch')
 let counter = 0
 
@@ -64,6 +64,7 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 			learningDefaultOn: false,
 			learningTickMs: 0,
 			rolesDir: path.join(base, 'roles'),
+			playbooksPluginDir: path.join(base, 'plugin', 'nessy-playbooks'),
 			...opts.config,
 		}
 		const candidate = buildApp(config, 'test')

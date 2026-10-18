@@ -218,7 +218,7 @@ describe('LearningService: ревью этапа 1', () => {
 		svc.tick()
 		const j = svc.runNow('c-s1')
 		await flush()
-		assert.equal(store.runs.get(`c-s1/${j.id}`), GOOD)
+		assert.equal(store.runs.get(`c-s1/${j.id}-1`), GOOD)
 		assert.equal(svc.view().jobs.find(x => x.id === j.id)?.agentId, 'ag1')
 	})
 

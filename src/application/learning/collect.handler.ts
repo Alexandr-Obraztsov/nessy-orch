@@ -1,7 +1,21 @@
+import type { CaseGoal } from '../../../shared/types'
 import { renderPortion } from '../../domain/case-events'
 import { buildCollectorPrompt, parseCollectorReply } from '../../domain/collector'
 import { PORTION_CHARS } from '../../domain/learning-settings'
-import type { JobHandler } from './handlers.types'
+import type { JobContext, JobHandler } from './handlers.types'
+import type { CaseState } from './learning.types'
+
+/** Новая цель кейса с типом живого плейбука (`trial`/`active`) — подсказка в очередь сессии: её отдаст ближайший `hint`. */
+function queueHints(ctx: JobContext, before: Pick<CaseState, 'id' | 'goals' | 'hinted' | 'playbook'>, after: CaseGoal[]): void {
+	if (!ctx.hints || !ctx.playbooks) return
+	const known = new Set(before.goals.map(g => g.type).filter(Boolean))
+	const skip = new Set([...before.hinted, ...(before.playbook ? [before.playbook.split('@')[0] ?? ''] : [])])
+	const types = new Set(after.map(g => g.type).filter(t => t && !known.has(t)))
+	if (!types.size) return
+	for (const p of ctx.playbooks.list()) {
+		if ((p.status === 'trial' || p.status === 'active') && types.has(p.taskType) && !skip.has(p.id)) ctx.hints.queueHint(before.id, p.id)
+	}
+}
 
 /** Сбор описания кейса (`collect` — по ходу, `close` — итоговый); поведение этапа 1 без изменений. */
 export const collectHandler: JobHandler = {
@@ -40,14 +54,18 @@ export const collectHandler: JobHandler = {
 			return
 		}
 		const now = ctx.now()
+		const goals = parsed.goals.length ? parsed.goals : latest.goals
+		// снимок до update: сервис может отдавать и обновлять один и тот же объект
+		const prior = { id: latest.id, goals: [...latest.goals], hinted: [...latest.hinted], playbook: latest.playbook }
 		ctx.cases.update({
 			...latest,
 			coveredUntil: portion.until,
 			title: parsed.title ?? latest.title,
-			goals: parsed.goals.length ? parsed.goals : latest.goals,
+			goals,
 			lastRunAt: now,
 			updatedAt: new Date(now).toISOString(),
 		})
+		queueHints(ctx, prior, goals)
 		ctx.finish()
 		// порция не дошла до конца событий: следующее задание того же вида ставится сразу
 		if (events.some(e => e.n > portion.until)) ctx.enqueue(job.kind, c.id, { caseId: c.id, final: job.final })

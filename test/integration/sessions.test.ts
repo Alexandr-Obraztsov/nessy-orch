@@ -170,6 +170,24 @@ describe('чат Claude ↔ сессия: attach и хук SessionStart', () => 
 		assert.ok(!(await hh.api<SessionView[]>('GET', '/sessions')).body.some(x => x.chatId === 'chat-bbbb-0003'))
 	})
 
+	it('hook prompt: оркестратор недоступен или нет переменной — пустой stdout, код 0, быстрее 2 с', T, async () => {
+		const run = (session: string): Promise<{ code: number | null; out: string; ms: number }> =>
+			new Promise(resolve => {
+				const t0 = Date.now()
+				const p = spawn(process.execPath, [CLI_MAIN, 'hook', 'prompt'], { env: { ...process.env, ORCH_PORT: '1', NO_COLOR: '1', NESSY_ORCH_SESSION: session } })
+				let out = ''
+				p.stdout.on('data', (d: Buffer) => (out += d.toString()))
+				p.on('close', code => resolve({ code, out, ms: Date.now() - t0 }))
+				p.stdin.end(JSON.stringify({ prompt: 'реализуй aff пакет' }))
+			})
+		for (const session of ['s-x', '']) {
+			const r = await run(session)
+			assert.equal(r.code, 0)
+			assert.equal(r.out, '')
+			assert.ok(r.ms < 2000, `хук уложился: ${r.ms} мс`)
+		}
+	})
+
 	it('hook start: transcript_path из stdin записывается в сессию чата', T, async () => {
 		const hh = h
 		assert.ok(hh)

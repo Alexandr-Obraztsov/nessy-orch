@@ -139,3 +139,27 @@ export function parseBackfillRequest(b: unknown): string[] {
 	if (!isObject(b) || !Array.isArray(b['ids']) || b['ids'].some(x => typeof x !== 'string' || x === '')) throw new AppError(400, 'bad_request', 'нужно поле ids (массив непустых строк)')
 	return b['ids'] as string[]
 }
+
+/** Тело с одной строкой: `{text}` (заметки, чат); пустая строка допустима, если `allowEmpty`. */
+export function parseTextBody(b: unknown, allowEmpty = false): string {
+	if (!isObject(b) || typeof b['text'] !== 'string' || (!allowEmpty && b['text'].trim() === '')) throw new AppError(400, 'bad_request', 'нужно поле text (строка)')
+	return b['text']
+}
+
+/** Причина отказа: `{reason}`, необязательная. */
+export function parseReason(b: unknown): string {
+	if (!isObject(b)) return ''
+	return typeof b['reason'] === 'string' ? b['reason'] : ''
+}
+
+/** Статус плейбука вручную: `{status}`. */
+export function parsePlaybookStatus(b: unknown): string {
+	if (!isObject(b) || typeof b['status'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле status (строка)')
+	return b['status']
+}
+
+/** Номер версии для отката: `{version}` — целое от 1. */
+export function parseVersion(b: unknown): number {
+	if (!isObject(b) || typeof b['version'] !== 'number' || !Number.isInteger(b['version']) || b['version'] < 1) throw new AppError(400, 'bad_request', 'нужно поле version (целое от 1)')
+	return b['version']
+}

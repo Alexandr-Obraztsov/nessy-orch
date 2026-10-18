@@ -46,7 +46,11 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
   learn run [--session S]   собрать описание сейчас (сессии или кейса; без --session — все открытые кейсы)
   learn backfill [--all | <id…>]   без аргументов — кандидаты (прошлые сессии и транскрипты Claude Code), иначе завести кейсы
   case ls              кейсы        case show <id>   шапка и summary.md        case rm <id>   удалить кейс
-  case rebuild <id>    пересобрать описание заново
+  case rebuild <id>    пересобрать описание заново      case note <id> "<текст>"   заметки пользователя кейса
+  playbook ls | show <id>    плейбуки, которые обучение собрало из кейсов (статусы: draft, review, trial, active, disabled, archived)
+  playbook review <id>       запустить авто-ревью            playbook approve <id> | reject <id> [--reason R]   ручное решение
+  playbook revert <id> --version N   откат к версии (новой версией)      playbook rm <id>   удалить      playbook note <id> "<текст>"   заметки
+  learn journal [--limit N] [--revert <id>]   журнал автоматических решений и откат одной команды
 
 ПРИЛОЖЕНИЕ
   .  |  app [папка]    открыть приложение TClaude-Orch с терминалом в этой папке (nessy-orch . — из текущей, nessy-orch ~/proj)

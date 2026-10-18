@@ -208,8 +208,19 @@ describe('FileLearningStore', () => {
 		assert.equal(store.loadMeta(), null)
 		store.saveMeta({ startedAt: 5, startSeq: 7, removed: ['s1'] })
 		assert.deepEqual(store.loadMeta(), { startedAt: 5, startSeq: 7, removed: ['s1'] })
-		store.writeRun('c1', 'j1', 'ответ')
-		assert.equal(fs.readFileSync(path.join(store.casesDir, 'c1', 'runs', 'j1.md'), 'utf8'), 'ответ')
+		store.writeRun('c-1', 'j1', 'ответ')
+		assert.equal(fs.readFileSync(path.join(store.casesDir, 'c-1', 'runs', 'j1.md'), 'utf8'), 'ответ')
+	})
+
+	it('writeRun: кейсовые ответы — в кейсе, прочие — в learning/runs/<subject без «:»>; loadCases их не замечает', () => {
+		store.writeRun('c-1', 'j1-2', 'a')
+		store.writeRun('judge:c-1', 'j2-1', 'b')
+		store.writeRun('g-abc', 'j3-1', 'c')
+		assert.equal(fs.readFileSync(path.join(store.casesDir, 'c-1', 'runs', 'j1-2.md'), 'utf8'), 'a')
+		assert.equal(fs.readFileSync(path.join(store.home, 'learning', 'runs', 'judge_c-1', 'j2-1.md'), 'utf8'), 'b')
+		assert.equal(fs.readFileSync(path.join(store.home, 'learning', 'runs', 'g-abc', 'j3-1.md'), 'utf8'), 'c')
+		assert.ok(!fs.existsSync(path.join(store.casesDir, 'g-abc')))
+		assert.deepEqual(store.loadCases(), [])
 	})
 
 	it('isAllowedTranscript: только .jsonl внутри каталога, symlink наружу не проходит', () => {

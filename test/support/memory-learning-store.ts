@@ -85,8 +85,8 @@ export class MemoryLearningStore implements LearningStorePort {
 	truncateRaw(id: string, nextN: number): void {
 		this.raw.set(id, (this.raw.get(id) ?? []).filter(e => e.n < nextN))
 	}
-	writeRun(caseId: string, jobId: string, text: string): void {
-		this.runs.set(`${caseId}/${jobId}`, text)
+	writeRun(subject: string, name: string, text: string): void {
+		this.runs.set(`${subject}/${name}`, text)
 	}
 	isAllowedTranscript(file: string, dir: string): boolean {
 		return file.startsWith(dir.endsWith('/') ? dir : `${dir}/`)

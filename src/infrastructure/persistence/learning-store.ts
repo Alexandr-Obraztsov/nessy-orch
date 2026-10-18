@@ -8,7 +8,8 @@
  *   <home>/cases/<id>/case.md                     frontmatter + summary.md
  *   <home>/cases/<id>/{summary,notes}.md          описание сессии и заметки
  *   <home>/cases/<id>/raw/events.jsonl            события кейса
- *   <home>/cases/<id>/runs/<job>.md               ответы фоновых агентов
+ *   <home>/cases/<id>/runs/<job>-<k>.md           ответы фоновых агентов по кейсу
+ *   <home>/learning/runs/<subject>/<job>-<k>.md   ответы агентов не-кейсовых заданий
  *   <home>/cases/<id>/raw/transcript-<chat>.jsonl копия транскриптов Claude Code
  *   <root>/learning/prompts/<name>.md             промпты агентов
  */
@@ -160,11 +161,12 @@ export class FileLearningStore implements LearningStorePort {
 		this.safe('обрезка событий кейса', () => writeAtomic(file, keep.map(e => JSON.stringify(e) + '\n').join('')))
 	}
 
-	writeRun(caseId: string, jobId: string, text: string): void {
+	writeRun(subject: string, name: string, text: string): void {
 		this.safe('ответ агента', () => {
-			const dir = path.join(this.caseDir(caseId), 'runs')
+			// кейсовые ответы лежат в кейсе, остальные — в learning/runs (каталог кейсов без state.json не нужен)
+			const dir = subject.startsWith('c-') ? path.join(this.caseDir(subject), 'runs') : path.join(this.home, 'learning', 'runs', fileName(subject.replace(/:/g, '_')))
 			fs.mkdirSync(dir, { recursive: true })
-			writeAtomic(path.join(dir, `${fileName(jobId)}.md`), text)
+			writeAtomic(path.join(dir, `${fileName(name)}.md`), text)
 		})
 	}
 

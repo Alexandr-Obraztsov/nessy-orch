@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { ORCH_SKILL, agentReminder, agentReminderOutput, sessionContext, sessionStartOutput } from '../../../src/interfaces/cli/hook-context'
+import { ORCH_SKILL, agentReminder, agentReminderOutput, hintContext, hintOutput, sessionContext, sessionStartOutput } from '../../../src/interfaces/cli/hook-context'
 
 describe('хук PreToolUse на Agent: напоминание про агентов nessy', () => {
 	it('отказ с причиной: как запустить агента nessy и что повтор пройдёт', () => {
@@ -33,5 +33,20 @@ describe('хук SessionStart: указание загрузить скилл о
 		const j = JSON.parse(sessionStartOutput('s-1')) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } }
 		assert.equal(j.hookSpecificOutput.hookEventName, 'SessionStart')
 		assert.equal(j.hookSpecificOutput.additionalContext, sessionContext('s-1'))
+	})
+})
+
+describe('хук UserPromptSubmit: подсказка плейбука', () => {
+	it('контекст называет скилл и инструмент Skill, коротко', () => {
+		const c = hintContext('nessy-playbooks:p-aff', 'Реализация aff пакета')
+		assert.match(c, /nessy-playbooks:p-aff/)
+		assert.match(c, /инструментом Skill/)
+		assert.match(c, /«Реализация aff пакета»/)
+		assert.ok(c.length < 400)
+	})
+	it('вывод — JSON формата Claude Code для UserPromptSubmit', () => {
+		const j = JSON.parse(hintOutput('nessy-playbooks:p-aff', 'T')) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } }
+		assert.equal(j.hookSpecificOutput.hookEventName, 'UserPromptSubmit')
+		assert.equal(j.hookSpecificOutput.additionalContext, hintContext('nessy-playbooks:p-aff', 'T'))
 	})
 })

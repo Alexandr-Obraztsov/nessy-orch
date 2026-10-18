@@ -80,6 +80,12 @@ export class FilePlaybookStore implements PlaybookStorePort {
 		return this.count(dir)
 	}
 
+	saveState(p: PlaybookState): void {
+		const dir = this.dirOf(p.id)
+		fs.mkdirSync(dir, { recursive: true })
+		writeAtomic(path.join(dir, 'playbook.json'), JSON.stringify(p, null, 2))
+	}
+
 	readFiles(id: string): PlaybookFiles {
 		const filesDir = path.join(this.dirOf(id), 'files')
 		const out: PlaybookFiles = {}

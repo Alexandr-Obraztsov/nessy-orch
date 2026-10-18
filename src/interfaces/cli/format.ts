@@ -1,5 +1,5 @@
 /** Форматирование вывода CLI (для человека; для машин есть --json). */
-import type { AgentPlan, AgentView, BackfillCandidate, CaseView, JobView, Message, RoleView, SpaceView, SessionView } from '../../../shared/types'
+import type { AgentPlan, AgentView, BackfillCandidate, CaseView, JobView, JournalEntry, Message, PlaybookView, RoleView, SpaceView, SessionView } from '../../../shared/types'
 import { formatPlanLine } from '../../domain/plan'
 
 const tty = process.stdout.isTTY && !process.env['NO_COLOR']
@@ -177,6 +177,24 @@ export function jobsTable(jobs: readonly JobView[]): string {
 	return table(
 		jobs.map(j => [bold(j.id), j.kind, status(j.status), j.caseId, String(j.attempts), j.error ? red(j.error.slice(0, 60)) : (j.note ?? '')]),
 		['ID', 'ВИД', 'СТАТУС', 'КЕЙС', 'ПОПЫТОК', 'ЗАМЕТКА'],
+	)
+}
+
+/** Плейбуки обучения. */
+export function playbooksTable(list: readonly PlaybookView[]): string {
+	if (!list.length) return dim('плейбуков пока нет')
+	return table(
+		list.map(p => [bold(p.id), status(p.status), `v${p.version}`, String(p.cases.length), `${p.rules.filter(r => r.status === 'active').length}/${p.rules.length}`, p.title.slice(0, 50), when(p.updatedAt)]),
+		['ID', 'СТАТУС', 'ВЕРСИЯ', 'КЕЙСОВ', 'ПРАВИЛ', 'НАЗВАНИЕ', 'ОБНОВЛЁН'],
+	)
+}
+
+/** Журнал автоматических решений. */
+export function journalTable(list: readonly JournalEntry[]): string {
+	if (!list.length) return dim('журнал пуст')
+	return table(
+		list.map(e => [bold(e.id), when(e.ts), e.kind, e.revertedBy ? dim(`${e.summary.slice(0, 70)} (откачено)`) : e.summary.slice(0, 80), e.revertible && !e.revertedBy ? 'да' : '']),
+		['ID', 'КОГДА', 'ВИД', 'РЕШЕНИЕ', 'ОТКАТ'],
 	)
 }
 

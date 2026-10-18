@@ -18,7 +18,7 @@ class ReviewingService extends PlaybookService {
 	constructor(private readonly mem: MemoryPlaybookStore, ...rest: ConstructorParameters<typeof PlaybookService>) {
 		super(...rest)
 	}
-	saveReview(r: ReviewReport): void {
+	override saveReview(r: ReviewReport): void {
 		this.mem.saveReview(r)
 	}
 }
@@ -112,6 +112,7 @@ describe('авто-ревью, шесть ступеней', () => {
 				all: () => caseList,
 				summary: id => summaries[id] ?? '',
 				notes: () => '',
+				writeNotes: () => undefined,
 				raw: (id, from, to) => (raws[id] ?? []).filter(e => e.n >= from && (to === undefined || e.n <= to)),
 				update: () => undefined,
 				writeSummary: () => true,
@@ -119,6 +120,7 @@ describe('авто-ревью, шесть ступеней', () => {
 			},
 			playbooks: ps,
 			enqueue: (kind, subject) => void enqueued.push(`${kind}:${subject}`),
+			chat: () => undefined,
 			finish: note => void finished.push(note),
 			changed: () => undefined,
 		}

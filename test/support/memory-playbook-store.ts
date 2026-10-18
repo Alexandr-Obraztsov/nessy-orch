@@ -41,6 +41,10 @@ export class MemoryPlaybookStore implements PlaybookStorePort {
 		this.snapshots.set(p.id, list)
 		return list.length
 	}
+	saveState(p: PlaybookState): void {
+		const last = this.snapshots.get(p.id)?.at(-1)
+		if (last) last.state = structuredClone(p)
+	}
 	readFiles(id: string): PlaybookFiles {
 		const list = this.snapshots.get(id) ?? []
 		return { ...(list[list.length - 1]?.files ?? {}) }

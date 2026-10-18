@@ -43,3 +43,13 @@ export function agentReminderOutput(subagentType: string): string {
 export function sessionStartOutput(sessionId: string): string {
 	return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: sessionContext(sessionId) } })
 }
+
+/** Подсказка плейбука в начале хода: одна-две строки; скилл плейбука — `nessy-playbooks:<id>`. */
+export function hintContext(skill: string, title: string): string {
+	return `Похоже на задачу плейбука «${title}» (накоплен по прошлым сессиям). Если задача та же, загрузи скилл ${skill} инструментом Skill и иди по нему.`
+}
+
+/** JSON-ответ хука UserPromptSubmit для Claude Code. */
+export function hintOutput(skill: string, title: string): string {
+	return JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: hintContext(skill, title) } })
+}

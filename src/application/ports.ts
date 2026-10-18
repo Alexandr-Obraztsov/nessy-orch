@@ -134,8 +134,11 @@ export interface LearningStorePort {
 	readRaw(id: string, fromN: number, toN?: number): RawEvent[]
 	/** Убирает из raw/events.jsonl события с `n >= nextN` (хвост незавершённого сбора). */
 	truncateRaw(id: string, nextN: number): void
-	/** Ответ фонового агента: cases/<caseId>/runs/<jobId>.md */
-	writeRun(caseId: string, jobId: string, text: string): void
+	/**
+	 * Ответ фонового агента. Кейсовый subject (`c-…`) — `cases/<id>/runs/<name>.md`,
+	 * остальные (`g-…`, `p-…`, `all`, `judge:…`) — `learning/runs/<subject без ':'>/<name>.md`; `name` — `<job.id>-<k>`.
+	 */
+	writeRun(subject: string, name: string, text: string): void
 	/** Путь транскрипта лежит внутри `dir` (с учётом symlink: realpath). */
 	isAllowedTranscript(file: string, dir: string): boolean
 	loadMeta(): LearningMeta | null
@@ -158,6 +161,8 @@ export interface PlaybookStorePort {
 	loadPlaybooks(): PlaybookState[]
 	/** пишет playbook.json и файлы, git commit; возвращает номер версии */
 	savePlaybook(p: PlaybookState, files: PlaybookFiles, message: string): number
+	/** пишет только playbook.json, без git-коммита и новой версии (поле `cases`); следующий `savePlaybook` закоммитит */
+	saveState(p: PlaybookState): void
 	readFiles(id: string): PlaybookFiles
 	versions(id: string): Array<{ version: number; ts: string; message: string }>
 	restoreVersion(id: string, version: number): { state: PlaybookState; files: PlaybookFiles } | null

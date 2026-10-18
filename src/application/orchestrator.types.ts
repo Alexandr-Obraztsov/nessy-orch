@@ -1,4 +1,4 @@
-import type { Clock, IdGenerator, LearningStorePort, RolePackagePort, SpaceFactory, StorePort } from './ports'
+import type { Clock, IdGenerator, LearningStorePort, PlaybookStorePort, RolePackagePort, SpaceFactory, StorePort } from './ports'
 import type { OrchSettings } from './settings.types'
 
 export interface OrchestratorDeps {
@@ -15,4 +15,6 @@ export interface OrchestratorDeps {
 	rolePackages?: RolePackagePort
 	/** хранилище фонового обучения; без него обучение выключено (learning = null) */
 	learningStore?: LearningStorePort
+	/** хранилище плейбуков; без него обучение работает как на этапе 1 (кейсы без плейбуков) */
+	playbookStore?: PlaybookStorePort
 }

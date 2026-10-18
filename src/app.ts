@@ -4,6 +4,7 @@
  */
 import * as fs from 'node:fs'
 import type * as http from 'node:http'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { Orchestrator } from './application/orchestrator'
 import { parseRolePreset } from './domain/role-presets'
@@ -15,6 +16,7 @@ import { NessyClient } from './infrastructure/nessy/nessy-client'
 import { FileRolePackages } from './infrastructure/persistence/role-packages'
 import { FileRolePresets } from './infrastructure/persistence/role-presets'
 import { FileLearningStore } from './infrastructure/persistence/learning-store'
+import { FilePlaybookStore } from './infrastructure/persistence/playbook-store'
 import { FileStore } from './infrastructure/persistence/file-store'
 import { ServeSpace } from './infrastructure/process/serve-space'
 import { createServer } from './interfaces/http/server'
@@ -27,6 +29,7 @@ export function buildApp(config: Config, version: string): AppInstance {
 		store,
 		rolePackages: new FileRolePackages(path.join(config.home, 'role-packages')),
 		learningStore: new FileLearningStore(config.home, config.root),
+		playbookStore: new FilePlaybookStore(config.home, config.playbooksPluginDir ?? path.join(os.homedir(), '.claude', 'skills', 'nessy-playbooks')),
 		spaceFactory: (init, listener) =>
 			new ServeSpace(
 				init,

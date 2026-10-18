@@ -1,6 +1,7 @@
 /**
  * Хуки Claude Code плагина nessy, только в терминале приложения (задан `NESSY_ORCH_SESSION`).
  * `hook agent` (PreToolUse на Agent) — напоминание поручать работу агентам nessy, см. `runAgent`.
+ * `hook prompt` (UserPromptSubmit) — подсказка плейбука обучения (`POST /learning/hint`), бюджет 1500 мс, при любой проблеме молчит.
  * `hook start` (SessionStart). Сессия оркестратора привязана к чату Claude:
  * при запуске, `/clear` и `/resume` хук сообщает серверу id чата (`session_id`) и получает сессию этого чата (новую после `/clear`),
  * а её id записывает в `CLAUDE_ENV_FILE`, чтобы команды Claude (`nessy-orch …` в Bash) работали с новой сессией. Вкладка приложения идёт за ней
@@ -12,12 +13,15 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { SessionView } from '../../../../shared/types'
 import { isObject, parseJson, str } from '../../../lib/json'
-import { agentReminderOutput, sessionStartOutput } from '../hook-context'
+import { agentReminderOutput, hintOutput, sessionStartOutput } from '../hook-context'
 import { post } from '../io'
 import type { CommandTable } from './command.types'
 
 /** Хук не должен задерживать Claude дольше этого (мс). */
 const HOOK_BUDGET_MS = 4000
+
+/** Бюджет запроса подсказки на каждый ход пользователя (мс): дольше — хук молчит. */
+const HINT_BUDGET_MS = 1500
 
 /** JSON события из stdin (если он не терминал); пустой объект при любой проблеме. */
 function readInput(): Record<string, unknown> {
@@ -71,11 +75,32 @@ function runAgent(input: Record<string, unknown>): void {
 	if (first) process.stdout.write(agentReminderOutput(type) + '\n')
 }
 
+/** UserPromptSubmit: подсказка плейбука. Ошибка, таймаут, пустой ответ — ничего не печатает. Процесс выходит сразу после записи. */
+async function runPrompt(session: string, input: Record<string, unknown>): Promise<void> {
+	const prompt = str(input['prompt'])
+	let out = ''
+	if (prompt) {
+		try {
+			const r = await Promise.race([
+				post<{ playbook: { id: string; skill: string; title: string } | null }>('/learning/hint', { session, prompt }),
+				new Promise<null>(resolve => setTimeout(() => resolve(null), HINT_BUDGET_MS).unref()),
+			])
+			if (r?.playbook?.skill) out = hintOutput(r.playbook.skill, r.playbook.title) + '\n'
+		} catch {
+			/* хук не должен ломать Claude: оркестратор недоступен — без подсказки */
+		}
+	}
+	// незавершённые повторы подключения не должны держать процесс до таймаута хука
+	if (out) process.stdout.write(out, () => process.exit(0))
+	else process.exit(0)
+}
+
 async function cmdHook(p: { positionals: string[] }): Promise<void> {
 	const input = readInput() // прочитать stdin целиком: Claude ждёт, пока хук заберёт ввод
 	const session = process.env['NESSY_ORCH_SESSION']?.trim() ?? ''
 	if (!session) return
 	if (p.positionals[0] === 'agent') return runAgent(input)
+	if (p.positionals[0] === 'prompt') return runPrompt(session, input)
 	if (p.positionals[0] !== 'start') return
 	let id = session
 	try {

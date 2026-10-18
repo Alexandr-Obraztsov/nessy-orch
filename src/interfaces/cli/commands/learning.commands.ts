@@ -1,24 +1,30 @@
 /**
  * Команды фонового обучения:
  *   learn [status] | on | off [--session S] | run [--session S] | backfill [--all | <id…>]
- *   case ls | show <id> | rm <id> | rebuild <id>
+ *   learn journal [--limit N] [--revert <id>]
+ *   case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"
+ *   playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason] | revert <id> --version N | rm <id> | note <id> "<текст>"
  */
-import type { BackfillCandidate, BackfillResult, CaseDetail, JobView, LearningSettings, LearningView } from '../../../../shared/types'
-import { flagBool, flagStr } from '../args'
+import type { BackfillCandidate, BackfillResult, CaseDetail, JobView, JournalEntry, LearningSettings, LearningView, PlaybookDetail, PlaybookView } from '../../../../shared/types'
+import { flagBool, flagNum, flagStr } from '../args'
 import type { FlagSpec, Parsed } from '../args.types'
 import { CliError } from '../errors'
-import { bold, candidatesTable, casesTable, dim, green, jobsTable } from '../format'
-import { del, enc, get, json, out, patch, post } from '../io'
+import { bold, candidatesTable, casesTable, dim, green, jobsTable, journalTable, playbooksTable } from '../format'
+import { del, enc, get, json, out, patch, post, put } from '../io'
 import type { CommandTable } from './command.types'
 
-export const LEARN_FLAGS: FlagSpec = { bool: ['json', 'help', 'all'], value: ['session'], short: { a: 'all' } }
+export const LEARN_FLAGS: FlagSpec = { bool: ['json', 'help', 'all'], value: ['session', 'revert', 'limit'], short: { a: 'all' } }
 export const CASE_FLAGS: FlagSpec = { bool: ['json', 'help'] }
+export const PLAYBOOK_FLAGS: FlagSpec = { bool: ['json', 'help'], value: ['reason', 'version'] }
 
 const LEARN_USAGE = `использование:
   nessy-orch learn [status] | on | off [--session S] | run [--session S]
-  nessy-orch learn backfill [--all | <id…>]`
+  nessy-orch learn backfill [--all | <id…>]
+  nessy-orch learn journal [--limit N] [--revert <id записи>]`
 const CASE_USAGE = `использование:
-  nessy-orch case ls | show <id> | rm <id> | rebuild <id>`
+  nessy-orch case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"`
+const PLAYBOOK_USAGE = `использование:
+  nessy-orch playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason R] | revert <id> --version N | rm <id> | note <id> "<текст>"`
 
 function settingsLine(s: LearningSettings): string {
 	const off = s.disabledSessions.length ? ` · выключено для: ${s.disabledSessions.join(', ')}` : ''
@@ -81,6 +87,15 @@ async function cmdLearn(p: Parsed): Promise<void> {
 		for (const s of r.skipped) out(dim(`пропущен ${s.id}: ${s.reason}`))
 		return
 	}
+	if (sub === 'journal') {
+		const revert = flagStr(p, 'revert')
+		if (revert !== undefined) {
+			const e = await post<JournalEntry>(`/learning/journal/${enc(revert)}/revert`, {})
+			return asJson ? json(e) : out(`${green('✓')} откат: ${e.summary}`)
+		}
+		const list = await get<JournalEntry[]>(`/learning/journal?limit=${flagNum(p, 'limit') ?? 50}`)
+		return asJson ? json(list) : out(journalTable(list))
+	}
 	throw new CliError(`неизвестная подкоманда learn ${sub}\n${LEARN_USAGE}`, 2)
 }
 
@@ -110,10 +125,75 @@ async function cmdCase(p: Parsed): Promise<void> {
 		const job = await post<JobView>(`/learning/cases/${enc(id)}/rebuild`, {})
 		return asJson ? json(job) : out(`${green('✓')} пересборка кейса ${id}: задание ${job.id}`)
 	}
+	if (sub === 'note') {
+		const id = needId(rest[0], 'note')
+		await put(`/learning/cases/${enc(id)}/notes`, { text: rest.slice(1).join(' ') })
+		return asJson ? json({ ok: true }) : out(`${green('✓')} заметки кейса ${id} записаны`)
+	}
 	throw new CliError(`неизвестная подкоманда case ${sub}\n${CASE_USAGE}`, 2)
+}
+
+function printPlaybook(p: PlaybookDetail): void {
+	out(`${bold(p.id)}  ${p.status}  v${p.version}  ${p.title}`)
+	out(dim(p.description))
+	out(dim(`тип: ${p.taskType} · кейсов ${p.cases.length}${p.heldOut ? ` (отложен ${p.heldOut})` : ''} · обновлён ${p.updatedAt}`))
+	if (p.trial) out(dim(`пробный режим: до плейбука ${p.trial.before} поправок на кейс, с ним ${p.trial.corrections.join(', ') || 'кейсов пока нет'}`))
+	if (p.stages.length) out(`\n${bold('Ступени')}\n${p.stages.map(s => `  ${s.n}. ${s.title}`).join('\n')}`)
+	if (p.rules.length) out(`\n${bold('Правила')}\n${p.rules.map(r => `  [${r.status}] ▲${r.up} ▼${r.down} ${r.text}`).join('\n')}`)
+	const last = p.reviews.at(-1)
+	if (last) out(`\n${bold('Ревью')}  v${last.version}: ${last.passed ? 'пройдено' : 'не пройдено'}${last.stages.map(s => ` · ${s.stage}:${s.verdict}`).join('')}`)
+	if (p.notes.trim()) out(`\n${bold('Заметки')}\n${p.notes.trim()}`)
+}
+
+async function cmdPlaybook(p: Parsed): Promise<void> {
+	const [sub = 'ls', ...rest] = p.positionals
+	const asJson = flagBool(p, 'json')
+	if (sub === 'ls') {
+		const list = await get<PlaybookView[]>('/learning/playbooks')
+		return asJson ? json(list) : out(playbooksTable(list))
+	}
+	const need = (): string => {
+		const id = rest[0]
+		if (!id) throw new CliError(`использование: nessy-orch playbook ${sub} <id>\n${PLAYBOOK_USAGE}`, 2)
+		return enc(id)
+	}
+	if (sub === 'show') {
+		const d = await get<PlaybookDetail>(`/learning/playbooks/${need()}`)
+		return asJson ? json(d) : printPlaybook(d)
+	}
+	if (sub === 'review') {
+		const job = await post<JobView>(`/learning/playbooks/${need()}/review`, {})
+		return asJson ? json(job) : out(`${green('✓')} ревью поставлено: задание ${job.id}`)
+	}
+	if (sub === 'approve') {
+		const v = await post<PlaybookView>(`/learning/playbooks/${need()}/approve`, {})
+		return asJson ? json(v) : out(`${green('✓')} ${v.id}: ${v.status}`)
+	}
+	if (sub === 'reject') {
+		const v = await post<PlaybookView>(`/learning/playbooks/${need()}/reject`, { reason: flagStr(p, 'reason') ?? '' })
+		return asJson ? json(v) : out(`${green('✓')} ${v.id}: ${v.status}`)
+	}
+	if (sub === 'revert') {
+		const version = flagNum(p, 'version')
+		if (version === undefined) throw new CliError(`нужен --version N\n${PLAYBOOK_USAGE}`, 2)
+		const v = await post<PlaybookView>(`/learning/playbooks/${need()}/revert`, { version })
+		return asJson ? json(v) : out(`${green('✓')} ${v.id}: откат к версии ${version}, теперь v${v.version}`)
+	}
+	if (sub === 'rm') {
+		const id = need()
+		await del(`/learning/playbooks/${id}`)
+		return asJson ? json({ ok: true }) : out(`${green('✓')} плейбук удалён: ${decodeURIComponent(id)}`)
+	}
+	if (sub === 'note') {
+		const id = need()
+		await put(`/learning/playbooks/${id}/notes`, { text: rest.slice(1).join(' ') })
+		return asJson ? json({ ok: true }) : out(`${green('✓')} заметки плейбука записаны`)
+	}
+	throw new CliError(`неизвестная подкоманда playbook ${sub}\n${PLAYBOOK_USAGE}`, 2)
 }
 
 export const learningCommands: CommandTable = {
 	learn: { run: cmdLearn, spec: LEARN_FLAGS },
 	case: { run: cmdCase, spec: CASE_FLAGS },
+	playbook: { run: cmdPlaybook, spec: PLAYBOOK_FLAGS },
 }

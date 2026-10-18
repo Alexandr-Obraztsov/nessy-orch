@@ -1,11 +1,18 @@
+import type { ChatMessage, JournalEntry, PlaybookDetail, PlaybookStatus, PlaybookView } from '../../../shared/types'
 import type { BackfillCandidate, BackfillResult, CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message, SessionView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { decide } from '../../domain/learning-schedule'
 import { parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
 import { onCaseReady } from './case-ready'
+import { buildHandler } from './build.handler'
 import { collectHandler } from './collect.handler'
-import type { JobContext, JobHandler } from './handlers.types'
+import { editHandler, mergeEditPayload } from './edit.handler'
+import { improveHandler } from './improve.handler'
+import { judgeHandler } from './judge.handler'
+import { matchHandler } from './match.handler'
+import { approvePlaybook, meanCorrections, rejectPlaybook, reviewHandler } from './review.handler'
+import type { HintHost, JobContext, JobHandler } from './handlers.types'
 import { JobQueue } from './job-queue'
 import { PlaybookService, playbookView } from './playbook.service'
 import type { CaseState, EnqueueOpts, JobState, LearningDeps, LearningMeta, TranscriptCursor } from './learning.types'
@@ -52,6 +59,28 @@ export class LearningService {
 	private readonly batches = new Map<string, string[]>()
 	/** плейбуки; null без `deps.playbookStore` — тогда сервис работает как на этапе 1 */
 	readonly playbooks: PlaybookService | null
+	/** подсказка плейбука (хук UserPromptSubmit, сборщик); не сам сервис: имя `playbooks` занято полем */
+	readonly hints: HintHost = {
+		playbooks: () => this.playbooks?.list() ?? [],
+		caseOf: session => this.caseOfSession(session),
+		markHinted: (session, id) => this.markHinted(session, id),
+		hintedOf: session => [...(this.memHinted.get(session) ?? [])],
+		queueHint: (caseId, id) => {
+			const q = this.hintQueue.get(caseId) ?? []
+			if (!q.includes(id)) this.hintQueue.set(caseId, [...q, id])
+		},
+		takeQueued: session => {
+			const c = this.caseOfSession(session)
+			const q = c ? this.hintQueue.get(c.id) : undefined
+			const id = q?.shift() ?? null
+			if (c && q && !q.length) this.hintQueue.delete(c.id)
+			return id
+		},
+	}
+	/** очередь подсказок сборщика по кейсу (в памяти) */
+	private readonly hintQueue = new Map<string, string[]>()
+	/** подсказанное сессиям без кейса (в памяти) */
+	private readonly memHinted = new Map<string, Set<string>>()
 
 	constructor(private readonly deps: LearningDeps) {
 		this.settings = parseLearningSettings({ enabled: deps.defaultOn })
@@ -60,6 +89,8 @@ export class LearningService {
 			? new PlaybookService({ store: deps.playbookStore, hub: deps.hub, clock: deps.clock, ids: deps.ids, pluginVersion: deps.pluginVersion, caseOf: id => this.cases.get(id) ?? null })
 			: null
 		this.registerHandler(collectHandler)
+		// обработчики плейбуков — только при хранилище плейбуков
+		if (this.playbooks) for (const h of [matchHandler, buildHandler, reviewHandler, judgeHandler, improveHandler, editHandler]) this.registerHandler(h)
 	}
 
 	/** Регистрирует обработчик заданий своих видов (повторная регистрация заменяет прежний). */
@@ -148,6 +179,106 @@ export class LearningService {
 	getCaseDetail(id: string): CaseDetail {
 		const c = this.getCase(id)
 		return { ...toView(c), summary: this.deps.store.readSummary(id), notes: this.deps.store.readNotes(id) }
+	}
+
+	// ---------- плейбуки, журнал, заметки и чат (API) ----------
+
+	private pb(): PlaybookService {
+		if (!this.playbooks) throw new AppError(503, 'playbooks_unavailable', 'плейбуки недоступны: нет хранилища')
+		return this.playbooks
+	}
+
+	playbookList(): PlaybookView[] {
+		return this.pb().list().map(playbookView)
+	}
+
+	playbookDetail(id: string): PlaybookDetail {
+		return this.pb().detail(id)
+	}
+
+	/** Ручной запуск ревью. */
+	requestReview(id: string): JobView {
+		this.pb().need(id)
+		return this.queue.toView(this.enqueue('review', id))
+	}
+
+	/** Ручное одобрение: `trial`, `before` — среднее число поправок на кейс до плейбука. */
+	approvePlaybook(id: string): PlaybookView {
+		const ps = this.pb()
+		const p = ps.need(id)
+		return playbookView(approvePlaybook(ps, id, meanCorrections(p.cases, c => this.deps.store.readSummary(c))))
+	}
+
+	rejectPlaybook(id: string, reason: string): PlaybookView {
+		const ps = this.pb()
+		ps.need(id)
+		return playbookView(rejectPlaybook(ps, id, reason))
+	}
+
+	/** Ручная смена статуса: `active`, `disabled` или `archived`. */
+	setPlaybookStatus(id: string, status: PlaybookStatus): PlaybookView {
+		if (status !== 'active' && status !== 'disabled' && status !== 'archived') throw new AppError(400, 'bad_request', 'status — active, disabled или archived')
+		return playbookView(this.pb().setStatus(id, status, 'Set by the user'))
+	}
+
+	revertPlaybook(id: string, version: number): PlaybookView {
+		return playbookView(this.pb().revertToVersion(id, version))
+	}
+
+	/** Удаление плейбука; пока по нему идёт или ждёт задание — 409 `playbook_busy`. */
+	removePlaybook(id: string): void {
+		const ps = this.pb()
+		ps.need(id)
+		if (this.queue.list().some(j => (j.subject === id || j.subject === `edit:${id}`) && (j.status === 'queued' || j.status === 'running'))) {
+			throw new AppError(409, 'playbook_busy', `по плейбуку ${id} идёт задание, дождитесь его окончания`)
+		}
+		ps.remove(id)
+	}
+
+	setPlaybookNotes(id: string, text: string): void {
+		this.pb().setNotes(id, text)
+	}
+
+	setCaseNotes(id: string, text: string): void {
+		this.getCase(id)
+		this.deps.store.writeNotes(id, text)
+	}
+
+	journal(limit = 200): JournalEntry[] {
+		return this.pb().journal(limit)
+	}
+
+	revertJournal(id: string): JournalEntry {
+		return this.pb().revert(id)
+	}
+
+	/** Чат объекта: кейс `c-…` или плейбук `p-…`. */
+	chatOf(subject: string, limit = 200): ChatMessage[] {
+		this.chatTarget(subject)
+		return this.deps.playbookStore?.loadChat(subject, limit) ?? []
+	}
+
+	/** Сообщение пользователя в чат и задание `edit` (сообщения ждущего задания копятся). */
+	postChat(subject: string, text: string): ChatMessage {
+		this.chatTarget(subject)
+		if (!text.trim()) throw new AppError(400, 'bad_request', 'text — непустая строка')
+		const m = this.addChat(subject, 'user', text, [])
+		this.enqueue('edit', `edit:${subject}`, { payload: { texts: [text] }, merge: mergeEditPayload })
+		return m
+	}
+
+	private chatTarget(subject: string): void {
+		this.pb()
+		if (subject.startsWith('c-')) this.getCase(subject)
+		else if (subject.startsWith('p-')) this.pb().need(subject)
+		else throw new AppError(400, 'bad_request', 'чат есть у кейса (c-…) и плейбука (p-…)')
+	}
+
+	private addChat(subject: string, from: ChatMessage['from'], text: string, changes: string[]): ChatMessage {
+		const m: ChatMessage = { id: `m-${this.deps.ids.next(8)}`, ts: new Date(this.deps.clock.now()).toISOString(), from, text, changes }
+		this.deps.playbookStore?.appendChat(subject, m)
+		this.deps.hub.publish({ t: 'learning_chat', subject, message: m })
+		return m
 	}
 
 	/** Правка настроек из API: сохраняет `learning.json`, публикует `learning_settings`. */
@@ -511,8 +642,32 @@ export class LearningService {
 	/** Версия известного плейбука для `case.playbook`; неизвестного — undefined (в кейсе будет `@0`). */
 	private readonly playbookVersion = (id: string): number | undefined => this.playbooks?.get(id)?.version
 
+	private caseOfSession(session: string): CaseState | null {
+		for (const c of this.cases.values()) if (c.sessions.includes(session)) return c
+		return null
+	}
+
+	private markHinted(session: string, playbookId: string): void {
+		const c = this.caseOfSession(session)
+		if (!c) {
+			const set = this.memHinted.get(session) ?? new Set<string>()
+			set.add(playbookId)
+			this.memHinted.set(session, set)
+			return
+		}
+		if (!c.hinted.includes(playbookId)) this.update({ ...c, hinted: [...c.hinted, playbookId] })
+	}
+
 	/** Задание ждёт кейсы из `payload.after`, пока они не `ready`/`error`. */
 	private isWaiting(job: JobState): boolean {
+		// правка кейса из чата и сборщик/закрытие того же кейса не идут одновременно
+		const running = this.queue.list().filter(j => j.status === 'running')
+		if (job.kind === 'edit' && job.subject.startsWith('edit:c-')) {
+			const target = job.subject.slice('edit:'.length)
+			if (running.some(j => j.caseId === target || j.subject === target)) return true
+		} else if (job.kind === 'collect' || job.kind === 'close') {
+			if (running.some(j => j.kind === 'edit' && j.subject === `edit:${job.caseId || job.subject}`)) return true
+		}
 		const after = job.payload?.['after']
 		if (!Array.isArray(after)) return false
 		return after.some(id => {
@@ -658,6 +813,8 @@ export class LearningService {
 
 	private context(job: JobState): JobContext {
 		const { store, host, clock } = this.deps
+		// порядковый номер вызова агента в задании: несколько агентов не затирают ответы друг друга
+		let calls = 0
 		return {
 			job,
 			now: () => clock.now(),
@@ -665,8 +822,9 @@ export class LearningService {
 			runAgent: async (name, title, prompt) => {
 				const res = await host.runAgent({ name, title, prompt })
 				job.agentId = res.agentId
-				// агент после ответа удаляется: ответ остаётся в cases/<subject>/runs/
-				if (res.text) store.writeRun(job.subject, job.id, res.text)
+				// агент после ответа удаляется: ответ остаётся в runs/ (см. `LearningStorePort.writeRun`)
+				calls += 1
+				if (res.text) store.writeRun(job.subject, `${job.id}-${calls}`, res.text)
 				if (this.interrupted.has(job.id)) throw new Error('прервано остановкой')
 				if (!res.ok) throw new Error(res.error ?? 'агент завершился с ошибкой')
 				return { agentId: res.agentId, text: res.text }
@@ -680,10 +838,13 @@ export class LearningService {
 				raw: (id, from, to) => store.readRaw(id, from, to),
 				update: c => this.update(c),
 				writeSummary: (id, text) => store.writeSummary(id, text),
+				writeNotes: (id, text) => store.writeNotes(id, text),
 				seal: id => this.seal(id),
 			},
 			playbooks: this.playbooks,
+			hints: this.hints,
 			enqueue: (kind, subject, opts) => void this.enqueue(kind, subject, opts),
+			chat: (subject, text, changes) => void this.addChat(subject, 'agent', text, changes),
 			finish: note => this.finishJob(job, note),
 			changed: () => this.jobsChanged(job),
 		}

@@ -46,6 +46,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		warmSessions: Math.max(0, int(env['ORCH_WARM_SESSIONS'], 2)),
 		learningDefaultOn: flag(env['ORCH_LEARNING_DEFAULT'], true),
 		learningTickMs: Math.max(0, int(env['ORCH_LEARNING_TICK_MS'], 30_000)),
+		playbooksPluginDir: env['ORCH_PLAYBOOKS_PLUGIN_DIR'] ?? path.join(os.homedir(), '.claude', 'skills', 'nessy-playbooks'),
 		claudeProjectsDir: env['CLAUDE_PROJECTS_DIR'] ?? path.join(os.homedir(), '.claude', 'projects'),
 		seedRoles: flag(env['ORCH_SEED_ROLES'], true),
 		rolesDir: path.join(root, 'roles'),

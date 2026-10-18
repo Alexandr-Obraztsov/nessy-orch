@@ -1,9 +1,10 @@
 /** Маршруты фонового обучения. Изменения доступны только оператору (`guard.assertAllowed`). */
+import type { PlaybookStatus } from '../../../../shared/types'
 import type { LearningService } from '../../../application/learning/learning.service'
 import type { Orchestrator } from '../../../application/orchestrator'
 import { AppError } from '../../../domain/errors'
-import { parseBackfillRequest, parseLearningRun } from '../parsers'
-import { readBody, sendJson } from '../respond'
+import { parseBackfillRequest, parseLearningRun, parsePlaybookStatus, parseReason, parseTextBody, parseVersion } from '../parsers'
+import { queryNum, readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
 /** Сервис обучения; хранилища нет — 503 `learning_unavailable`. */
@@ -34,5 +35,44 @@ export function registerLearningRoutes(r: Router): void {
 	r.add('POST', '/learning/backfill', async ({ req, res, orch }) => {
 		const svc = learning(orch)
 		sendJson(res, 200, svc.backfill(parseBackfillRequest(await readBody(req))))
+	})
+
+	// ---------- плейбуки, журнал, заметки и чат ----------
+	r.add('GET', '/learning/playbooks', ({ res, orch }) => sendJson(res, 200, learning(orch).playbookList()))
+	r.add('GET', '/learning/playbooks/:id', ({ res, orch, params }) => sendJson(res, 200, learning(orch).playbookDetail(params['id'] ?? '')))
+	r.add('POST', '/learning/playbooks/:id/review', ({ res, orch, params }) => sendJson(res, 200, learning(orch).requestReview(params['id'] ?? '')))
+	r.add('POST', '/learning/playbooks/:id/approve', ({ res, orch, params }) => sendJson(res, 200, learning(orch).approvePlaybook(params['id'] ?? '')))
+	r.add('POST', '/learning/playbooks/:id/reject', async ({ req, res, orch, params }) => {
+		const svc = learning(orch)
+		sendJson(res, 200, svc.rejectPlaybook(params['id'] ?? '', parseReason(await readBody(req))))
+	})
+	r.add('POST', '/learning/playbooks/:id/status', async ({ req, res, orch, params }) => {
+		const svc = learning(orch)
+		sendJson(res, 200, svc.setPlaybookStatus(params['id'] ?? '', parsePlaybookStatus(await readBody(req)) as PlaybookStatus))
+	})
+	r.add('POST', '/learning/playbooks/:id/revert', async ({ req, res, orch, params }) => {
+		const svc = learning(orch)
+		sendJson(res, 200, svc.revertPlaybook(params['id'] ?? '', parseVersion(await readBody(req))))
+	})
+	r.add('DELETE', '/learning/playbooks/:id', ({ res, orch, params }) => {
+		learning(orch).removePlaybook(params['id'] ?? '')
+		sendJson(res, 200, { ok: true })
+	})
+	r.add('PUT', '/learning/playbooks/:id/notes', async ({ req, res, orch, params }) => {
+		const svc = learning(orch)
+		svc.setPlaybookNotes(params['id'] ?? '', parseTextBody(await readBody(req), true))
+		sendJson(res, 200, { ok: true })
+	})
+	r.add('PUT', '/learning/cases/:id/notes', async ({ req, res, orch, params }) => {
+		const svc = learning(orch)
+		svc.setCaseNotes(params['id'] ?? '', parseTextBody(await readBody(req), true))
+		sendJson(res, 200, { ok: true })
+	})
+	r.add('GET', '/learning/journal', ({ res, orch, query }) => sendJson(res, 200, learning(orch).journal(queryNum(query.get('limit'), 200))))
+	r.add('POST', '/learning/journal/:id/revert', ({ res, orch, params }) => sendJson(res, 200, learning(orch).revertJournal(params['id'] ?? '')))
+	r.add('GET', '/learning/chat/:subject', ({ res, orch, params, query }) => sendJson(res, 200, learning(orch).chatOf(params['subject'] ?? '', queryNum(query.get('limit'), 200))))
+	r.add('POST', '/learning/chat/:subject', async ({ req, res, orch, params }) => {
+		const svc = learning(orch)
+		sendJson(res, 200, svc.postChat(params['subject'] ?? '', parseTextBody(await readBody(req))))
 	})
 }

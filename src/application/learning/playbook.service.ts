@@ -1,4 +1,4 @@
-import type { JournalEntry, PlaybookDetail, PlaybookStatus, PlaybookView, RuleStatus, RuleView } from '../../../shared/types'
+import type { JournalEntry, PlaybookDetail, PlaybookStatus, PlaybookView, ReviewReport, RuleStatus, RuleView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { uniqueName } from '../../domain/naming'
 import { addChangelog, renderPlaybook, skillName } from '../../domain/playbook-render'
@@ -164,6 +164,23 @@ export class PlaybookService {
 		return saved
 	}
 
+	/** Добавляет кейсы в `cases` без новой версии: пишется только `playbook.json` (следующая версия закоммитит). */
+	addCases(id: string, caseIds: readonly string[]): PlaybookState {
+		const p = this.need(id)
+		const added = [...new Set(caseIds)].filter(c => !p.cases.includes(c))
+		if (!added.length) return p
+		const next: PlaybookState = { ...p, cases: [...p.cases, ...added], updatedAt: this.iso() }
+		this.deps.store.saveState(next)
+		this.map.set(id, next)
+		this.deps.hub.publish({ t: 'learning_playbook', playbook: playbookView(next) })
+		return next
+	}
+
+	/** Отчёт ревью — в хранилище (`reviews/v<N>.json`, отдаётся в `PlaybookDetail.reviews`). */
+	saveReview(r: ReviewReport): void {
+		this.deps.store.saveReview(r)
+	}
+
 	/** Смена статуса правила (активация судьёй, архив): запись журнала с прежним статусом правила. */
 	setRuleStatus(id: string, ruleId: string, status: RuleStatus, reason: string): PlaybookState {
 		const p = this.need(id)
@@ -179,6 +196,17 @@ export class PlaybookService {
 			revertible: true,
 			revertedBy: null,
 		})
+		return saved
+	}
+
+	/** Ручной откат к версии: файлы и содержимое берутся из неё, статус и пробный режим остаются текущими; выходит новая версия. */
+	revertToVersion(id: string, version: number): PlaybookState {
+		const p = this.need(id)
+		const restored = this.deps.store.restoreVersion(id, version)
+		if (!restored) throw new AppError(404, 'no_version', `у плейбука ${id} нет версии ${version}`)
+		const state: PlaybookState = { ...restored.state, id, status: p.status, trial: p.trial, cases: p.cases, heldOut: p.heldOut, verdicts: p.verdicts, rejectedEdits: p.rejectedEdits, reviewAttempts: p.reviewAttempts }
+		const saved = this.commit(state, `Revert to version ${version}`, restored.files)
+		this.record({ kind: 'reverted', subject: id, summary: `${id}: откат к версии ${version}`, report: JSON.stringify({ version: saved.version }), revertible: false, revertedBy: null })
 		return saved
 	}
 

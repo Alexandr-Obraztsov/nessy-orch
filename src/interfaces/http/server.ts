@@ -24,6 +24,7 @@ import { assertAllowed, assertLocalClient, identify } from './guard'
 import { sendJson } from './respond'
 import { Router } from './router'
 import { registerAgentRoutes } from './routes/agents.routes'
+import { registerLearningHintRoutes } from './routes/learning-hint.routes'
 import { registerLearningRoutes } from './routes/learning.routes'
 import { registerMessageRoutes } from './routes/messages.routes'
 import { registerRoleRoutes } from './routes/roles.routes'
@@ -41,6 +42,7 @@ export function buildRouter(): Router {
 	registerRoleRoutes(r)
 	registerSessionRoutes(r)
 	registerLearningRoutes(r)
+	registerLearningHintRoutes(r)
 	return r
 }
 

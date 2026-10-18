@@ -1,6 +1,6 @@
 import type { JobKind, LearningSettings } from '../../../shared/types'
 import type { RawEvent } from '../../domain/learning.types'
-import type { CaseState, EnqueueOpts, JobState } from './learning.types'
+import type { CaseState, EnqueueOpts, JobState, PlaybookState } from './learning.types'
 import type { PlaybookService } from './playbook.service'
 
 /** Параметры постановки задания из обработчика (то же, что у очереди). */
@@ -23,11 +23,17 @@ export interface JobContext {
 		update(c: CaseState): void
 		/** false — не записалось */
 		writeSummary(id: string, text: string): boolean
+		/** заметки пользователя кейса целиком */
+		writeNotes(id: string, text: string): void
 		/** итоговое описание готово: кейс `ready` (пустой удаляется), ставит последующие задания */
 		seal(id: string): void
 	}
 	/** без хранилища плейбуков — null (обработчики плейбуков тогда не регистрируются) */
 	playbooks: PlaybookService | null
+	/** очередь подсказок плейбука (хук UserPromptSubmit); нет — сборщик подсказок не ставит */
+	hints?: HintHost
+	/** ответ агента в чат объекта (кейса `c-…` или плейбука `p-…`); `changes` — изменённые файлы */
+	chat(subject: string, text: string, changes: string[]): void
 	enqueue(kind: JobKind, subject: string, opts?: JobEnqueueOpts): void
 	/** задание выполнено: `done`, необязательная пометка; повторный вызов не нужен — сервис завершает задание сам */
 	finish(note?: string): void
@@ -47,4 +53,20 @@ export interface CaseReadyHost {
 	enqueue(kind: JobKind, subject: string, opts?: JobEnqueueOpts): void
 	/** пачка бэкфилла кейса (все её кейсы) или null; пачка выдаётся один раз */
 	batch(caseId: string): string[] | null
+}
+
+/** Что подсказка плейбука берёт у сервиса обучения (`hintFor`, сборщик); `hinted` переживает рестарт. */
+export interface HintHost {
+	/** все плейбуки (подсказываются только `trial`/`active`) */
+	playbooks(): PlaybookState[]
+	/** кейс цепочки сессии или null */
+	caseOf(session: string): CaseState | null
+	/** запомнить подсказку: в `CaseState.hinted` кейса сессии (нет кейса — хотя бы до рестарта) */
+	markHinted(session: string, playbookId: string): void
+	/** подсказанное сессии без кейса (в памяти); с кейсом читается из `CaseState.hinted` */
+	hintedOf?(session: string): string[]
+	/** подсказка от сборщика: отдаст ближайший `hint` сессии кейса, даже если текст запроса не совпал */
+	queueHint(caseId: string, playbookId: string): void
+	/** вынуть очередную подсказку сессии (один раз) или null */
+	takeQueued(session: string): string | null
 }

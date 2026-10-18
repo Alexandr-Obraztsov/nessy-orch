@@ -82,10 +82,12 @@ describe('judge и improve', () => {
 			raw: (_id, from, to) => events().filter(e => e.n >= from && (to === undefined || e.n <= to)),
 			update: () => undefined,
 			writeSummary: () => true,
+			writeNotes: () => undefined,
 			seal: () => undefined,
 		},
 		playbooks: pb,
 		enqueue: (k, s, o) => void queued.push({ kind: k, subject: s, caseId: o?.caseId, payload: o?.payload }),
+		chat: () => undefined,
 		finish: () => undefined,
 		changed: () => undefined,
 	})

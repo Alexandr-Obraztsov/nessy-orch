@@ -65,7 +65,7 @@ export const matchHandler: JobHandler = {
 			if (known) {
 				const have = new Set([...known.cases, ...(known.heldOut ? [known.heldOut] : [])])
 				const added = ids.filter(id => !have.has(id))
-				if (added.length) playbooks.saveVersion({ ...known, cases: [...known.cases, ...added] }, `Cases added: ${added.join(', ')}`)
+				if (added.length) playbooks.addCases(known.id, added)
 				// поправки в кейсе, который шёл по этому плейбуку, — материал для улучшения
 				for (const id of ids) {
 					const c = ctx.cases.get(id)
