@@ -11,7 +11,8 @@ describe('хук PreToolUse на Agent: напоминание про агент
 		assert.match(r, /«Explore»/)
 		assert.match(r, /nessy-orch spawn --role/)
 		assert.match(r, /run_in_background: true/)
-		assert.match(r, /повтори вызов/)
+		assert.match(r, /Не повторяй вызов: переложи промпт субагента в поручение `spawn`/)
+		assert.match(r, /Только если пользователь повторно попросил .* повтори вызов/)
 	})
 	it('без типа субагента — общая формулировка', () => {
 		assert.match(agentReminder(''), /своего субагента/)
@@ -23,8 +24,9 @@ describe('хук SessionStart: указание загрузить скилл о
 		const c = sessionContext('s-123')
 		assert.match(c, /s-123/)
 		assert.ok(c.includes(`загрузи скилл ${ORCH_SKILL} инструментом Skill`))
-		assert.match(c, /До любого ответа/)
-		assert.match(c, /После сжатия разговора загрузи его снова/)
+		assert.match(c, /ВСЕГДА, в каждой сессии/)
+		assert.match(c, /до любого ответа/)
+		assert.match(c, /после сжатия разговора загрузи его снова/)
 		assert.ok(c.length < 1500, 'указание короткое: тело скилла приходит через Skill')
 	})
 	it('вывод — JSON формата Claude Code для SessionStart', () => {
