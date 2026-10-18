@@ -1,6 +1,6 @@
 import type { CaseView, JobView, Message, PlaybookView, SessionView } from '../../../shared/types'
 import type { RuleVerdict } from '../../domain/playbook.types'
-import type { Clock, IdGenerator, LearningStorePort } from '../ports'
+import type { Clock, IdGenerator, LearningStorePort, PlaybookStorePort } from '../ports'
 import type { Hub } from '../hub'
 
 /** Где остановилось чтение транскрипта Claude Code. */
@@ -78,6 +78,10 @@ export interface LearningDeps {
 	defaultOn: boolean
 	tickMs: number
 	claudeProjectsDir: string
+	/** хранилище плейбуков; без него сервис работает как на этапе 1 (нет обработчиков плейбуков, `playbooks = []`) */
+	playbookStore?: PlaybookStorePort
+	/** версия плагина nessy-playbooks при публикации; по умолчанию `1.0.<счётчик публикаций>` */
+	pluginVersion?: () => string
 }
 
 /** Параметры постановки задания (`JobQueue.enqueue`). */

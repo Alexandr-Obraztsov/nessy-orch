@@ -1,12 +1,14 @@
 import type { BackfillCandidate, BackfillResult, CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message, SessionView } from '../../../shared/types'
-import { renderPortion } from '../../domain/case-events'
-import { buildCollectorPrompt, parseCollectorReply } from '../../domain/collector'
 import { AppError } from '../../domain/errors'
 import { decide } from '../../domain/learning-schedule'
-import { PORTION_CHARS, parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
+import { parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
+import { onCaseReady } from './case-ready'
+import { collectHandler } from './collect.handler'
+import type { JobContext, JobHandler } from './handlers.types'
 import { JobQueue } from './job-queue'
-import type { CaseState, JobState, LearningDeps, LearningMeta, TranscriptCursor } from './learning.types'
+import { PlaybookService, playbookView } from './playbook.service'
+import type { CaseState, EnqueueOpts, JobState, LearningDeps, LearningMeta, TranscriptCursor } from './learning.types'
 
 /** id кейса транскрипта прошлого чата; имя безопасно для пути. */
 export const transcriptCaseId = (chatId: string): string => `c-t-${chatId.replace(/[^\w-]/g, '_')}`
@@ -44,14 +46,30 @@ export class LearningService {
 	private meta: LearningMeta = { startedAt: 0, startSeq: 0, removed: [] }
 	/** до какого `seq` ленты просмотрена цепочка без кейса (корень → seq), только в памяти */
 	private readonly scanned = new Map<string, number>()
+	/** обработчики заданий по виду */
+	private readonly handlers = new Map<JobKind, JobHandler>()
+	/** пачки бэкфилла: кейс → все кейсы его пачки (только в памяти; выдаётся один раз при `ready`, см. `onCaseReady`) */
+	private readonly batches = new Map<string, string[]>()
+	/** плейбуки; null без `deps.playbookStore` — тогда сервис работает как на этапе 1 */
+	readonly playbooks: PlaybookService | null
 
 	constructor(private readonly deps: LearningDeps) {
 		this.settings = parseLearningSettings({ enabled: deps.defaultOn })
 		this.queue = new JobQueue({ ids: deps.ids, now: () => deps.clock.now() })
+		this.playbooks = deps.playbookStore
+			? new PlaybookService({ store: deps.playbookStore, hub: deps.hub, clock: deps.clock, ids: deps.ids, pluginVersion: deps.pluginVersion, caseOf: id => this.cases.get(id) ?? null })
+			: null
+		this.registerHandler(collectHandler)
+	}
+
+	/** Регистрирует обработчик заданий своих видов (повторная регистрация заменяет прежний). */
+	registerHandler(h: JobHandler): void {
+		for (const k of h.kinds) this.handlers.set(k, h)
 	}
 
 	load(): void {
 		this.cases.clear()
+		this.playbooks?.load()
 		for (const c of this.deps.store.loadCases()) {
 			// событий за `nextN` быть не может: хвост оборванного сбора отрезается
 			this.deps.store.truncateRaw(c.id, c.nextN)
@@ -117,7 +135,7 @@ export class LearningService {
 
 	view(): LearningView {
 		const cases = [...this.cases.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(toView)
-		return { settings: this.settings, jobs: this.queue.list().map(j => this.queue.toView(j)), cases, playbooks: [], journal: [] }
+		return { settings: this.settings, jobs: this.queue.list().map(j => this.queue.toView(j)), cases, playbooks: this.playbooks?.list().map(playbookView) ?? [], journal: this.playbooks?.journal(200) ?? [] }
 	}
 
 	getCase(id: string): CaseState {
@@ -285,6 +303,9 @@ export class LearningService {
 			this.request('close', c.id, true)
 			created.push(toView(this.getCase(c.id)))
 		}
+		// пачка: сопоставитель после неё запускается один раз (`payload.after` у `match`)
+		const batch = created.map(c => c.id)
+		for (const id of batch) this.batches.set(id, batch)
 		return { created, skipped }
 	}
 
@@ -325,7 +346,7 @@ export class LearningService {
 			hinted: [],
 		}
 		const r = store.copyTranscript(id, chatId, { path: file, offset: 0 })
-		const { events, state } = ingest(base, { messages: [], transcripts: [{ chatId, text: r.text, next: r.next }] })
+		const { events, state } = ingest(base, { messages: [], transcripts: [{ chatId, text: r.text, next: r.next }], playbookVersion: this.playbookVersion })
 		if (events.length && !store.appendRaw(id, events)) return null
 		this.update(state)
 		return state
@@ -441,7 +462,7 @@ export class LearningService {
 			const r = store.copyTranscript(id, key, cur)
 			if (r.text || r.next.offset !== cur.offset || r.next.path !== prev?.path) transcripts.push({ chatId: key, text: r.text, next: r.next })
 		}
-		const { events, state } = ingest(base, { messages: mine, transcripts })
+		const { events, state } = ingest(base, { messages: mine, transcripts, playbookVersion: this.playbookVersion })
 		if (!events.length && !existing) return null
 		const maxSeen = unseen.reduce((max, m) => Math.max(max, m.seq), state.feedSeq)
 		const touched = chain.reduce((max, sid) => Math.max(max, Date.parse(byId.get(sid)?.updatedAt ?? '') || 0), state.lastEventAt)
@@ -477,11 +498,18 @@ export class LearningService {
 	}
 
 	private request(kind: JobKind, caseId: string, final: boolean): JobState {
-		const job = this.queue.enqueue(kind, caseId, { caseId, final })
+		return this.enqueue(kind, caseId, { caseId, final })
+	}
+
+	private enqueue(kind: JobKind, subject: string, opts: EnqueueOpts = {}): JobState {
+		const job = this.queue.enqueue(kind, subject, opts)
 		this.jobsChanged(job)
 		this.pump()
 		return job
 	}
+
+	/** Версия известного плейбука для `case.playbook`; неизвестного — undefined (в кейсе будет `@0`). */
+	private readonly playbookVersion = (id: string): number | undefined => this.playbooks?.get(id)?.version
 
 	/** Задание ждёт кейсы из `payload.after`, пока они не `ready`/`error`. */
 	private isWaiting(job: JobState): boolean {
@@ -612,69 +640,60 @@ export class LearningService {
 		this.inflight.add(run)
 	}
 
+	/** Исполнение задания обработчиком своего вида; исключение — провал, нет обработчика — окончательный провал без повторов. */
 	private async execute(job: JobState): Promise<void> {
-		const { store, host, clock } = this.deps
-		const c = this.cases.get(job.caseId)
-		if (!c) {
-			job.note = 'кейс удалён'
-			this.queue.finish(job.id)
-			this.jobsChanged(job)
-			return
-		}
-		const events = store.readRaw(c.id, c.coveredUntil + 1)
-		if (!events.length) {
-			this.queue.finish(job.id)
-			this.jobsChanged(job)
-			if (job.final) this.seal(c.id)
-			return
-		}
-		const portion = renderPortion(events, PORTION_CHARS)
-		job.range = [portion.from, portion.until]
-		this.jobsChanged(job)
-		const prompt = buildCollectorPrompt(store.readPrompt('session-collector'), {
-			caseId: c.id,
-			summary: store.readSummary(c.id),
-			notes: store.readNotes(c.id),
-			portion,
-			final: job.final,
-		})
-		const res = await host.runAgent({ name: `collector-${c.id}`, title: `Описание сессии: ${c.title ?? c.id}`, prompt })
-		job.agentId = res.agentId
-		// агент после ответа удаляется: ответ остаётся в cases/<id>/runs/
-		if (res.text) store.writeRun(c.id, job.id, res.text)
+		const handler = this.handlers.get(job.kind)
+		if (!handler) return this.fail(job, `нет обработчика задания ${job.kind}`, true)
+		await handler.run(this.context(job))
 		if (this.interrupted.has(job.id)) return
-		if (!res.ok) return this.fail(job, res.error ?? 'агент завершился с ошибкой')
-		const parsed = parseCollectorReply(res.text)
-		if (!parsed) return this.fail(job, 'в ответе нет <summary>')
-		// описание не записалось — курсор не двигаем, иначе события выпали бы из описания навсегда
-		if (!store.writeSummary(c.id, parsed.summary)) return this.fail(job, 'не удалось записать summary.md')
-		const latest = this.cases.get(c.id)
+		// обработчик мог завершить задание сам (сбор: до постановки следующего)
+		if (job.status === 'running') this.finishJob(job)
+	}
+
+	private finishJob(job: JobState, note?: string): void {
+		if (note !== undefined) job.note = note
 		this.queue.finish(job.id)
-		if (!latest) {
-			job.note = 'кейс удалён'
-			this.jobsChanged(job)
-			return
-		}
-		const now = clock.now()
-		this.update({
-			...latest,
-			coveredUntil: portion.until,
-			title: parsed.title ?? latest.title,
-			goals: parsed.goals.length ? parsed.goals : latest.goals,
-			lastRunAt: now,
-			updatedAt: new Date(now).toISOString(),
-		})
 		this.jobsChanged(job)
-		// порция не дошла до конца событий: следующее задание того же вида ставится сразу
-		if (events.some(e => e.n > portion.until)) this.request(job.kind, c.id, job.final)
-		else if (job.final) this.seal(c.id)
+	}
+
+	private context(job: JobState): JobContext {
+		const { store, host, clock } = this.deps
+		return {
+			job,
+			now: () => clock.now(),
+			settings: () => this.settings,
+			runAgent: async (name, title, prompt) => {
+				const res = await host.runAgent({ name, title, prompt })
+				job.agentId = res.agentId
+				// агент после ответа удаляется: ответ остаётся в cases/<subject>/runs/
+				if (res.text) store.writeRun(job.subject, job.id, res.text)
+				if (this.interrupted.has(job.id)) throw new Error('прервано остановкой')
+				if (!res.ok) throw new Error(res.error ?? 'агент завершился с ошибкой')
+				return { agentId: res.agentId, text: res.text }
+			},
+			prompt: name => store.readPrompt(name),
+			cases: {
+				get: id => this.cases.get(id) ?? null,
+				all: () => [...this.cases.values()],
+				summary: id => store.readSummary(id),
+				notes: id => store.readNotes(id),
+				raw: (id, from, to) => store.readRaw(id, from, to),
+				update: c => this.update(c),
+				writeSummary: (id, text) => store.writeSummary(id, text),
+				seal: id => this.seal(id),
+			},
+			playbooks: this.playbooks,
+			enqueue: (kind, subject, opts) => void this.enqueue(kind, subject, opts),
+			finish: note => this.finishJob(job, note),
+			changed: () => this.jobsChanged(job),
+		}
 	}
 
 	/** Провал: повтор или `error`; окончательный провал задания (collect или close) переводит кейс в `error`. */
-	private fail(job: JobState, error: string): void {
+	private fail(job: JobState, error: string, terminal = false): void {
 		if (this.interrupted.has(job.id)) return
-		const j = this.queue.fail(job.id, error)
-		if (j.status === 'error') {
+		const j = this.queue.fail(job.id, error, terminal ? 0 : 2)
+		if (j.status === 'error' && (j.kind === 'collect' || j.kind === 'close')) {
 			const c = this.cases.get(j.caseId)
 			// пауза до следующей автоматической попытки считается от провала
 			if (c) this.update({ ...c, status: 'error', lastRunAt: this.deps.clock.now(), updatedAt: new Date(this.deps.clock.now()).toISOString() })
@@ -696,5 +715,20 @@ export class LearningService {
 			return
 		}
 		this.update({ ...c, status: 'ready', closedAt: iso, updatedAt: iso })
+		// судья и сопоставитель — только при плейбуках
+		if (this.playbooks) {
+			onCaseReady(
+				{
+					cases: { get: id => this.cases.get(id) ?? null },
+					enqueue: (kind, subject, opts) => void this.enqueue(kind, subject, opts),
+					batch: id => {
+						const b = this.batches.get(id) ?? null
+						this.batches.delete(id)
+						return b
+					},
+				},
+				caseId,
+			)
+		}
 	}
 }

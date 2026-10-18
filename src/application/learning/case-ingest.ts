@@ -2,6 +2,7 @@ import type { Message, SessionView } from '../../../shared/types'
 import type { RawEvent } from '../../domain/learning.types'
 import { parseTranscript } from '../../domain/transcript'
 import { USER, YOU } from '../../domain/constants'
+import { skillName } from '../../domain/playbook-render'
 import type { CaseState, TranscriptCursor } from './learning.types'
 
 /** Цепочка `/clear`: корень (на кого никто не указывает) → последняя по `successor`. Неизвестный id — одна эта сессия. */
@@ -24,6 +25,9 @@ export function chainOf(sessions: readonly SessionView[], id: string): string[] 
 	return chain
 }
 
+/** Префикс имени скилла плагина с плейбуками. */
+const PLAYBOOK_PREFIX = 'nessy-playbooks:'
+
 export const caseIdOf = (rootSessionId: string): string => `c-${rootSessionId}`
 
 const isOperator = (from: string): boolean => from === YOU || from === USER
@@ -41,7 +45,7 @@ function messageEvent(m: Message): Omit<RawEvent, 'n'> | null {
  */
 export function ingest(
 	c: CaseState,
-	input: { messages: Message[]; transcripts: Array<{ chatId: string; text: string; next: TranscriptCursor }> },
+	input: { messages: Message[]; transcripts: Array<{ chatId: string; text: string; next: TranscriptCursor }>; playbookVersion?: (id: string) => number | undefined },
 ): { events: RawEvent[]; state: CaseState } {
 	const fresh: Array<Omit<RawEvent, 'n'>> = []
 	let feedSeq = c.feedSeq
@@ -61,6 +65,15 @@ export function ingest(
 	fresh.sort((a, b) => a.ts - b.ts)
 	const events = fresh.map((e, i) => ({ n: c.nextN + i, ...e }))
 	const last = events.reduce((max, e) => Math.max(max, e.ts), c.lastEventAt)
-	const state: CaseState = { ...c, feedSeq, transcripts, nextN: c.nextN + events.length, events: c.events + events.length, lastEventAt: last }
+	// первое обращение к скиллу плейбука в кейсе: `<id>@<версия>` (неизвестный плейбук — `@0`)
+	let playbook = c.playbook
+	if (playbook === null) {
+		const hit = events.find(e => e.kind === 'skill' && e.text.startsWith(PLAYBOOK_PREFIX))
+		if (hit) {
+			const id = skillName(hit.text.slice(PLAYBOOK_PREFIX.length))
+			playbook = `${id}@${input.playbookVersion?.(id) ?? 0}`
+		}
+	}
+	const state: CaseState = { ...c, feedSeq, transcripts, nextN: c.nextN + events.length, events: c.events + events.length, lastEventAt: last, playbook }
 	return { events, state }
 }
