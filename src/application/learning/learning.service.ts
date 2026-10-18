@@ -1,9 +1,12 @@
-import type { CaseView, JobKind, LearningSettings, LearningView, Message } from '../../../shared/types'
+import type { CaseView, JobKind, JobView, LearningSettings, LearningView, Message } from '../../../shared/types'
+import { renderPortion } from '../../domain/case-events'
+import { buildCollectorPrompt, parseCollectorReply } from '../../domain/collector'
 import { AppError } from '../../domain/errors'
 import { decide } from '../../domain/learning-schedule'
-import { parseLearningSettings } from '../../domain/learning-settings'
+import { PORTION_CHARS, parseLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
-import type { CaseState, LearningDeps, TranscriptCursor } from './learning.types'
+import { JobQueue } from './job-queue'
+import type { CaseState, JobState, LearningDeps, TranscriptCursor } from './learning.types'
 
 const toView = (c: CaseState): CaseView => ({
 	id: c.id,
@@ -26,18 +29,61 @@ export class LearningService {
 	private settings: LearningSettings
 	private settingsMtime = -1
 	private loaded = false
-	/** временно, до Task 7: запросы заданий вместо JobQueue */
-	readonly requested: Array<{ kind: JobKind; caseId: string; final: boolean }> = []
+	private readonly queue: JobQueue
+	private stopped = false
+	private pumping = false
+	private ticker: NodeJS.Timeout | null = null
+	private wake: NodeJS.Timeout | null = null
+	/** идущие исполнения заданий: `stop()` ждёт их */
+	private readonly inflight = new Set<Promise<void>>()
 
 	constructor(private readonly deps: LearningDeps) {
 		this.settings = parseLearningSettings({ enabled: deps.defaultOn })
+		this.queue = new JobQueue({ ids: deps.ids, now: () => deps.clock.now() })
 	}
 
 	load(): void {
 		this.cases.clear()
 		for (const c of this.deps.store.loadCases()) this.cases.set(c.id, c)
+		const jobs = this.deps.store.loadJobs()
+		this.queue.load(jobs)
+		// после рестарта `running` вернулись в очередь: фиксируем это на диске
+		if (jobs.some(j => j.status === 'running')) this.deps.store.saveJobs(this.queue.list())
 		this.readSettings()
 		this.loaded = true
+	}
+
+	/** Запуск: насос сразу (задания после рестарта) и таймер `tick` раз в `tickMs` (0 — без таймера). */
+	start(): void {
+		this.stopped = false
+		this.pump()
+		if (this.deps.tickMs > 0 && !this.ticker) {
+			this.ticker = setInterval(() => {
+				try {
+					this.tick()
+				} catch {
+					/* сбой одного тика не должен ронять сервер */
+				}
+			}, this.deps.tickMs)
+			this.ticker.unref()
+		}
+	}
+
+	/** Останавливает таймеры и приём заданий; идущих сборщиков ждёт не дольше 5 с (остальные вернутся в очередь при рестарте). */
+	async stop(): Promise<void> {
+		this.stopped = true
+		if (this.ticker) clearInterval(this.ticker)
+		if (this.wake) clearTimeout(this.wake)
+		this.ticker = null
+		this.wake = null
+		if (!this.inflight.size) return
+		let timer: NodeJS.Timeout | undefined
+		const limit = new Promise<void>(resolve => {
+			timer = setTimeout(resolve, 5000)
+			timer.unref()
+		})
+		await Promise.race([Promise.allSettled([...this.inflight]).then(() => undefined), limit])
+		if (timer) clearTimeout(timer)
 	}
 
 	getSettings(): LearningSettings {
@@ -46,7 +92,7 @@ export class LearningService {
 
 	view(): LearningView {
 		const cases = [...this.cases.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(toView)
-		return { settings: this.settings, jobs: [], cases }
+		return { settings: this.settings, jobs: this.queue.list().map(j => this.queue.toView(j)), cases }
 	}
 
 	getCase(id: string): CaseState {
@@ -63,6 +109,8 @@ export class LearningService {
 	/** Синхронно: собирает события всех цепочек, затем принимает решения. */
 	tick(): void {
 		this.readSettings()
+		// уже поставленные задания (повторы, ручные) идут и при выключенном обучении
+		this.pump()
 		if (!this.settings.enabled) return
 		const { host, clock } = this.deps
 		const sessions = host.sessions()
@@ -83,13 +131,14 @@ export class LearningService {
 			if (!c) continue
 			const pending = c.events - c.coveredUntil
 			const action = decide(
-				{ status: c.status, pending, lastRunAt: c.lastRunAt, lastEventAt: c.lastEventAt, busy: host.isBusy(chain), hasJob: this.hasJob(c.id) },
+				// кейс в ошибке с новыми событиями ведёт себя как закрытый: сразу собираем
+				{ status: c.status === 'error' ? 'ready' : c.status, pending, lastRunAt: c.lastRunAt, lastEventAt: c.lastEventAt, busy: host.isBusy(chain), hasJob: this.hasJob(c.id) },
 				now,
 				this.settings,
 			)
 			if (action === 'collect') {
-				// закрытый кейс получил события: сессия вернулась
-				if (c.status === 'ready') this.update({ ...c, status: 'collecting', closedAt: null, updatedAt: new Date(now).toISOString() })
+				// закрытый (или упавший) кейс получил события: сессия вернулась
+				if (c.status === 'ready' || c.status === 'error') this.update({ ...c, status: 'collecting', closedAt: null, updatedAt: new Date(now).toISOString() })
 				this.request('collect', c.id, false)
 			} else if (action === 'close') {
 				this.request('close', c.id, true)
@@ -174,13 +223,201 @@ export class LearningService {
 		this.settingsMtime = mtimeMs
 	}
 
-	/** временно, до Task 7: заменить постановкой в JobQueue */
-	private request(kind: JobKind, caseId: string, final: boolean): void {
-		this.requested.push({ kind, caseId, final })
+	private request(kind: JobKind, caseId: string, final: boolean): JobState {
+		const job = this.queue.enqueue(kind, caseId, final)
+		this.jobsChanged(job)
+		this.pump()
+		return job
 	}
 
-	/** временно, до Task 7: есть ли по кейсу запрос/задание */
 	private hasJob(caseId: string): boolean {
-		return this.requested.some(r => r.caseId === caseId)
+		return this.queue.hasJob(caseId)
+	}
+
+	/** Ручной «Собрать кейс сейчас»: задание `close` по кейсу или по сессии; работает и при выключенном обучении. */
+	runNow(sessionOrCaseId: string): JobView {
+		const c = this.findCase(sessionOrCaseId)
+		if (!c) throw new AppError(404, 'not_found', `нет кейса или сессии ${sessionOrCaseId}`)
+		return this.queue.toView(this.request('close', c.id, true))
+	}
+
+	/** Вкладку закрыли: сразу собираем итоговое описание. Выключено (в целом или для сессии) — молчим. */
+	onSessionClosed(sessionId: string): void {
+		this.readSettings()
+		if (!this.settings.enabled) return
+		// отключённой сессии (и всей её цепочки) кейс не заводим
+		if (chainOf(this.deps.host.sessions(), sessionId).some(id => this.settings.disabledSessions.includes(id))) return
+		const c = this.findCase(sessionId)
+		if (!c || c.sessions.some(id => this.settings.disabledSessions.includes(id))) return
+		this.request('close', c.id, true)
+	}
+
+	/** Ручной повтор упавшего задания. */
+	retry(jobId: string): JobView {
+		const job = this.queue.retry(jobId)
+		const c = this.cases.get(job.caseId)
+		if (c && job.kind === 'close' && c.status === 'error') this.update({ ...c, status: 'closing', updatedAt: new Date(this.deps.clock.now()).toISOString() })
+		this.jobsChanged(job)
+		this.pump()
+		return this.queue.toView(job)
+	}
+
+	/** Сессию нельзя удалять, пока её кейс не `ready` (если обучение для неё включено). */
+	isProtected(sessionId: string): boolean {
+		if (!this.settings.enabled || this.settings.disabledSessions.includes(sessionId)) return false
+		for (const c of this.cases.values()) if (c.sessions.includes(sessionId)) return c.status !== 'ready'
+		return false
+	}
+
+	/** Кейс по id или по сессии; для живой сессии сначала подбирает свежие события (кейс может ещё не существовать). */
+	private findCase(idOrSession: string): CaseState | null {
+		const direct = this.cases.get(idOrSession)
+		if (direct) return direct
+		const sessions = this.deps.host.sessions()
+		if (sessions.some(s => s.id === idOrSession)) {
+			const chain = chainOf(sessions, idOrSession)
+			const root = chain[0]
+			if (root !== undefined) {
+				const from = this.cases.get(caseIdOf(root))?.feedSeq ?? 0
+				this.collect(root, chain, this.deps.host.messagesSince(from))
+				const c = this.cases.get(caseIdOf(root))
+				if (c) return c
+			}
+		}
+		return [...this.cases.values()].find(c => c.sessions.includes(idOrSession)) ?? null
+	}
+
+	private jobsChanged(job: JobState): void {
+		this.deps.store.saveJobs(this.queue.list())
+		this.deps.hub.publish({ t: 'learning_job', job: this.queue.toView(job) })
+	}
+
+	/**
+	 * Насос: пока есть место (`maxAgents`) и готовое задание — запускает.
+	 * Повторы с `retryAt` будит таймер на ближайший срок (unref) и каждый `tick`.
+	 */
+	private pump(): void {
+		if (this.stopped || this.pumping) return
+		this.pumping = true
+		try {
+			for (;;) {
+				if (this.queue.running().length >= this.settings.maxAgents) break
+				const job = this.queue.next(this.deps.clock.now())
+				if (!job) break
+				this.launch(job)
+			}
+		} finally {
+			this.pumping = false
+		}
+		this.scheduleWake()
+	}
+
+	private scheduleWake(): void {
+		if (this.wake) clearTimeout(this.wake)
+		this.wake = null
+		if (this.stopped) return
+		const now = this.deps.clock.now()
+		const due = this.queue.list().flatMap(j => (j.status === 'queued' && j.retryAt !== null && j.retryAt > now ? [j.retryAt] : []))
+		if (!due.length) return
+		this.wake = setTimeout(() => {
+			this.wake = null
+			this.pump()
+		}, Math.min(...due) - now)
+		this.wake.unref()
+	}
+
+	private launch(queued: JobState): void {
+		const job = this.queue.start(queued.id, null)
+		const c = this.cases.get(job.caseId)
+		if (c && job.kind === 'close' && c.status !== 'closing') this.update({ ...c, status: 'closing', updatedAt: new Date(this.deps.clock.now()).toISOString() })
+		this.jobsChanged(job)
+		const run = this.execute(job)
+			.catch((e: unknown) => this.fail(job, e instanceof Error ? e.message : String(e)))
+			.finally(() => {
+				this.inflight.delete(run)
+				this.pump()
+			})
+		this.inflight.add(run)
+	}
+
+	private async execute(job: JobState): Promise<void> {
+		const { store, host, clock } = this.deps
+		const c = this.cases.get(job.caseId)
+		if (!c) {
+			job.note = 'кейс удалён'
+			this.queue.finish(job.id)
+			this.jobsChanged(job)
+			return
+		}
+		const events = store.readRaw(c.id, c.coveredUntil + 1)
+		if (!events.length) {
+			this.queue.finish(job.id)
+			this.jobsChanged(job)
+			if (job.final) this.seal(c.id)
+			return
+		}
+		const portion = renderPortion(events, PORTION_CHARS)
+		job.range = [portion.from, portion.until]
+		this.jobsChanged(job)
+		const prompt = buildCollectorPrompt(store.readPrompt('session-collector'), {
+			caseId: c.id,
+			summary: store.readSummary(c.id),
+			notes: store.readNotes(c.id),
+			portion,
+			final: job.final,
+		})
+		const res = await host.runAgent({ name: `collector-${c.id}`, title: `Описание сессии: ${c.title ?? c.id}`, prompt })
+		job.agentId = res.agentId
+		if (!res.ok) return this.fail(job, res.error ?? 'агент завершился с ошибкой')
+		const parsed = parseCollectorReply(res.text)
+		if (!parsed) return this.fail(job, 'в ответе нет <summary>')
+		store.writeSummary(c.id, parsed.summary)
+		const latest = this.cases.get(c.id)
+		this.queue.finish(job.id)
+		if (!latest) {
+			job.note = 'кейс удалён'
+			this.jobsChanged(job)
+			return
+		}
+		const now = clock.now()
+		this.update({
+			...latest,
+			coveredUntil: portion.until,
+			title: parsed.title ?? latest.title,
+			goals: parsed.goals.length ? parsed.goals : latest.goals,
+			lastRunAt: now,
+			updatedAt: new Date(now).toISOString(),
+		})
+		this.jobsChanged(job)
+		// порция не дошла до конца событий: следующее задание того же вида ставится сразу
+		if (events.some(e => e.n > portion.until)) this.request(job.kind, c.id, job.final)
+		else if (job.final) this.seal(c.id)
+	}
+
+	/** Провал: повтор или `error`; упавшее `close` переводит кейс в `error`. */
+	private fail(job: JobState, error: string): void {
+		const j = this.queue.fail(job.id, error)
+		if (j.status === 'error') {
+			const c = this.cases.get(j.caseId)
+			// пауза до следующей автоматической попытки считается от провала
+			if (c) this.update({ ...c, status: j.kind === 'close' ? 'error' : c.status, lastRunAt: this.deps.clock.now(), updatedAt: new Date(this.deps.clock.now()).toISOString() })
+		}
+		this.jobsChanged(j)
+	}
+
+	/** Итоговое описание готово: кейс `ready`; пустой кейс (нет ни описания, ни событий) удаляется. */
+	private seal(caseId: string): void {
+		const c = this.cases.get(caseId)
+		if (!c) return
+		const iso = new Date(this.deps.clock.now()).toISOString()
+		if (c.events === 0 && this.deps.store.readSummary(caseId).trim() === '') {
+			this.cases.delete(caseId)
+			this.queue.removeCase(caseId)
+			this.deps.store.removeCase(caseId)
+			this.deps.store.saveJobs(this.queue.list())
+			this.deps.hub.publish({ t: 'learning_case_removed', id: caseId })
+			return
+		}
+		this.update({ ...c, status: 'ready', closedAt: iso, updatedAt: iso })
 	}
 }

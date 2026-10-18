@@ -54,6 +54,7 @@ describe('LearningService: сбор событий', () => {
 	let busy: boolean
 	let svc: LearningService
 	let events: HubEvent[]
+	let prompts: string[]
 	const clock = { t: T0 + 60_000, now: () => clock.t }
 
 	const host: LearningHost = {
@@ -61,14 +62,21 @@ describe('LearningService: сбор событий', () => {
 		messagesSince: s => feed.filter(m => m.seq > s),
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => busy,
-		runAgent: () => Promise.reject(new Error('не используется')),
+		// сборщик не отвечает: задания остаются в работе, видно только что поставлено
+		runAgent: req => {
+			prompts.push(req.prompt)
+			return new Promise(() => {})
+		},
 	}
+	const jobs = (): Array<[string, string, string]> => svc.view().jobs.map(j => [j.kind, j.caseId, j.status])
 
 	beforeEach(() => {
 		seq = 0
 		store = new MemoryLearningStore()
 		hub = new Hub()
 		events = []
+		prompts = []
+		store.prompts.set('session-collector', '{{mode}}')
 		hub.subscribe(e => events.push(e))
 		sessions = [session('s1', { transcriptPath: '/t/s1.jsonl' })]
 		feed = []
@@ -150,12 +158,13 @@ describe('LearningService: сбор событий', () => {
 	it('15 событий запускают сбор после паузы', () => {
 		feed = Array.from({ length: 15 }, () => msg({ session: 's1' }))
 		svc.tick()
-		assert.deepEqual(svc.requested, []) // пауза 60 с после заведения кейса
+		assert.deepEqual(jobs(), []) // пауза 60 с после заведения кейса
 		clock.t += 61_000
 		svc.tick()
-		assert.deepEqual(svc.requested, [{ kind: 'collect', caseId: 'c-s1', final: false }])
+		assert.deepEqual(jobs(), [['collect', 'c-s1', 'running']])
+		assert.match(prompts[0] ?? '', /incremental/)
 		svc.tick()
-		assert.equal(svc.requested.length, 1) // по кейсу запрос уже висит
+		assert.equal(jobs().length, 1) // по кейсу задание уже идёт
 	})
 
 	it('простой закрывает кейс', () => {
@@ -163,7 +172,9 @@ describe('LearningService: сбор событий', () => {
 		svc.tick()
 		clock.t += 31 * 60_000
 		svc.tick()
-		assert.deepEqual(svc.requested, [{ kind: 'close', caseId: 'c-s1', final: true }])
+		assert.deepEqual(jobs(), [['close', 'c-s1', 'running']])
+		assert.match(prompts[0] ?? '', /final: finish/)
+		assert.equal(svc.getCase('c-s1').status, 'closing')
 	})
 
 	it('занятость блокирует close (остаётся только сбор по интервалу)', () => {
@@ -172,7 +183,8 @@ describe('LearningService: сбор событий', () => {
 		clock.t += 31 * 60_000
 		busy = true
 		svc.tick()
-		assert.deepEqual(svc.requested, [{ kind: 'collect', caseId: 'c-s1', final: false }])
+		assert.deepEqual(jobs(), [['collect', 'c-s1', 'running']])
+		assert.match(prompts[0] ?? '', /incremental/)
 	})
 
 	it('ready + новое событие → collecting и collect', () => {
@@ -186,6 +198,7 @@ describe('LearningService: сбор событий', () => {
 		svc2.tick()
 		assert.equal(svc2.getCase('c-s1').status, 'collecting')
 		assert.equal(svc2.getCase('c-s1').closedAt, null)
-		assert.deepEqual(svc2.requested, [{ kind: 'collect', caseId: 'c-s1', final: false }])
+		assert.deepEqual(svc2.view().jobs.map(j => [j.kind, j.caseId, j.status]), [['collect', 'c-s1', 'running']])
+		assert.match(prompts[0] ?? '', /incremental/)
 	})
 })
