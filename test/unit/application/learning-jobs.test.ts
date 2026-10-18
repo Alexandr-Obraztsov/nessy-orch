@@ -270,6 +270,7 @@ describe('LearningService: задания', () => {
 			id: 'j-old',
 			kind: 'close',
 			caseId: 'c-s1',
+			subject: 'c-s1',
 			status: 'running',
 			attempts: 0,
 			agentId: 'ag0',
@@ -281,6 +282,7 @@ describe('LearningService: задания', () => {
 			finishedAt: null,
 			final: true,
 			retryAt: null,
+			payload: null,
 		}
 		store.jobs = [running]
 		store.prompts.set('session-collector', '{{range}}|{{events}}')
@@ -412,6 +414,7 @@ describe('LearningService: задания', () => {
 			source: 'live',
 			feedSeq: 0,
 			transcripts: {},
+			hinted: [],
 			nextN: 1,
 			lastEventAt: 0,
 			lastRunAt: 0,

@@ -80,6 +80,7 @@ describe('LearningService: ревью этапа 1', () => {
 		source: 'live',
 		feedSeq: 0,
 		transcripts: {},
+		hinted: [],
 		nextN: 1,
 		lastEventAt: 0,
 		lastRunAt: 0,

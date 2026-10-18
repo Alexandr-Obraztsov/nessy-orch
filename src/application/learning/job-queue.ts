@@ -1,7 +1,7 @@
 import { AppError } from '../../domain/errors'
 import type { JobKind, JobView } from '../../../shared/types'
 import type { IdGenerator } from '../ports'
-import type { JobState } from './learning.types'
+import type { EnqueueOpts, JobState } from './learning.types'
 
 /** Сколько завершённых заданий (`done`/`error`) хранится. */
 const KEEP_FINISHED = 200
@@ -21,18 +21,26 @@ export class JobQueue {
 		this.jobs = jobs.map(j => (j.status === 'running' ? { ...j, status: 'queued', note: 'прервано перезапуском', startedAt: null } : { ...j }))
 	}
 
-	/** Постановка: у кейса уже есть `queued` — дополняем его, иначе новое в конец. */
-	enqueue(kind: JobKind, caseId: string, final: boolean): JobState {
-		const queued = this.jobs.find(j => j.caseId === caseId && j.status === 'queued')
+	/**
+	 * Постановка: у объекта (`subject`) уже есть `queued` — дополняем его, иначе новое в конец.
+	 * `merge` сводит `payload` ждущего задания с новым (нет `merge` — берётся новый, если он задан).
+	 */
+	enqueue(kind: JobKind, subject: string, opts: EnqueueOpts = {}): JobState {
+		const final = opts.final ?? false
+		const payload = opts.payload ?? null
+		const queued = this.jobs.find(j => j.subject === subject && j.status === 'queued')
 		if (queued) {
 			queued.final = queued.final || final
 			if (kind === 'close') queued.kind = 'close'
+			if (opts.merge) queued.payload = opts.merge(queued.payload, payload)
+			else if (payload !== null) queued.payload = payload
 			return queued
 		}
 		const job: JobState = {
 			id: `j-${this.deps.ids.next(8)}`,
 			kind,
-			caseId,
+			caseId: opts.caseId ?? '',
+			subject,
 			status: 'queued',
 			attempts: 0,
 			agentId: null,
@@ -44,15 +52,19 @@ export class JobQueue {
 			finishedAt: null,
 			final,
 			retryAt: null,
+			payload,
 		}
 		this.jobs.push(job)
 		return job
 	}
 
-	/** Первое готовое к запуску `queued`: срок повтора наступил, у кейса нет `running`. */
-	next(now: number): JobState | null {
-		const busy = new Set(this.jobs.filter(j => j.status === 'running').map(j => j.caseId))
-		return this.jobs.find(j => j.status === 'queued' && (j.retryAt === null || j.retryAt <= now) && !busy.has(j.caseId)) ?? null
+	/**
+	 * Первое готовое к запуску `queued`: срок повтора наступил, у объекта нет `running`,
+	 * `isWaiting` не просит подождать (например, кейсы из `payload.after` ещё не готовы).
+	 */
+	next(now: number, isWaiting?: (job: JobState) => boolean): JobState | null {
+		const busy = new Set(this.jobs.filter(j => j.status === 'running').map(j => j.subject))
+		return this.jobs.find(j => j.status === 'queued' && (j.retryAt === null || j.retryAt <= now) && !busy.has(j.subject) && !(isWaiting?.(j) ?? false)) ?? null
 	}
 
 	start(id: string, agentId: string | null): JobState {
@@ -115,11 +127,11 @@ export class JobQueue {
 
 	/** Кейс удалён: убираем его ждущие и упавшие задания. */
 	removeCase(caseId: string): void {
-		this.jobs = this.jobs.filter(j => j.caseId !== caseId || (j.status !== 'queued' && j.status !== 'error'))
+		this.jobs = this.jobs.filter(j => (j.subject !== caseId && j.caseId !== caseId) || (j.status !== 'queued' && j.status !== 'error'))
 	}
 
-	hasJob(caseId: string): boolean {
-		return this.jobs.some(j => j.caseId === caseId && (j.status === 'queued' || j.status === 'running'))
+	hasJob(subject: string): boolean {
+		return this.jobs.some(j => j.subject === subject && (j.status === 'queued' || j.status === 'running'))
 	}
 
 	running(): JobState[] {
@@ -132,7 +144,7 @@ export class JobQueue {
 	}
 
 	toView(j: JobState): JobView {
-		const { final: _final, retryAt: _retryAt, ...view } = j
+		const { final: _final, retryAt: _retryAt, payload: _payload, ...view } = j
 		return view
 	}
 

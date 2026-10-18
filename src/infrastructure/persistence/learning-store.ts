@@ -87,7 +87,7 @@ export class FileLearningStore implements LearningStorePort {
 			const file = path.join(this.casesDir, id, 'state.json')
 			if (!fs.existsSync(file)) continue
 			const v = parseJson(readText(file))
-			if (isCaseState(v)) out.push(v)
+			if (isCaseState(v)) out.push({ ...v, hinted: arr(Reflect.get(v, 'hinted')).filter((x): x is string => typeof x === 'string') })
 			else this.warn(`битый ${file}, кейс пропущен`)
 		}
 		return out
@@ -122,6 +122,14 @@ export class FileLearningStore implements LearningStorePort {
 
 	readNotes(id: string): string {
 		return readText(path.join(this.caseDir(id), 'notes.md'))
+	}
+
+	writeNotes(id: string, text: string): void {
+		this.safe('заметки кейса', () => {
+			const dir = this.caseDir(id)
+			fs.mkdirSync(dir, { recursive: true })
+			writeAtomic(path.join(dir, 'notes.md'), text)
+		})
 	}
 
 	appendRaw(id: string, events: readonly RawEvent[]): boolean {
@@ -221,7 +229,12 @@ export class FileLearningStore implements LearningStorePort {
 	loadJobs(): JobState[] {
 		const raw = parseJson(readText(this.jobsPath))
 		const list = isObject(raw) ? arr(raw['jobs']) : arr(raw)
-		return list.filter(isJobState)
+		return list.filter(isJobState).map(j => {
+			// миграция этапа 1: нет `subject` — он равен кейсу, нет `payload` — null
+			const subject: unknown = Reflect.get(j, 'subject')
+			const payload: unknown = Reflect.get(j, 'payload')
+			return { ...j, subject: typeof subject === 'string' ? subject : j.caseId, payload: isObject(payload) ? payload : null }
+		})
 	}
 
 	saveJobs(jobs: readonly JobState[]): void {

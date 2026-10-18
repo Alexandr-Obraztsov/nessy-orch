@@ -2,10 +2,11 @@
  * Порты прикладного слоя: что ядру нужно от внешнего мира (nessy, процессы, хранилище, часы, id).
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
-import type { AgentEvent, BackfillCandidate, LearningSettings, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, TokenUsage, ToolStatus } from '../../shared/types'
+import type { AgentEvent, BackfillCandidate, ChatMessage, JournalEntry, LearningSettings, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, TokenUsage, ToolStatus, ReviewReport } from '../../shared/types'
+import type { PlaybookFiles } from '../domain/playbook.types'
 import type { RawEvent } from '../domain/learning.types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
-import type { CaseState, JobState, LearningMeta, TranscriptCursor } from './learning/learning.types'
+import type { CaseState, JobState, LearningMeta, PlaybookState, TranscriptCursor } from './learning/learning.types'
 import type { PersistedState } from './persisted.types'
 
 // ---------- nessy ----------
@@ -126,6 +127,7 @@ export interface LearningStorePort {
 	/** false — запись не удалась (диск); вызывающий курсор не двигает */
 	writeSummary(id: string, text: string): boolean
 	readNotes(id: string): string
+	writeNotes(id: string, text: string): void
 	/** false — запись не удалась */
 	appendRaw(id: string, events: readonly RawEvent[]): boolean
 	/** События с `n` в диапазоне; при повторе `n` (обрыв сбора) берётся последняя запись. */
@@ -148,6 +150,29 @@ export interface LearningStorePort {
 	scanTranscripts(dir: string, known: ReadonlySet<string>): BackfillCandidate[]
 	/** Путь транскрипта по id чата (имя файла без `.jsonl`) или null. */
 	findTranscript(dir: string, chatId: string): string | null
+}
+
+/** Хранилище плейбуков: git-репозиторий на плейбук, ревью, журнал, чаты и плагин `nessy-playbooks`. */
+export interface PlaybookStorePort {
+	readonly playbooksDir: string
+	loadPlaybooks(): PlaybookState[]
+	/** пишет playbook.json и файлы, git commit; возвращает номер версии */
+	savePlaybook(p: PlaybookState, files: PlaybookFiles, message: string): number
+	readFiles(id: string): PlaybookFiles
+	versions(id: string): Array<{ version: number; ts: string; message: string }>
+	restoreVersion(id: string, version: number): { state: PlaybookState; files: PlaybookFiles } | null
+	removePlaybook(id: string): void
+	readNotes(id: string): string
+	writeNotes(id: string, text: string): void
+	saveReview(r: ReviewReport): void
+	loadReviews(id: string): ReviewReport[]
+	appendJournal(e: JournalEntry): void
+	loadJournal(limit: number): JournalEntry[]
+	updateJournal(e: JournalEntry): void
+	appendChat(subject: string, m: ChatMessage): void
+	loadChat(subject: string, limit: number): ChatMessage[]
+	/** перезаписывает плагин nessy-playbooks целиком */
+	publish(active: ReadonlyArray<{ id: string; files: PlaybookFiles }>, version: string): void
 }
 
 export interface StorePort {

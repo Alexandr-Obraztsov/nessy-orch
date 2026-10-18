@@ -26,6 +26,7 @@ function mkCase(id: string, over: Partial<CaseState> = {}): CaseState {
 		source: 'live',
 		feedSeq: 0,
 		transcripts: {},
+		hinted: [],
 		nextN: 1,
 		lastEventAt: 0,
 		lastRunAt: 0,
@@ -148,9 +149,33 @@ describe('FileLearningStore', () => {
 
 	it('очередь: saveJobs / loadJobs', () => {
 		assert.deepEqual(store.loadJobs(), [])
-		const j: JobState = { id: 'j1', kind: 'collect', caseId: 'c1', status: 'queued', attempts: 0, agentId: null, error: null, note: null, range: [1, 5], createdAt: 'x', startedAt: null, finishedAt: null, final: false, retryAt: null }
+		const j: JobState = { id: 'j1', kind: 'collect', caseId: 'c1', subject: 'c1', status: 'queued', attempts: 0, agentId: null, error: null, note: null, range: [1, 5], createdAt: 'x', startedAt: null, finishedAt: null, final: false, retryAt: null, payload: null }
 		store.saveJobs([j])
 		assert.deepEqual(store.loadJobs(), [j])
+	})
+
+	it('миграция jobs.json этапа 1: нет subject — caseId, нет payload — null', () => {
+		const old = { id: 'j1', kind: 'collect', caseId: 'c1', status: 'queued', attempts: 0, agentId: null, error: null, note: null, range: null, createdAt: 'x', startedAt: null, finishedAt: null, final: false, retryAt: null }
+		fs.mkdirSync(path.join(store.home, 'learning'), { recursive: true })
+		fs.writeFileSync(path.join(store.home, 'learning', 'jobs.json'), JSON.stringify({ jobs: [old] }))
+		const loaded = store.loadJobs()
+		assert.equal(loaded.length, 1)
+		assert.deepEqual(loaded.map(j => [j.subject, j.payload]), [['c1', null]])
+	})
+
+	it('writeNotes пишет cases/<id>/notes.md, readNotes читает', () => {
+		store.writeNotes('c1', '- заметка')
+		assert.equal(store.readNotes('c1'), '- заметка')
+	})
+
+	it('кейс без hinted в state.json загружается с []', () => {
+		const c = mkCase('c1')
+		store.saveCase(c)
+		const file = path.join(store.casesDir, 'c1', 'state.json')
+		const old: Record<string, unknown> = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+		delete old['hinted']
+		fs.writeFileSync(file, JSON.stringify(old))
+		assert.deepEqual(store.loadCases()[0]?.hinted, [])
 	})
 
 	it('readPrompt читает <root>/learning/prompts/<name>.md', () => {

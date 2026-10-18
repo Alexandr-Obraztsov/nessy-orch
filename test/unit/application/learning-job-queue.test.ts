@@ -14,8 +14,8 @@ function make() {
 describe('JobQueue', () => {
 	it('collect + collect одного кейса — одно задание; final объединяется', () => {
 		const { q } = make()
-		const a = q.enqueue('collect', 'c1', false)
-		const b = q.enqueue('collect', 'c1', true)
+		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
+		const b = q.enqueue('collect', 'c1', { caseId: 'c1', final: true })
 		assert.equal(a.id, b.id)
 		assert.equal(q.list().length, 1)
 		assert.equal(b.final, true)
@@ -24,23 +24,23 @@ describe('JobQueue', () => {
 
 	it('collect в очереди + close — одно close с final', () => {
 		const { q } = make()
-		q.enqueue('collect', 'c1', false)
-		const j = q.enqueue('close', 'c1', true)
+		q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
+		const j = q.enqueue('close', 'c1', { caseId: 'c1', final: true })
 		assert.equal(q.list().length, 1)
 		assert.equal(j.kind, 'close')
 		assert.equal(j.final, true)
-		q.enqueue('collect', 'c1', false)
+		q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
 		assert.equal(q.list()[0]?.kind, 'close')
 	})
 
 	it('running + enqueue: второе ждёт, next не отдаёт его, пока кейс running', () => {
 		const { q, clock } = make()
-		const a = q.enqueue('collect', 'c1', false)
+		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
 		q.start(a.id, 'ag')
-		const b = q.enqueue('collect', 'c1', false)
+		const b = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
 		assert.notEqual(a.id, b.id)
 		assert.equal(q.next(clock.t), null)
-		const other = q.enqueue('collect', 'c2', false)
+		const other = q.enqueue('collect', 'c2', { caseId: 'c2', final: false })
 		assert.equal(q.next(clock.t)?.id, other.id)
 		q.finish(a.id)
 		assert.equal(q.next(clock.t)?.id, b.id)
@@ -49,7 +49,7 @@ describe('JobQueue', () => {
 
 	it('повторы через 30 и 60 с, на третьем провале — error', () => {
 		const { q, clock } = make()
-		const a = q.enqueue('collect', 'c1', false)
+		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
 		q.start(a.id, null)
 		let j = q.fail(a.id, 'e1')
 		assert.equal(j.status, 'queued')
@@ -72,7 +72,7 @@ describe('JobQueue', () => {
 
 	it('retry: только из error', () => {
 		const { q } = make()
-		const a = q.enqueue('collect', 'c1', false)
+		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
 		assert.throws(() => q.retry(a.id), { status: 409, code: 'job_not_failed' })
 		assert.throws(() => q.retry('j-nope'), { status: 404, code: 'no_job' })
 		q.start(a.id, null)
@@ -86,7 +86,7 @@ describe('JobQueue', () => {
 
 	it('load: running возвращается в queued с пометкой', () => {
 		const { q, clock } = make()
-		const a = q.enqueue('collect', 'c1', false)
+		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
 		q.start(a.id, 'ag')
 		const saved = JSON.parse(JSON.stringify(q.list())) as JobState[]
 		const { q: q2 } = make()
@@ -101,9 +101,9 @@ describe('JobQueue', () => {
 
 	it('хранится не больше 200 завершённых; активные остаются; removeCase и toView', () => {
 		const { q } = make()
-		const active = q.enqueue('collect', 'active', false)
+		const active = q.enqueue('collect', 'active', { caseId: 'active', final: false })
 		for (let i = 0; i < 205; i++) {
-			const j = q.enqueue('collect', `c${i}`, false)
+			const j = q.enqueue('collect', `c${i}`, { caseId: `c${i}`, final: false })
 			q.start(j.id, null)
 			q.finish(j.id)
 		}
@@ -117,5 +117,41 @@ describe('JobQueue', () => {
 		assert.equal('retryAt' in view, false)
 		q.removeCase('active')
 		assert.equal(q.hasJob('active'), false)
+	})
+
+	it('merge сводит payload ждущего задания по subject; без merge побеждает новый', () => {
+		const { q } = make()
+		const ids = (x: Record<string, unknown> | null): string[] => (Array.isArray(x?.['caseIds']) ? x['caseIds'].map(String) : [])
+		const merge = (a: Record<string, unknown> | null, b: Record<string, unknown> | null) => ({ caseIds: [...new Set([...ids(a), ...ids(b)])] })
+		const a = q.enqueue('match', 'all', { payload: { caseIds: ['c1'] }, merge })
+		const b = q.enqueue('match', 'all', { payload: { caseIds: ['c2', 'c1'] }, merge })
+		assert.equal(a.id, b.id)
+		assert.equal(q.list().length, 1)
+		assert.deepEqual(b.payload, { caseIds: ['c1', 'c2'] })
+		assert.equal(b.caseId, '')
+		const x = q.enqueue('build', 'g-1', { payload: { v: 1 } })
+		const y = q.enqueue('build', 'g-1', { payload: { v: 2 } })
+		assert.equal(x.id, y.id)
+		assert.deepEqual(y.payload, { v: 2 })
+		assert.equal(q.enqueue('build', 'g-1').payload?.['v'], 2)
+	})
+
+	it('одно running на subject; разные subject одного кейса не мешают друг другу', () => {
+		const { q, clock } = make()
+		const a = q.enqueue('judge', 'c1', { caseId: 'c1' })
+		q.start(a.id, null)
+		const b = q.enqueue('build', 'g-1', { caseId: 'c1' })
+		assert.equal(q.next(clock.t)?.id, b.id)
+	})
+
+	it('isWaiting: ждущее задание пропускается, следующее отдаётся', () => {
+		const { q, clock } = make()
+		const a = q.enqueue('match', 'all', { payload: { after: ['c1'] } })
+		const b = q.enqueue('collect', 'c2', { caseId: 'c2' })
+		const waiting = (j: JobState) => j.payload?.['after'] !== undefined
+		assert.equal(q.next(clock.t, waiting)?.id, b.id)
+		q.start(b.id, null)
+		assert.equal(q.next(clock.t, waiting), null)
+		assert.equal(q.next(clock.t)?.id, a.id)
 	})
 })

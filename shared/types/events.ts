@@ -1,6 +1,6 @@
 /** События чата агента и потоков (/stream, /agents/:id/stream, внутренняя шина). */
 import type { AgentView, Message, NodeId, RoleView, SpaceView, SessionView, ToolStatus } from './domain'
-import type { CaseView, JobView, LearningSettings } from './learning'
+import type { CaseView, ChatMessage, JobView, JournalEntry, LearningSettings, PlaybookView } from './learning'
 
 interface EventBase {
 	seq: number
@@ -74,6 +74,10 @@ export type StreamEvent =
 	| { t: 'learning_case'; rev: number; case: CaseView }
 	| { t: 'learning_case_removed'; rev: number; id: string }
 	| { t: 'learning_settings'; rev: number; settings: LearningSettings }
+	| { t: 'learning_playbook'; rev: number; playbook: PlaybookView }
+	| { t: 'learning_playbook_removed'; rev: number; id: string }
+	| { t: 'learning_journal'; rev: number; entry: JournalEntry }
+	| { t: 'learning_chat'; rev: number; subject: string; message: ChatMessage }
 
 /** Всё, что ходит по внутренней шине (включая события агентов). */
 export type HubEvent =
@@ -96,6 +100,10 @@ export type HubInput =
 	| { t: 'learning_case'; case: CaseView }
 	| { t: 'learning_case_removed'; id: string }
 	| { t: 'learning_settings'; settings: LearningSettings }
+	| { t: 'learning_playbook'; playbook: PlaybookView }
+	| { t: 'learning_playbook_removed'; id: string }
+	| { t: 'learning_journal'; entry: JournalEntry }
+	| { t: 'learning_chat'; subject: string; message: ChatMessage }
 	| { t: 'event'; agentId: string; event: AgentEvent }
 	| { t: 'chunk'; agentId: string; chunk: ChunkEvent }
 

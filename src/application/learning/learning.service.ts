@@ -117,7 +117,7 @@ export class LearningService {
 
 	view(): LearningView {
 		const cases = [...this.cases.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(toView)
-		return { settings: this.settings, jobs: this.queue.list().map(j => this.queue.toView(j)), cases }
+		return { settings: this.settings, jobs: this.queue.list().map(j => this.queue.toView(j)), cases, playbooks: [], journal: [] }
 	}
 
 	getCase(id: string): CaseState {
@@ -322,6 +322,7 @@ export class LearningService {
 			lastEventAt: 0,
 			lastRunAt: 0,
 			nessyCalls: true,
+			hinted: [],
 		}
 		const r = store.copyTranscript(id, chatId, { path: file, offset: 0 })
 		const { events, state } = ingest(base, { messages: [], transcripts: [{ chatId, text: r.text, next: r.next }] })
@@ -420,6 +421,7 @@ export class LearningService {
 			// новый кейс первый раз собирается по интервалу или по 15 событиям, а не сразу
 			lastRunAt: now,
 			nessyCalls: false,
+			hinted: [],
 		}
 		const inChain = new Set(chain)
 		const unseen = messages.filter(m => m.seq > base.feedSeq)
@@ -475,10 +477,20 @@ export class LearningService {
 	}
 
 	private request(kind: JobKind, caseId: string, final: boolean): JobState {
-		const job = this.queue.enqueue(kind, caseId, final)
+		const job = this.queue.enqueue(kind, caseId, { caseId, final })
 		this.jobsChanged(job)
 		this.pump()
 		return job
+	}
+
+	/** Задание ждёт кейсы из `payload.after`, пока они не `ready`/`error`. */
+	private isWaiting(job: JobState): boolean {
+		const after = job.payload?.['after']
+		if (!Array.isArray(after)) return false
+		return after.some(id => {
+			const c = typeof id === 'string' ? this.cases.get(id) : undefined
+			return c !== undefined && c.status !== 'ready' && c.status !== 'error'
+		})
 	}
 
 	private hasJob(caseId: string): boolean {
@@ -562,7 +574,7 @@ export class LearningService {
 		try {
 			for (;;) {
 				if (this.queue.running().length >= this.settings.maxAgents) break
-				const job = this.queue.next(this.deps.clock.now())
+				const job = this.queue.next(this.deps.clock.now(), j => this.isWaiting(j))
 				if (!job) break
 				this.launch(job)
 			}

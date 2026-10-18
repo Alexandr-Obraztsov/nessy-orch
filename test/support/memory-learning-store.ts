@@ -69,6 +69,9 @@ export class MemoryLearningStore implements LearningStorePort {
 	readNotes(id: string): string {
 		return this.notes.get(id) ?? ''
 	}
+	writeNotes(id: string, text: string): void {
+		this.notes.set(id, text)
+	}
 	appendRaw(id: string, events: readonly RawEvent[]): boolean {
 		if (this.failWrites) return false
 		this.raw.set(id, [...(this.raw.get(id) ?? []), ...events])
