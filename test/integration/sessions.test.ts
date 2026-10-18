@@ -170,6 +170,16 @@ describe('чат Claude ↔ сессия: attach и хук SessionStart', () => 
 		assert.ok(!(await hh.api<SessionView[]>('GET', '/sessions')).body.some(x => x.chatId === 'chat-bbbb-0003'))
 	})
 
+	it('hook start: transcript_path из stdin записывается в сессию чата', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		assert.equal(await hook(hh.port, '', { session_id: 'chat-tp-0001', cwd: '/tmp/tp-proj', transcript_path: '/tmp/tp-proj/chat-tp-0001.jsonl', source: 'startup' }, { NESSY_ORCH_SESSION: 'x' }), 0)
+		const s = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.chatId === 'chat-tp-0001')
+		assert.ok(s)
+		assert.equal(s.transcriptPath, '/tmp/tp-proj/chat-tp-0001.jsonl')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.transcriptPath, '/tmp/tp-proj/chat-tp-0001.jsonl')
+	})
+
 	it('hook agent: первый Agent в ходе отклоняется с напоминанием, повтор в том же ходе проходит, новый ход — снова напоминание; вне приложения молчит', T, async () => {
 		const agentHook = (session: string, stdin: object): Promise<string> =>
 			new Promise(resolve => {

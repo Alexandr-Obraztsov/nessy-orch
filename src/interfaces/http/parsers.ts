@@ -96,10 +96,11 @@ export function parseSessionRequest(b: unknown): SessionRequest {
 /** Привязка чата Claude к сессии: chatId обязателен, cwd и from — необязательные строки. */
 export function parseAttachRequest(b: unknown): AttachRequest {
 	if (!isObject(b) || typeof b['chatId'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле chatId (строка)')
-	const { cwd, from } = b
+	const { cwd, from, transcriptPath } = b
 	if (cwd !== undefined && typeof cwd !== 'string') throw new AppError(400, 'bad_request', 'cwd — строка')
 	if (from !== undefined && typeof from !== 'string') throw new AppError(400, 'bad_request', 'from — строка')
-	return { chatId: b['chatId'], ...(cwd ? { cwd } : {}), ...(from ? { from } : {}) }
+	if (transcriptPath !== undefined && typeof transcriptPath !== 'string') throw new AppError(400, 'bad_request', 'transcriptPath — строка')
+	return { chatId: b['chatId'], ...(cwd ? { cwd } : {}), ...(from ? { from } : {}), ...(transcriptPath ? { transcriptPath } : {}) }
 }
 
 /** Правка сессии: title — строка, status — active|done, summary — строка или null. */

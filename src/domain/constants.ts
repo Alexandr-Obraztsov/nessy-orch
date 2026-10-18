@@ -7,5 +7,7 @@ export const YOU = 'you'
 export const USER = 'user'
 /** Отправитель системных записей ленты. */
 export const SYSTEM = 'system'
+/** Id служебной сессии фонового обучения: в ней работают агенты-сборщики, в списки и уборку она не попадает. */
+export const SERVICE_SESSION = 'background'
 /** Палитра пространств (hue). */
 export const PALETTE: readonly number[] = [210, 28, 150, 285, 340, 175, 55, 250]

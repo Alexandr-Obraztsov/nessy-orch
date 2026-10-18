@@ -109,6 +109,8 @@ export interface AttachRequest {
 	cwd?: string
 	/** сессия, из которой пришёл вызов (`NESSY_ORCH_SESSION`): её `successor` указывает на результат */
 	from?: string
+	/** абсолютный путь к транскрипту чата (`transcript_path` хука) */
+	transcriptPath?: string
 }
 
 export interface SessionPatch {

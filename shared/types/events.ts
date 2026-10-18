@@ -1,5 +1,6 @@
 /** События чата агента и потоков (/stream, /agents/:id/stream, внутренняя шина). */
 import type { AgentView, Message, NodeId, RoleView, SpaceView, SessionView, ToolStatus } from './domain'
+import type { CaseView, JobView, LearningSettings } from './learning'
 
 interface EventBase {
 	seq: number
@@ -69,6 +70,10 @@ export type StreamEvent =
 	| { t: 'role_removed'; rev: number; id: string }
 	| { t: 'session'; rev: number; session: SessionView }
 	| { t: 'session_removed'; rev: number; id: string }
+	| { t: 'learning_job'; rev: number; job: JobView }
+	| { t: 'learning_case'; rev: number; case: CaseView }
+	| { t: 'learning_case_removed'; rev: number; id: string }
+	| { t: 'learning_settings'; rev: number; settings: LearningSettings }
 
 /** Всё, что ходит по внутренней шине (включая события агентов). */
 export type HubEvent =
@@ -87,6 +92,10 @@ export type HubInput =
 	| { t: 'role_removed'; id: string }
 	| { t: 'session'; session: SessionView }
 	| { t: 'session_removed'; id: string }
+	| { t: 'learning_job'; job: JobView }
+	| { t: 'learning_case'; case: CaseView }
+	| { t: 'learning_case_removed'; id: string }
+	| { t: 'learning_settings'; settings: LearningSettings }
 	| { t: 'event'; agentId: string; event: AgentEvent }
 	| { t: 'chunk'; agentId: string; chunk: ChunkEvent }
 

@@ -27,12 +27,23 @@ export class SessionsService {
 		return this.sessions.size
 	}
 
-	/** Сессии: сначала активные, внутри — по свежести (updatedAt). */
-	list(status?: SessionStatus): SessionView[] {
+	/** Сессии: сначала активные, внутри — по свежести (updatedAt). Служебные — только с `service: true`. */
+	list(opts: { status?: SessionStatus; service?: boolean } = {}): SessionView[] {
 		return [...this.sessions.values()]
-			
-			.filter(t => status === undefined || t.status === status)
+			.filter(t => opts.service === true || !t.service)
+			.filter(t => opts.status === undefined || t.status === opts.status)
 			.sort((a, b) => (a.status === b.status ? b.updatedAt.localeCompare(a.updatedAt) : a.status === 'active' ? -1 : 1))
+	}
+
+	/** Служебная сессия (создаётся или возвращается как есть); событие `session` в шину не идёт, на диск сохраняется. */
+	ensureService(id: string, title: string, cwd: string): SessionView {
+		const have = this.sessions.get(id)
+		if (have) return have
+		const now = this.isoNow()
+		const session: SessionView = { id, title, owner: null, status: 'active', summary: null, createdAt: now, updatedAt: now, sources: 0, cwd, service: true }
+		this.sessions.set(id, session)
+		this.save()
+		return session
 	}
 
 	/** Каталог чата Claude этой сессии (из хука) или null. */
@@ -81,8 +92,14 @@ export class SessionsService {
 		if (!isChatId(chat)) throw new AppError(400, 'bad_request', 'chatId — до 64 символов [A-Za-z0-9-]')
 		const prev = req.from ? this.sessions.get(req.from.trim().toLowerCase()) : undefined
 		const found = [...this.sessions.values()].find(s => s.chatId === chat)
+		const tp = req.transcriptPath
+		if (tp !== undefined && !tp.startsWith('/')) throw new AppError(400, 'bad_request', 'transcriptPath — абсолютный путь')
 		const cwd = req.cwd?.startsWith('/') ? req.cwd : (prev?.cwd ?? undefined)
 		let target = found ?? this.create({ title: prev?.title ?? (cwd ? undefined : 'Чат Claude'), ...(cwd ? { cwd } : {}), chatId: chat })
+		if (tp && target.transcriptPath !== tp) {
+			target = { ...target, transcriptPath: tp }
+			this.put(target)
+		}
 		if (prev && prev.id !== target.id) {
 			// вкладка переходит к целевой сессии; у целевой своего преемника быть не должно (она теперь последняя в цепочке)
 			if (target.successor) {
@@ -115,6 +132,7 @@ export class SessionsService {
 	 */
 	remove(ref: string): void {
 		const session = this.resolve(ref)
+		if (session.service) throw new AppError(409, 'service_session', 'служебную сессию удалять нельзя')
 		const { registry } = this.ctx
 		const inside = [...registry.agents.values()].filter(a => a.session === session.id)
 		const busy = inside.filter(a => a.isBusy || a.queue.length)
@@ -140,7 +158,7 @@ export class SessionsService {
 	private put(session: SessionView): void {
 		this.sessions.set(session.id, session)
 		this.save()
-		this.ctx.hub.publish({ t: 'session', session })
+		if (!session.service) this.ctx.hub.publish({ t: 'session', session })
 	}
 
 	private save(): void {

@@ -328,7 +328,7 @@ export class Orchestrator implements AgentHost {
 
 	// ---------- сессии ----------
 	listSessions(status?: SessionStatus): SessionView[] {
-		return this.sessionsSvc.list(status)
+		return this.sessionsSvc.list({ ...(status ? { status } : {}) })
 	}
 
 	getSession(id: string): SessionView {
@@ -381,6 +381,11 @@ export class Orchestrator implements AgentHost {
 			}
 		}
 		return removed
+	}
+
+	/** Служебная сессия (фоновое обучение): создаётся при первом вызове, в списки и граф не входит. */
+	ensureServiceSession(id: string, title: string, cwd: string): SessionView {
+		return this.sessionsSvc.ensureService(id, title, cwd)
 	}
 
 	/** Чат Claude начался или сменился: сессия этого чата (создаётся, если её нет) и переход вкладки к ней. */

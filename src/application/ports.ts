@@ -2,8 +2,10 @@
  * Порты прикладного слоя: что ядру нужно от внешнего мира (nessy, процессы, хранилище, часы, id).
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
-import type { AgentEvent, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, TokenUsage, ToolStatus } from '../../shared/types'
+import type { AgentEvent, LearningSettings, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, TokenUsage, ToolStatus } from '../../shared/types'
+import type { RawEvent } from '../domain/learning.types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
+import type { CaseState, JobState, TranscriptCursor } from './learning/learning.types'
 import type { PersistedState } from './persisted.types'
 
 // ---------- nessy ----------
@@ -107,6 +109,30 @@ export interface SpaceRuntime {
 export type SpaceFactory = (init: SpaceInit, listener: SpaceListener) => SpaceRuntime
 
 // ---------- хранилище ----------
+export interface LearningStorePort {
+	readonly casesDir: string
+	/** Нет файла — raw undefined, mtimeMs 0; разбирает сервис (parseLearningSettings + defaultOn). */
+	loadSettings(): { raw: unknown; mtimeMs: number }
+	settingsMtime(): number
+	saveSettings(s: LearningSettings): void
+	/** По каталогам cases, файл state.json; битый — пропуск с предупреждением. */
+	loadCases(): CaseState[]
+	/** state.json + case.md (frontmatter из CaseView). */
+	saveCase(c: CaseState): void
+	removeCase(id: string): void
+	readSummary(id: string): string
+	writeSummary(id: string, text: string): void
+	readNotes(id: string): string
+	appendRaw(id: string, events: readonly RawEvent[]): void
+	readRaw(id: string, fromN: number, toN?: number): RawEvent[]
+	/** Читает только целые строки с курсора и дописывает их в raw/transcript-<chatId>.jsonl. */
+	copyTranscript(id: string, chatId: string, cur: TranscriptCursor): { text: string; next: TranscriptCursor }
+	loadJobs(): JobState[]
+	saveJobs(jobs: readonly JobState[]): void
+	/** <root>/learning/prompts/<name>.md */
+	readPrompt(name: string): string
+}
+
 export interface StorePort {
 	loadState(): PersistedState
 	/** Отложенная атомарная запись состояния. */

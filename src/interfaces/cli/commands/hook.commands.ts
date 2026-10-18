@@ -34,8 +34,9 @@ function readInput(): Record<string, unknown> {
 async function runStart(from: string, input: Record<string, unknown>): Promise<string> {
 	const chatId = typeof input['session_id'] === 'string' ? input['session_id'] : ''
 	const cwd = typeof input['cwd'] === 'string' ? input['cwd'] : ''
+	const transcriptPath = typeof input['transcript_path'] === 'string' ? input['transcript_path'] : ''
 	if (!chatId) return from
-	const s = await post<SessionView>('/sessions/attach', { chatId, ...(cwd ? { cwd } : {}), from })
+	const s = await post<SessionView>('/sessions/attach', { chatId, ...(cwd ? { cwd } : {}), ...(transcriptPath ? { transcriptPath } : {}), from })
 	// Bash-инструменты Claude подхватывают переменную из этого файла: дальше `nessy-orch` работает в сессии нового чата
 	const file = process.env['CLAUDE_ENV_FILE']
 	if (file && s.id !== from) {
