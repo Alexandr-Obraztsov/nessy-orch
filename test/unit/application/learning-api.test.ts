@@ -16,7 +16,7 @@ const session = (id: string, patch: Partial<SessionView> = {}): SessionView => (
 	owner: null,
 	status: 'active',
 	summary: null,
-	createdAt: new Date(T0).toISOString(),
+	createdAt: new Date(T0 + 60_000).toISOString(),
 	updatedAt: new Date(T0 + 5000).toISOString(),
 	sources: 0,
 	chatId: `chat-${id}`,
@@ -53,6 +53,7 @@ describe('LearningService: API', () => {
 	const host: LearningHost = {
 		sessions: () => sessions,
 		messagesSince: s => feed.filter(m => m.seq > s),
+		lastSeq: () => 0,
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => false,
 		runAgent: async () => {

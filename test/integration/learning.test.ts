@@ -58,9 +58,12 @@ describe('фоновое обучение (сборка)', () => {
 		assert.equal(ready.case.title, 'T')
 		const summary = fs.readFileSync(path.join(h.home, 'cases', `c-${s.id}`, 'summary.md'), 'utf8')
 		assert.match(summary, /# T/)
+		// фоновый агент удалён из реестра, ответ лежит в runs/
 		const agents = (await h.api<AgentView[]>('GET', '/agents')).body.filter(a => a.session === 'background')
-		assert.equal(agents.length, 1)
-		assert.equal(agents[0]?.archived, true)
+		assert.equal(agents.length, 0)
+		const runs = fs.readdirSync(path.join(h.home, 'cases', `c-${s.id}`, 'runs'))
+		assert.equal(runs.length, 1)
+		assert.match(fs.readFileSync(path.join(h.home, 'cases', `c-${s.id}`, 'runs', runs[0] ?? ''), 'utf8'), /Статус: DONE/)
 		const sessions = (await h.api<SessionView[]>('GET', '/sessions')).body
 		assert.ok(!sessions.some(x => x.id === 'background'), 'служебная сессия скрыта')
 		assert.deepEqual(sessions.map(x => x.id), [s.id])

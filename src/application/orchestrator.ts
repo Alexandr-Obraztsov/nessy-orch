@@ -173,6 +173,7 @@ export class Orchestrator implements AgentHost {
 				if (first && first.seq > seq + 1) return this.store.loadMessages(DISK_HISTORY_LIMIT).filter(m => m.seq > seq)
 				return mem.filter(m => m.seq > seq)
 			},
+			lastSeq: () => this.feed.msgSeq,
 			sessionOfMessage: m => m.session ?? this.registry.agents.get(m.to)?.session ?? this.registry.agents.get(m.from)?.session ?? null,
 			isBusy: ids => [...this.registry.agents.values()].some(a => a.session !== null && ids.includes(a.session) && (a.isBusy || a.queue.length > 0)),
 			runAgent: async ({ name, title, prompt }) => {
@@ -184,13 +185,11 @@ export class Orchestrator implements AgentHost {
 					const res = await this.spawn({ session: SERVICE_SESSION, name, title, prompt, wait: true, waitTimeoutSec: LEARNING_AGENT_TIMEOUT_SEC })
 					agentId = res.agent.id
 					const ok = !!res.reply && !res.reply.failed
-					try {
-						this.archiveAgent(agentId)
-					} catch {
-						/* архивация не критична */
-					}
+					// фоновые агенты реестр не засоряют: ответ сервис сохранит сам, агента убираем
+					await this.removeAgent(agentId).catch(() => undefined)
 					return { agentId, text: res.reply?.text ?? '', ok, ...(ok ? {} : { error: res.reply?.text || 'агент не ответил' }) }
 				} catch (e) {
+					if (agentId) await this.removeAgent(agentId).catch(() => undefined)
 					return { agentId, text: '', ok: false, error: e instanceof Error ? e.message : String(e) }
 				}
 			},

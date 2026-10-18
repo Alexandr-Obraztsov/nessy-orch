@@ -17,7 +17,7 @@ const session = (id: string, patch: Partial<SessionView> = {}): SessionView => (
 	owner: null,
 	status: 'active',
 	summary: null,
-	createdAt: new Date(T0).toISOString(),
+	createdAt: new Date(T0 + 60_000).toISOString(),
 	updatedAt: new Date(T0).toISOString(),
 	sources: 0,
 	chatId: `chat-${id}`,
@@ -57,6 +57,7 @@ describe('LearningService: задания', () => {
 	const host: LearningHost = {
 		sessions: () => sessions,
 		messagesSince: s => feed.filter(m => m.seq > s),
+		lastSeq: () => 0,
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => false,
 		runAgent: async req => {
@@ -202,6 +203,7 @@ describe('LearningService: задания', () => {
 		assert.equal(c.coveredUntil, 2)
 		feed.push(msg('s1'))
 		script = [{ ok: true, text: GOOD('Два') }]
+		clock.t += 61_000 // пауза между запусками
 		svc.tick()
 		assert.equal(svc.getCase('c-s1').status, 'collecting')
 		assert.equal(svc.getCase('c-s1').closedAt, null)
@@ -353,7 +355,7 @@ describe('LearningService: задания', () => {
 		assert.equal(svc.isProtected('s1'), false) // ready
 	})
 
-	it('close упал окончательно: кейс error (защищён), новое событие возвращает collecting; retry переводит в closing', async () => {
+	it('close упал окончательно: кейс error (не защищает сессию), retry переводит в closing', async () => {
 		const svc = make()
 		feed = [msg('s1')]
 		svc.tick()
@@ -368,14 +370,14 @@ describe('LearningService: задания', () => {
 		await flush()
 		assert.equal(jobs(svc)[0]?.status, 'error')
 		assert.equal(svc.getCase('c-s1').status, 'error')
-		assert.equal(svc.isProtected('s1'), true)
+		assert.equal(svc.isProtected('s1'), false) // события уже в raw/
 		const id = jobs(svc)[0]?.id ?? ''
 		script = [gate().step]
 		svc.retry(id)
 		assert.equal(svc.getCase('c-s1').status, 'closing')
 	})
 
-	it('кейс в error + новое событие → collecting и сбор', async () => {
+	it('кейс в error + новое событие: событие собрано, но заданий нет; runNow возвращает в работу', async () => {
 		const svc = make()
 		feed = [msg('s1')]
 		svc.tick()
@@ -383,10 +385,15 @@ describe('LearningService: задания', () => {
 		store.saveCase({ ...c, status: 'error' })
 		const svc2 = make()
 		feed.push(msg('s1'))
+		clock.t += 40 * 60_000
 		svc2.tick()
-		assert.equal(svc2.getCase('c-s1').status, 'collecting')
-		assert.equal(svc2.view().jobs[0]?.kind, 'collect')
+		assert.equal(svc2.getCase('c-s1').status, 'error')
+		assert.equal(svc2.getCase('c-s1').events, 2)
+		assert.equal(svc2.view().jobs.length, 0)
+		svc2.runNow('c-s1')
+		assert.equal(svc2.getCase('c-s1').status, 'closing')
 		await flush()
+		assert.equal(svc2.getCase('c-s1').status, 'ready')
 	})
 
 	it('final с пустой порцией: нет описания и событий — кейс удалён; есть описание — ready', async () => {

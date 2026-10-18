@@ -90,6 +90,16 @@ export class JobQueue {
 		return j
 	}
 
+	/** Прервано остановкой сервиса: снова в очередь, попытка не тратится. */
+	requeue(id: string, note: string): JobState {
+		const j = this.get(id)
+		j.status = 'queued'
+		j.startedAt = null
+		j.retryAt = null
+		j.note = note
+		return j
+	}
+
 	/** Ручной повтор упавшего задания. */
 	retry(id: string): JobState {
 		const j = this.get(id)

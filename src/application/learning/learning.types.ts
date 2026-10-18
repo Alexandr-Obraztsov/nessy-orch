@@ -20,6 +20,18 @@ export interface CaseState extends CaseView {
 	lastEventAt: number
 	lastRunAt: number
 	nessyCalls: boolean
+	/** корень цепочки при заведении кейса (корень мог быть удалён; нет в старых — первый из `sessions`) */
+	rootId?: string
+}
+
+/** Служебное состояние обучения (`<home>/learning/meta.json`). */
+export interface LearningMeta {
+	/** когда сервис обучения запущен впервые: сессии старше точки отсчёта живых кейсов не заводят */
+	startedAt: number
+	/** `seq` ленты на тот момент: раньше него живой сбор не читает */
+	startSeq: number
+	/** надгробия: id удалённых кейсов-цепочек, которые не воскресают */
+	removed: string[]
 }
 
 export type JobState = JobView & { final: boolean; retryAt: number | null }
@@ -29,10 +41,13 @@ export interface LearningHost {
 	sessions(): SessionView[]
 	/** лента после seq; окно памяти — иначе с диска */
 	messagesSince(seq: number): Message[]
+	/** текущий `seq` ленты */
+	lastSeq(): number
 	/** m.session ?? сессия агента to/from */
 	sessionOfMessage(m: Message): string | null
 	/** есть работающий агент или очередь */
 	isBusy(sessionIds: readonly string[]): boolean
+	/** агент удаляется после ответа; текст ответа сервис сохраняет сам (`writeRun`) */
 	runAgent(req: { name: string; title: string; prompt: string }): Promise<{ agentId: string; text: string; ok: boolean; error?: string }>
 }
 

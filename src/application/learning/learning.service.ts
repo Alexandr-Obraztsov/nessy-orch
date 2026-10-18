@@ -1,4 +1,4 @@
-import type { BackfillCandidate, BackfillResult, CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message } from '../../../shared/types'
+import type { BackfillCandidate, BackfillResult, CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message, SessionView } from '../../../shared/types'
 import { renderPortion } from '../../domain/case-events'
 import { buildCollectorPrompt, parseCollectorReply } from '../../domain/collector'
 import { AppError } from '../../domain/errors'
@@ -6,7 +6,7 @@ import { decide } from '../../domain/learning-schedule'
 import { PORTION_CHARS, parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
 import { JobQueue } from './job-queue'
-import type { CaseState, JobState, LearningDeps, TranscriptCursor } from './learning.types'
+import type { CaseState, JobState, LearningDeps, LearningMeta, TranscriptCursor } from './learning.types'
 
 /** id кейса транскрипта прошлого чата; имя безопасно для пути. */
 export const transcriptCaseId = (chatId: string): string => `c-t-${chatId.replace(/[^\w-]/g, '_')}`
@@ -39,6 +39,11 @@ export class LearningService {
 	private wake: NodeJS.Timeout | null = null
 	/** идущие исполнения заданий: `stop()` ждёт их */
 	private readonly inflight = new Set<Promise<void>>()
+	/** задания, прерванные `stop()`: их поздние итоги игнорируются */
+	private readonly interrupted = new Set<string>()
+	private meta: LearningMeta = { startedAt: 0, startSeq: 0, removed: [] }
+	/** до какого `seq` ленты просмотрена цепочка без кейса (корень → seq), только в памяти */
+	private readonly scanned = new Map<string, number>()
 
 	constructor(private readonly deps: LearningDeps) {
 		this.settings = parseLearningSettings({ enabled: deps.defaultOn })
@@ -47,7 +52,18 @@ export class LearningService {
 
 	load(): void {
 		this.cases.clear()
-		for (const c of this.deps.store.loadCases()) this.cases.set(c.id, c)
+		for (const c of this.deps.store.loadCases()) {
+			// событий за `nextN` быть не может: хвост оборванного сбора отрезается
+			this.deps.store.truncateRaw(c.id, c.nextN)
+			this.cases.set(c.id, c.rootId === undefined ? { ...c, rootId: c.sessions[0] ?? c.id } : c)
+		}
+		// точка отсчёта: сессии, созданные до первого запуска, живых кейсов не заводят (только разбор прошлого)
+		const meta = this.deps.store.loadMeta()
+		if (meta) this.meta = meta
+		else {
+			this.meta = { startedAt: this.deps.clock.now(), startSeq: this.deps.host.lastSeq(), removed: [] }
+			this.deps.store.saveMeta(this.meta)
+		}
 		const jobs = this.deps.store.loadJobs()
 		this.queue.load(jobs)
 		// после рестарта `running` вернулись в очередь: фиксируем это на диске
@@ -87,6 +103,12 @@ export class LearningService {
 		})
 		await Promise.race([Promise.allSettled([...this.inflight]).then(() => undefined), limit])
 		if (timer) clearTimeout(timer)
+		// не дождались: задание возвращается в очередь без траты попытки
+		const cut = this.queue.running()
+		for (const j of cut) {
+			this.interrupted.add(j.id)
+			this.jobsChanged(this.queue.requeue(j.id, 'прервано остановкой'))
+		}
 	}
 
 	getSettings(): LearningSettings {
@@ -113,6 +135,9 @@ export class LearningService {
 	/** Правка настроек из API: сохраняет `learning.json`, публикует `learning_settings`. */
 	updateSettings(patch: unknown): LearningSettings {
 		const next = patchLearningSettings(this.settings, patch)
+		// сессию вернули в обучение — надгробие её удалённого кейса снимается
+		const back = this.settings.disabledSessions.filter(s => !next.disabledSessions.includes(s))
+		if (back.length) this.untomb(back.flatMap(s => chainOf(this.deps.host.sessions(), s)))
 		this.deps.store.saveSettings(next)
 		this.settings = next
 		// свою запись заново не читаем
@@ -124,8 +149,10 @@ export class LearningService {
 
 	/** Удаляет кейс и его `raw/`; пока по кейсу идёт задание — 409 `case_busy`. */
 	removeCase(id: string): void {
-		this.getCase(id)
+		const c = this.getCase(id)
 		this.assertIdle(id)
+		// надгробие: живая сессия этого кейса заново его не заведёт
+		this.tomb([c.rootId ?? c.sessions[0] ?? '', ...c.sessions])
 		this.cases.delete(id)
 		this.queue.removeCase(id)
 		this.deps.store.removeCase(id)
@@ -133,9 +160,52 @@ export class LearningService {
 		this.deps.hub.publish({ t: 'learning_case_removed', id })
 	}
 
+	private tomb(ids: readonly string[]): void {
+		const add = ids.filter(id => id !== '' && !this.meta.removed.includes(id))
+		if (!add.length) return
+		this.meta = { ...this.meta, removed: [...this.meta.removed, ...new Set(add)] }
+		this.deps.store.saveMeta(this.meta)
+	}
+
+	private untomb(ids: readonly string[]): void {
+		const removed = this.meta.removed.filter(id => !ids.includes(id))
+		if (removed.length === this.meta.removed.length) return
+		this.meta = { ...this.meta, removed }
+		this.deps.store.saveMeta(this.meta)
+	}
+
+	/** Кейс упавший (`error`) возвращается в сбор: автоматически он ничего не запускал. */
+	private reopen(c: CaseState): CaseState {
+		if (c.status !== 'error') return c
+		const next: CaseState = { ...c, status: 'collecting', closedAt: null, updatedAt: new Date(this.deps.clock.now()).toISOString() }
+		this.update(next)
+		return next
+	}
+
+	/** Индекс «сессия → кейс»: кейс цепочки находится по любой её сессии, а не только по корню. */
+	private caseIndex(): Map<string, string> {
+		const idx = new Map<string, string>()
+		for (const c of this.cases.values()) for (const s of c.sessions) idx.set(s, c.id)
+		return idx
+	}
+
+	private caseForChain(chain: readonly string[], idx: ReadonlyMap<string, string> = this.caseIndex()): CaseState | null {
+		for (const s of chain) {
+			const c = this.cases.get(idx.get(s) ?? '')
+			if (c) return c
+		}
+		const root = chain[0]
+		return root === undefined ? null : (this.cases.get(caseIdOf(root)) ?? null)
+	}
+
+	/** Живой кейс заводится только для цепочки с сессией, созданной после точки отсчёта. */
+	private isFresh(chain: readonly string[], byId: ReadonlyMap<string, SessionView>): boolean {
+		return chain.some(id => (Date.parse(byId.get(id)?.createdAt ?? '') || 0) >= this.meta.startedAt)
+	}
+
 	/** Пересборка описания: сбрасывает `coveredUntil` и `summary.md`, ставит итоговое задание `close`. */
 	rebuild(id: string): JobView {
-		const c = this.getCase(id)
+		const c = this.reopen(this.getCase(id))
 		this.assertIdle(id)
 		this.deps.store.writeSummary(id, '')
 		this.update({ ...c, coveredUntil: 0, updatedAt: new Date(this.deps.clock.now()).toISOString() })
@@ -145,7 +215,7 @@ export class LearningService {
 	/** Все незакрытые кейсы (сбор или ошибка) — на итоговый сбор. */
 	runAll(): JobView[] {
 		const open = [...this.cases.values()].filter(c => c.status === 'collecting' || c.status === 'error')
-		return open.map(c => this.queue.toView(this.request('close', c.id, true)))
+		return open.map(c => this.queue.toView(this.request('close', this.reopen(c).id, true)))
 	}
 
 	private assertIdle(caseId: string): void {
@@ -169,13 +239,14 @@ export class LearningService {
 		}
 		const byId = new Map(sessions.map(s => [s.id, s]))
 		const roots = new Set<string>()
+		const idx = this.caseIndex()
 		const out: BackfillCandidate[] = []
 		for (const s of sessions) {
 			const chain = chainOf(sessions, s.id)
 			const root = chain[0]
 			if (root === undefined || roots.has(root)) continue
 			roots.add(root)
-			if (this.cases.has(caseIdOf(root))) continue
+			if (this.caseForChain(chain, idx)) continue
 			const size = chain.reduce((n, id) => n + (perSession.get(id) ?? 0), 0)
 			if (size === 0) continue
 			const date = chain.reduce((max, id) => (byId.get(id)?.updatedAt ?? '') > max ? (byId.get(id)?.updatedAt ?? '') : max, '')
@@ -199,8 +270,7 @@ export class LearningService {
 				picked.push(cand)
 				continue
 			}
-			const root = chainOf(this.deps.host.sessions(), id)[0] ?? id
-			if (this.cases.has(caseIdOf(root)) || this.cases.has(transcriptCaseId(id))) skipped.push({ id, reason: 'кейс уже есть' })
+			if (this.caseForChain(chainOf(this.deps.host.sessions(), id)) || this.cases.has(transcriptCaseId(id))) skipped.push({ id, reason: 'кейс уже есть' })
 			else throw new AppError(404, 'no_candidate', `${id} нет среди кандидатов разбора`)
 		}
 		const created: CaseView[] = []
@@ -220,8 +290,10 @@ export class LearningService {
 
 	private backfillSession(rootId: string): CaseState | null {
 		const chain = chainOf(this.deps.host.sessions(), rootId)
-		this.collect(rootId, chain, this.deps.host.messagesSince(0), 'backfill')
-		return this.cases.get(caseIdOf(rootId)) ?? null
+		// разбор прошлого — явное желание пользователя: надгробие снимается
+		this.untomb(chain)
+		this.collect(rootId, chain, this.deps.host.messagesSince(0), 'backfill', 0)
+		return this.caseForChain(chain)
 	}
 
 	/** Кейс прошлого чата: без сессий, транскрипт читается целиком, вызовы nessy-orch идут событиями `call`. */
@@ -253,17 +325,25 @@ export class LearningService {
 		}
 		const r = store.copyTranscript(id, chatId, { path: file, offset: 0 })
 		const { events, state } = ingest(base, { messages: [], transcripts: [{ chatId, text: r.text, next: r.next }] })
-		if (events.length) store.appendRaw(id, events)
+		if (events.length && !store.appendRaw(id, events)) return null
 		this.update(state)
 		return state
 	}
 
-	/** Сессию подключили к вкладке (в том числе после `/resume`): сразу подбираем её события. */
+	/** Сессию подключили к вкладке (в том числе после `/resume`): подбираем события вне запроса хука. */
 	onAttach(_sessionId: string): void {
-		if (this.loaded) this.tick()
+		if (!this.loaded) return
+		setImmediate(() => {
+			if (this.stopped) return
+			try {
+				this.tick()
+			} catch {
+				/* сбой не должен ронять сервер */
+			}
+		}).unref()
 	}
 
-	/** Синхронно: собирает события всех цепочек, затем принимает решения. */
+	/** Синхронно: собирает события всех цепочек, затем принимает решения. Ленту читает один раз за тик. */
 	tick(): void {
 		this.readSettings()
 		// уже поставленные задания (повторы, ручные) идут и при выключенном обучении
@@ -271,31 +351,40 @@ export class LearningService {
 		if (!this.settings.enabled) return
 		const { host, clock } = this.deps
 		const sessions = host.sessions()
+		const byId = new Map(sessions.map(s => [s.id, s]))
+		const idx = this.caseIndex()
 		const chains = new Map<string, string[]>()
 		for (const s of sessions) {
 			const chain = chainOf(sessions, s.id)
 			const root = chain[0]
 			if (root !== undefined && !chains.has(root)) chains.set(root, chain)
 		}
-		const active = [...chains.entries()].filter(([, chain]) => !chain.some(id => this.settings.disabledSessions.includes(id)))
-		if (!active.length) return
-		const from = Math.min(...active.map(([root]) => this.cases.get(caseIdOf(root))?.feedSeq ?? 0))
-		const messages = host.messagesSince(from)
-		for (const [root, chain] of active) this.collect(root, chain, messages)
+		// собираются цепочки с кейсом и свежие (созданные после точки отсчёта); остальные не читаются вовсе
+		const items: Array<{ root: string; chain: string[]; from: number }> = []
+		for (const [root, chain] of chains) {
+			if (chain.some(id => this.settings.disabledSessions.includes(id) || this.meta.removed.includes(id))) continue
+			const c = this.caseForChain(chain, idx)
+			if (c) items.push({ root, chain, from: c.feedSeq })
+			else if (this.isFresh(chain, byId)) items.push({ root, chain, from: Math.max(this.scanned.get(root) ?? 0, this.meta.startSeq) })
+		}
+		if (!items.length) return
+		const messages = host.messagesSince(Math.min(...items.map(i => i.from)))
+		const top = messages.reduce((max, m) => Math.max(max, m.seq), 0)
 		const now = clock.now()
-		for (const [root, chain] of active) {
-			const c = this.cases.get(caseIdOf(root))
-			if (!c) continue
+		for (const { root, chain, from } of items) {
+			const c = this.collect(root, chain, messages, 'live', from, idx)
+			if (!c) {
+				// кейса нет: просмотренное повторно не читаем
+				this.scanned.set(root, Math.max(from, top))
+				continue
+			}
+			// `error` сам ничего не запускает (иначе шторм агентов при постоянной ошибке): только retry / run / rebuild
+			if (c.status === 'error') continue
 			const pending = c.events - c.coveredUntil
-			const action = decide(
-				// кейс в ошибке с новыми событиями ведёт себя как закрытый: сразу собираем
-				{ status: c.status === 'error' ? 'ready' : c.status, pending, lastRunAt: c.lastRunAt, lastEventAt: c.lastEventAt, busy: host.isBusy(chain), hasJob: this.hasJob(c.id) },
-				now,
-				this.settings,
-			)
+			const action = decide({ status: c.status, pending, lastRunAt: c.lastRunAt, lastEventAt: c.lastEventAt, busy: host.isBusy(chain), hasJob: this.hasJob(c.id) }, now, this.settings)
 			if (action === 'collect') {
-				// закрытый (или упавший) кейс получил события: сессия вернулась
-				if (c.status === 'ready' || c.status === 'error') this.update({ ...c, status: 'collecting', closedAt: null, updatedAt: new Date(now).toISOString() })
+				// закрытый кейс получил события: сессия вернулась
+				if (c.status === 'ready') this.update({ ...c, status: 'collecting', closedAt: null, updatedAt: new Date(now).toISOString() })
 				this.request('collect', c.id, false)
 			} else if (action === 'close') {
 				this.request('close', c.id, true)
@@ -303,11 +392,11 @@ export class LearningService {
 		}
 	}
 
-	/** Новые события одной цепочки: лента (только сообщения сессий цепочки) и транскрипты. */
-	private collect(root: string, chain: string[], messages: readonly Message[], source: CaseView['source'] = 'live'): void {
+	/** Новые события одной цепочки: лента (только сообщения сессий цепочки) и транскрипты. Возвращает кейс цепочки (если есть). */
+	private collect(root: string, chain: string[], messages: readonly Message[], source: CaseView['source'], fromSeq: number, idx?: ReadonlyMap<string, string>): CaseState | null {
 		const { host, store, clock } = this.deps
-		const id = caseIdOf(root)
-		const existing = this.cases.get(id)
+		const existing = this.caseForChain(chain, idx)
+		const id = existing?.id ?? caseIdOf(root)
 		const now = clock.now()
 		const iso = new Date(now).toISOString()
 		const base: CaseState = existing ?? {
@@ -323,10 +412,11 @@ export class LearningService {
 			closedAt: null,
 			playbook: null,
 			source,
-			feedSeq: 0,
+			feedSeq: fromSeq,
 			transcripts: {},
 			nextN: 1,
 			lastEventAt: 0,
+			rootId: root,
 			// новый кейс первый раз собирается по интервалу или по 15 событиям, а не сразу
 			lastRunAt: now,
 			nessyCalls: false,
@@ -341,7 +431,8 @@ export class LearningService {
 		const transcripts: Array<{ chatId: string; text: string; next: TranscriptCursor }> = []
 		for (const sid of chain) {
 			const s = byId.get(sid)
-			if (!s?.transcriptPath) continue
+			// чужие файлы (не из каталога проектов Claude Code, не .jsonl) не читаем
+			if (!s?.transcriptPath || !store.isAllowedTranscript(s.transcriptPath, this.deps.claudeProjectsDir)) continue
 			const key = s.chatId ?? sid
 			const prev = base.transcripts[key]
 			const cur: TranscriptCursor = prev && prev.path === s.transcriptPath ? prev : { path: s.transcriptPath, offset: 0 }
@@ -349,18 +440,21 @@ export class LearningService {
 			if (r.text || r.next.offset !== cur.offset || r.next.path !== prev?.path) transcripts.push({ chatId: key, text: r.text, next: r.next })
 		}
 		const { events, state } = ingest(base, { messages: mine, transcripts })
-		if (!events.length && !existing) return
+		if (!events.length && !existing) return null
 		const maxSeen = unseen.reduce((max, m) => Math.max(max, m.seq), state.feedSeq)
 		const touched = chain.reduce((max, sid) => Math.max(max, Date.parse(byId.get(sid)?.updatedAt ?? '') || 0), state.lastEventAt)
 		const next: CaseState = {
 			...state,
 			feedSeq: maxSeen,
 			sessions: chain,
+			rootId: base.rootId ?? root,
 			lastEventAt: touched,
 			updatedAt: events.length || chain.join() !== base.sessions.join() ? iso : base.updatedAt,
 		}
-		if (events.length) store.appendRaw(id, events)
+		// не записалось — курсоры ленты и транскриптов не двигаем: следующий тик повторит
+		if (events.length && !store.appendRaw(id, events)) return existing
 		this.update(next)
+		return next
 	}
 
 	/** Сохраняет и публикует кейс, если что-то изменилось. */
@@ -393,8 +487,9 @@ export class LearningService {
 
 	/** Ручной «Собрать кейс сейчас»: задание `close` по кейсу или по сессии; работает и при выключенном обучении. */
 	runNow(sessionOrCaseId: string): JobView {
-		const c = this.findCase(sessionOrCaseId)
-		if (!c) throw new AppError(404, 'no_case', `нет кейса или сессии ${sessionOrCaseId}`)
+		const found = this.findCase(sessionOrCaseId, true)
+		if (!found) throw new AppError(404, 'no_case', `нет кейса или сессии ${sessionOrCaseId}`)
+		const c = this.reopen(found)
 		return this.queue.toView(this.request('close', c.id, true))
 	}
 
@@ -403,8 +498,8 @@ export class LearningService {
 		this.readSettings()
 		if (!this.settings.enabled) return
 		// отключённой сессии (и всей её цепочки) кейс не заводим
-		if (chainOf(this.deps.host.sessions(), sessionId).some(id => this.settings.disabledSessions.includes(id))) return
-		const c = this.findCase(sessionId)
+		if (chainOf(this.deps.host.sessions(), sessionId).some(id => this.settings.disabledSessions.includes(id) || this.meta.removed.includes(id))) return
+		const c = this.findCase(sessionId, false)
 		if (!c || c.sessions.some(id => this.settings.disabledSessions.includes(id))) return
 		this.request('close', c.id, true)
 	}
@@ -413,32 +508,40 @@ export class LearningService {
 	retry(jobId: string): JobView {
 		const job = this.queue.retry(jobId)
 		const c = this.cases.get(job.caseId)
-		if (c && job.kind === 'close' && c.status === 'error') this.update({ ...c, status: 'closing', updatedAt: new Date(this.deps.clock.now()).toISOString() })
+		if (c && c.status === 'error') this.update({ ...c, status: job.kind === 'close' ? 'closing' : 'collecting', closedAt: null, updatedAt: new Date(this.deps.clock.now()).toISOString() })
 		this.jobsChanged(job)
 		this.pump()
 		return this.queue.toView(job)
 	}
 
-	/** Сессию нельзя удалять, пока её кейс не `ready` (если обучение для неё включено). */
+	/** Сессию нельзя удалять, пока её кейс не `ready` (если обучение для неё включено); `error` не защищает: события уже в `raw/`. */
 	isProtected(sessionId: string): boolean {
 		if (!this.settings.enabled || this.settings.disabledSessions.includes(sessionId)) return false
-		for (const c of this.cases.values()) if (c.sessions.includes(sessionId)) return c.status !== 'ready'
+		for (const c of this.cases.values()) if (c.sessions.includes(sessionId)) return c.status !== 'ready' && c.status !== 'error'
 		return false
 	}
 
-	/** Кейс по id или по сессии; для живой сессии сначала подбирает свежие события (кейс может ещё не существовать). */
-	private findCase(idOrSession: string): CaseState | null {
+	/**
+	 * Кейс по id или по сессии; для живой сессии сначала подбирает свежие события (кейс может ещё не существовать).
+	 * `manual` — ручной запуск: кейс заводится и для старой сессии (лента с начала), надгробие снимается;
+	 * иначе кейс заводится только для свежей (после точки отсчёта) цепочки, ленту читаем с точки отсчёта.
+	 */
+	private findCase(idOrSession: string, manual: boolean): CaseState | null {
 		const direct = this.cases.get(idOrSession)
 		if (direct) return direct
-		const sessions = this.deps.host.sessions()
+		const { host } = this.deps
+		const sessions = host.sessions()
 		if (sessions.some(s => s.id === idOrSession)) {
 			const chain = chainOf(sessions, idOrSession)
 			const root = chain[0]
 			if (root !== undefined) {
-				const from = this.cases.get(caseIdOf(root))?.feedSeq ?? 0
-				this.collect(root, chain, this.deps.host.messagesSince(from))
-				const c = this.cases.get(caseIdOf(root))
-				if (c) return c
+				const have = this.caseForChain(chain)
+				if (!have && manual) this.untomb(chain)
+				if (have || manual || this.isFresh(chain, new Map(sessions.map(s => [s.id, s])))) {
+					const from = have ? have.feedSeq : manual ? 0 : Math.max(this.scanned.get(root) ?? 0, this.meta.startSeq)
+					const c = this.collect(root, chain, host.messagesSince(from), 'live', from)
+					if (c) return c
+				}
 			}
 		}
 		return [...this.cases.values()].find(c => c.sessions.includes(idOrSession)) ?? null
@@ -525,10 +628,14 @@ export class LearningService {
 		})
 		const res = await host.runAgent({ name: `collector-${c.id}`, title: `Описание сессии: ${c.title ?? c.id}`, prompt })
 		job.agentId = res.agentId
+		// агент после ответа удаляется: ответ остаётся в cases/<id>/runs/
+		if (res.text) store.writeRun(c.id, job.id, res.text)
+		if (this.interrupted.has(job.id)) return
 		if (!res.ok) return this.fail(job, res.error ?? 'агент завершился с ошибкой')
 		const parsed = parseCollectorReply(res.text)
 		if (!parsed) return this.fail(job, 'в ответе нет <summary>')
-		store.writeSummary(c.id, parsed.summary)
+		// описание не записалось — курсор не двигаем, иначе события выпали бы из описания навсегда
+		if (!store.writeSummary(c.id, parsed.summary)) return this.fail(job, 'не удалось записать summary.md')
 		const latest = this.cases.get(c.id)
 		this.queue.finish(job.id)
 		if (!latest) {
@@ -551,13 +658,14 @@ export class LearningService {
 		else if (job.final) this.seal(c.id)
 	}
 
-	/** Провал: повтор или `error`; упавшее `close` переводит кейс в `error`. */
+	/** Провал: повтор или `error`; окончательный провал задания (collect или close) переводит кейс в `error`. */
 	private fail(job: JobState, error: string): void {
+		if (this.interrupted.has(job.id)) return
 		const j = this.queue.fail(job.id, error)
 		if (j.status === 'error') {
 			const c = this.cases.get(j.caseId)
 			// пауза до следующей автоматической попытки считается от провала
-			if (c) this.update({ ...c, status: j.kind === 'close' ? 'error' : c.status, lastRunAt: this.deps.clock.now(), updatedAt: new Date(this.deps.clock.now()).toISOString() })
+			if (c) this.update({ ...c, status: 'error', lastRunAt: this.deps.clock.now(), updatedAt: new Date(this.deps.clock.now()).toISOString() })
 		}
 		this.jobsChanged(j)
 	}

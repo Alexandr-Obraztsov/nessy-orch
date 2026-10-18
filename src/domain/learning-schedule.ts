@@ -16,8 +16,9 @@ export interface ScheduleInput {
 /** Что делать с кейсом сейчас: ничего, дописать описание (`collect`) или закрыть (`close`). */
 export function decide(c: ScheduleInput, now: number, s: LearningSettings): 'none' | 'collect' | 'close' {
 	if (c.hasJob) return 'none'
-	// закрытый кейс получил новые события: сессия вернулась
-	if (c.status === 'ready') return c.pending > 0 ? 'collect' : 'none'
+	// закрытый кейс получил новые события: сессия вернулась (с той же паузой между запусками)
+	if (c.status === 'ready') return c.pending > 0 && now - c.lastRunAt >= COOLDOWN_MS ? 'collect' : 'none'
+	// `error` сам ничего не запускает: только ручные retry/run/rebuild
 	if (c.status !== 'collecting') return 'none'
 	if (now - c.lastEventAt >= s.idleMin * 60_000 && !c.busy) return 'close'
 	if (now - c.lastRunAt < COOLDOWN_MS) return 'none'

@@ -16,7 +16,7 @@ const session = (id: string, patch: Partial<SessionView> = {}): SessionView => (
 	owner: null,
 	status: 'active',
 	summary: null,
-	createdAt: new Date(T0).toISOString(),
+	createdAt: new Date(T0 + 60_000).toISOString(),
 	updatedAt: new Date(T0).toISOString(),
 	sources: 0,
 	chatId: `chat-${id}`,
@@ -60,6 +60,7 @@ describe('LearningService: сбор событий', () => {
 	const host: LearningHost = {
 		sessions: () => sessions,
 		messagesSince: s => feed.filter(m => m.seq > s),
+		lastSeq: () => 0,
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => busy,
 		// сборщик не отвечает: задания остаются в работе, видно только что поставлено
@@ -78,7 +79,7 @@ describe('LearningService: сбор событий', () => {
 		prompts = []
 		store.prompts.set('session-collector', '{{mode}}')
 		hub.subscribe(e => events.push(e))
-		sessions = [session('s1', { transcriptPath: '/t/s1.jsonl' })]
+		sessions = [session('s1', { transcriptPath: '/p/s1.jsonl' })]
 		feed = []
 		busy = false
 		clock.t = T0 + 60_000
@@ -88,13 +89,13 @@ describe('LearningService: сбор событий', () => {
 
 	it('лента и транскрипт: кейс c-s1, события 1…4 по времени, курсоры сдвинуты', () => {
 		feed = [msg({ session: 's1', ts: T0 + 2000 }), msg({ session: 's1', ts: T0 + 4000, from: 'a1', to: YOU, kind: 'reply' })]
-		store.files.set('/t/s1.jsonl', line('u1', 'user', 'привет', 1) + line('u2', 'assistant', 'ответ', 3))
+		store.files.set('/p/s1.jsonl', line('u1', 'user', 'привет', 1) + line('u2', 'assistant', 'ответ', 3))
 		svc.tick()
 		const c = svc.getCase('c-s1')
 		assert.equal(c.events, 4)
 		assert.deepEqual(store.readRaw('c-s1', 1).map(e => [e.n, e.kind]), [[1, 'user'], [2, 'task'], [3, 'claude'], [4, 'reply']])
 		assert.equal(c.feedSeq, 2)
-		assert.equal(c.transcripts['chat-s1']?.offset, Buffer.byteLength(store.files.get('/t/s1.jsonl') ?? ''))
+		assert.equal(c.transcripts['chat-s1']?.offset, Buffer.byteLength(store.files.get('/p/s1.jsonl') ?? ''))
 		assert.equal(c.status, 'collecting')
 		assert.ok(events.some(e => e.t === 'learning_case'))
 		assert.equal(svc.view().cases.length, 1)
@@ -195,6 +196,7 @@ describe('LearningService: сбор событий', () => {
 		const svc2 = new LearningService({ store, host, hub, clock, ids: { next: () => 'id' }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p' })
 		svc2.load()
 		feed.push(msg({ session: 's1' }))
+		clock.t += 61_000 // пауза между запусками
 		svc2.tick()
 		assert.equal(svc2.getCase('c-s1').status, 'collecting')
 		assert.equal(svc2.getCase('c-s1').closedAt, null)

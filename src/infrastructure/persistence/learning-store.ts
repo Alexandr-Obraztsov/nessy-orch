@@ -3,10 +3,12 @@
  *
  *   <home>/learning.json                          настройки
  *   <home>/learning/jobs.json                     очередь заданий
+ *   <home>/learning/meta.json                     точка отсчёта и надгробия удалённых кейсов
  *   <home>/cases/<id>/state.json                  состояние кейса
  *   <home>/cases/<id>/case.md                     frontmatter + summary.md
  *   <home>/cases/<id>/{summary,notes}.md          описание сессии и заметки
  *   <home>/cases/<id>/raw/events.jsonl            события кейса
+ *   <home>/cases/<id>/runs/<job>.md               ответы фоновых агентов
  *   <home>/cases/<id>/raw/transcript-<chat>.jsonl копия транскриптов Claude Code
  *   <root>/learning/prompts/<name>.md             промпты агентов
  */
@@ -14,18 +16,21 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { BackfillCandidate, LearningSettings } from '../../../shared/types'
 import type { LearningStorePort } from '../../application/ports'
-import type { CaseState, JobState, TranscriptCursor } from '../../application/learning/learning.types'
+import type { CaseState, JobState, LearningMeta, TranscriptCursor } from '../../application/learning/learning.types'
 import type { RawEvent } from '../../domain/learning.types'
 import { arr, errMsg, isObject, parseJson } from '../../lib/json'
 import { appendJsonl, readJsonl, readText, writeAtomic } from './jsonl'
 import { findTranscript, scanTranscripts } from './transcript-scan'
 
 const RAW_LIMIT = 1_000_000
+/** За один вызов `copyTranscript` читается не больше (остаток — в следующий тик) */
+const COPY_LIMIT = 8 * 1024 * 1024
 
 export class FileLearningStore implements LearningStorePort {
 	readonly casesDir: string
 	private readonly settingsPath: string
 	private readonly jobsPath: string
+	private readonly metaPath: string
 	private readonly promptsDir: string
 	private lastWarn = 0
 
@@ -36,6 +41,7 @@ export class FileLearningStore implements LearningStorePort {
 		this.casesDir = path.join(home, 'cases')
 		this.settingsPath = path.join(home, 'learning.json')
 		this.jobsPath = path.join(home, 'learning', 'jobs.json')
+		this.metaPath = path.join(home, 'learning', 'meta.json')
 		this.promptsDir = path.join(root, 'learning', 'prompts')
 	}
 
@@ -104,8 +110,8 @@ export class FileLearningStore implements LearningStorePort {
 		return readText(path.join(this.caseDir(id), 'summary.md'))
 	}
 
-	writeSummary(id: string, text: string): void {
-		this.safe('описание кейса', () => {
+	writeSummary(id: string, text: string): boolean {
+		return this.safe('описание кейса', () => {
 			const dir = this.caseDir(id)
 			fs.mkdirSync(dir, { recursive: true })
 			writeAtomic(path.join(dir, 'summary.md'), text)
@@ -118,9 +124,9 @@ export class FileLearningStore implements LearningStorePort {
 		return readText(path.join(this.caseDir(id), 'notes.md'))
 	}
 
-	appendRaw(id: string, events: readonly RawEvent[]): void {
-		if (events.length === 0) return
-		this.safe('события кейса', () => {
+	appendRaw(id: string, events: readonly RawEvent[]): boolean {
+		if (events.length === 0) return true
+		return this.safe('события кейса', () => {
 			const dir = path.join(this.caseDir(id), 'raw')
 			fs.mkdirSync(dir, { recursive: true })
 			for (const e of events) appendJsonl(path.join(dir, 'events.jsonl'), e)
@@ -128,7 +134,53 @@ export class FileLearningStore implements LearningStorePort {
 	}
 
 	readRaw(id: string, fromN: number, toN = Infinity): RawEvent[] {
-		return readJsonl<RawEvent>(path.join(this.caseDir(id), 'raw', 'events.jsonl'), RAW_LIMIT).filter(e => e.n >= fromN && e.n <= toN)
+		// повтор `n` (обрыв сбора посреди записи): последняя запись побеждает, позиция — первой
+		const byN = new Map<number, RawEvent>()
+		for (const e of readJsonl<RawEvent>(path.join(this.caseDir(id), 'raw', 'events.jsonl'), RAW_LIMIT)) if (e.n >= fromN && e.n <= toN) byN.set(e.n, e)
+		return [...byN.values()].sort((a, b) => a.n - b.n)
+	}
+
+	/**
+	 * Хвост незавершённого сбора (рестарт между записью событий и записью state.json) отрезается.
+	 * Копию транскрипта (`raw/transcript-*.jsonl`) не трогаем: это лишь архив, дубль строк допустим.
+	 */
+	truncateRaw(id: string, nextN: number): void {
+		const file = path.join(this.caseDir(id), 'raw', 'events.jsonl')
+		const all = readJsonl<RawEvent>(file, RAW_LIMIT)
+		const keep = all.filter(e => e.n < nextN)
+		if (keep.length === all.length) return
+		this.safe('обрезка событий кейса', () => writeAtomic(file, keep.map(e => JSON.stringify(e) + '\n').join('')))
+	}
+
+	writeRun(caseId: string, jobId: string, text: string): void {
+		this.safe('ответ агента', () => {
+			const dir = path.join(this.caseDir(caseId), 'runs')
+			fs.mkdirSync(dir, { recursive: true })
+			writeAtomic(path.join(dir, `${fileName(jobId)}.md`), text)
+		})
+	}
+
+	isAllowedTranscript(file: string, dir: string): boolean {
+		try {
+			const base = fs.realpathSync(path.resolve(dir))
+			const real = fs.realpathSync(path.resolve(file))
+			return real.startsWith(base.endsWith(path.sep) ? base : base + path.sep) && real.endsWith('.jsonl')
+		} catch {
+			return false
+		}
+	}
+
+	loadMeta(): LearningMeta | null {
+		const v = parseJson(readText(this.metaPath))
+		if (!isObject(v) || typeof v['startedAt'] !== 'number' || typeof v['startSeq'] !== 'number') return null
+		return { startedAt: v['startedAt'], startSeq: v['startSeq'], removed: arr(v['removed']).filter((x): x is string => typeof x === 'string') }
+	}
+
+	saveMeta(m: LearningMeta): void {
+		this.safe('метаданные обучения', () => {
+			fs.mkdirSync(path.dirname(this.metaPath), { recursive: true })
+			writeAtomic(this.metaPath, JSON.stringify(m, null, 2))
+		})
 	}
 
 	copyTranscript(id: string, chatId: string, cur: TranscriptCursor): { text: string; next: TranscriptCursor } {
@@ -140,14 +192,18 @@ export class FileLearningStore implements LearningStorePort {
 			const fd = fs.openSync(cur.path, 'r')
 			let buf: Buffer
 			try {
-				buf = Buffer.alloc(size - offset)
+				buf = Buffer.alloc(Math.min(size - offset, COPY_LIMIT))
 				const n = fs.readSync(fd, buf, 0, buf.length, offset)
 				buf = buf.subarray(0, n)
 			} finally {
 				fs.closeSync(fd)
 			}
 			const end = buf.lastIndexOf(0x0a)
-			if (end < 0) return offset === cur.offset ? same : { text: '', next: { path: cur.path, offset } }
+			if (end < 0) {
+				// строка длиннее лимита: пропускаем её начало, иначе чтение застряло бы навсегда
+				if (buf.length === COPY_LIMIT && size - offset > COPY_LIMIT) return { text: '', next: { path: cur.path, offset: offset + buf.length } }
+				return offset === cur.offset ? same : { text: '', next: { path: cur.path, offset } }
+			}
 			const chunk = buf.subarray(0, end + 1)
 			const next = { path: cur.path, offset: offset + chunk.length }
 			const ok = this.safe('копия транскрипта', () => {

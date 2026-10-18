@@ -159,4 +159,58 @@ describe('FileLearningStore', () => {
 		fs.writeFileSync(path.join(root, 'learning', 'prompts', 'session-collector.md'), 'промпт')
 		assert.equal(store.readPrompt('session-collector'), 'промпт')
 	})
+
+	it('raw: truncateRaw режет хвост за nextN, readRaw при повторе n берёт последнюю запись', () => {
+		store.saveCase(mkCase('c1'))
+		store.appendRaw('c1', [ev(1), ev(2), ev(3), ev(4)])
+		store.truncateRaw('c1', 3)
+		assert.deepEqual(store.readRaw('c1', 1).map(e => e.n), [1, 2])
+		store.appendRaw('c1', [{ ...ev(2), text: 'новый' }])
+		assert.deepEqual(store.readRaw('c1', 1).map(e => e.text), ['e1', 'новый'])
+	})
+
+	it('writeSummary / appendRaw возвращают false при сбое диска', () => {
+		console.error = () => {}
+		assert.equal(store.writeSummary('c1', 'x'), true)
+		assert.equal(store.appendRaw('c1', [ev(1)]), true)
+		fs.rmSync(store.casesDir, { recursive: true, force: true })
+		fs.writeFileSync(store.casesDir, 'файл вместо каталога')
+		assert.equal(store.writeSummary('c1', 'x'), false)
+		assert.equal(store.appendRaw('c1', [ev(1)]), false)
+	})
+
+	it('meta: нет файла — null; круг; ответы агентов в runs/', () => {
+		assert.equal(store.loadMeta(), null)
+		store.saveMeta({ startedAt: 5, startSeq: 7, removed: ['s1'] })
+		assert.deepEqual(store.loadMeta(), { startedAt: 5, startSeq: 7, removed: ['s1'] })
+		store.writeRun('c1', 'j1', 'ответ')
+		assert.equal(fs.readFileSync(path.join(store.casesDir, 'c1', 'runs', 'j1.md'), 'utf8'), 'ответ')
+	})
+
+	it('isAllowedTranscript: только .jsonl внутри каталога, symlink наружу не проходит', () => {
+		const dir = path.join(tmp, 'projects')
+		fs.mkdirSync(path.join(dir, 'p'), { recursive: true })
+		fs.writeFileSync(path.join(dir, 'p', 'a.jsonl'), '{}\n')
+		fs.writeFileSync(path.join(dir, 'p', 'a.txt'), 'x')
+		fs.writeFileSync(path.join(tmp, 'out.jsonl'), '{}\n')
+		fs.symlinkSync(path.join(tmp, 'out.jsonl'), path.join(dir, 'p', 'link.jsonl'))
+		assert.equal(store.isAllowedTranscript(path.join(dir, 'p', 'a.jsonl'), dir), true)
+		assert.equal(store.isAllowedTranscript(path.join(dir, 'p', 'a.txt'), dir), false)
+		assert.equal(store.isAllowedTranscript(path.join(tmp, 'out.jsonl'), dir), false)
+		assert.equal(store.isAllowedTranscript(path.join(dir, 'p', 'link.jsonl'), dir), false)
+		assert.equal(store.isAllowedTranscript(path.join(dir, '..', 'projects', 'p', 'a.jsonl'), dir), true)
+		assert.equal(store.isAllowedTranscript(path.join(dir, 'p', 'нет.jsonl'), dir), false)
+	})
+
+	it('copyTranscript читает не больше 8 МБ за вызов, остаток — в следующий', () => {
+		const file = path.join(tmp, 't.jsonl')
+		const line = JSON.stringify({ x: 'a'.repeat(1023) }) + '\n'
+		const n = Math.ceil((9 * 1024 * 1024) / line.length)
+		fs.writeFileSync(file, line.repeat(n))
+		const a = store.copyTranscript('c1', 'chat', { path: file, offset: 0 })
+		assert.ok(a.next.offset > 0 && a.next.offset <= 8 * 1024 * 1024)
+		assert.equal(a.text.length, a.next.offset)
+		const b = store.copyTranscript('c1', 'chat', a.next)
+		assert.equal(a.next.offset + b.text.length, line.length * n)
+	})
 })

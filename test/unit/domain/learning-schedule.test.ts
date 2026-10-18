@@ -15,6 +15,8 @@ describe('decide', () => {
 		['задание уже есть', { hasJob: true, pending: 20 }, 'none'],
 		['закрытый кейс без новых событий', { status: 'ready', pending: 0 }, 'none'],
 		['закрытый кейс с новыми событиями — снова собирать', { status: 'ready', pending: 2 }, 'collect'],
+		['закрытый кейс: пауза от lastRunAt тоже соблюдается', { status: 'ready', pending: 2, lastRunAt: NOW - 30_000 }, 'none'],
+		['кейс в error сам ничего не запускает', { status: 'error', pending: 20, lastEventAt: NOW - 40 * MIN }, 'none'],
 		['простой дольше idleMin закрывает', { lastEventAt: NOW - 30 * MIN, pending: 3 }, 'close'],
 		['занятая сессия не закрывается', { lastEventAt: NOW - 40 * MIN, busy: true }, 'none'],
 		['пауза 60 с блокирует сбор', { pending: 20, lastRunAt: NOW - 30_000 }, 'none'],

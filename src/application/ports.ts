@@ -5,7 +5,7 @@
 import type { AgentEvent, BackfillCandidate, LearningSettings, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, TokenUsage, ToolStatus } from '../../shared/types'
 import type { RawEvent } from '../domain/learning.types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
-import type { CaseState, JobState, TranscriptCursor } from './learning/learning.types'
+import type { CaseState, JobState, LearningMeta, TranscriptCursor } from './learning/learning.types'
 import type { PersistedState } from './persisted.types'
 
 // ---------- nessy ----------
@@ -123,10 +123,21 @@ export interface LearningStorePort {
 	saveCase(c: CaseState): void
 	removeCase(id: string): void
 	readSummary(id: string): string
-	writeSummary(id: string, text: string): void
+	/** false — запись не удалась (диск); вызывающий курсор не двигает */
+	writeSummary(id: string, text: string): boolean
 	readNotes(id: string): string
-	appendRaw(id: string, events: readonly RawEvent[]): void
+	/** false — запись не удалась */
+	appendRaw(id: string, events: readonly RawEvent[]): boolean
+	/** События с `n` в диапазоне; при повторе `n` (обрыв сбора) берётся последняя запись. */
 	readRaw(id: string, fromN: number, toN?: number): RawEvent[]
+	/** Убирает из raw/events.jsonl события с `n >= nextN` (хвост незавершённого сбора). */
+	truncateRaw(id: string, nextN: number): void
+	/** Ответ фонового агента: cases/<caseId>/runs/<jobId>.md */
+	writeRun(caseId: string, jobId: string, text: string): void
+	/** Путь транскрипта лежит внутри `dir` (с учётом symlink: realpath). */
+	isAllowedTranscript(file: string, dir: string): boolean
+	loadMeta(): LearningMeta | null
+	saveMeta(m: LearningMeta): void
 	/** Читает только целые строки с курсора и дописывает их в raw/transcript-<chatId>.jsonl. */
 	copyTranscript(id: string, chatId: string, cur: TranscriptCursor): { text: string; next: TranscriptCursor }
 	loadJobs(): JobState[]

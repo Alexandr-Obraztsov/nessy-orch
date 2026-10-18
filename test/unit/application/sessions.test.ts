@@ -204,6 +204,9 @@ describe('сессии: сервис', () => {
 			assert.equal(orch.attachSession({ chatId: 'chat-tp-1', transcriptPath: '/t/2.jsonl' }).transcriptPath, '/t/2.jsonl', 'тот же чат: путь обновляется')
 			assert.equal(code(() => orch.attachSession({ chatId: 'chat-tp-2', transcriptPath: 'rel' })), '400 bad_request')
 			assert.equal(new FileStore(home).loadSessions().find(x => x.id === s.id)?.transcriptPath, '/t/2.jsonl')
+			// не .jsonl — путь молча игнорируется, хук не падает
+			assert.equal(orch.attachSession({ chatId: 'chat-tp-1', transcriptPath: '/etc/passwd' }).transcriptPath, '/t/2.jsonl')
+			assert.equal(orch.attachSession({ chatId: 'chat-tp-3', transcriptPath: '/etc/passwd' }).transcriptPath ?? null, null)
 		} finally {
 			fs.rmSync(home, { recursive: true, force: true })
 		}

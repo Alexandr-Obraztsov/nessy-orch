@@ -92,8 +92,10 @@ export class SessionsService {
 		if (!isChatId(chat)) throw new AppError(400, 'bad_request', 'chatId — до 64 символов [A-Za-z0-9-]')
 		const prev = req.from ? this.sessions.get(req.from.trim().toLowerCase()) : undefined
 		const found = [...this.sessions.values()].find(s => s.chatId === chat)
-		const tp = req.transcriptPath
+		let tp = req.transcriptPath
 		if (tp !== undefined && !tp.startsWith('/')) throw new AppError(400, 'bad_request', 'transcriptPath — абсолютный путь')
+		// не .jsonl — путь молча игнорируется (хук не должен падать)
+		if (tp !== undefined && !tp.endsWith('.jsonl')) tp = undefined
 		const cwd = req.cwd?.startsWith('/') ? req.cwd : (prev?.cwd ?? undefined)
 		let target = found ?? this.create({ title: prev?.title ?? (cwd ? undefined : 'Чат Claude'), ...(cwd ? { cwd } : {}), chatId: chat })
 		if (tp && target.transcriptPath !== tp) {
