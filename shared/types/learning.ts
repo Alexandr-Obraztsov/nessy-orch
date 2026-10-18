@@ -128,6 +128,17 @@ export interface PlaybookStage {
 	template: string
 }
 
+/** Правка улучшателя, ожидающая решения человека (`autoReview: false`). */
+export interface PendingEdit {
+	hash: string
+	file: string
+	before: string
+	after: string
+	anchor: string
+	caseId: string
+	createdAt: string
+}
+
 export interface PlaybookView {
 	id: string
 	name: string
@@ -145,6 +156,8 @@ export interface PlaybookView {
 	stages: PlaybookStage[]
 	rules: RuleView[]
 	trial: { before: number; cases: string[]; corrections: number[] } | null
+	/** правки, ждущие решения (`autoReview: false`); у плейбуков старого формата поля нет — это `[]` */
+	pendingEdits?: PendingEdit[]
 	createdAt: string
 	updatedAt: string
 }

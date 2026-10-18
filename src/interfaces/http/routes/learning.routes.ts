@@ -54,6 +54,8 @@ export function registerLearningRoutes(r: Router): void {
 		const svc = learning(orch)
 		sendJson(res, 200, svc.revertPlaybook(params['id'] ?? '', parseVersion(await readBody(req))))
 	})
+	r.add('POST', '/learning/playbooks/:id/edits/:hash/accept', ({ res, orch, params }) => sendJson(res, 200, learning(orch).acceptEdit(params['id'] ?? '', params['hash'] ?? '')))
+	r.add('POST', '/learning/playbooks/:id/edits/:hash/reject', ({ res, orch, params }) => sendJson(res, 200, learning(orch).rejectEdit(params['id'] ?? '', params['hash'] ?? '')))
 	r.add('DELETE', '/learning/playbooks/:id', ({ res, orch, params }) => {
 		learning(orch).removePlaybook(params['id'] ?? '')
 		sendJson(res, 200, { ok: true })

@@ -58,6 +58,12 @@ export interface SearchIndex {
 	avgLen: number
 }
 
+/** Произвольный JSON-объект (разбор ответов агентов). */
+export type JsonObject = Record<string, unknown>
+
+/** Плейбук с вердиктами судьи по кейсам (в приложении — `PlaybookState`). */
+export type WithVerdicts = PlaybookView & { verdicts: Record<string, RuleVerdict[]> }
+
 /** Диапазон номеров событий кейса (якорь `n a–b`), границы включительно. */
 export interface Range {
 	from: number

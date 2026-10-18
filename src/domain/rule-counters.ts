@@ -1,5 +1,6 @@
 import type { Evidence, PlaybookView, RuleStatus, RuleView } from '../../shared/types'
-import type { RuleVerdict } from './playbook.types'
+import { parseAnchor } from './anchors'
+import type { RuleVerdict, WithVerdicts } from './playbook.types'
 
 const WEEK_MS = 7 * 24 * 3600 * 1000
 /** Начальное ▲ нового правила. */
@@ -30,9 +31,6 @@ export function ruleCounters(
 	return { up, down, lastAppliedAt, status }
 }
 
-/** Плейбук с вердиктами судьи по кейсам (в приложении — `PlaybookState`). */
-type WithVerdicts = PlaybookView & { verdicts: Record<string, RuleVerdict[]> }
-
 function key(e: Evidence): string {
 	return `${e.caseId}|${e.anchor}`
 }
@@ -41,7 +39,9 @@ function key(e: Evidence): string {
  * Вердикты кейса `caseId` заменяют прежние (повторно закрытый кейс не удваивает счётчики);
  * счётчики и доказательства правил пересчитываются по всем кейсам.
  */
-export function applyVerdicts<T extends WithVerdicts>(p: T, caseId: string, verdicts: RuleVerdict[], now: number): T {
+export function applyVerdicts<T extends WithVerdicts>(p: T, caseId: string, rawVerdicts: RuleVerdict[], now: number): T {
+	// поправка без разбираемого якоря не доказана: считается как not_applicable
+	const verdicts = rawVerdicts.map(v => (v.verdict === 'violated_by_user_correction' && (v.anchor === null || parseAnchor(v.anchor) === null) ? { ...v, verdict: 'not_applicable' as const } : v))
 	const prev = p.verdicts[caseId] ?? []
 	const all: Record<string, RuleVerdict[]> = { ...p.verdicts, [caseId]: verdicts }
 	const iso = new Date(now).toISOString()
@@ -67,10 +67,28 @@ export function applyVerdicts<T extends WithVerdicts>(p: T, caseId: string, verd
 	return { ...p, verdicts: all, rules }
 }
 
-/** Кандидат становится активным: ≥ 2 разных кейса «за» и ни одного «против». */
-export function promoteCandidates<T extends PlaybookView>(p: T): T {
-	const rules = p.rules.map(r => (r.status === 'candidate' && distinctCases(r.evidence) >= 2 && r.against.length === 0 ? { ...r, status: 'active' as const } : r))
+/** Кандидат становится активным: ≥ 2 разных **существующих** кейса «за» с разбираемыми якорями и ни одного «против». */
+export function promoteCandidates<T extends PlaybookView>(p: T, knownCases: ReadonlySet<string>): T {
+	const good = (evidence: readonly Evidence[]): number => distinctCases(evidence.filter(e => knownCases.has(e.caseId) && parseAnchor(e.anchor) !== null))
+	const rules = p.rules.map(r => (r.status === 'candidate' && good(r.evidence) >= 2 && r.against.length === 0 ? { ...r, status: 'active' as const } : r))
 	return { ...p, rules }
+}
+
+/**
+ * Пересчёт счётчиков и архива всех правил без новых вердиктов (затухание 8 недель).
+ * Возвращает новое состояние и правила, сменившие статус (до → после).
+ */
+export function recount<T extends WithVerdicts>(p: T, now: number): { state: T; changed: Array<{ ruleId: string; from: RuleStatus; to: RuleStatus }> } {
+	const changed: Array<{ ruleId: string; from: RuleStatus; to: RuleStatus }> = []
+	const rules = p.rules.map(r => {
+		const own = Object.values(p.verdicts).flatMap(list => list.filter(v => v.ruleId === r.id))
+		const c = ruleCounters(r, own, now)
+		// как в applyVerdicts: счётчик лишь отправляет правило в архив, никогда не повышает и не понижает иначе
+		const status: RuleStatus = r.status === 'archived' || c.status === 'archived' ? 'archived' : r.status
+		if (status !== r.status) changed.push({ ruleId: r.id, from: r.status, to: status })
+		return { ...r, up: c.up, down: c.down, status }
+	})
+	return { state: { ...p, rules }, changed }
 }
 
 /** Пробный режим: меньше трёх кейсов — ждём; среднее числа поправок больше прежнего — плейбук хуже. */

@@ -1,14 +1,16 @@
-import type { JournalEntry, ReviewReport, StageReport } from '../../../shared/types'
+import { AppError } from '../../domain/errors'
+import type { ReviewReport, StageReport } from '../../../shared/types'
 import { renderPortion } from '../../domain/case-events'
 import { fillPrompt, parseComparison, parseConsistency, parseDescription, parseGrade, parsePlan, parseReview, parseSelection } from '../../domain/learning-replies'
 import { similarity } from '../../domain/learning-search'
 import { mergeRanges, parseAnchor } from '../../domain/anchors'
-import { lintPlaybook } from '../../domain/playbook-lint'
+import { lintPlaybook, validDescription } from '../../domain/playbook-lint'
 import { renderPlaybook } from '../../domain/playbook-render'
 import type { Range } from '../../domain/playbook.types'
 import { countCorrections } from '../../domain/rule-counters'
 import type { JobContext, JobHandler } from './handlers.types'
 import type { PlaybookState } from './learning.types'
+import { untilRemoved } from './playbook-edits'
 import type { PlaybookService } from './playbook.service'
 import type { ReviewEdits, ReviewSink } from './review.types'
 
@@ -252,8 +254,9 @@ async function descriptionStage(ctx: JobContext, ps: PlaybookService, p: Playboo
 
 	const history = `- "${p.description}" (${scoreLine(first)})`
 	const improved = parseDescription(await ask(ctx, ids, `review-${p.id}-6-improve`, `Ревью ${p.id}: улучшение описания`, 'description-improver', { playbook: playbookText(ps, p), misses: first.misses.join('\n') || '(none)', history }))
-	if (!improved || !/^Use when/.test(improved.description)) {
-		notes.push('description improver gave no usable description (must start with "Use when"); description left as is')
+	const bad = improved ? validDescription(improved.description) : 'no result'
+	if (!improved || bad !== null) {
+		notes.push(`description improver gave no usable description (${bad}); description left as is`)
 		return stageReport(6, 'fail', [], notes, ids)
 	}
 	const second = await selectionPass(ctx, ps, p, improved.description, own, other)
@@ -277,7 +280,8 @@ async function descriptionStage(ctx: JobContext, ps: PlaybookService, p: Playboo
 
 function lintStage(ctx: JobContext, ps: PlaybookService, p: PlaybookState): StageReport {
 	const known = new Set(ctx.cases.all().map(c => c.id))
-	const issues = lintPlaybook(p, renderPlaybook(p, ps.notes(p.id), ''), known)
+	// у нового плейбука доказательства строгие, у уже работающего — только заметки
+	const issues = lintPlaybook(p, renderPlaybook(p, ps.notes(p.id), ''), known, { strictEvidence: p.status === 'draft' || p.status === 'review' })
 	const critical = issues.filter(i => i.level === 'critical').map(i => `${i.where}: ${i.text}`)
 	const notes = issues.filter(i => i.level === 'note').map(i => `${i.where}: ${i.text}`)
 	return stageReport(1, critical.length ? 'fail' : 'pass', critical, notes, [])
@@ -309,35 +313,27 @@ function saveReport(ps: PlaybookService, report: ReviewReport): void {
 }
 
 /**
- * Откат версии с правками улучшателя и запись хэшей в `rejectedEdits`.
- * Откатывает запись журнала `edit`/`version` текущей версии (если нашлась), иначе версия остаётся.
+ * Откат правок улучшателя: содержание возвращается к версии до правок (`baseVersion` из задания, без него — к предыдущей),
+ * рабочие поля (статус, счётчики, кейсы) остаются текущими; хэши правок идут в `rejectedEdits`.
  */
-export function rejectEdits(ps: PlaybookService, id: string, hashes: readonly string[], reason: string): PlaybookState {
+export function rejectEdits(ps: PlaybookService, id: string, hashes: readonly string[], reason: string, baseVersion = 0): PlaybookState {
 	const cur = ps.need(id)
-	const entry = ps
-		.journal(1000)
-		.reverse()
-		.find(e => e.subject === id && (e.kind === 'edit' || e.kind === 'version') && !e.revertedBy && e.revertible && reportVersion(e) === cur.version)
-	if (entry) ps.revert(entry.id)
+	const base = baseVersion > 0 ? baseVersion : cur.version - 1
+	if (base >= 1 && base < cur.version) ps.revertToVersion(id, base)
 	const after = ps.need(id)
 	const merged = [...new Set([...after.rejectedEdits, ...hashes])]
 	return ps.saveVersion({ ...after, rejectedEdits: merged }, `Rejected edits: ${reason}`)
 }
 
-function reportVersion(e: JournalEntry): number | null {
-	if (!e.report) return null
-	try {
-		const v: unknown = JSON.parse(e.report)
-		const n = typeof v === 'object' && v !== null && 'version' in v ? v.version : null
-		return typeof n === 'number' ? n : null
-	} catch {
-		return null
-	}
+/** Одобрить и отклонить можно только плейбук, который ждёт решения: `draft`/`review`. */
+function assertAwaitingHuman(p: PlaybookState): void {
+	if (p.status !== 'draft' && p.status !== 'review') throw new AppError(409, 'bad_status', `плейбук ${p.id} в статусе ${p.status}: решать нечего`)
 }
 
 /** Ручное одобрение (`review` → `trial`); `before` — среднее число поправок до плейбука (см. `meanCorrections`). */
 export function approvePlaybook(ps: PlaybookService, id: string, before = 0): PlaybookState {
 	const p = ps.need(id)
+	assertAwaitingHuman(p)
 	const saved = ps.saveVersion({ ...p, status: 'trial', trial: { before, cases: [], corrections: [] } }, 'Approved by the user')
 	ps.record({ kind: 'review_passed', subject: id, summary: `${id}: ${p.status} → trial. Одобрен пользователем`, report: JSON.stringify({ prevStatus: p.status }), revertible: true, revertedBy: null })
 	return saved
@@ -345,71 +341,79 @@ export function approvePlaybook(ps: PlaybookService, id: string, before = 0): Pl
 
 /** Ручной отказ: плейбук выключается (`disabled`) с причиной в журнале. */
 export function rejectPlaybook(ps: PlaybookService, id: string, reason: string): PlaybookState {
+	assertAwaitingHuman(ps.need(id))
 	return ps.setStatus(id, 'disabled', `Rejected by the user. ${reason}`, 'review_failed')
 }
 
 /** Авто-ревью в шесть ступеней; результат — `trial` либо `review` (ждёт человека). Новых заданий не ставит. */
 export const reviewHandler: JobHandler = {
 	kinds: ['review'],
-	async run(ctx) {
-		const ps = ctx.playbooks
-		if (!ps) {
-			ctx.finish('нет хранилища плейбуков')
-			return
-		}
-		const id = ctx.job.subject
-		const start = ps.get(id)
-		if (!start) {
-			ctx.finish('плейбук удалён')
-			return
-		}
-		const edits = editsOf(ctx.job.payload)
-		if (!edits && start.status !== 'draft' && start.status !== 'review') {
-			ctx.finish(`статус ${start.status}: ревью не нужно`)
-			return
-		}
-		if (!ctx.settings().autoReview) {
-			// правки живого плейбука остаются как есть: статус `review` снял бы его с публикации
-			if (!edits) ps.setStatus(id, 'review', 'Auto-review is off: waiting for the user')
-			ctx.finish('авто-ревью выключено: ждёт человека')
-			return
-		}
+	run: ctx => untilRemoved(ctx, () => reviewJob(ctx)),
+}
 
-		const stages = await runStages(ctx, ps, id)
-		const passed = stages.every(s => s.stage === 6 || s.verdict !== 'fail')
-		const p = ps.need(id)
-		const reason = stages.flatMap(s => s.critical).slice(0, 3).join('; ')
+async function reviewJob(ctx: JobContext): Promise<void> {
+	const ps = ctx.playbooks
+	if (!ps) {
+		ctx.finish('нет хранилища плейбуков')
+		return
+	}
+	const id = ctx.job.subject
+	const start = ps.get(id)
+	if (!start) {
+		ctx.finish('плейбук удалён')
+		return
+	}
+	const edits = editsOf(ctx.job.payload)
+	if (!edits && start.status !== 'draft' && start.status !== 'review') {
+		ctx.finish(`статус ${start.status}: ревью не нужно`)
+		return
+	}
+	if (!ctx.settings().autoReview) {
+		// правки живого плейбука остаются как есть: статус `review` снял бы его с публикации
+		if (!edits) ps.setStatus(id, 'review', 'Auto-review is off: waiting for the user')
+		ctx.finish('авто-ревью выключено: ждёт человека')
+		return
+	}
 
-		if (edits) {
-			const mk = (version: number): ReviewReport => ({ playbookId: id, version, ts: new Date(ctx.now()).toISOString(), passed, stages })
-			if (passed) {
-				const report = mk(p.version)
-				saveReport(ps, report)
-				ps.record({ kind: 'review_passed', subject: id, summary: `${id}: правки (${edits.hashes.length}) прошли ревью`, report: journalReport(p.status, report), revertible: false, revertedBy: null })
-			} else {
-				const rejected = rejectEdits(ps, id, edits.hashes, reason)
-				const report = mk(rejected.version)
-				saveReport(ps, report)
-				ps.record({ kind: 'review_failed', subject: id, summary: `${id}: правки (${edits.hashes.length}) отклонены ревью. ${reason}`, report: journalReport(p.status, report), revertible: false, revertedBy: null })
-			}
-			ctx.finish(passed ? 'правки прошли ревью' : 'правки отклонены, версия откачена')
-			return
+	const stages = await runStages(ctx, ps, id)
+	const passed = stages.every(s => s.stage === 6 || s.verdict !== 'fail')
+	const p = ps.need(id)
+	// пока шло ревью, пользователь мог сам включить, выключить или заархивировать плейбук: его решение не трогаем
+	if (!edits && p.status !== start.status) {
+		ctx.finish('статус изменён пользователем')
+		return
+	}
+	const reason = stages.flatMap(s => s.critical).slice(0, 3).join('; ')
+
+	if (edits) {
+		const mk = (version: number): ReviewReport => ({ playbookId: id, version, ts: new Date(ctx.now()).toISOString(), passed, stages })
+		if (passed) {
+			const report = mk(p.version)
+			saveReport(ps, report)
+			ps.record({ kind: 'review_passed', subject: id, summary: `${id}: правки (${edits.hashes.length}) прошли ревью`, report: journalReport(p.status, report), revertible: false, revertedBy: null })
+		} else {
+			const rejected = rejectEdits(ps, id, edits.hashes, reason, edits.baseVersion)
+			const report = mk(rejected.version)
+			saveReport(ps, report)
+			ps.record({ kind: 'review_failed', subject: id, summary: `${id}: правки (${edits.hashes.length}) отклонены ревью. ${reason}`, report: journalReport(p.status, report), revertible: false, revertedBy: null })
 		}
+		ctx.finish(passed ? 'правки прошли ревью' : 'правки отклонены, версия откачена')
+		return
+	}
 
-		const next = passed
-			? { ...p, status: 'trial' as const, trial: { before: meanCorrections(p.cases, c => ctx.cases.summary(c)), cases: [], corrections: [] } }
-			: { ...p, status: 'review' as const, reviewAttempts: p.reviewAttempts + 1 }
-		const saved = ps.saveVersion(next, passed ? 'Auto-review passed: trial' : 'Auto-review failed: waiting for the user')
-		const report: ReviewReport = { playbookId: id, version: saved.version, ts: new Date(ctx.now()).toISOString(), passed, stages }
-		saveReport(ps, report)
-		ps.record({
-			kind: passed ? 'review_passed' : 'review_failed',
-			subject: id,
-			summary: passed ? `${id}: ${p.status} → trial. Ревью пройдено` : `${id}: ${p.status} → review. Ревью не пройдено: ${reason || 'см. отчёт'}`,
-			report: journalReport(p.status, report),
-			revertible: true,
-			revertedBy: null,
-		})
-		ctx.finish(passed ? 'ревью пройдено: trial' : 'ревью не пройдено: ждёт человека')
-	},
+	const next = passed
+		? { ...p, status: 'trial' as const, trial: { before: meanCorrections(p.cases, c => ctx.cases.summary(c)), cases: [], corrections: [] } }
+		: { ...p, status: 'review' as const, reviewAttempts: p.reviewAttempts + 1 }
+	const saved = ps.saveVersion(next, passed ? 'Auto-review passed: trial' : 'Auto-review failed: waiting for the user')
+	const report: ReviewReport = { playbookId: id, version: saved.version, ts: new Date(ctx.now()).toISOString(), passed, stages }
+	saveReport(ps, report)
+	ps.record({
+		kind: passed ? 'review_passed' : 'review_failed',
+		subject: id,
+		summary: passed ? `${id}: ${p.status} → trial. Ревью пройдено` : `${id}: ${p.status} → review. Ревью не пройдено: ${reason || 'см. отчёт'}`,
+		report: journalReport(p.status, report),
+		revertible: true,
+		revertedBy: null,
+	})
+	ctx.finish(passed ? 'ревью пройдено: trial' : 'ревью не пройдено: ждёт человека')
 }

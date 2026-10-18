@@ -1,5 +1,7 @@
+import { AppError } from '../../domain/errors'
 import { renderPlaybook, stagePath } from '../../domain/playbook-render'
 import type { PlaybookFiles } from '../../domain/playbook.types'
+import type { JobContext } from './handlers.types'
 import type { PlaybookState } from './learning.types'
 
 /** Файлы плейбука для агента: без заметок и журнала версий (их он не правит). */
@@ -45,4 +47,29 @@ export function applyEdit(p: PlaybookState, file: string, before: string, after:
 		if (total === 1 && hit) return hit.put(hit.text.replace(b, () => a))
 	}
 	return null
+}
+
+/** Плейбук удалили посреди задания (`no_playbook`): задание завершается, плейбук не воскресает. Прочие ошибки идут дальше. */
+export async function untilRemoved(ctx: Pick<JobContext, 'finish'>, run: () => Promise<void>): Promise<void> {
+	try {
+		await run()
+	} catch (e) {
+		if (!(e instanceof AppError) || e.code !== 'no_playbook') throw e
+		ctx.finish('плейбук удалён')
+	}
+}
+
+type Payload = Record<string, unknown> | null
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+
+/**
+ * Сводит `payload` ждущего `review` с новым: хэши правок объединяются, откат идёт к самой ранней версии.
+ * Ревью без правок (целиком) сводится с ревью правок в ревью правок, чтобы правки не потерялись.
+ */
+export function mergeReviewPayload(a: Payload, b: Payload): Payload {
+	if (!a) return b
+	if (!b) return a
+	const bases = [a['baseVersion'], b['baseVersion']].filter((x): x is number => typeof x === 'number' && x > 0)
+	return { edits: [...new Set([...strings(a['edits']), ...strings(b['edits'])])], baseVersion: bases.length ? Math.min(...bases) : 0 }
 }

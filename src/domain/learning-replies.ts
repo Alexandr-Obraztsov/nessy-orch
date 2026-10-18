@@ -1,5 +1,5 @@
 import type { Evidence, PlaybookStage } from '../../shared/types'
-import type { BuildDraft, Improvement, MatchGroup, PlaybookFiles, RuleVerdict } from './playbook.types'
+import type { BuildDraft, Improvement, JsonObject as Obj, MatchGroup, PlaybookFiles, RuleVerdict } from './playbook.types'
 
 const PLACEHOLDER = /\{\{([A-Za-z_][\w-]*)\}\}/g
 
@@ -31,8 +31,6 @@ export function parseResult(text: string): unknown {
 		return null
 	}
 }
-
-type Obj = Record<string, unknown>
 
 function obj(v: unknown): Obj | null {
 	return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Obj) : null
@@ -248,11 +246,11 @@ export function parseEdit(text: string): { files: PlaybookFiles; note: string | 
 	return { files, note: nonEmpty(o.note), summary }
 }
 
-/** Замечания ревью: `critical` останавливают, `notes` — нет. Нужны оба списка строк (отсутствующий — пустой). */
+/** Замечания ревью: `critical` останавливают, `notes` — нет. `critical` обязателен (иначе `{}` сошёл бы за «замечаний нет»), `notes` — нет. */
 export function parseGrade(text: string): { critical: string[]; notes: string[] } | null {
 	const o = obj(parseResult(text))
 	if (!o) return null
-	const critical = strings(o.critical ?? [])
+	const critical = strings(o.critical)
 	const notes = strings(o.notes ?? [])
 	return critical !== null && notes !== null ? { critical, notes } : null
 }

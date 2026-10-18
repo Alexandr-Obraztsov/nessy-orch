@@ -1,11 +1,12 @@
-import type { JournalEntry, PlaybookDetail, PlaybookStatus, PlaybookView, ReviewReport, RuleStatus, RuleView } from '../../../shared/types'
+import type { JournalEntry, PendingEdit, PlaybookDetail, PlaybookStatus, PlaybookView, ReviewReport, RuleStatus, RuleView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { uniqueName } from '../../domain/naming'
 import { addChangelog, renderPlaybook, skillName } from '../../domain/playbook-render'
-import type { BuildDraft, MatchGroup, PlaybookFiles } from '../../domain/playbook.types'
+import type { BuildDraft, MatchGroup } from '../../domain/playbook.types'
 import type { Hub } from '../hub'
 import type { Clock, IdGenerator, PlaybookStorePort } from '../ports'
 import type { PlaybookState } from './learning.types'
+import { applyEdit } from './playbook-edits'
 
 export interface PlaybookServiceDeps {
 	store: PlaybookStorePort
@@ -29,6 +30,20 @@ const RULE_STATUSES: readonly RuleStatus[] = ['candidate', 'active', 'archived']
 export function playbookView(p: PlaybookState): PlaybookView {
 	const { verdicts: _v, rejectedEdits: _r, reviewAttempts: _a, ...view } = p
 	return view
+}
+
+/**
+ * Откат содержания: из старой версии берутся поля содержания (название, описание, тип, параметры, источники, файлы,
+ * поведение, ступени, тексты и набор правил), рабочие поля (статус, пробный режим, кейсы, вердикты, счётчики и статусы
+ * правил, присутствующих в обеих версиях, отклонённые и ждущие правки) остаются текущими.
+ */
+export function restoreContent(current: PlaybookState, old: PlaybookState): PlaybookState {
+	const now = new Map(current.rules.map(r => [r.id, r]))
+	const rules = old.rules.map(r => {
+		const c = now.get(r.id)
+		return c ? { ...r, status: c.status, up: c.up, down: c.down, evidence: c.evidence, against: c.against, lastAppliedAt: c.lastAppliedAt } : r
+	})
+	return { ...current, title: old.title, description: old.description, taskType: old.taskType, params: old.params, sources: old.sources, files: old.files, behavior: old.behavior, stages: old.stages, rules }
 }
 
 /** Разбор `report` записи журнала; не JSON — пустой объект. */
@@ -57,7 +72,13 @@ export class PlaybookService {
 
 	load(): void {
 		this.map.clear()
-		for (const p of this.deps.store.loadPlaybooks()) this.map.set(p.id, p)
+		for (const p of this.deps.store.loadPlaybooks()) this.map.set(p.id, { ...p, pendingEdits: p.pendingEdits ?? [] })
+		// плагин должен совпадать с диском и после рестарта
+		try {
+			this.publishActive()
+		} catch {
+			// публикация повторится при следующей смене живых плейбуков
+		}
 	}
 
 	list(): PlaybookState[] {
@@ -134,12 +155,19 @@ export class PlaybookService {
 			verdicts: {},
 			rejectedEdits: [],
 			reviewAttempts: 0,
+			pendingEdits: [],
 		}
-		return this.saveVersion(p, 'Playbook created', { kind: 'playbook_created', subject: id, summary: `Создан плейбук «${draft.title}»`, report: null, revertible: false, revertedBy: null })
+		return this.persist(p, 'Playbook created', { kind: 'playbook_created', subject: id, summary: `Создан плейбук «${draft.title}»`, report: null, revertible: false, revertedBy: null })
 	}
 
 	/** Рендер → `savePlaybook` (ошибка git бросается, состояние не меняется) → `learning_playbook`; необязательная запись журнала. */
 	saveVersion(p: PlaybookState, message: string, journal?: NewEntry): PlaybookState {
+		// удалённый плейбук не воскресает
+		this.need(p.id)
+		return this.persist(p, message, journal)
+	}
+
+	private persist(p: PlaybookState, message: string, journal?: NewEntry): PlaybookState {
 		const saved = this.commit(p, message)
 		if (journal) {
 			const wantsVersion = journal.kind === 'version' || journal.kind === 'edit'
@@ -176,6 +204,50 @@ export class PlaybookService {
 		return next
 	}
 
+	/** Правки улучшателя, ждущие решения человека (`autoReview: false`): без новой версии, пишется только `playbook.json`. */
+	setPendingEdits(id: string, edits: readonly PendingEdit[]): PlaybookState {
+		const p = this.need(id)
+		const next: PlaybookState = { ...p, pendingEdits: [...edits], updatedAt: this.iso() }
+		this.deps.store.saveState(next)
+		this.map.set(id, next)
+		this.deps.hub.publish({ t: 'learning_playbook', playbook: playbookView(next) })
+		return next
+	}
+
+	/** Принять ждущую правку: применяется к текущему состоянию → новая версия и запись `edit`. Не применить — 409 `stale_edit`, правка снимается. */
+	acceptEdit(id: string, hash: string): PlaybookState {
+		const p = this.need(id)
+		const pending = p.pendingEdits ?? []
+		const e = pending.find(x => x.hash === hash)
+		if (!e) throw new AppError(404, 'no_edit', `у плейбука ${id} нет ждущей правки ${hash}`)
+		const rest = pending.filter(x => x.hash !== hash)
+		const applied = applyEdit(p, e.file, e.before, e.after)
+		if (!applied) {
+			this.setPendingEdits(id, rest)
+			throw new AppError(409, 'stale_edit', `правку ${hash} уже нельзя применить: текст ${e.file} изменился`)
+		}
+		return this.saveVersion({ ...applied, pendingEdits: rest }, `Accepted edit in ${e.file}`, {
+			kind: 'edit',
+			subject: id,
+			summary: `${id}: принята правка ${e.file} (кейс ${e.caseId})`,
+			report: null,
+			revertible: true,
+			revertedBy: null,
+		})
+	}
+
+	/** Отклонить ждущую правку: хэш уходит в `rejectedEdits`, улучшатель её больше не предложит. */
+	rejectEdit(id: string, hash: string): PlaybookState {
+		const p = this.need(id)
+		const pending = p.pendingEdits ?? []
+		if (!pending.some(x => x.hash === hash)) throw new AppError(404, 'no_edit', `у плейбука ${id} нет ждущей правки ${hash}`)
+		const next: PlaybookState = { ...p, pendingEdits: pending.filter(x => x.hash !== hash), rejectedEdits: [...new Set([...p.rejectedEdits, hash])], updatedAt: this.iso() }
+		this.deps.store.saveState(next)
+		this.map.set(id, next)
+		this.deps.hub.publish({ t: 'learning_playbook', playbook: playbookView(next) })
+		return next
+	}
+
 	/** Отчёт ревью — в хранилище (`reviews/v<N>.json`, отдаётся в `PlaybookDetail.reviews`). */
 	saveReview(r: ReviewReport): void {
 		this.deps.store.saveReview(r)
@@ -199,14 +271,23 @@ export class PlaybookService {
 		return saved
 	}
 
-	/** Ручной откат к версии: файлы и содержимое берутся из неё, статус и пробный режим остаются текущими; выходит новая версия. */
+	/**
+	 * Откат содержания к версии (см. `restoreContent`); выходит новая версия. Записи `version`/`edit` новее
+	 * этой версии помечаются откаченными.
+	 */
 	revertToVersion(id: string, version: number): PlaybookState {
 		const p = this.need(id)
 		const restored = this.deps.store.restoreVersion(id, version)
 		if (!restored) throw new AppError(404, 'no_version', `у плейбука ${id} нет версии ${version}`)
-		const state: PlaybookState = { ...restored.state, id, status: p.status, trial: p.trial, cases: p.cases, heldOut: p.heldOut, verdicts: p.verdicts, rejectedEdits: p.rejectedEdits, reviewAttempts: p.reviewAttempts }
-		const saved = this.commit(state, `Revert to version ${version}`, restored.files)
-		this.record({ kind: 'reverted', subject: id, summary: `${id}: откат к версии ${version}`, report: JSON.stringify({ version: saved.version }), revertible: false, revertedBy: null })
+		const saved = this.commit(restoreContent(p, restored.state), `Revert to version ${version}`)
+		const done = this.record({ kind: 'reverted', subject: id, summary: `${id}: откат к версии ${version}`, report: JSON.stringify({ version: saved.version }), revertible: false, revertedBy: null })
+		for (const e of this.deps.store.loadJournal(Number.MAX_SAFE_INTEGER)) {
+			const v = parseReport(e.report)['version']
+			if (e.subject !== id || e.revertedBy || e.id === done.id || (e.kind !== 'version' && e.kind !== 'edit') || typeof v !== 'number' || v <= version) continue
+			const marked: JournalEntry = { ...e, revertedBy: done.id }
+			this.deps.store.updateJournal(marked)
+			this.deps.hub.publish({ t: 'learning_journal', entry: marked })
+		}
 		return saved
 	}
 
@@ -224,7 +305,8 @@ export class PlaybookService {
 		this.publishCount += 1
 		const version = this.deps.pluginVersion?.() ?? `1.0.${this.publishCount}`
 		this.deps.store.publish(
-			live.map(p => ({ id: p.id, files: this.deps.store.readFiles(p.id) })),
+			// заметки пользователя берутся из хранилища заметок, а не из снимка в `files/`
+			live.map(p => ({ id: p.id, files: { ...this.deps.store.readFiles(p.id), 'notes.md': this.deps.store.readNotes(p.id) || '# Notes\n' } })),
 			version,
 		)
 	}
@@ -255,7 +337,7 @@ export class PlaybookService {
 		} else if (typeof rep['version'] === 'number' && rep['version'] > 1) {
 			const restored = store.restoreVersion(p.id, rep['version'] - 1)
 			if (!restored) throw new AppError(409, 'not_revertible', `версия ${rep['version'] - 1} недоступна`)
-			this.commit({ ...restored.state, id: p.id }, message, restored.files)
+			this.commit(restoreContent(p, restored.state), message)
 		} else {
 			throw new AppError(409, 'not_revertible', `у записи ${journalId} нет данных для отката`)
 		}
@@ -287,19 +369,17 @@ export class PlaybookService {
 	}
 
 	/**
-	 * Сохраняет новую версию: без `base` файлы рендерятся из состояния, с `base` (откат) берутся они,
-	 * а `CHANGELOG.md` и `notes.md` обновляются. Публикует плагин, если плейбук был или стал живым.
+	 * Сохраняет новую версию: файлы рендерятся из состояния. Публикует плагин, если плейбук был или стал живым.
 	 */
-	private commit(p: PlaybookState, message: string, base?: PlaybookFiles): PlaybookState {
+	private commit(p: PlaybookState, message: string): PlaybookState {
 		const { store } = this.deps
 		const prev = this.map.get(p.id)
 		const prevFiles = store.readFiles(p.id)
 		const version = store.versions(p.id).length + 1
 		const iso = this.iso()
 		const next: PlaybookState = { ...p, version, updatedAt: iso }
-		const changelog = addChangelog(base?.['CHANGELOG.md'] ?? prevFiles['CHANGELOG.md'] ?? '', version, iso.slice(0, 10), [message])
-		const notes = store.readNotes(p.id)
-		const files = base ? { ...base, 'CHANGELOG.md': changelog, 'notes.md': notes || base['notes.md'] || '# Notes\n' } : renderPlaybook(next, notes, changelog)
+		const changelog = addChangelog(prevFiles['CHANGELOG.md'] ?? '', version, iso.slice(0, 10), [message])
+		const files = renderPlaybook(next, store.readNotes(p.id), changelog)
 		const n = store.savePlaybook(next, files, message)
 		const saved: PlaybookState = n === version ? next : { ...next, version: n }
 		this.map.set(saved.id, saved)

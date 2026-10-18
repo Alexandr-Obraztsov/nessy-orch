@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { PlaybookView } from '../../../shared/types'
-import { lintPlaybook } from '../../../src/domain/playbook-lint'
+import { lintPlaybook, validDescription } from '../../../src/domain/playbook-lint'
 import { renderPlaybook } from '../../../src/domain/playbook-render'
 import { samplePlaybook } from '../../support/sample-playbook'
 
@@ -10,7 +10,7 @@ const known = new Set(['c1', 'c2', 'c3'])
 function lint(p: PlaybookView, mutate?: (f: Record<string, string>) => void) {
 	const files = renderPlaybook(p, '', '')
 	mutate?.(files)
-	return lintPlaybook(p, files, known)
+	return lintPlaybook(p, files, known, { strictEvidence: true })
 }
 
 function skillWith(front: string): (f: Record<string, string>) => void {
@@ -58,12 +58,13 @@ describe('playbook-lint', () => {
 		assert.deepEqual(c.map(i => i.where), ['rule r1'])
 	})
 
-	it('critical: неизвестный кейс и плохой якорь — по одной', () => {
+	it('неизвестный кейс — note, а не critical; плохой якорь — critical', () => {
 		const p = samplePlaybook()
 		const r = p.rules[0]
 		assert.ok(r)
 		r.evidence = [...r.evidence, { caseId: 'ghost', anchor: 'n 1' }]
-		assert.equal(lint(p).filter(i => i.level === 'critical').length, 1)
+		assert.equal(lint(p).filter(i => i.level === 'critical').length, 0)
+		assert.deepEqual(lint(p).filter(i => i.level === 'note').map(i => i.where), ['rule r1'])
 		r.evidence = [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'c2', anchor: 'n 2' }, { caseId: 'c3', anchor: 'row 7' }]
 		assert.equal(lint(p).filter(i => i.level === 'critical').length, 1)
 	})
@@ -78,5 +79,26 @@ describe('playbook-lint', () => {
 		const issues = lint(p)
 		assert.equal(issues.filter(i => i.level === 'critical').length, 0)
 		assert.deepEqual(issues.filter(i => i.level === 'note').map(i => i.where), ['stage 1', 'param package'])
+	})
+
+	it('active с < 2 известными кейсами: critical при strictEvidence, иначе note', () => {
+		const p = samplePlaybook()
+		const r = p.rules[0]
+		assert.ok(r)
+		r.evidence = [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'gone', anchor: 'n 2' }]
+		const files = renderPlaybook(p, '', '')
+		const strict = lintPlaybook(p, files, known, { strictEvidence: true })
+		assert.deepEqual(strict.filter(i => i.level === 'critical').map(i => i.where), ['rule r1'])
+		const loose = lintPlaybook(p, files, known, { strictEvidence: false })
+		assert.deepEqual(loose.filter(i => i.level === 'critical'), [])
+		assert.equal(loose.filter(i => i.level === 'note' && i.where === 'rule r1').length, 2)
+	})
+
+	it('validDescription', () => {
+		assert.equal(validDescription('Use when fixing a bug'), null)
+		assert.match(validDescription('Fixes bugs') ?? '', /Use when/)
+		assert.match(validDescription(`Use when ${'x'.repeat(1020)}`) ?? '', /too long/)
+		assert.match(validDescription('Use when <x>') ?? '', /angle/)
+		assert.notEqual(validDescription('  '), null)
 	})
 })

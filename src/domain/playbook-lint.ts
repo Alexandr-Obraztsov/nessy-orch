@@ -1,6 +1,6 @@
 // Перенос проверок quick_validate.py из anthropics/skills (Apache-2.0): frontmatter, имя, описание, compatibility;
 // плюс проверки плейбука: «Use when», размер SKILL.md, доказательства правил, этапы.
-import type { Evidence, PlaybookView } from '../../shared/types'
+import type { PlaybookView } from '../../shared/types'
 import type { LintIssue, PlaybookFiles } from './playbook.types'
 
 const ALLOWED_KEYS = new Set(['name', 'description', 'license', 'allowed-tools', 'metadata', 'compatibility'])
@@ -25,7 +25,21 @@ function parseFrontmatter(text: string): Record<string, string> | null {
 	return out
 }
 
-export function lintPlaybook(p: PlaybookView, files: PlaybookFiles, knownCases: ReadonlySet<string>): LintIssue[] {
+/** Описание годится для frontmatter: `Use when…`, ≤ 1024 знаков, без `<` и `>`. null — годится, иначе причина. */
+export function validDescription(d: string): string | null {
+	const s = d.trim()
+	if (!s) return 'Description is empty'
+	if (s.length > 1024) return `Description is too long (${s.length} characters, max 1024)`
+	if (/[<>]/.test(s)) return 'Description cannot contain angle brackets (< or >)'
+	if (!s.startsWith('Use when')) return 'Description must start with "Use when"'
+	return null
+}
+
+/**
+ * Проверка плейбука. `strictEvidence` — новый плейбук: активное правило с < 2 известными кейсами — critical;
+ * иначе (плейбук живёт, кейсы могли уйти) — только note.
+ */
+export function lintPlaybook(p: PlaybookView, files: PlaybookFiles, knownCases: ReadonlySet<string>, opts: { strictEvidence: boolean }): LintIssue[] {
 	const issues: LintIssue[] = []
 	const critical = (where: string, text: string): void => { issues.push({ level: 'critical', where, text }) }
 	const note = (where: string, text: string): void => { issues.push({ level: 'note', where, text }) }
@@ -55,9 +69,8 @@ export function lintPlaybook(p: PlaybookView, files: PlaybookFiles, knownCases: 
 			if (!description) {
 				critical('SKILL.md description', 'Missing description in frontmatter')
 			} else {
-				if (description.length > 1024) critical('SKILL.md description', `Description is too long (${description.length} characters, max 1024)`)
-				if (/[<>]/.test(description)) critical('SKILL.md description', 'Description cannot contain angle brackets (< or >)')
-				if (!description.startsWith('Use when')) critical('SKILL.md description', 'Description must start with "Use when"')
+				const bad = validDescription(description)
+				if (bad !== null) critical('SKILL.md description', bad)
 			}
 			const compat = fm.compatibility
 			if (compat && compat.length > 500) critical('SKILL.md compatibility', `Compatibility is too long (${compat.length} characters, max 500)`)
@@ -73,18 +86,21 @@ export function lintPlaybook(p: PlaybookView, files: PlaybookFiles, knownCases: 
 	}
 
 	for (const r of p.rules) {
-		const check = (e: Evidence, where: string): boolean => {
-			let ok = true
-			if (!knownCases.has(e.caseId)) { critical(where, `Evidence refers to unknown case ${e.caseId}`); ok = false }
-			if (!ANCHOR.test(e.anchor)) { critical(where, `Evidence anchor "${e.anchor}" is not of the form "n a–b"`); ok = false }
-			return ok
-		}
+		const where = `rule ${r.id}`
 		const good = new Set<string>()
 		for (const e of r.evidence) {
+			// кейс мог уйти (удалён, ушёл из хранилища) — это не порча плейбука
 			const known = knownCases.has(e.caseId)
-			if (check(e, `rule ${r.id}`) && known) good.add(e.caseId)
+			if (!known) note(where, `Evidence refers to unknown case ${e.caseId}`)
+			const anchorOk = ANCHOR.test(e.anchor)
+			if (!anchorOk) critical(where, `Evidence anchor "${e.anchor}" is not of the form "n a–b"`)
+			if (known && anchorOk) good.add(e.caseId)
 		}
-		if (r.status === 'active' && good.size < 2) critical(`rule ${r.id}`, 'Active rule needs evidence from at least 2 different existing cases')
+		if (r.status === 'active' && good.size < 2) {
+			const text = 'Active rule needs evidence from at least 2 different existing cases'
+			if (opts.strictEvidence) critical(where, text)
+			else note(where, text)
+		}
 	}
 	return issues
 }

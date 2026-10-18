@@ -176,6 +176,8 @@ describe('плейбуки (сквозной)', () => {
 			['POST', '/learning/playbooks/p-x/reject'],
 			['POST', '/learning/playbooks/p-x/status'],
 			['POST', '/learning/playbooks/p-x/revert'],
+			['POST', '/learning/playbooks/p-x/edits/h1/accept'],
+			['POST', '/learning/playbooks/p-x/edits/h1/reject'],
 			['DELETE', '/learning/playbooks/p-x'],
 			['PUT', '/learning/playbooks/p-x/notes'],
 			['PUT', '/learning/cases/c-x/notes'],

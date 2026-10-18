@@ -49,7 +49,7 @@ upstream указан там, откуда взяты структура и ид
 ## anthropics/skills, skill-creator (Apache-2.0)
 
 - Репозиторий: https://github.com/anthropics/skills (`skills/skill-creator`)
-- Лицензия: Apache License 2.0, http://www.apache.org/licenses/LICENSE-2.0
+- Лицензия: Apache License 2.0, http://www.apache.org/licenses/LICENSE-2.0 (полный текст: `LICENSES/Apache-2.0.txt`)
 - Авторские права: `LICENSE.txt` скилла содержит стандартный текст Apache-2.0 без заполненной строки Copyright; права принадлежат авторам репозитория (Anthropic, PBC)
 - Промпты фонового обучения, сделанные из его файлов (**файлы изменены**: вход и выход заменены, шаги работы с файлами, метриками и временем убраны; остальной текст сохранён):
   `learning/prompts/grader.md` (`agents/grader.md`), `learning/prompts/comparator.md` (`agents/comparator.md`),
@@ -89,4 +89,4 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-Текст Apache-2.0 для skill-creator — по ссылке выше.
+Полный текст Apache-2.0 для skill-creator лежит в репозитории: [`LICENSES/Apache-2.0.txt`](LICENSES/Apache-2.0.txt).

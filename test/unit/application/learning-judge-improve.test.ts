@@ -1,6 +1,7 @@
 /** Судья (счётчики, активация кандидатов, пробный режим) и улучшатель плейбука. */
 import assert from 'node:assert/strict'
 import { beforeEach, describe, it } from 'node:test'
+import { AppError } from '../../../src/domain/errors'
 import { Hub } from '../../../src/application/hub'
 import type { JobContext } from '../../../src/application/learning/handlers.types'
 import { editHash, improveHandler } from '../../../src/application/learning/improve.handler'
@@ -54,6 +55,10 @@ describe('judge и improve', () => {
 	let agentPrompts: string[]
 	let queued: Array<{ kind: JobKind; subject: string; caseId?: string; payload?: Record<string, unknown> | null }>
 	let ids: number
+	/** вызывается посреди ответа агента: имитирует изменения, пока агент думал */
+	let onAgent: (() => void) | null
+	let autoReview: boolean
+	let finished: Array<string | undefined>
 
 	const seed = (p: PlaybookState): void => {
 		pstore.savePlaybook(p, renderPlaybook(p, '', ''), 'init')
@@ -67,16 +72,17 @@ describe('judge и improve', () => {
 	const ctxFor = (kind: JobKind): JobContext => ({
 		job: job(kind),
 		now: () => NOW,
-		settings: () => parseLearningSettings({}),
+		settings: () => parseLearningSettings({ autoReview }),
 		runAgent: (_n, _t, prompt) => {
 			agentPrompts.push(prompt)
+			onAgent?.()
 			const text = replies.shift()
 			return text === undefined ? Promise.reject(new Error('нет ответа')) : Promise.resolve({ agentId: 'a', text })
 		},
 		prompt: name => (name === 'judge' ? 'R:{{rules}}\nS:{{summary}}\nE:{{events}}' : 'P:{{playbook}}\nS:{{summary}}\nE:{{events}}\nX:{{rejected}}\nN:{{notes}}'),
 		cases: {
 			get: id => (id === 'c1' ? { ...baseCase } : null),
-			all: () => [baseCase],
+			all: () => [baseCase, { ...baseCase, id: 'c0' }],
 			summary: () => summary,
 			notes: () => '',
 			raw: (_id, from, to) => events().filter(e => e.n >= from && (to === undefined || e.n <= to)),
@@ -88,7 +94,7 @@ describe('judge и improve', () => {
 		playbooks: pb,
 		enqueue: (k, s, o) => void queued.push({ kind: k, subject: s, caseId: o?.caseId, payload: o?.payload }),
 		chat: () => undefined,
-		finish: () => undefined,
+		finish: note => void finished.push(note),
 		changed: () => undefined,
 	})
 	const verdicts = (list: unknown[]): string => `<result>${JSON.stringify({ verdicts: list })}</result>`
@@ -101,6 +107,9 @@ describe('judge и improve', () => {
 		replies = []
 		agentPrompts = []
 		queued = []
+		onAgent = null
+		autoReview = true
+		finished = []
 	})
 
 	describe('судья', () => {
@@ -257,6 +266,114 @@ describe('judge и improve', () => {
 			assert.equal(p.rules[1]?.status, 'candidate')
 			assert.equal(p.rules[1].stage, 1)
 			assert.deepEqual(queued[0]?.payload?.['edits'], [])
+		})
+	})
+
+	describe('согласованность состояния', () => {
+		const improvement = (o: Record<string, unknown>): string => `<result>${JSON.stringify(o)}</result>`
+		const edit = { file: 'stages/01-research.md', before: 'findings listed', after: 'findings listed with sources', anchor: 'n 4' }
+
+		it('судья: плейбук изменили, пока он думал — вердикты считаются от свежего состояния', async () => {
+			seed(state({ rules: [rule('r1', 'active', [])] }))
+			onAgent = () => {
+				const cur = pb.need('p-1')
+				pb.saveVersion({ ...cur, title: 'Новое название', rules: [...cur.rules, rule('r2', 'candidate', [])] }, 'user edit')
+			}
+			replies = [verdicts([{ ruleId: 'r1', verdict: 'applied', anchor: 'n 2' }])]
+			await judgeHandler.run(ctxFor('judge'))
+			const p = pb.need('p-1')
+			assert.equal(p.title, 'Новое название')
+			assert.deepEqual(p.rules.map(r => r.id), ['r1', 'r2'])
+			assert.equal(p.rules[0]?.up, 3)
+		})
+
+		it('судья: плейбук удалили во время ответа агента — задание завершается, плейбук не воскресает', async () => {
+			seed(state({ rules: [rule('r1', 'active', [])] }))
+			onAgent = () => pb.remove('p-1')
+			replies = [verdicts([{ ruleId: 'r1', verdict: 'applied', anchor: 'n 2' }])]
+			await judgeHandler.run(ctxFor('judge'))
+			assert.equal(pb.get('p-1'), null)
+			assert.equal(pstore.snapshots.has('p-1'), false)
+			assert.deepEqual(finished, ['плейбук удалён'])
+			assert.deepEqual(queued, [])
+		})
+
+		it('судья ставит improve с payload.playbookId (замок плейбука)', async () => {
+			seed(state({ rules: [] }))
+			await judgeHandler.run(ctxFor('judge'))
+			assert.deepEqual(queued.map(q => [q.kind, q.payload]), [['improve', { playbookId: 'p-1' }]])
+		})
+
+		it('улучшатель: плейбук удалили во время ответа агента — завершается без воскрешения', async () => {
+			seed(state())
+			onAgent = () => pb.remove('p-1')
+			replies = [improvement({ cause: 'gap', edits: [edit], candidates: [] })]
+			await improveHandler.run(ctxFor('improve'))
+			assert.equal(pb.get('p-1'), null)
+			assert.equal(pstore.snapshots.has('p-1'), false)
+			assert.deepEqual(finished, ['плейбук удалён'])
+			assert.deepEqual(queued, [])
+		})
+
+		it('улучшатель: правка применяется к свежему тексту, версия «до» берётся свежая', async () => {
+			seed(state())
+			onAgent = () => pb.saveVersion({ ...pb.need('p-1'), title: 'Свежее название' }, 'chat edit')
+			const v = pb.need('p-1').version
+			replies = [improvement({ cause: 'gap', edits: [edit], candidates: [] })]
+			await improveHandler.run(ctxFor('improve'))
+			const p = pb.need('p-1')
+			assert.equal(p.title, 'Свежее название')
+			assert.equal(p.stages[0]?.done, 'findings listed with sources')
+			assert.equal(queued[0]?.payload?.['baseVersion'], v + 1)
+		})
+
+		it('autoReview: false — правка не применяется, а ложится в pendingEdits; review не ставится', async () => {
+			autoReview = false
+			seed(state())
+			const v = pb.need('p-1').version
+			replies = [improvement({ cause: 'gap', edits: [edit], candidates: [] })]
+			await improveHandler.run(ctxFor('improve'))
+			const p = pb.need('p-1')
+			assert.equal(p.version, v)
+			assert.equal(p.stages[0]?.done, 'findings listed')
+			assert.deepEqual(p.pendingEdits, [{ hash: editHash(edit), file: edit.file, before: edit.before, after: edit.after, anchor: 'n 4', caseId: 'c1', createdAt: new Date(NOW).toISOString() }])
+			assert.deepEqual(queued, [])
+			// сохранено в хранилище: переживает рестарт
+			assert.equal(pstore.loadPlaybooks()[0]?.pendingEdits?.length, 1)
+			// повторная правка не дублируется
+			replies = [improvement({ cause: 'gap', edits: [edit], candidates: [] })]
+			await improveHandler.run(ctxFor('improve'))
+			assert.equal(pb.need('p-1').pendingEdits?.length, 1)
+		})
+
+		it('pendingEdits: accept применяет правку новой версией с записью edit, reject пишет хэш в rejectedEdits', async () => {
+			autoReview = false
+			seed(state())
+			const other = { ...edit, file: 'stages/02-implement.md', before: 'tests pass', after: 'tests pass and lint is clean' }
+			replies = [improvement({ cause: 'gap', edits: [edit, other], candidates: [] })]
+			await improveHandler.run(ctxFor('improve'))
+			assert.equal(pb.need('p-1').pendingEdits?.length, 2)
+			const v = pb.need('p-1').version
+			const accepted = pb.acceptEdit('p-1', editHash(edit))
+			assert.equal(accepted.version, v + 1)
+			assert.equal(accepted.stages[0]?.done, 'findings listed with sources')
+			assert.deepEqual(accepted.pendingEdits?.map(x => x.hash), [editHash(other)])
+			assert.ok(pb.journal().some(e => e.kind === 'edit' && e.revertible))
+			const rejected = pb.rejectEdit('p-1', editHash(other))
+			assert.deepEqual(rejected.pendingEdits, [])
+			assert.deepEqual(rejected.rejectedEdits, [editHash(other)])
+			assert.equal(rejected.stages[0]?.done, 'findings listed with sources')
+			assert.throws(() => pb.acceptEdit('p-1', 'нет'), /нет ждущей правки/)
+		})
+
+		it('pendingEdits: устаревшая правка — 409 stale_edit, из очереди снимается', async () => {
+			autoReview = false
+			seed(state())
+			replies = [improvement({ cause: 'gap', edits: [edit], candidates: [] })]
+			await improveHandler.run(ctxFor('improve'))
+			pb.saveVersion({ ...pb.need('p-1'), stages: pb.need('p-1').stages.map(s => ({ ...s, done: 'другое' })) }, 'user edit')
+			assert.throws(() => pb.acceptEdit('p-1', editHash(edit)), (e: unknown) => e instanceof AppError && e.status === 409 && e.code === 'stale_edit')
+			assert.deepEqual(pb.need('p-1').pendingEdits, [])
 		})
 	})
 })

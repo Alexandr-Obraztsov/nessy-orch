@@ -229,10 +229,42 @@ export class LearningService {
 	removePlaybook(id: string): void {
 		const ps = this.pb()
 		ps.need(id)
-		if (this.queue.list().some(j => (j.subject === id || j.subject === `edit:${id}`) && (j.status === 'queued' || j.status === 'running'))) {
-			throw new AppError(409, 'playbook_busy', `по плейбуку ${id} идёт задание, дождитесь его окончания`)
-		}
+		this.assertPlaybookIdle(id)
 		ps.remove(id)
+	}
+
+	/** Принять ждущую правку улучшателя (`autoReview: false`): новая версия, запись `edit`. */
+	acceptEdit(id: string, hash: string): PlaybookView {
+		const ps = this.pb()
+		ps.need(id)
+		this.assertPlaybookIdle(id)
+		return playbookView(ps.acceptEdit(id, hash))
+	}
+
+	/** Отклонить ждущую правку: хэш уходит в `rejectedEdits`. */
+	rejectEdit(id: string, hash: string): PlaybookView {
+		const ps = this.pb()
+		ps.need(id)
+		return playbookView(ps.rejectEdit(id, hash))
+	}
+
+	/** По плейбуку идёт или ждёт задание (замок плейбука) — 409 `playbook_busy`. */
+	private assertPlaybookIdle(id: string): void {
+		const busy = this.queue.list().some(j => ((j.subject === id || j.subject === `edit:${id}`) && (j.status === 'queued' || j.status === 'running')) || (j.status === 'running' && this.playbookOfJob(j) === id))
+		if (busy) throw new AppError(409, 'playbook_busy', `по плейбуку ${id} идёт задание, дождитесь его окончания`)
+	}
+
+	/** Плейбук, над которым работает задание (для замка): `review`, `edit:p-…`, `judge`/`improve` (из `payload.playbookId` или плейбука кейса). */
+	private playbookOfJob(job: JobState): string | null {
+		if (job.kind === 'review' && job.subject.startsWith('p-')) return job.subject
+		if (job.kind === 'edit' && job.subject.startsWith('edit:p-')) return job.subject.slice('edit:'.length)
+		if (job.kind === 'judge' || job.kind === 'improve') {
+			const id = job.payload?.['playbookId']
+			if (typeof id === 'string') return id
+			const ref = this.cases.get(job.caseId)?.playbook
+			return ref ? (ref.split('@')[0] ?? null) : null
+		}
+		return null
 	}
 
 	setPlaybookNotes(id: string, text: string): void {
@@ -668,6 +700,9 @@ export class LearningService {
 		} else if (job.kind === 'collect' || job.kind === 'close') {
 			if (running.some(j => j.kind === 'edit' && j.subject === `edit:${job.caseId || job.subject}`)) return true
 		}
+		// замок плейбука: пока другое задание того же плейбука работает, это ждёт
+		const target = this.playbookOfJob(job)
+		if (target !== null && running.some(j => j.id !== job.id && this.playbookOfJob(j) === target)) return true
 		const after = job.payload?.['after']
 		if (!Array.isArray(after)) return false
 		return after.some(id => {

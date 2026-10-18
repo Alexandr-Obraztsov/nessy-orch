@@ -2,10 +2,11 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { PlaybookView, RuleView } from '../../../shared/types'
 import type { RuleVerdict } from '../../../src/domain/playbook.types'
-import { applyVerdicts, countCorrections, promoteCandidates, ruleCounters, trialDecision } from '../../../src/domain/rule-counters'
+import { applyVerdicts, countCorrections, promoteCandidates, recount, ruleCounters, trialDecision } from '../../../src/domain/rule-counters'
 import { samplePlaybook } from '../../support/sample-playbook'
 
 const WEEK = 7 * 24 * 3600 * 1000
+const KNOWN = new Set(['c1', 'c2', 'c3', 'c4'])
 const NOW = Date.parse('2026-12-01T00:00:00Z')
 const v = (ruleId: string, verdict: RuleVerdict['verdict'], anchor: string | null = 'n 1'): RuleVerdict => ({ ruleId, verdict, anchor })
 const base = { evidence: [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'c2', anchor: 'n 1' }], createdAt: new Date(NOW - WEEK).toISOString() }
@@ -67,7 +68,42 @@ describe('rule-counters', () => {
 			rule('b', 'candidate', [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'c2', anchor: 'n 1' }], [{ caseId: 'c3', anchor: 'n 1' }]),
 			rule('c', 'candidate', [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'c1', anchor: 'n 2' }]),
 		]
-		assert.deepEqual(promoteCandidates(p).rules.map(r => r.status), ['active', 'candidate', 'candidate'])
+		assert.deepEqual(promoteCandidates(p, KNOWN).rules.map(r => r.status), ['active', 'candidate', 'candidate'])
+	})
+
+	it('applyVerdicts: поправка без разбираемого якоря не считается', () => {
+		for (const anchor of [null, 'row 7', 'n 9-3']) {
+			const p = applyVerdicts(state(), 'c2', [v('r1', 'violated_by_user_correction', anchor)], NOW)
+			assert.equal(r1(p).down, 0, String(anchor))
+			assert.deepEqual(r1(p).against, [])
+		}
+		const ok = applyVerdicts(state(), 'c2', [v('r1', 'violated_by_user_correction', 'n 9')], NOW)
+		assert.equal(r1(ok).down, 1)
+	})
+
+	it('promoteCandidates: несуществующие кейсы и битые якоря не повышают', () => {
+		const p = state()
+		p.rules = [
+			rule('ghost', 'candidate', [{ caseId: 'g1', anchor: 'n 1' }, { caseId: 'g2', anchor: 'n 1' }]),
+			rule('half', 'candidate', [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'g2', anchor: 'n 1' }]),
+			rule('badanchor', 'candidate', [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'c2', anchor: 'row' }]),
+			rule('ok', 'candidate', [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'c2', anchor: 'n 2–3' }]),
+		]
+		assert.deepEqual(promoteCandidates(p, KNOWN).rules.map(r => r.status), ['candidate', 'candidate', 'candidate', 'active'])
+	})
+
+	it('recount: затухание без вердиктов отправляет старое правило в архив, свежее не трогает', () => {
+		const p = state()
+		p.rules = [
+			{ ...rule('old', 'active', [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'c2', anchor: 'n 1' }]), createdAt: new Date(NOW - 17 * WEEK).toISOString() },
+			rule('fresh', 'active', [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'c2', anchor: 'n 1' }]),
+			{ ...rule('cand', 'candidate', [{ caseId: 'c1', anchor: 'n 1' }]), createdAt: new Date(NOW - 17 * WEEK).toISOString() },
+		]
+		const { state: next, changed } = recount(p, NOW)
+		assert.deepEqual(next.rules.map(r => r.status), ['archived', 'active', 'archived'])
+		assert.deepEqual(changed, [{ ruleId: 'old', from: 'active', to: 'archived' }, { ruleId: 'cand', from: 'candidate', to: 'archived' }])
+		assert.equal(next.rules[0]?.up, 0)
+		assert.equal(recount(next, NOW).changed.length, 0)
 	})
 
 	it('trialDecision', () => {

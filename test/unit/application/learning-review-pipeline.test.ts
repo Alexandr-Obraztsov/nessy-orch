@@ -4,12 +4,14 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeEach, describe, it } from 'node:test'
 import type { LearningSettings, ReviewReport } from '../../../shared/types'
+import { AppError } from '../../../src/domain/errors'
 import { Hub } from '../../../src/application/hub'
 import type { JobContext } from '../../../src/application/learning/handlers.types'
 import type { CaseState, JobState, PlaybookState } from '../../../src/application/learning/learning.types'
 import { PlaybookService } from '../../../src/application/learning/playbook.service'
 import { approvePlaybook, rejectPlaybook, reviewHandler } from '../../../src/application/learning/review.handler'
 import type { RawEvent } from '../../../src/domain/learning.types'
+import { renderPlaybook } from '../../../src/domain/playbook-render'
 import { MemoryPlaybookStore } from '../../support/memory-playbook-store'
 import { samplePlaybook } from '../../support/sample-playbook'
 
@@ -47,6 +49,8 @@ interface Knobs {
 	select: 'always' | 'never' | 'improved'
 	/** селектор ошибочно выбирает плейбук для сообщений других типов */
 	falseHits: boolean
+	/** что отвечает description-improver (по умолчанию описание с `IMPROVED`) */
+	improved?: string
 }
 
 describe('авто-ревью, шесть ступеней', () => {
@@ -88,7 +92,7 @@ describe('авто-ревью, шесть ступеней', () => {
 			const picks = mine ? knobs.select === 'always' || (knobs.select === 'improved' && desc.includes('IMPROVED')) : knobs.falseHits
 			return result({ playbookId: picks ? 'p-1' : null })
 		}
-		return result({ description: 'Use when IMPROVED: implementing an aff package' })
+		return result({ description: knobs.improved ?? 'Use when IMPROVED: implementing an aff package' })
 	}
 
 	const ctxFor = (payload: Record<string, unknown> | null = null): JobContext => {
@@ -132,7 +136,12 @@ describe('авто-ревью, шесть ступеней', () => {
 	})
 	/** новый плейбук в хранилище и в сервисе */
 	const seed = (status: PlaybookState['status'] = 'draft'): void => {
-		ps.saveVersion(state(status), 'seed')
+		seedState(state(status))
+	}
+	/** Плейбук появляется на диске (saveVersion на неизвестном плейбуке — `no_playbook`). */
+	const seedState = (p: PlaybookState): void => {
+		store.savePlaybook(p, renderPlaybook(p, '', ''), 'seed')
+		ps.load()
 	}
 	const roles = (): string[] => calls.map(c => c.role)
 	const lastReport = (): ReviewReport => {
@@ -225,7 +234,7 @@ describe('авто-ревью, шесть ступеней', () => {
 	})
 
 	it('ступень 5: нет heldOut — skip, ревью проходит', async () => {
-		ps.saveVersion({ ...state('draft'), heldOut: null }, 'seed')
+		seedState({ ...state('draft'), heldOut: null })
 		await reviewHandler.run(ctxFor())
 		assert.equal(lastReport().stages[4]?.verdict, 'skip')
 		assert.equal(ps.need('p-1').status, 'trial')
@@ -242,6 +251,61 @@ describe('авто-ревью, шесть ступеней', () => {
 		assert.equal(lastReport().stages[5]?.verdict, 'pass')
 		assert.equal(p.status, 'trial')
 		assert.ok(store.versions('p-1').some(v => /Improved description/.test(v.message)))
+	})
+
+	it('ступень 6: описание улучшателя с угловыми скобками или без Use when не принимается (validDescription)', async () => {
+		for (const improved of ['Use when <IMPROVED> aff', 'IMPROVED aff package', `Use when IMPROVED ${'x'.repeat(1100)}`]) {
+			seed()
+			knobs.select = 'improved'
+			knobs.improved = improved
+			calls = []
+			await reviewHandler.run(ctxFor())
+			assert.doesNotMatch(ps.need('p-1').description, /IMPROVED/, improved.slice(0, 20))
+			assert.equal(roles().filter(r => r === 'selector').length, 5, improved.slice(0, 20))
+			assert.equal(lastReport().stages[5]?.verdict, 'fail')
+		}
+	})
+
+	it('пользователь отключил плейбук во время ревью: ревью статус не меняет', async () => {
+		seed()
+		const ctx = ctxFor()
+		const run = ctx.runAgent.bind(ctx)
+		let once = true
+		ctx.runAgent = async (n, t, p) => {
+			if (once) {
+				once = false
+				ps.setStatus('p-1', 'disabled', 'Set by the user')
+			}
+			return run(n, t, p)
+		}
+		await reviewHandler.run(ctx)
+		assert.equal(ps.need('p-1').status, 'disabled')
+		assert.equal(ps.need('p-1').reviewAttempts, 0)
+		assert.deepEqual(finished.at(-1), 'статус изменён пользователем')
+		assert.ok(!store.journal.some(j => j.kind === 'review_passed' || j.kind === 'review_failed'))
+	})
+
+	it('плейбук удалён во время ревью: задание завершается, плейбук не воскресает', async () => {
+		seed()
+		const ctx = ctxFor()
+		const run = ctx.runAgent.bind(ctx)
+		ctx.runAgent = async (n, t, p) => {
+			ps.remove('p-1')
+			return run(n, t, p)
+		}
+		await reviewHandler.run(ctx)
+		assert.equal(ps.get('p-1'), null)
+		assert.equal(store.snapshots.has('p-1'), false)
+		assert.deepEqual(finished.at(-1), 'плейбук удалён')
+	})
+
+	it('approve и reject возможны только из draft/review: иначе 409 bad_status', () => {
+		for (const status of ['trial', 'active', 'disabled', 'archived'] as const) {
+			seed(status)
+			assert.throws(() => approvePlaybook(ps, 'p-1', 0), /решать нечего/)
+			assert.throws(() => rejectPlaybook(ps, 'p-1', 'x'), (e: unknown) => e instanceof AppError && e.status === 409 && e.code === 'bad_status')
+			assert.equal(ps.need('p-1').status, status)
+		}
 	})
 
 	it('ступень 6: повторный провал — только заметка, описание прежнее, ревью проходит', async () => {
@@ -292,7 +356,7 @@ describe('авто-ревью, шесть ступеней', () => {
 	})
 
 	it('ревью правок: провал откатывает версию и пишет хэши в rejectedEdits', async () => {
-		ps.saveVersion(state('active'), 'seed')
+		seedState(state('active'))
 		const base = ps.need('p-1')
 		ps.saveVersion({ ...base, description: 'Use when EDITED' }, 'edit', { kind: 'edit', subject: 'p-1', summary: 'правка', report: null, revertible: true, revertedBy: null })
 		assert.equal(ps.need('p-1').version, 2)
@@ -308,7 +372,7 @@ describe('авто-ревью, шесть ступеней', () => {
 	})
 
 	it('ревью правок: успех оставляет версию и статус, без перехода в trial', async () => {
-		ps.saveVersion(state('active'), 'seed')
+		seedState(state('active'))
 		ps.saveVersion({ ...ps.need('p-1'), description: 'Use when EDITED' }, 'edit', { kind: 'edit', subject: 'p-1', summary: 'правка', report: null, revertible: true, revertedBy: null })
 		await reviewHandler.run(ctxFor({ edits: ['h1'], baseVersion: 1 }))
 		const p = ps.need('p-1')
@@ -324,6 +388,7 @@ describe('авто-ревью, шесть ступеней', () => {
 		assert.equal(ps.need('p-1').status, 'trial')
 		assert.equal(ps.need('p-1').trial?.before, 2)
 		assert.ok(store.journal.some(j => j.kind === 'review_passed'))
+		seed('review')
 		rejectPlaybook(ps, 'p-1', 'мимо')
 		assert.equal(ps.need('p-1').status, 'disabled')
 		assert.ok(store.journal.some(j => j.kind === 'review_failed' && /мимо/.test(j.summary)))

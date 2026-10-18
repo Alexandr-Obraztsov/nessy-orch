@@ -7,6 +7,7 @@
  *   <home>/learning/journal.jsonl             журнал
  *   <home>/cases/<id>/chat.jsonl              чат кейса
  *   <pluginDir>                               плагин nessy-playbooks (перезаписывается целиком)
+ *   <pluginDir>/../../.<имя>.tmp|.old         временные папки публикации — вне каталога skills, чтобы Claude Code не принял их за плагин
  */
 import { execFileSync } from 'node:child_process'
 import * as fs from 'node:fs'
@@ -22,12 +23,15 @@ const PLAYBOOK_ID = /^p-[a-z0-9-]{1,64}$/
 const CASE_ID = /^c-[\w.-]{1,200}$/
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }
 const GIT_ARGS = ['-c', 'user.name=nessy-orch', '-c', 'user.email=nessy-orch@localhost', '-c', 'commit.gpgsign=false']
-const GITIGNORE = 'notes.md\nchat.jsonl\nreviews/\n'
+// якоря со слешем: правила только для корня плейбука (`files/notes.md` остаётся в git)
+const GITIGNORE = '/notes.md\n/chat.jsonl\n/reviews/\n'
 
 export class FilePlaybookStore implements PlaybookStorePort {
 	readonly playbooksDir: string
 	private readonly casesDir: string
 	private readonly journalPath: string
+	private readonly tmpDir: string
+	private readonly oldDir: string
 	private lastWarn = 0
 
 	constructor(
@@ -37,6 +41,14 @@ export class FilePlaybookStore implements PlaybookStorePort {
 		this.playbooksDir = path.join(home, 'playbooks')
 		this.casesDir = path.join(home, 'cases')
 		this.journalPath = path.join(home, 'learning', 'journal.jsonl')
+		const stage = path.join(path.dirname(path.dirname(pluginDir)), `.${path.basename(pluginDir)}`)
+		this.tmpDir = stage + '.tmp'
+		this.oldDir = stage + '.old'
+		// остатки оборванной публикации
+		this.safe('остатки публикации', () => {
+			fs.rmSync(this.tmpDir, { recursive: true, force: true })
+			fs.rmSync(this.oldDir, { recursive: true, force: true })
+		})
 	}
 
 	loadPlaybooks(): PlaybookState[] {
@@ -61,23 +73,43 @@ export class FilePlaybookStore implements PlaybookStorePort {
 		const dir = this.dirOf(p.id)
 		for (const name of Object.keys(files)) assertRelPath(name)
 		fs.mkdirSync(dir, { recursive: true })
-		if (!fs.existsSync(path.join(dir, '.git'))) {
-			this.git(dir, ['init', '-q'])
-			fs.writeFileSync(path.join(dir, '.gitignore'), GITIGNORE)
+		if (!fs.existsSync(path.join(dir, '.git'))) this.git(dir, ['init', '-q'])
+		try {
+			const ignore = path.join(dir, '.gitignore')
+			if (readText(ignore) !== GITIGNORE) fs.writeFileSync(ignore, GITIGNORE)
+			writeAtomic(path.join(dir, 'playbook.json'), JSON.stringify(p, null, 2))
+			const filesDir = path.join(dir, 'files')
+			fs.rmSync(filesDir, { recursive: true, force: true })
+			for (const [name, text] of Object.entries(files)) {
+				const file = path.join(filesDir, name)
+				fs.mkdirSync(path.dirname(file), { recursive: true })
+				fs.writeFileSync(file, text)
+			}
+			this.git(dir, ['add', '-A'])
+			if (this.git(dir, ['status', '--porcelain']).trim() !== '' || this.count(dir) === 0) {
+				this.git(dir, ['commit', '-q', '--allow-empty', '-m', message || 'update'])
+			}
+			return this.count(dir)
+		} catch (e) {
+			// playbook.json на диске не должен расходиться с последним коммитом
+			this.rollback(dir)
+			throw e
 		}
-		writeAtomic(path.join(dir, 'playbook.json'), JSON.stringify(p, null, 2))
-		const filesDir = path.join(dir, 'files')
-		fs.rmSync(filesDir, { recursive: true, force: true })
-		for (const [name, text] of Object.entries(files)) {
-			const file = path.join(filesDir, name)
-			fs.mkdirSync(path.dirname(file), { recursive: true })
-			fs.writeFileSync(file, text)
-		}
-		this.git(dir, ['add', '-A'])
-		if (this.git(dir, ['status', '--porcelain']).trim() !== '' || this.count(dir) === 0) {
-			this.git(dir, ['commit', '-q', '--allow-empty', '-m', message || 'update'])
-		}
-		return this.count(dir)
+	}
+
+	/** Рабочая копия — к HEAD (игнорируемое: заметки, чат, ревью — не трогается); нет коммитов — убрать записанное. */
+	private rollback(dir: string): void {
+		this.safe('откат рабочей копии', () => {
+			if (this.count(dir) > 0) {
+				this.git(dir, ['reset', '-q', '--hard', 'HEAD'])
+				this.git(dir, ['clean', '-q', '-fd'])
+			} else {
+				fs.rmSync(path.join(dir, 'playbook.json'), { force: true })
+				fs.rmSync(path.join(dir, 'files'), { recursive: true, force: true })
+				fs.rmSync(path.join(dir, '.gitignore'), { force: true })
+				this.git(dir, ['rm', '-rq', '--cached', '--ignore-unmatch', '.'])
+			}
+		})
 	}
 
 	saveState(p: PlaybookState): void {
@@ -215,8 +247,8 @@ export class FilePlaybookStore implements PlaybookStorePort {
 
 	publish(active: ReadonlyArray<{ id: string; files: PlaybookFiles }>, version: string): void {
 		this.safe('плагин плейбуков', () => {
-			const tmp = this.pluginDir + '.tmp'
-			const old = this.pluginDir + '.old'
+			const tmp = this.tmpDir
+			const old = this.oldDir
 			fs.rmSync(tmp, { recursive: true, force: true })
 			if (active.length === 0) {
 				fs.rmSync(this.pluginDir, { recursive: true, force: true })

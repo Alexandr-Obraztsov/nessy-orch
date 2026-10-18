@@ -155,6 +155,11 @@ describe('parseGrade / parseReview / parseConsistency', () => {
 			assert.deepEqual(parse(wrap({ critical: ['a'], notes: ['b'] })), { critical: ['a'], notes: ['b'] })
 			assert.deepEqual(parse(wrap({ critical: [] })), { critical: [], notes: [] })
 		})
+		it(`${name}: без critical — null (пустой объект не равен «замечаний нет»)`, () => {
+			assert.equal(parse(wrap({})), null)
+			assert.equal(parse(wrap({ notes: ['a'] })), null)
+			assert.equal(parse(wrap({ verdict: 'fail', problems: ['x'] })), null)
+		})
 		it(`${name}: не та форма — null`, () => {
 			assert.equal(parse(wrap({ critical: 'a', notes: [] })), null)
 			assert.equal(parse(wrap({ critical: [1], notes: [] })), null)
