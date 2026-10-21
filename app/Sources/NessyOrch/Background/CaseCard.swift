@@ -10,16 +10,18 @@ struct CaseCard: View {
 	@State private var detail: CaseDetail?
 	@State private var parsed = CaseSummary()
 	@State private var loadFailure: String?
-	@State private var summaryDraft: CaseSummary?
-	@State private var notesDraft: [String]?
+	@State private var token = RequestToken()
 	@State private var saving = false
 	/// сборщик занят: черновик остаётся, сохранение повторится, когда по кейсу не будет работы
 	@State private var waiting = false
 	@State private var impact: CaseImpact?
+	@State private var impactFailed = false
 	@State private var confirmDelete = false
 
 	private var learning: LearningStore { model.store.learning }
 	private var client: OrchClient { model.store.client }
+	/// черновики живут в `BackgroundNav` по id кейса
+	private var draft: CaseDraftState { model.background.caseDraft(item.id) }
 	private var building: Bool { item.status == .collecting || item.status == .closing }
 
 	var body: some View {
@@ -51,7 +53,7 @@ struct CaseCard: View {
 			Button("Удалить", role: .destructive) { delete() }
 			Button("Отмена", role: .cancel) {}
 		} message: {
-			Text(deleteMessage)
+			Text(CaseDeleteText.message(impact: impact, failed: impactFailed))
 		}
 	}
 
@@ -116,7 +118,7 @@ struct CaseCard: View {
 
 	// MARK: описание
 
-	private var editing: Bool { summaryDraft != nil }
+	private var editing: Bool { draft.editingSummary }
 
 	private var summarySection: some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
@@ -124,19 +126,30 @@ struct CaseCard: View {
 				DSGroupHeader(title: "Описание", count: nil)
 				Spacer(minLength: 0)
 				if editing {
-					Button("Отмена") { summaryDraft = nil; if notesDraft == nil { waiting = false } }
+					Button("Отмена") { draft.summary = nil; draft.text = nil; draft.staleServerText = nil; if draft.notes == nil { waiting = false } }
 					Button("Сохранить") { Task { await save() } }.disabled(saving || model.isOffline)
-				} else if detail != nil, !parsed.unparsed {
-					Button("Править") { summaryDraft = parsed }
+				} else if detail != nil {
+					if building { Text("сборщик пишет описание").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary) }
+					if parsed.editable {
+						Button("Править") { draft.summary = parsed }.disabled(building)
+					} else {
+						Button("Править текстом") { draft.text = detail?.summary ?? "" }.disabled(building)
+							.help("В описании есть то, что блоками не показать: правится текстом целиком")
+					}
 				}
 			}
 			.buttonStyle(SettingsButtonStyle())
 			saveStatus
+			staleCompare
 			if detail == nil {
 				if let loadFailure { Label(loadFailure, systemImage: "exclamationmark.triangle").font(DS.Typography.secondary).foregroundStyle(DS.Palette.danger) }
 				else { ProgressView().controlSize(.small) }
-			} else if editing {
-				CaseEditor(summary: Binding(get: { summaryDraft ?? parsed }, set: { summaryDraft = $0 }))
+			} else if draft.text != nil {
+				TextEditor(text: Binding(get: { draft.text ?? "" }, set: { draft.text = $0 }))
+					.font(DS.Typography.mono).frame(minHeight: 280)
+					.scrollContentBackground(.hidden).padding(DS.Metrics.s2).dsGroup()
+			} else if draft.summary != nil {
+				CaseEditor(summary: Binding(get: { draft.summary ?? parsed }, set: { draft.summary = $0 }))
 			} else if parsed.unparsed {
 				if let text = detail?.summary, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 					MarkdownView(text: text).padding(DS.Metrics.s3).frame(maxWidth: .infinity, alignment: .leading).dsGroup()
@@ -147,6 +160,41 @@ struct CaseCard: View {
 				ForEach(Array(parsed.goals.enumerated()), id: \.offset) { _, g in CaseGoalView(caseId: item.id, goal: g) }
 			}
 		}
+	}
+
+	/// 409 `stale`: описание изменилось, пока вы правили — новое и ваш черновик рядом.
+	@ViewBuilder private var staleCompare: some View {
+		if let server = draft.staleServerText {
+			VStack(alignment: .leading, spacing: DS.Metrics.s3) {
+				Label("Описание изменилось, пока вы правили", systemImage: "arrow.triangle.2.circlepath").font(DS.Typography.secondary.weight(.semibold))
+				HStack(alignment: .top, spacing: DS.Metrics.s3) {
+					compareColumn("Сейчас на сервере", server)
+					compareColumn("Ваш черновик", draftMarkdown)
+				}
+				HStack(spacing: DS.Metrics.s2) {
+					Button("Заменить моим") { draft.staleServerText = nil; Task { await save() } }.disabled(saving || model.isOffline)
+					Button("Отменить") { draft.staleServerText = nil }
+					Text("«Отменить» закрывает сравнение, черновик остаётся.").font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+				}
+				.buttonStyle(SettingsButtonStyle())
+			}
+			.padding(DS.Metrics.s3).frame(maxWidth: .infinity, alignment: .leading)
+			.background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Metrics.s2, style: .continuous))
+		}
+	}
+
+	private func compareColumn(_ title: String, _ text: String) -> some View {
+		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+			Text(title).font(DS.Typography.groupTitle).foregroundStyle(DS.Palette.textSecondary)
+			LongText(text, lines: 14)
+		}
+		.frame(maxWidth: .infinity, alignment: .leading)
+	}
+
+	/// Текст описания из черновика (блоки собираются в markdown).
+	private var draftMarkdown: String {
+		if let s = draft.summary { return CaseEditing.markdown(s) }
+		return draft.text ?? ""
 	}
 
 	@ViewBuilder private var saveStatus: some View {
@@ -163,16 +211,16 @@ struct CaseCard: View {
 			HStack(spacing: DS.Metrics.s2) {
 				DSGroupHeader(title: "Заметки", count: nil)
 				Spacer(minLength: 0)
-				if notesDraft != nil {
-					Button("Отмена") { notesDraft = nil; if summaryDraft == nil { waiting = false } }
+				if draft.notes != nil {
+					Button("Отмена") { draft.notes = nil; if !draft.editingSummary { waiting = false } }
 					Button("Сохранить") { Task { await save() } }.disabled(saving || model.isOffline)
 				} else if detail != nil {
-					Button("Править") { notesDraft = CaseEditing.notes(from: detail?.notes ?? "") }
+					Button("Править") { draft.notes = CaseEditing.notes(from: detail?.notes ?? "") }
 				}
 			}
 			.buttonStyle(SettingsButtonStyle())
-			if notesDraft != nil {
-				NotesEditor(notes: Binding(get: { notesDraft ?? [] }, set: { notesDraft = $0 }))
+			if draft.notes != nil {
+				NotesEditor(notes: Binding(get: { draft.notes ?? [] }, set: { draft.notes = $0 }))
 			} else {
 				let lines = CaseEditing.notes(from: detail?.notes ?? "")
 				if lines.isEmpty {
@@ -192,34 +240,44 @@ struct CaseCard: View {
 	// MARK: загрузка и действия
 
 	private func load() async {
+		let t = token.next()
 		do {
 			let d = try await client.caseDetail(item.id)
+			guard token.isCurrent(t) else { return }
 			detail = d; loadFailure = nil
 			parsed = CaseSummary.parse(d.summary)
 		} catch {
-			if detail == nil { loadFailure = error.localizedDescription }
+			if token.isCurrent(t), detail == nil { loadFailure = error.localizedDescription }
 		}
 	}
 
 	private func save() async {
-		guard !saving, summaryDraft != nil || notesDraft != nil else { return }
+		let d = draft
+		guard !saving, d.editingSummary || d.notes != nil else { return }
 		saving = true
 		defer { saving = false }
 		do {
-			if let d = summaryDraft {
-				let text = CaseEditing.markdown(d)
+			if d.editingSummary {
+				let text = d.summary.map(CaseEditing.markdown) ?? d.text ?? ""
 				try await client.putCaseSummary(item.id, text: text, base: detail?.summaryHash ?? "")
 				detail?.summaryHash = TextHash.sha1(text)
-				parsed = CaseEditing.cleaned(d); summaryDraft = nil
+				d.summary = nil; d.text = nil; d.staleServerText = nil
 			}
-			if let n = notesDraft {
+			if let n = d.notes {
 				try await client.putCaseNotes(item.id, text: CaseEditing.text(fromNotes: n))
-				notesDraft = nil
+				d.notes = nil
 			}
 			waiting = false
 			await load()
 		} catch let e as APIError where e.isBusy {
 			waiting = true
+		} catch let e as APIError where e.isStale {
+			waiting = false
+			do {
+				let fresh = try await client.caseDetail(item.id)
+				detail = fresh; parsed = CaseSummary.parse(fresh.summary)
+				d.staleServerText = fresh.summary
+			} catch { model.flash("Описание изменилось, но перечитать не удалось: \(error.localizedDescription)", error: true) }
 		} catch {
 			waiting = false
 			model.flash("Не сохранено: \(error.localizedDescription)", error: true)
@@ -230,15 +288,11 @@ struct CaseCard: View {
 		Task { await model.run(title, op) }
 	}
 
-	private var deleteMessage: String {
-		let lines = impact.map(CaseEditing.impactLines) ?? []
-		let base = "Описание, заметки и события кейса исчезнут."
-		return lines.isEmpty ? base : base + "\n" + lines.joined(separator: "\n")
-	}
-
+	/// Влияние удаления грузится заново при каждом открытии диалога; не удалось — об этом сказано в диалоге, удалить всё равно можно.
 	private func askDelete() {
+		impact = nil; impactFailed = false
 		Task {
-			impact = try? await client.caseImpact(item.id)
+			do { impact = try await client.caseImpact(item.id) } catch { impactFailed = true }
 			confirmDelete = true
 		}
 	}
@@ -248,7 +302,10 @@ struct CaseCard: View {
 		Task {
 			await model.run("Удаление кейса") {
 				try await client.deleteCase(id)
-				if model.background.objectId == id { model.background.objectId = nil }
+				await MainActor.run {
+					model.background.discardDrafts(id)
+					if model.background.objectId == id { model.background.forceGo(.cases) }
+				}
 			}
 		}
 	}

@@ -5,22 +5,24 @@ import NessyKit
 struct JournalSection: View {
 	@Environment(AppModel.self) private var model
 
+	@State private var cache = JournalReportCache()
+
 	private var learning: LearningStore { model.store.learning }
 
 	var body: some View {
 		let days = JournalLogic.days(learning.journal)
 		ScrollView {
-			VStack(alignment: .leading, spacing: DS.Metrics.s5) {
+			LazyVStack(alignment: .leading, spacing: DS.Metrics.s5) {
 				if days.isEmpty {
 					LearningEmptyState("Журнал пуст", systemImage: "list.bullet.rectangle", message: "Сюда попадают сборка плейбуков, ревью, включение правил и откаты.")
 				}
 				ForEach(days) { day in
 					VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 						DSGroupHeader(title: JournalLogic.dayTitle(day.start), count: day.entries.count)
-						VStack(spacing: 0) {
+						LazyVStack(spacing: 0) {
 							ForEach(Array(day.entries.enumerated()), id: \.element.id) { i, e in
 								if i > 0 { DSSeparator(leading: DS.Metrics.s4) }
-								JournalRow(entry: e)
+								JournalRow(entry: e, cache: cache)
 							}
 						}
 						.dsGroup()
@@ -39,12 +41,13 @@ struct JournalSection: View {
 private struct JournalRow: View {
 	@Environment(AppModel.self) private var model
 	var entry: JournalEntry
+	var cache: JournalReportCache
 	@State private var open = false
 	@State private var askRevert = false
 	@State private var busy = false
 
 	private var reverted: Bool { JournalLogic.isReverted(entry) }
-	private var report: JournalLogic.Report? { JournalLogic.report(entry) }
+	private var report: JournalLogic.Report? { cache.report(entry) }
 	private var hasDetails: Bool { report != nil || JournalLogic.canRevert(entry) }
 
 	var body: some View {
@@ -108,7 +111,7 @@ private struct JournalRow: View {
 	private var details: some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
 			if let r = report {
-				if let p = r.prevStatus { Text("Статус до этого: \(p)").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary) }
+				if let p = r.prevStatus { Text("Статус до этого: \(LearningText.prevStatus(p))").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary) }
 				if let rv = r.review { reviewList(rv) }
 			}
 			if JournalLogic.canRevert(entry) {
@@ -129,7 +132,7 @@ private struct JournalRow: View {
 					HStack(spacing: DS.Metrics.s2) {
 						Image(systemName: s.verdict == .pass ? "checkmark.circle" : s.verdict == .fail ? "xmark.circle" : "minus.circle")
 							.foregroundStyle(s.verdict == .fail ? DS.Palette.danger : DS.Palette.textSecondary)
-						Text("Ступень \(s.stage) — \(JournalLogic.verdict(s.verdict))").font(DS.Typography.secondary)
+						Text("\(PlaybookEditing.reviewStage(s.stage)) — \(JournalLogic.verdict(s.verdict))").font(DS.Typography.secondary)
 					}
 					ForEach(Array((s.critical + s.notes).enumerated()), id: \.offset) { _, n in
 						Text("· \(n)").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).padding(.leading, DS.Metrics.s5)

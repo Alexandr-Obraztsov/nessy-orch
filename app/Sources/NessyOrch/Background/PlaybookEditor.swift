@@ -1,7 +1,9 @@
 import SwiftUI
 import NessyKit
 
-// Правка плейбука блоками: черновик (`PlaybookDraft`) живёт, пока открыта карточка, и уходит одним `PATCH` по «Сохранить».
+// Правка плейбука блоками: черновик (`PlaybookDraft`) живёт в `BackgroundNav` по id плейбука и уходит одним `PATCH` по «Сохранить».
+
+private struct PlaybookGone: LocalizedError { var errorDescription: String? { "Плейбук удалён" } }
 
 /// Состояние правки карточки: общее для «Обзора» и «Правил».
 @MainActor
@@ -14,43 +16,72 @@ final class PlaybookEditSession {
 	var lint: [String] = []
 	/// «Плейбук занят…» пока идёт автоповтор
 	var waiting: String?
+	/// после 409 `stale`: «плейбук обновился, ваши правки перенесены — сохранить?»
+	var notice: String?
+	/// поля, изменённые и вами, и на сервере: по каждому выбор «оставить мои / взять новые»
+	var conflicts: [PlaybookField] = []
+	/// конфликты правил: подписи
+	var ruleNotes: [String] = []
+	/// свежая версия, на которую перенесены правки (откуда берутся «новые» поля)
+	private var fresh: PlaybookView?
 
 	init(_ p: PlaybookView) { draft = PlaybookDraft(p) }
 
+	var isDirty: Bool { editing && draft.isDirty() }
+
 	func begin(_ p: PlaybookView) {
 		if !editing { draft = PlaybookDraft(p) }
-		lint = []; waiting = nil
+		lint = []; waiting = nil; clearRebase()
 		editing = true
 	}
 
 	func cancel(_ p: PlaybookView) {
-		editing = false; draft = PlaybookDraft(p); lint = []; waiting = nil
+		editing = false; draft = PlaybookDraft(p); lint = []; waiting = nil; clearRebase()
 	}
 
-	func dirty(_ p: PlaybookView) -> Bool { editing && draft.isDirty() }
+	private func clearRebase() { notice = nil; conflicts = []; ruleNotes = []; fresh = nil }
+
+	func keepMine(_ f: PlaybookField) { conflicts.removeAll { $0 == f } }
+
+	func takeNew(_ f: PlaybookField) {
+		if let fresh { draft.take(f, from: fresh) }
+		conflicts.removeAll { $0 == f }
+	}
 
 	func save(_ model: AppModel, _ p: PlaybookView) async {
-		guard let patch = draft.patch() else { editing = false; return }
-		saving = true; lint = []; waiting = nil
+		guard draft.patch() != nil else { editing = false; return }
+		saving = true; lint = []; waiting = nil; clearRebase()
 		defer { saving = false; waiting = nil }
 		let client = model.store.client, id = p.id
-		do {
-			_ = try await PlaybookEditing.retryingWhileBusy(onWait: { [weak self] n in
-				Task { @MainActor in self?.waiting = "Плейбук занят фоновым агентом, повторяю (\(n))…" }
-			}) { try await client.patchPlaybook(id, patch) }
+		let outcome = await PlaybookSaving.save(draft,
+			send: { _ = try await client.patchPlaybook(id, $0) },
+			fetch: {
+				guard let f = try await client.playbooks().first(where: { $0.id == id }) else { throw PlaybookGone() }
+				return f
+			},
+			onWait: { [weak self] n in Task { @MainActor in self?.waiting = "Плейбук занят фоновым агентом, повторяю (\(n))…" } })
+		switch outcome {
+		case .saved:
 			editing = false
 			model.flash("Плейбук обновлён")
-		} catch let e as APIError where e.isLint {
-			lint = PlaybookEditing.lintLines(e.message)
-		} catch let e as APIError where e.isBusy {
+		case .unchanged:
+			editing = false
+		case .lint(let l):
+			lint = l
+		case .busy:
 			model.flash("Плейбук занят: правки остались в черновике, сохраните позже", error: true)
-		} catch {
-			model.flash("Правка не сохранена: \(error.localizedDescription)", error: true)
+		case .rebased(let r):
+			draft = r.draft; fresh = r.fresh; conflicts = r.fields; ruleNotes = r.ruleNotes
+			notice = r.fields.isEmpty
+				? "Плейбук обновился, ваши правки перенесены — сохранить?"
+				: "Плейбук обновился, и вы правили то же, что и другие. По каждому полю выберите, чьё оставить."
+		case .failed(let m):
+			model.flash("Правка не сохранена: \(m)", error: true)
 		}
 	}
 }
 
-/// Панель над содержимым в режиме правки: «Сохранить», «Отменить», замечания lint.
+/// Панель над содержимым в режиме правки: «Сохранить», «Отменить», перенос на новую версию, замечания lint.
 struct PlaybookEditBar: View {
 	@Environment(AppModel.self) private var model
 	var playbook: PlaybookView
@@ -59,15 +90,30 @@ struct PlaybookEditBar: View {
 	var body: some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
 			HStack(spacing: DS.Metrics.s2) {
-				Text(session.dirty(playbook) ? "Есть несохранённые правки" : "Режим правки").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+				Text(session.isDirty ? "Есть несохранённые правки" : "Режим правки").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
 				Spacer(minLength: 0)
 				if session.saving { ProgressView().controlSize(.small) }
 				Button("Отменить") { session.cancel(playbook) }.disabled(session.saving)
 				Button("Сохранить") { Task { await session.save(model, playbook) } }
-					.disabled(session.saving || !session.dirty(playbook) || model.isOffline)
+					.disabled(session.saving || !session.isDirty || !session.conflicts.isEmpty || model.isOffline)
 			}
 			.buttonStyle(SettingsButtonStyle())
 			if let w = session.waiting { Text(w).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary) }
+			if let n = session.notice {
+				Label(n, systemImage: "arrow.triangle.2.circlepath").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
+			}
+			ForEach(session.conflicts, id: \.self) { f in
+				HStack(spacing: DS.Metrics.s2) {
+					Text(f.label).font(DS.Typography.secondary.weight(.semibold))
+					Spacer(minLength: 0)
+					Button("Оставить мои") { session.keepMine(f) }
+					Button("Взять новые") { session.takeNew(f) }
+				}
+				.buttonStyle(SettingsButtonStyle())
+			}
+			ForEach(Array(session.ruleNotes.enumerated()), id: \.offset) { _, l in
+				Label(l, systemImage: "exclamationmark.circle").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+			}
 			ForEach(Array(session.lint.enumerated()), id: \.offset) { _, l in
 				Label(l, systemImage: "exclamationmark.triangle").font(DS.Typography.caption).foregroundStyle(DS.Palette.danger).textSelection(.enabled)
 			}

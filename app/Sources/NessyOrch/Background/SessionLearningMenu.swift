@@ -6,6 +6,7 @@ struct SessionLearningControls: View {
 	@Environment(AppModel.self) private var model
 	var session: String
 	@State private var impact: CaseImpact?
+	@State private var impactFailed = false
 	@State private var askDelete = false
 
 	private var learning: LearningStore { model.store.learning }
@@ -48,6 +49,7 @@ struct SessionLearningControls: View {
 			Button("Открыть кейс") { if let c = caseView { model.openBackground(.cases, id: c.id) } }.disabled(!m.canOpen)
 		} label: {
 			Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 24)
+				.accessibilityLabel("Обучение на этой сессии")
 		}
 		.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
 		.tint(DS.Palette.textSecondary)
@@ -60,13 +62,15 @@ struct SessionLearningControls: View {
 
 	private func prepareDelete() {
 		guard let c = caseView else { return }
+		impact = nil; impactFailed = false
 		Task {
-			impact = try? await model.store.client.caseImpact(c.id)
+			do { impact = try await model.store.client.caseImpact(c.id) } catch { impactFailed = true }
 			askDelete = true
 		}
 	}
 
 	private var impactText: String {
+		if impactFailed { return CaseDeleteText.impactFailed + " Удалить всё равно?" }
 		guard let i = impact, !i.rules.isEmpty else { return "Правила плейбуков не потеряют доказательств." }
 		let lost = i.rules.filter { $0.evidenceLeft == 0 }.count
 		return "Затронуто правил: \(i.rules.count)" + (lost > 0 ? ", без доказательств останется \(lost)." : ".")

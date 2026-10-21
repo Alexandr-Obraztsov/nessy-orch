@@ -580,7 +580,7 @@ private struct BarIcon: View {
 		.buttonStyle(.plain).focusEffectDisabled()
 		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 		.onHover { hover = $0 }
-		.help(help).accessibilityLabel(help)
+		.help(help).accessibilityLabel(badge > 0 ? "\(help), требует внимания: \(badge)" : help)
 	}
 }
 

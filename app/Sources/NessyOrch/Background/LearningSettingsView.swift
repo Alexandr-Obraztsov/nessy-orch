@@ -9,10 +9,13 @@ struct LearningSettingsView: View {
 	@State private var agents = 2
 	@State private var synced = false
 	@State private var backfillOpen = false
+	/// правки идут по одной очереди: последнее значение побеждает, быстрые нажатия степпера сливаются (400 мс)
+	@State private var queue = SettingsPatchQueue()
 
 	private var learning: LearningStore { model.store.learning }
 	private var settings: LearningSettings? { learning.settings }
-	private var home: String { NSHomeDirectory() + "/.nessy-orch" }
+	/// папка данных — как её отдаёт сервер (`status().home`)
+	private var home: String { model.store.serverHome ?? NSHomeDirectory() + "/.nessy-orch" }
 
 	var body: some View {
 		Form {
@@ -34,7 +37,7 @@ struct LearningSettingsView: View {
 				}
 				ForEach(off, id: \.self) { id in
 					LabeledContent {
-						Button("Включить обратно") { patch(["disabledSessions": .array(off.filter { $0 != id }.map { .string($0) })]) }
+						Button("Включить обратно") { patchNow(["disabledSessions": .array(off.filter { $0 != id }.map { .string($0) })]) }
 					} label: { Text(sessionTitle(id)).lineLimit(1) }
 				}
 			} header: { Text("Сессии без обучения") }
@@ -50,7 +53,8 @@ struct LearningSettingsView: View {
 		}
 		.formStyle(.grouped)
 		.sheet(isPresented: $backfillOpen) { BackfillSheet() }
-		.onAppear { syncFromServer() }
+		.onAppear { configureQueue(); syncFromServer() }
+		.onDisappear { Task { await queue.flush() } }
 		.onChange(of: settings) { _, _ in syncFromServer() }
 		.onChange(of: interval) { _, v in if synced, v != settings?.intervalMin { patch(["intervalMin": .number(Double(v))]) } }
 		.onChange(of: idle) { _, v in if synced, v != settings?.idleMin { patch(["idleMin": .number(Double(v))]) } }
@@ -58,19 +62,31 @@ struct LearningSettingsView: View {
 	}
 
 	private func flag(_ kp: KeyPath<LearningSettings, Bool>, _ key: String) -> Binding<Bool> {
-		Binding(get: { settings?[keyPath: kp] ?? false }, set: { patch([key: .bool($0)]) })
+		Binding(get: { settings?[keyPath: kp] ?? false }, set: { patchNow([key: .bool($0)]) })
 	}
 
 	/// Значения степперов — с сервера; свои правки не затираются, пока совпадают с отправленными.
 	private func syncFromServer() {
-		guard let s = settings else { return }
+		guard let s = settings, !queue.isBusy else { return }
 		synced = false
 		interval = s.intervalMin; idle = s.idleMin; agents = s.maxAgents
 		DispatchQueue.main.async { synced = true }
 	}
 
-	private func patch(_ changes: [String: JSONValue]) {
-		Task { await model.run("Настройки не сохранены") { _ = try await model.store.client.patchLearningSettings(changes) } ; await learning.refresh() }
+	private func configureQueue() {
+		let model = model
+		queue.send = { c in _ = try await model.store.client.patchLearningSettings(c) }
+		queue.onError = { e in model.flash("Настройки не сохранены: \(e.localizedDescription)", error: true) }
+		queue.onIdle = { await model.store.learning.refresh(); syncFromServer() }
+	}
+
+	/// степперы: накопить и отправить через паузу
+	private func patch(_ changes: [String: JSONValue]) { queue.set(changes) }
+
+	/// переключатели: отправить сразу
+	private func patchNow(_ changes: [String: JSONValue]) {
+		queue.set(changes)
+		Task { await queue.flush() }
 	}
 
 	private func sessionTitle(_ id: String) -> String {

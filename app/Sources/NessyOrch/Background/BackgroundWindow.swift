@@ -16,9 +16,63 @@ final class BackgroundNav {
 		section = BackgroundSection(rawValue: UserDefaults.standard.string(forKey: "background.section") ?? "") ?? .work
 	}
 
+	/// переход, ждущий подтверждения «уйти без сохранения?»
+	var pendingGo: (section: BackgroundSection, id: String?)?
+
+	// Черновики живут здесь, по id объекта, в памяти: переживают смену объекта и раздела. Словари не наблюдаются:
+	// получить черновик во время `body` можно, не вызвав перерисовку.
+	@ObservationIgnored private var playbookSessions: [String: PlaybookEditSession] = [:]
+	@ObservationIgnored private var caseDrafts: [String: CaseDraftState] = [:]
+
+	func playbookSession(_ p: PlaybookView) -> PlaybookEditSession {
+		if let s = playbookSessions[p.id] { return s }
+		let s = PlaybookEditSession(p)
+		playbookSessions[p.id] = s
+		return s
+	}
+
+	func caseDraft(_ id: String) -> CaseDraftState {
+		if let d = caseDrafts[id] { return d }
+		let d = CaseDraftState()
+		caseDrafts[id] = d
+		return d
+	}
+
+	/// Есть несохранённые правки у объекта (кейса или плейбука).
+	func hasUnsaved(_ id: String?) -> Bool {
+		guard let id else { return false }
+		return (playbookSessions[id]?.isDirty ?? false) || (caseDrafts[id]?.hasDrafts ?? false)
+	}
+
+	/// Текст несохранённых правок объекта для «Скопировать текст» (`nil` — правок нет).
+	func draftText(_ id: String) -> String? {
+		if let s = playbookSessions[id], s.isDirty { return s.draft.plainText() }
+		if let d = caseDrafts[id], d.hasDrafts { return d.copyText() }
+		return nil
+	}
+
+	/// Забыть черновики объекта (удалён или человек отказался от правок).
+	func discardDrafts(_ id: String) {
+		playbookSessions[id] = nil
+		caseDrafts[id] = nil
+	}
+
+	/// Перейти; с несохранёнными правками на текущем объекте сначала спросить.
 	func go(_ s: BackgroundSection, id: String? = nil) {
+		if LeaveGuard.needsConfirm(from: objectId, to: id, unsaved: hasUnsaved(objectId)) { pendingGo = (s, id); return }
+		forceGo(s, id: id)
+	}
+
+	/// Перейти без вопросов (после удаления, подтверждённого ухода).
+	func forceGo(_ s: BackgroundSection, id: String? = nil) {
+		pendingGo = nil
 		section = s
 		objectId = id
+	}
+
+	func confirmGo() {
+		guard let t = pendingGo else { return }
+		forceGo(t.section, id: t.id)
 	}
 }
 
@@ -53,6 +107,10 @@ struct BackgroundWindow: View {
 				content(nav, learning)
 			}
 		}
+		.confirmationDialog("Уйти без сохранения?", isPresented: Binding(get: { nav.pendingGo != nil }, set: { if !$0 { nav.pendingGo = nil } }), titleVisibility: .visible) {
+			Button("Уйти", role: .destructive) { nav.confirmGo() }
+			Button("Остаться", role: .cancel) { nav.pendingGo = nil }
+		} message: { Text("Правки не сохранены на сервере. Черновик останется в памяти, пока открыто приложение.") }
 		.navigationTitle("Фон · \(nav.section.title)")
 		.frame(minWidth: 820, minHeight: 520)
 		.overlay(alignment: .top) { ToastView().padding(.top, DS.Metrics.s2) }

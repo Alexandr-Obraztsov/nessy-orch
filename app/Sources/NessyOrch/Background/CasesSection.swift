@@ -55,7 +55,7 @@ struct CasesSection: View {
 		if let id = model.background.objectId, let c = learning.caseView(id) {
 			CaseCard(item: c).id(id)
 		} else if let id = model.background.objectId, learning.loaded {
-			LearningEmptyState("Кейс \(id) не найден", systemImage: "questionmark.folder", message: "Возможно, его удалили.")
+			DeletedObjectView(title: "Кейс удалён", id: id)
 		} else {
 			LearningEmptyState("Выберите кейс", systemImage: "tray.full", message: "Слева — кейсы, самые свежие сверху.")
 		}

@@ -7,16 +7,16 @@ struct PlaybookCard: View {
 	var id: String
 	@State private var tab: PlaybookTab = .overview
 	@State private var detail: PlaybookDetail?
-	@State private var session: PlaybookEditSession?
 	@State private var askDelete = false
 	@State private var tabChosen = false
+	@State private var token = RequestToken()
 
 	private var learning: LearningStore { model.store.learning }
 	private var playbook: PlaybookView? { learning.playbook(id) }
 
 	var body: some View {
 		if let p = playbook {
-			let s = session ?? PlaybookEditSession(p)
+			let s = model.background.playbookSession(p)
 			ScrollView {
 				VStack(alignment: .leading, spacing: DS.Metrics.s4) {
 					header(p)
@@ -24,7 +24,7 @@ struct PlaybookCard: View {
 						ForEach(PlaybookTab.allCases, id: \.self) { Text(label($0, p)).tag($0) }
 					}
 					.pickerStyle(.segmented).labelsHidden()
-					if s.editing, tab == .overview || tab == .rules { PlaybookEditBar(playbook: p, session: s) }
+					if s.editing, tab == .overview || tab == .rules || s.isDirty { PlaybookEditBar(playbook: p, session: s) }
 					content(p, s)
 					LearningChat(subject: p.id).padding(.top, DS.Metrics.s3)
 				}
@@ -35,7 +35,6 @@ struct PlaybookCard: View {
 			.scrollEdgeEffectStyle(.soft, for: .top)
 			.task(id: loadKey(p)) { await reload() }
 			.onAppear {
-				if session == nil { session = s }
 				if !tabChosen, PlaybookEditing.isWaiting(p) { tab = .review }
 			}
 			.confirmationDialog(PlaybookEditing.deleteTitle(p), isPresented: $askDelete) {
@@ -58,7 +57,9 @@ struct PlaybookCard: View {
 	}
 
 	private func reload() async {
-		if let d = try? await model.store.client.playbookDetail(id) { detail = d }
+		let t = token.next()
+		let d = try? await model.store.client.playbookDetail(id)
+		if token.isCurrent(t), let d { detail = d }
 	}
 
 	// MARK: шапка
@@ -83,7 +84,7 @@ struct PlaybookCard: View {
 		Task {
 			await model.run("Плейбук не удалён") {
 				try await model.store.client.deletePlaybook(p.id)
-				await MainActor.run { model.background.go(.playbooks) }
+				await MainActor.run { model.background.discardDrafts(p.id); model.background.forceGo(.playbooks) }
 			}
 		}
 	}

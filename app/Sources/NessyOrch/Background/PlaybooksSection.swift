@@ -49,7 +49,7 @@ struct PlaybooksSection: View {
 		if let id = model.background.objectId, learning.playbook(id) != nil {
 			PlaybookCard(id: id).id(id)
 		} else if let id = model.background.objectId, learning.loaded {
-			LearningEmptyState("Плейбук \(id) не найден", systemImage: "questionmark.folder", message: "Возможно, его удалили.")
+			DeletedObjectView(title: "Плейбук удалён", id: id)
 		} else {
 			LearningEmptyState("Выберите плейбук", systemImage: "book.closed", message: "Слева — плейбуки; те, что ждут вас, сверху.")
 		}

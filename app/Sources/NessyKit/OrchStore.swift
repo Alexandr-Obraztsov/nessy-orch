@@ -50,6 +50,8 @@ public final class OrchStore {
 
 	/// Подписчик уведомлений (приложение показывает баннеры).
 	public var onAttention: ((AttentionEvent) -> Void)?
+	/// папка данных оркестратора (`status().home`); `nil`, пока статус не получен
+	public private(set) var serverHome: String?
 
 	private var stream: SSEStream?
 	private var primed = false
@@ -104,6 +106,7 @@ public final class OrchStore {
 		do {
 			let s = try await client.status()
 			daemon = .online(version: s.version)
+			serverHome = s.home
 		} catch let e as APIError where e.isOffline {
 			daemon = .offline(e.message)
 		} catch {}

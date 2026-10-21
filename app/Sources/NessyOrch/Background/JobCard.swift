@@ -8,6 +8,7 @@ struct JobCard: View {
 	@State private var expanded = false
 	@State private var detail: JobDetail?
 	@State private var chat: ChatModel?
+	@State private var token = RequestToken()
 
 	private var learning: LearningStore { model.store.learning }
 	private var agent: AgentView? { job.agentId.flatMap { model.store.agents[$0] } }
@@ -120,8 +121,8 @@ struct JobCard: View {
 
 	private var actions: some View {
 		HStack(spacing: DS.Metrics.s2) {
-			if let a = liveAgent, a.canStop {
-				Button("Остановить") { model.stop(a) }.disabled(model.isOffline)
+			if job.status == .running || job.status == .queued {
+				Button("Остановить") { cancel() }.disabled(model.isOffline)
 			}
 			if let s = sessionId { Button("Открыть сессию") { model.show(session: s) } }
 			if !job.caseId.isEmpty, caseView != nil { Button("Открыть кейс") { model.background.go(.cases, id: job.caseId) } }
@@ -136,7 +137,9 @@ struct JobCard: View {
 	private func load() async {
 		guard expanded else { chat?.stop(); chat = nil; return }
 		if job.agentId != nil || job.status == .done || job.status == .error {
-			detail = try? await model.store.client.job(job.id)
+			let t = token.next()
+			let d = try? await model.store.client.job(job.id)
+			if token.isCurrent(t) { detail = d }
 		}
 		if let a = liveAgent, chat?.ref != a.id {
 			chat?.stop()
@@ -144,6 +147,11 @@ struct JobCard: View {
 			chat = c
 			c.start(client: model.store.client)
 		} else if liveAgent == nil { chat?.stop(); chat = nil }
+	}
+
+	/// Остановить задание (а не агента): сервер сам отменит агента и закроет задание как «остановлено».
+	private func cancel() {
+		Task { await model.run("Задание не остановлено") { try await model.store.client.cancelJob(job.id) } }
 	}
 
 	private func retry() {

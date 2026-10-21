@@ -119,6 +119,7 @@ struct RawEventsList: View {
 				if let events {
 					if events.isEmpty { Text("В этом диапазоне событий нет.").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary) }
 					ForEach(events) { e in event(e) }
+					if let note = LearningText.rawLimitNote(count: events.count) { Text(note).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary) }
 				} else if let failure {
 					Label(failure, systemImage: "exclamationmark.triangle").font(DS.Typography.secondary).foregroundStyle(DS.Palette.danger)
 				} else {
@@ -190,10 +191,10 @@ struct LongText: View {
 
 	init(_ text: String, lines: Int = 6, markdown: Bool = false) { self.text = text; self.lines = lines; self.markdown = markdown }
 
-	private var long: Bool { text.count > preview || text.split(separator: "\n", omittingEmptySubsequences: false).count > lines }
-
 	var body: some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+		// длину и строки меряет `LongTextMeasure`: стоимость ограничена `preview`, как бы ни был велик текст
+		let long = LongTextMeasure.isLong(text, preview: preview, lines: lines)
+		return VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 			if open {
 				if markdown { MarkdownView(text: text) }
 				else { Text(text).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
@@ -225,6 +226,32 @@ struct LearningEmptyState: View {
 			if let message { Text(message) }
 		}
 		.frame(maxWidth: .infinity, minHeight: 220)
+	}
+}
+
+/// Объект, который выбран, но его больше нет (удалён). Если у него остались несохранённые правки — предлагает забрать текст.
+struct DeletedObjectView: View {
+	@Environment(AppModel.self) private var model
+	var title: String
+	var id: String
+
+	var body: some View {
+		let text = model.background.draftText(id)
+		VStack(spacing: DS.Metrics.s3) {
+			LearningEmptyState(title, systemImage: "trash", message: text == nil ? "Его больше нет на сервере." : "Его больше нет на сервере, но ваш черновик не сохранён.")
+			HStack(spacing: DS.Metrics.s2) {
+				if let text {
+					Button("Скопировать текст") {
+						NSPasteboard.general.clearContents()
+						NSPasteboard.general.setString(text, forType: .string)
+						model.flash("Текст черновика скопирован")
+					}
+				}
+				Button(text == nil ? "Закрыть" : "Закрыть без сохранения") { model.background.discardDrafts(id); model.background.forceGo(model.background.section) }
+			}
+			.buttonStyle(SettingsButtonStyle())
+		}
+		.frame(maxWidth: .infinity)
 	}
 }
 
