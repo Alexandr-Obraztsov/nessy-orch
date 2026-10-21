@@ -534,8 +534,12 @@ private struct WindowBar: View {
 					if let win = model.activeWindow {
 						BarIcon(systemImage: win.shellOpen ? "terminal.fill" : "terminal", help: (win.shellOpen ? "Скрыть терминал проекта" : "Терминал проекта") + " (\(Hotkeys.shared.display(.toggleShell)))") { win.toggleShell() }
 					}
-					BarIcon(systemImage: "person.text.rectangle", help: "Роли агентов (\(Hotkeys.shared.display(.roles)))") { openWindow(id: "roles") }
-					BarIcon(systemImage: "graduationcap", help: "Фон: обучение (\(Hotkeys.shared.display(.background)))", badge: model.store.learning.badge) { model.openBackground() }
+					// кнопок в полосе не больше трёх (layout-v2.md): окно «Фон» открывается из меню и по ⇧⌘B, а его значок внимания — здесь;
+					// пока фон ждёт вас (ошибка задания, ревью), кнопка ведёт в «Фон», иначе — в «Роли»
+					let bg = model.store.learning.badge
+					BarIcon(systemImage: "person.text.rectangle",
+						help: bg > 0 ? "Фон ждёт вас: \(bg) — открыть (\(Hotkeys.shared.display(.background))); роли — \(Hotkeys.shared.display(.roles))" : "Роли агентов (\(Hotkeys.shared.display(.roles)))",
+						badge: bg) { if bg > 0 { model.openBackground() } else { openWindow(id: "roles") } }
 					BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
 					SettingsButton()
 				}

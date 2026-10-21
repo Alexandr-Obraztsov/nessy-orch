@@ -50,13 +50,13 @@ open "nessy-orch://terminal?dir=%2FUsers%2Fme%2Fproj"
   `-debug.terminalCommand "<команда>"` (выполнить и остаться в оболочке, например `type claude; claude --version`),
   `-debug.panel hidden`, `-debug.openAgent <id>`, `-debug.fullscreen YES|NO`, `-debug.goalOpen/planOpen/focusComposer/rolesPopover`, `-debug.menuPreview YES`,
   `-debug.openBackground work|cases|playbooks|journal|settings` (окно «Фон»).
-- Окно «Фон» (обучение): кнопка в шапке, меню «Сессия → Фон…» (⇧⌘B), ссылка `nessy-orch://background/<раздел>[/<id>]`.
+- Окно «Фон» (обучение): меню «Сессия → Фон…» (⇧⌘B), ссылка `nessy-orch://background/<раздел>[/<id>]`.
 
 ## Окно «Фон»
 
 Окно фонового обучения (спека `docs/superpowers/specs/2026-10-18-background-learning-design.md` §5–6), код — `Sources/NessyOrch/Background/`, логика без UI — `NessyKit` (`LearningStore`, `LearningText`, `JournalLogic`).
 
-- **Вход:** кнопка со шляпой выпускника в шапке окна (число — ошибки и ожидание вас), меню «Сессия → Фон…» (⇧⌘B), menu bar, ссылка `nessy-orch://background/<раздел>[/<id>]`
+- **Вход:** меню «Сессия → Фон…» (⇧⌘B), menu bar; отдельной кнопки в шапке нет (кнопок в полосе не больше трёх) — число внимания (ошибки и ожидание вас) стоит на кнопке «Роли», и пока оно есть, кнопка открывает «Фон»; ссылка `nessy-orch://background/<раздел>[/<id>]`
   (раздел: `work`, `cases`, `playbooks`, `journal`, `settings`; `id` — кейс `c-…` или плейбук `p-…`), флаг `-debug.openBackground <раздел>`.
 - **Разделы:** «Работа» (задания: сейчас, очередь, ошибки, сделано сегодня), «Кейсы», «Плейбуки» (включая ревью и правку блоками), «Журнал» (события по дням, отчёт ревью списком ступеней, «Откатить»),
   «Настройки» (включение, авто-ревью, интервалы, лимит агентов, сессии без обучения, «Разобрать прошлые сессии…», пути с «Показать в Finder»).
