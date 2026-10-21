@@ -55,6 +55,7 @@ describe('обработчики заданий и onCaseReady', () => {
 		lastSeq: () => 0,
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => false,
+		cancelAgent: () => Promise.resolve(),
 		runAgent: () => Promise.resolve({ agentId: 'ag', ok: true, text: GOOD }),
 	}
 	const make = (withPlaybooks: boolean): LearningService => {

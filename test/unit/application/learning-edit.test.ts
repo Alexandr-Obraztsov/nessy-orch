@@ -44,6 +44,7 @@ describe('чат правок', () => {
 	let events: HubEvent[]
 	const host: LearningHost = {
 		sessions: () => [], messagesSince: () => [], lastSeq: () => 0, sessionOfMessage: () => null, isBusy: () => false,
+		cancelAgent: () => Promise.resolve(),
 		runAgent: req => {
 			prompts.push(req.prompt)
 			return Promise.resolve({ agentId: 'ag', ok: true, text: reply })

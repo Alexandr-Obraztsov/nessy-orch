@@ -61,6 +61,7 @@ describe('шторм агентов', () => {
 		lastSeq: () => 0,
 		sessionOfMessage: () => null,
 		isBusy: () => false,
+		cancelAgent: () => Promise.resolve(),
 		runAgent: async req => {
 			const marker = req.prompt.split('\n')[0]?.replace(/^#\s*/, '') ?? ''
 			calls.push({ marker, name: req.name, prompt: req.prompt })

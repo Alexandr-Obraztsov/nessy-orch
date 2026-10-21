@@ -88,6 +88,15 @@ export class MemoryLearningStore implements LearningStorePort {
 	writeRun(subject: string, name: string, text: string): void {
 		this.runs.set(`${subject}/${name}`, text)
 	}
+	readRuns(subject: string, jobId: string): Array<{ name: string; text: string }> {
+		const prefix = `${subject}/${jobId}-`
+		const found: Array<{ name: string; k: number; text: string }> = []
+		for (const [key, text] of this.runs) {
+			const m = key.startsWith(prefix) ? /^(\d+)$/.exec(key.slice(prefix.length)) : null
+			if (m?.[1] !== undefined) found.push({ name: key.slice(subject.length + 1), k: Number(m[1]), text })
+		}
+		return found.sort((a, b) => a.k - b.k).map(({ name, text }) => ({ name, text }))
+	}
 	isAllowedTranscript(file: string, dir: string): boolean {
 		return file.startsWith(dir.endsWith('/') ? dir : `${dir}/`)
 	}

@@ -1,5 +1,5 @@
-import type { ChatMessage, JournalEntry, PlaybookDetail, PlaybookStatus, PlaybookView } from '../../../shared/types'
-import type { BackfillCandidate, BackfillResult, CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message, SessionView } from '../../../shared/types'
+import type { CaseImpact, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookPatch, PlaybookStatus, PlaybookView } from '../../../shared/types'
+import type { BackfillCandidate, BackfillResult, CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message, RawEvent, SessionView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { decide } from '../../domain/learning-schedule'
 import { parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
@@ -11,6 +11,9 @@ import { editHandler, mergeEditPayload } from './edit.handler'
 import { improveHandler } from './improve.handler'
 import { judgeHandler } from './judge.handler'
 import { matchHandler } from './match.handler'
+import { applyPatch } from './playbook-edits'
+import { lintPlaybook } from '../../domain/playbook-lint'
+import { renderPlaybook } from '../../domain/playbook-render'
 import { approvePlaybook, meanCorrections, rejectPlaybook, reviewHandler } from './review.handler'
 import type { HintHost, JobContext, JobHandler } from './handlers.types'
 import { JobQueue } from './job-queue'
@@ -20,6 +23,8 @@ import { recount } from '../../domain/rule-counters'
 
 /** Сколько после окончательного провала сборки `match` не повторяет ту же группу. */
 const FAILED_BUILD_MS = 24 * 3600 * 1000
+/** Сколько событий отдаёт `GET /learning/cases/:id/raw`. */
+const RAW_LIMIT = 500
 /** Как часто пересчитываются счётчики правил (затухание). */
 const RECOUNT_MS = 24 * 3600 * 1000
 
@@ -179,6 +184,78 @@ export class LearningService {
 		return c
 	}
 
+	/** Задание и ответы его агентов (`runs/`) по порядку вызова. */
+	jobDetail(id: string): JobDetail {
+		const job = this.queue.list().find(j => j.id === id)
+		if (!job) throw new AppError(404, 'no_job', `нет задания ${id}`)
+		return { job: this.queue.toView(job), runs: this.deps.store.readRuns(job.subject, job.id) }
+	}
+
+	/** События кейса `from..to` (включительно), не больше `RAW_LIMIT`: якорь «открыть место в сессии». */
+	caseRaw(id: string, from: number, to?: number): RawEvent[] {
+		this.getCase(id)
+		return this.deps.store.readRaw(id, from, to).slice(0, RAW_LIMIT)
+	}
+
+	/** Правка описания руками: `summary.md` целиком, курсор сборщика не трогается; пока по кейсу идёт задание — 409 `case_busy`. */
+	setCaseSummary(id: string, text: string): void {
+		this.getCase(id)
+		this.assertIdle(id)
+		if (!this.deps.store.writeSummary(id, text)) throw new AppError(500, 'write_failed', 'не удалось записать summary.md')
+	}
+
+	/**
+	 * Остановить сборщика кейса: `queued` снимаются, `running` прерывается (агент отменяется, итог игнорируется).
+	 * Потом кейс `ready`, если есть описание, иначе удаляется. Нет заданий сборки — ничего не меняется.
+	 */
+	stopCollector(id: string): void {
+		this.getCase(id)
+		const jobs = this.queue.list().filter(j => j.caseId === id && (j.kind === 'collect' || j.kind === 'close') && (j.status === 'queued' || j.status === 'running'))
+		if (!jobs.length) return
+		for (const j of jobs) {
+			if (j.status === 'running') {
+				this.interrupted.add(j.id)
+				if (j.agentId) void this.deps.host.cancelAgent(j.agentId).catch(() => undefined)
+			}
+			this.jobsChanged(this.queue.cancel(j.id, 'остановлено пользователем'))
+		}
+		const c = this.cases.get(id)
+		if (!c) return
+		if (this.deps.store.readSummary(id).trim() === '') this.dropCase(c)
+		else this.seal(id)
+		this.pump()
+	}
+
+	/** Правила плейбуков, у которых кейс среди доказательств; `evidenceLeft` — другие известные кейсы в их доказательствах. */
+	caseImpact(id: string): CaseImpact {
+		this.getCase(id)
+		const rules: CaseImpact['rules'] = []
+		for (const p of this.playbooks?.list() ?? []) {
+			for (const r of p.rules) {
+				if (r.status === 'archived' || !r.evidence.some(e => e.caseId === id)) continue
+				const left = new Set(r.evidence.map(e => e.caseId).filter(c => c !== id && this.cases.has(c)))
+				rules.push({ playbookId: p.id, ruleId: r.id, text: r.text, evidenceLeft: left.size })
+			}
+		}
+		return { rules }
+	}
+
+	/**
+	 * Правка плейбука блоками: новая версия и запись журнала `edit`. Замок плейбука — 409 `playbook_busy`;
+	 * критичные замечания `lintPlaybook` (не строгие к доказательствам) — 400 `lint`.
+	 */
+	patchPlaybook(id: string, patch: PlaybookPatch): PlaybookView {
+		const ps = this.pb()
+		const p = ps.need(id)
+		this.assertPlaybookIdle(id)
+		const next = applyPatch(p, patch, new Date(this.deps.clock.now()).toISOString())
+		const known = new Set(this.cases.keys())
+		const critical = lintPlaybook(next, renderPlaybook(next, ps.notes(id), ''), known, { strictEvidence: false }).filter(i => i.level === 'critical')
+		if (critical.length) throw new AppError(400, 'lint', critical.map(i => `${i.where}: ${i.text}`).join('\n'))
+		const fields = Object.keys(patch).join(', ')
+		return playbookView(ps.saveVersion(next, `Edited by the user: ${fields}`, { kind: 'edit', subject: id, summary: `${id}: правка блоками (${fields})`, report: null, revertible: true, revertedBy: null }))
+	}
+
 	/** Кейс с описанием и заметками. */
 	getCaseDetail(id: string): CaseDetail {
 		const c = this.getCase(id)
@@ -336,6 +413,11 @@ export class LearningService {
 	removeCase(id: string): void {
 		const c = this.getCase(id)
 		this.assertIdle(id)
+		this.dropCase(c)
+	}
+
+	private dropCase(c: CaseState): void {
+		const id = c.id
 		// надгробие: живая сессия этого кейса заново его не заведёт
 		this.tomb([c.rootId ?? c.sessions[0] ?? '', ...c.sessions])
 		this.cases.delete(id)
@@ -881,7 +963,17 @@ export class LearningService {
 			now: () => clock.now(),
 			settings: () => this.settings,
 			runAgent: async (name, title, prompt) => {
-				const res = await host.runAgent({ name, title, prompt })
+				const res = await host.runAgent({
+					name,
+					title,
+					prompt,
+					// id агента известен сразу: «Остановить» и живой чат в приложении работают, пока агент идёт
+					onSpawn: agentId => {
+						job.agentId = agentId
+						this.jobsChanged(job)
+						if (this.interrupted.has(job.id)) void host.cancelAgent(agentId).catch(() => undefined)
+					},
+				})
 				job.agentId = res.agentId
 				// агент после ответа удаляется: ответ остаётся в runs/ (см. `LearningStorePort.writeRun`)
 				calls += 1

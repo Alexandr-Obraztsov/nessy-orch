@@ -37,6 +37,7 @@ describe('LearningService как HintHost', () => {
 	let started: string[]
 	const host: LearningHost = {
 		sessions: () => [], messagesSince: () => [], lastSeq: () => 0, sessionOfMessage: () => null, isBusy: () => false,
+		cancelAgent: () => Promise.resolve(),
 		runAgent: req => {
 			started.push(req.name)
 			return new Promise(resolve => {

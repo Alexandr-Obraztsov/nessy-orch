@@ -1,6 +1,7 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
-import type { AttachRequest, RoleRequest, SendRequest, SpaceRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
+import type { AttachRequest, PlaybookParam, PlaybookPatch, PlaybookStage, RoleRequest, RuleInput, SendRequest, SpaceRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
+import { skillName } from '../../domain/playbook-render'
 import { isSessionStatus } from '../../domain/sessions'
 import { isObject } from '../../lib/json'
 
@@ -162,4 +163,72 @@ export function parsePlaybookStatus(b: unknown): string {
 export function parseVersion(b: unknown): number {
 	if (!isObject(b) || typeof b['version'] !== 'number' || !Number.isInteger(b['version']) || b['version'] < 1) throw new AppError(400, 'bad_request', 'нужно поле version (целое от 1)')
 	return b['version']
+}
+
+const bad = (what: string): AppError => new AppError(400, 'bad_request', what)
+
+function strList(v: unknown, name: string): string[] {
+	if (!Array.isArray(v) || v.some(x => typeof x !== 'string')) throw bad(`${name} — массив строк`)
+	return v as string[]
+}
+
+function objList(v: unknown, name: string): Array<Record<string, unknown>> {
+	if (!Array.isArray(v) || v.some(x => !isObject(x))) throw bad(`${name} — массив объектов`)
+	return v as Array<Record<string, unknown>>
+}
+
+const str = (o: Record<string, unknown>, k: string, where: string): string => {
+	const v = o[k]
+	if (typeof v !== 'string') throw bad(`${where}.${k} — строка`)
+	return v
+}
+
+function parseStage(o: Record<string, unknown>): PlaybookStage {
+	const title = str(o, 'title', 'stages')
+	const role = o['role']
+	if (role !== null && role !== undefined && typeof role !== 'string') throw bad('stages.role — строка или null')
+	if (o['gate'] !== undefined && typeof o['gate'] !== 'boolean') throw bad('stages.gate — boolean')
+	const slug = typeof o['slug'] === 'string' && o['slug'] !== '' ? o['slug'] : skillName(title)
+	// `n` клиента не берётся: ступени нумеруются по порядку массива
+	return { n: 0, slug, title, role: role ?? null, where: str(o, 'where', 'stages'), produce: str(o, 'produce', 'stages'), done: str(o, 'done', 'stages'), gate: o['gate'] === true, template: str(o, 'template', 'stages') }
+}
+
+/** Правка плейбука блоками: `PATCH /learning/playbooks/:id`; все поля необязательны, но хотя бы одно нужно. */
+export function parsePlaybookPatch(b: unknown): PlaybookPatch {
+	if (!isObject(b)) throw bad('ожидается JSON-объект')
+	const patch: PlaybookPatch = {}
+	if (b['title'] !== undefined) patch.title = str(b, 'title', 'body')
+	if (b['description'] !== undefined) patch.description = str(b, 'description', 'body')
+	if (b['params'] !== undefined) patch.params = objList(b['params'], 'params').map((o): PlaybookParam => ({ name: str(o, 'name', 'params'), description: str(o, 'description', 'params'), source: str(o, 'source', 'params') }))
+	if (b['sources'] !== undefined) patch.sources = strList(b['sources'], 'sources')
+	if (b['files'] !== undefined) patch.files = strList(b['files'], 'files')
+	if (b['behavior'] !== undefined) patch.behavior = strList(b['behavior'], 'behavior')
+	if (b['stages'] !== undefined) patch.stages = objList(b['stages'], 'stages').map(parseStage)
+	if (b['rules'] !== undefined) {
+		patch.rules = objList(b['rules'], 'rules').map((o): RuleInput => {
+			const text = str(o, 'text', 'rules')
+			if (text.trim() === '') throw bad('rules.text — непустая строка')
+			const stage = o['stage']
+			if (stage !== null && (typeof stage !== 'number' || !Number.isInteger(stage) || stage < 1)) throw bad('rules.stage — целое от 1 или null')
+			const id = o['id']
+			if (id !== undefined && (typeof id !== 'string' || id === '')) throw bad('rules.id — непустая строка')
+			return id === undefined ? { text, stage } : { id, text, stage }
+		})
+	}
+	if (!Object.keys(patch).length) throw bad('нужно хотя бы одно поле: title, description, params, sources, files, behavior, stages, rules')
+	return patch
+}
+
+/** Границы событий кейса: `from` (по умолчанию 0) и необязательный `to`; целые от 0, `from <= to`. */
+export function parseRawRange(from: string | null, to: string | null): { from: number; to?: number } {
+	const num = (v: string, name: string): number => {
+		const n = Number(v)
+		if (v.trim() === '' || !Number.isInteger(n) || n < 0) throw bad(`${name} — целое от 0`)
+		return n
+	}
+	const a = from === null ? 0 : num(from, 'from')
+	if (to === null) return { from: a }
+	const z = num(to, 'to')
+	if (z < a) throw bad('to не меньше from')
+	return { from: a, to: z }
 }

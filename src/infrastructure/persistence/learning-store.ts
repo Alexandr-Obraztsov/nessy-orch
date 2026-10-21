@@ -163,11 +163,32 @@ export class FileLearningStore implements LearningStorePort {
 
 	writeRun(subject: string, name: string, text: string): void {
 		this.safe('ответ агента', () => {
-			// кейсовые ответы лежат в кейсе, остальные — в learning/runs (каталог кейсов без state.json не нужен)
-			const dir = subject.startsWith('c-') ? path.join(this.caseDir(subject), 'runs') : path.join(this.home, 'learning', 'runs', fileName(subject.replace(/:/g, '_')))
+			const dir = this.runsDir(subject)
 			fs.mkdirSync(dir, { recursive: true })
 			writeAtomic(path.join(dir, `${fileName(name)}.md`), text)
 		})
+	}
+
+	readRuns(subject: string, jobId: string): Array<{ name: string; text: string }> {
+		const dir = this.runsDir(subject)
+		let names: string[]
+		try {
+			names = fs.readdirSync(dir)
+		} catch {
+			return []
+		}
+		const prefix = `${fileName(jobId)}-`
+		const found: Array<{ name: string; k: number }> = []
+		for (const f of names) {
+			const m = f.startsWith(prefix) ? /^(\d+)\.md$/.exec(f.slice(prefix.length)) : null
+			if (m?.[1] !== undefined) found.push({ name: f.slice(0, -'.md'.length), k: Number(m[1]) })
+		}
+		return found.sort((a, b) => a.k - b.k).map(f => ({ name: f.name, text: readText(path.join(dir, `${f.name}.md`)) }))
+	}
+
+	/** Кейсовые ответы лежат в кейсе, остальные — в learning/runs (каталог кейсов без state.json не нужен). */
+	private runsDir(subject: string): string {
+		return subject.startsWith('c-') ? path.join(this.caseDir(subject), 'runs') : path.join(this.home, 'learning', 'runs', fileName(subject.replace(/:/g, '_')))
 	}
 
 	isAllowedTranscript(file: string, dir: string): boolean {

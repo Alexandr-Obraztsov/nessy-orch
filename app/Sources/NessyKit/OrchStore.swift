@@ -29,6 +29,8 @@ public struct AttentionEvent: Sendable, Equatable {
 @Observable
 public final class OrchStore {
 	public let client: OrchClient
+	/// фоновое обучение: отдельное состояние, события `learning_*` и `snapshot` пересылаются ему
+	public let learning: LearningStore
 	public private(set) var daemon: DaemonState = .connecting
 	public private(set) var spaces: [SpaceView] = []
 	public private(set) var roles: [RoleView] = []
@@ -57,6 +59,7 @@ public final class OrchStore {
 
 	public init(client: OrchClient = OrchClient(), defaults: UserDefaults = .standard) {
 		self.client = client
+		self.learning = LearningStore(source: client)
 		self.defaults = defaults
 		self.seenReplies = Set(defaults.stringArray(forKey: Self.seenKey) ?? [])
 	}
@@ -124,6 +127,9 @@ public final class OrchStore {
 			if case .online = daemon {} else { daemon = .online(version: "") }
 			if primed { for a in s.agents { detect(old: old[a.id], new: a) } }
 			primed = true
+			learning.apply(e)
+		case .learningJob, .learningCase, .learningCaseRemoved, .learningSettings, .learningPlaybook, .learningPlaybookRemoved, .learningJournal, .learningChat:
+			learning.apply(e)
 		case .message(let m):
 			messages.append(m)
 			if messages.count > 2000 { messages.removeFirst(messages.count - 2000) }

@@ -72,6 +72,7 @@ describe('сопоставитель и сборщик плейбука', () => 
 		lastSeq: () => 0,
 		sessionOfMessage: () => null,
 		isBusy: () => false,
+		cancelAgent: () => Promise.resolve(),
 		runAgent: req => {
 			const marker = req.prompt.split('\n')[0]?.replace(/^#\s*/, '') ?? ''
 			calls.push({ marker, name: req.name, prompt: req.prompt })

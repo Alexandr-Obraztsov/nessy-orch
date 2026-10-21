@@ -102,6 +102,13 @@ export class JobQueue {
 		return j
 	}
 
+	/** Остановлено пользователем: задание завершается (`done`) с пометкой, повторов нет. */
+	cancel(id: string, note: string): JobState {
+		const j = this.get(id)
+		j.note = note
+		return this.finish(id)
+	}
+
 	/** Прервано остановкой сервиса: снова в очередь, попытка не тратится. */
 	requeue(id: string, note: string): JobState {
 		const j = this.get(id)

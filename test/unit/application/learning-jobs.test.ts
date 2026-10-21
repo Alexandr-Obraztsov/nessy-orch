@@ -60,6 +60,7 @@ describe('LearningService: задания', () => {
 		lastSeq: () => 0,
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => false,
+		cancelAgent: () => Promise.resolve(),
 		runAgent: async req => {
 			calls.push(req)
 			const step = script.shift() ?? { ok: true, text: GOOD() }

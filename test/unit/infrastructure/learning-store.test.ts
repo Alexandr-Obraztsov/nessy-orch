@@ -223,6 +223,17 @@ describe('FileLearningStore', () => {
 		assert.deepEqual(store.loadCases(), [])
 	})
 
+	it('readRuns: ответы задания по порядку k, чужие задания и подсказки не попадают; нет каталога — пусто', () => {
+		store.writeRun('c-1', 'j1-10', 'десятый')
+		store.writeRun('c-1', 'j1-2', 'второй')
+		store.writeRun('c-1', 'j1-1', 'первый')
+		store.writeRun('c-1', 'j12-1', 'чужой')
+		store.writeRun('judge:c-1', 'j2-1', 'судья')
+		assert.deepEqual(store.readRuns('c-1', 'j1'), [{ name: 'j1-1', text: 'первый' }, { name: 'j1-2', text: 'второй' }, { name: 'j1-10', text: 'десятый' }])
+		assert.deepEqual(store.readRuns('judge:c-1', 'j2'), [{ name: 'j2-1', text: 'судья' }])
+		assert.deepEqual(store.readRuns('c-9', 'j1'), [])
+	})
+
 	it('isAllowedTranscript: только .jsonl внутри каталога, symlink наружу не проходит', () => {
 		const dir = path.join(tmp, 'projects')
 		fs.mkdirSync(path.join(dir, 'p'), { recursive: true })

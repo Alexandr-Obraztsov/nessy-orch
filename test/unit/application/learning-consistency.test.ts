@@ -175,6 +175,7 @@ describe('замок плейбука в LearningService', () => {
 		lastSeq: () => 0,
 		sessionOfMessage: () => null,
 		isBusy: () => false,
+		cancelAgent: () => Promise.resolve(),
 		runAgent: () => Promise.reject(new Error('агенты не нужны')),
 	}
 	const wait = async (ms: number): Promise<void> => {

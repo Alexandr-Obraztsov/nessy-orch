@@ -79,7 +79,9 @@ export interface LearningHost {
 	/** есть работающий агент или очередь */
 	isBusy(sessionIds: readonly string[]): boolean
 	/** агент удаляется после ответа; текст ответа сервис сохраняет сам (`writeRun`) */
-	runAgent(req: { name: string; title: string; prompt: string }): Promise<{ agentId: string; text: string; ok: boolean; error?: string }>
+	runAgent(req: { name: string; title: string; prompt: string; onSpawn?: (agentId: string) => void }): Promise<{ agentId: string; text: string; ok: boolean; error?: string }>
+	/** прервать ход агента (остановка сборщика); агента уже нет — не ошибка */
+	cancelAgent(agentId: string): Promise<void>
 }
 
 export interface LearningDeps {

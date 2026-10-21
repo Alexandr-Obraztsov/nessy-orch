@@ -56,6 +56,7 @@ describe('LearningService: API', () => {
 		lastSeq: () => 0,
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => false,
+		cancelAgent: () => Promise.resolve(),
 		runAgent: async () => {
 			if (hold) await hold
 			return { agentId: 'ag1', ok: true, text: GOOD }

@@ -55,6 +55,7 @@ describe('LearningService: ревью этапа 1', () => {
 		lastSeq: () => feed.reduce((max, m) => Math.max(max, m.seq), 0),
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => false,
+		cancelAgent: () => Promise.resolve(),
 		runAgent: async () => {
 			calls += 1
 			return { agentId: `ag${calls}`, ...(await reply()) }

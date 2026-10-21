@@ -7,6 +7,12 @@ public struct APIError: Error, LocalizedError, Sendable {
 	public var errorDescription: String? { message }
 	/// Демон недоступен (нет соединения), а не ответил ошибкой.
 	public var isOffline: Bool { status == 0 }
+	/// Фоновое обучение на сервере недоступно: `learning_unavailable` (503) или маршрутов нет (старый сервер, 404 без кода).
+	public var isUnavailable: Bool { code == "learning_unavailable" || code == "playbooks_unavailable" || (status == 404 && (code == "not_found" || code == "http_404")) }
+	/// Объект занят фоновым агентом: правку надо повторить позже (`case_busy`, `playbook_busy`).
+	public var isBusy: Bool { code == "case_busy" || code == "playbook_busy" }
+	/// Правка плейбука не прошла проверку (`lint`, 400): текст замечаний в `message`.
+	public var isLint: Bool { code == "lint" }
 }
 
 /// REST-клиент оркестратора (docs/api.md). Потоки — SSEStream.
@@ -108,6 +114,80 @@ public final class OrchClient: @unchecked Sendable {
 	/// Название сессии (по чату Claude).
 	public func renameSession(_ id: String, title: String) async throws { try await raw("PATCH", "/sessions/\(id)", body: ["title": title]) }
 	public func deleteSession(_ id: String) async throws { try await raw("DELETE", "/sessions/\(id)") }
+	// MARK: обучение (docs/api.md, «Фоновое обучение»; не-GET — только оператору)
+	public func learning() async throws -> LearningView { try await get("/learning") }
+	/// Изменить настройки: в теле только изменённые поля (`["autoReview": .bool(false)]`).
+	@discardableResult
+	public func patchLearningSettings(_ changes: [String: JSONValue]) async throws -> LearningSettings { try await send("PATCH", "/learning/settings", body: changes) }
+	/// Собрать кейс сейчас: итоговое задание по сессии (`session`) или по всем незакрытым кейсам.
+	@discardableResult
+	public func runLearning(session: String? = nil) async throws -> [JobView] {
+		try await send("POST", "/learning/run", body: session.map { ["session": $0] } ?? [String: String]())
+	}
+	@discardableResult
+	public func retryJob(_ id: String) async throws -> JobView { try await send("POST", "/learning/jobs/\(id)/retry", body: [String: String]()) }
+	public func job(_ id: String) async throws -> JobDetail { try await get("/learning/jobs/\(id)") }
+
+	public func caseDetail(_ id: String) async throws -> CaseDetail { try await get("/learning/cases/\(id)") }
+	/// События кейса `from…to` (без `to` — до конца, сервер отдаёт не больше 500) для якоря «открыть место в сессии».
+	public func caseRaw(_ id: String, from: Int, to: Int? = nil) async throws -> [RawEvent] {
+		let data = try await raw("GET", "/learning/cases/\(id)/raw", query: ["from": String(from), "to": to.map(String.init)])
+		return (try JSONDecoder().decode(LossyArray<RawEvent>.self, from: data)).items
+	}
+	public func caseImpact(_ id: String) async throws -> CaseImpact { try await get("/learning/cases/\(id)/impact") }
+	public func deleteCase(_ id: String) async throws { try await raw("DELETE", "/learning/cases/\(id)") }
+	@discardableResult
+	public func rebuildCase(_ id: String) async throws -> JobView { try await send("POST", "/learning/cases/\(id)/rebuild", body: [String: String]()) }
+	public func putCaseSummary(_ id: String, text: String) async throws { try await raw("PUT", "/learning/cases/\(id)/summary", body: ["text": text]) }
+	public func putCaseNotes(_ id: String, text: String) async throws { try await raw("PUT", "/learning/cases/\(id)/notes", body: ["text": text]) }
+	public func stopCollector(_ id: String) async throws { try await raw("POST", "/learning/cases/\(id)/collector/stop", body: [String: String]()) }
+
+	public func backfillCandidates() async throws -> [BackfillCandidate] {
+		(try await get("/learning/backfill", as: LossyArray<BackfillCandidate>.self)).items
+	}
+	public func backfill(ids: [String]) async throws -> BackfillResult { try await send("POST", "/learning/backfill", body: ["ids": ids]) }
+
+	public func playbooks() async throws -> [PlaybookView] { (try await get("/learning/playbooks", as: LossyArray<PlaybookView>.self)).items }
+	public func playbookDetail(_ id: String) async throws -> PlaybookDetail { try await get("/learning/playbooks/\(id)") }
+	/// Правка блоками: заменяет переданные поля, выходит новая версия. 400 `lint` — замечания в `message`; 409 `playbook_busy`.
+	@discardableResult
+	public func patchPlaybook(_ id: String, _ patch: PlaybookPatch) async throws -> PlaybookView? {
+		let data = try await raw("PATCH", "/learning/playbooks/\(id)", body: patch)
+		return try? JSONDecoder().decode(PlaybookView.self, from: data)
+	}
+	@discardableResult
+	public func reviewPlaybook(_ id: String) async throws -> JobView { try await send("POST", "/learning/playbooks/\(id)/review", body: [String: String]()) }
+	@discardableResult
+	public func approvePlaybook(_ id: String) async throws -> PlaybookView { try await send("POST", "/learning/playbooks/\(id)/approve", body: [String: String]()) }
+	@discardableResult
+	public func rejectPlaybook(_ id: String, reason: String? = nil) async throws -> PlaybookView {
+		try await send("POST", "/learning/playbooks/\(id)/reject", body: reason.map { ["reason": $0] } ?? [String: String]())
+	}
+	/// `active`, `disabled` или `archived`.
+	@discardableResult
+	public func setPlaybookStatus(_ id: String, _ status: PlaybookStatus) async throws -> PlaybookView {
+		try await send("POST", "/learning/playbooks/\(id)/status", body: ["status": status.rawValue])
+	}
+	@discardableResult
+	public func revertPlaybook(_ id: String, version: Int) async throws -> PlaybookView { try await send("POST", "/learning/playbooks/\(id)/revert", body: ["version": version]) }
+	public func deletePlaybook(_ id: String) async throws { try await raw("DELETE", "/learning/playbooks/\(id)") }
+	public func putPlaybookNotes(_ id: String, text: String) async throws { try await raw("PUT", "/learning/playbooks/\(id)/notes", body: ["text": text]) }
+	@discardableResult
+	public func acceptEdit(_ id: String, hash: String) async throws -> PlaybookView { try await send("POST", "/learning/playbooks/\(id)/edits/\(hash)/accept", body: [String: String]()) }
+	@discardableResult
+	public func rejectEdit(_ id: String, hash: String) async throws -> PlaybookView { try await send("POST", "/learning/playbooks/\(id)/edits/\(hash)/reject", body: [String: String]()) }
+
+	public func journal(limit: Int? = nil) async throws -> [JournalEntry] {
+		(try await get("/learning/journal", query: ["limit": limit.map(String.init)], as: LossyArray<JournalEntry>.self)).items
+	}
+	@discardableResult
+	public func revertJournal(_ id: String) async throws -> JournalEntry { try await send("POST", "/learning/journal/\(id)/revert", body: [String: String]()) }
+	/// Чат кейса (`c-…`) или плейбука (`p-…`).
+	public func chat(_ subject: String) async throws -> [ChatMessage] { (try await get("/learning/chat/\(subject)", as: LossyArray<ChatMessage>.self)).items }
+	/// Написать агенту-редактору: возвращает сообщение пользователя; ответ придёт событием `learning_chat`.
+	@discardableResult
+	public func sendChat(_ subject: String, text: String) async throws -> ChatMessage { try await send("POST", "/learning/chat/\(subject)", body: ["text": text]) }
+
 	// MARK: потоки
 	public func stream() -> SSEStream { SSEStream(url: url("/stream")) }
 	public func agentStream(_ ref: String) -> SSEStream { SSEStream(url: url("/agents/\(ref)/stream")) }

@@ -364,6 +364,15 @@ public enum StreamEvent: Sendable {
 	case roleRemoved(String)
 	case session(SessionView)
 	case sessionRemoved(String)
+	// фоновое обучение (docs/api.md): их применяет `LearningStore`
+	case learningJob(JobView)
+	case learningCase(CaseView)
+	case learningCaseRemoved(String)
+	case learningSettings(LearningSettings)
+	case learningPlaybook(PlaybookView)
+	case learningPlaybookRemoved(String)
+	case learningJournal(JournalEntry)
+	case learningChat(subject: String, message: ChatMessage)
 	case unknown
 
 	/// Снимок состояния. Записи декодируются по одной: одна повреждённая запись (новое поле другого типа, правка руками) пропускается и
@@ -402,6 +411,38 @@ public enum StreamEvent: Sendable {
 		var session: SessionView?
 		var id: String?
 		var name: String?
+		var job: JobView?
+		var `case`: CaseView?
+		var settings: LearningSettings?
+		var playbook: PlaybookView?
+		var entry: JournalEntry?
+		var subject: String?
+		var chatMessage: ChatMessage?
+
+		private enum CodingKeys: String, CodingKey {
+			case t, message, agent, space, role, session, id, name, job, `case`, settings, playbook, entry, subject
+		}
+
+		init(from decoder: Decoder) throws {
+			let c = try decoder.container(keyedBy: CodingKeys.self)
+			t = try c.decode(String.self, forKey: .t)
+			// записи разбираются по одной: битая запись события не должна ронять разбор остальных полей кадра
+			message = try? c.decodeIfPresent(Message.self, forKey: .message)
+			agent = try? c.decodeIfPresent(AgentView.self, forKey: .agent)
+			space = try? c.decodeIfPresent(SpaceView.self, forKey: .space)
+			role = try? c.decodeIfPresent(RoleView.self, forKey: .role)
+			session = try? c.decodeIfPresent(SessionView.self, forKey: .session)
+			id = try? c.decodeIfPresent(String.self, forKey: .id)
+			name = try? c.decodeIfPresent(String.self, forKey: .name)
+			job = try? c.decodeIfPresent(JobView.self, forKey: .job)
+			`case` = try? c.decodeIfPresent(CaseView.self, forKey: .case)
+			settings = try? c.decodeIfPresent(LearningSettings.self, forKey: .settings)
+			playbook = try? c.decodeIfPresent(PlaybookView.self, forKey: .playbook)
+			entry = try? c.decodeIfPresent(JournalEntry.self, forKey: .entry)
+			subject = try? c.decodeIfPresent(String.self, forKey: .subject)
+			// в кадре `learning_chat` сообщение чата лежит в том же поле `message`, что и сообщение ленты
+			chatMessage = t == "learning_chat" ? (try? c.decodeIfPresent(ChatMessage.self, forKey: .message)) : nil
+		}
 	}
 
 	public static func decode(_ data: Data) -> StreamEvent {
@@ -418,6 +459,14 @@ public enum StreamEvent: Sendable {
 		case "role_removed": if let i = f.id { return .roleRemoved(i) }
 		case "session": if let t = f.session { return .session(t) }
 		case "session_removed": if let i = f.id { return .sessionRemoved(i) }
+		case "learning_job": if let j = f.job { return .learningJob(j) }
+		case "learning_case": if let k = f.case { return .learningCase(k) }
+		case "learning_case_removed": if let i = f.id { return .learningCaseRemoved(i) }
+		case "learning_settings": if let s = f.settings { return .learningSettings(s) }
+		case "learning_playbook": if let p = f.playbook { return .learningPlaybook(p) }
+		case "learning_playbook_removed": if let i = f.id { return .learningPlaybookRemoved(i) }
+		case "learning_journal": if let e = f.entry { return .learningJournal(e) }
+		case "learning_chat": if let s = f.subject, let m = f.chatMessage { return .learningChat(subject: s, message: m) }
 		default: break
 		}
 		return .unknown

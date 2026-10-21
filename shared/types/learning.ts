@@ -58,6 +58,33 @@ export interface JobView {
 	finishedAt: string | null
 }
 
+/** Задание и ответы его агентов из `runs/` по порядку вызова (`GET /learning/jobs/:id`). */
+export interface JobDetail {
+	job: JobView
+	/** `name` — `<jobId>-<k>`, порядок по `k` */
+	runs: Array<{ name: string; text: string }>
+}
+
+/** Вид события в `raw/events.jsonl` кейса. */
+export type RawKind = 'user' | 'claude' | 'task' | 'reply' | 'call' | 'skill'
+
+/** Событие кейса со своей сквозной нумерацией `n` (`GET /learning/cases/:id/raw`). */
+export interface RawEvent {
+	n: number
+	ts: number
+	kind: RawKind
+	from: string
+	to: string | null
+	text: string
+	/** откуда взято: id сообщения ленты или uuid записи транскрипта */
+	ref: string
+}
+
+/** Что потеряет доказательство при удалении кейса (`GET /learning/cases/:id/impact`). */
+export interface CaseImpact {
+	rules: Array<{ playbookId: string; ruleId: string; text: string; evidenceLeft: number }>
+}
+
 export interface LearningView {
 	settings: LearningSettings
 	jobs: JobView[]
@@ -205,4 +232,23 @@ export interface ChatMessage {
 	from: 'user' | 'agent'
 	text: string
 	changes: string[]
+}
+
+/** Правило в правке блоками: без `id` — новое (`candidate`). */
+export interface RuleInput {
+	id?: string
+	text: string
+	stage: number | null
+}
+
+/** Тело `PATCH /learning/playbooks/:id`: переданные поля содержания заменяются целиком. */
+export interface PlaybookPatch {
+	title?: string
+	description?: string
+	params?: PlaybookParam[]
+	sources?: string[]
+	files?: string[]
+	behavior?: string[]
+	stages?: PlaybookStage[]
+	rules?: RuleInput[]
 }

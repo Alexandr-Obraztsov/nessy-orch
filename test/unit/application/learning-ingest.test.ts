@@ -64,6 +64,7 @@ describe('LearningService: сбор событий', () => {
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => busy,
 		// сборщик не отвечает: задания остаются в работе, видно только что поставлено
+		cancelAgent: () => Promise.resolve(),
 		runAgent: req => {
 			prompts.push(req.prompt)
 			return new Promise(() => {})

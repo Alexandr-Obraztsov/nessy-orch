@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import type { PlaybookPatch, RuleView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { renderPlaybook, stagePath } from '../../domain/playbook-render'
 import type { PlaybookFiles } from '../../domain/playbook.types'
@@ -72,4 +74,48 @@ export function mergeReviewPayload(a: Payload, b: Payload): Payload {
 	if (!b) return a
 	const bases = [a['baseVersion'], b['baseVersion']].filter((x): x is number => typeof x === 'number' && x > 0)
 	return { edits: [...new Set([...strings(a['edits']), ...strings(b['edits'])])], baseVersion: bases.length ? Math.min(...bases) : 0 }
+}
+
+/** Id правила по плейбуку и тексту (`r-` + 6 hex sha1); так их ставят улучшатель и правка блоками. */
+export const ruleIdOf = (playbookId: string, text: string): string => `r-${createHash('sha1').update(`${playbookId}\n${text}`).digest('hex').slice(0, 6)}`
+
+/**
+ * Правка блоками: переданные поля содержания заменяются целиком; ступени нумеруются `n` по порядку массива.
+ * Правила: без `id` — новое `candidate` (id — `ruleIdOf`, при совпадении удлиняется), отсутствующие в массиве — `archived`
+ * (физически не удаляются: счётчики и журнал). Неизвестный или повторный `id` — 400.
+ */
+export function applyPatch(p: PlaybookState, patch: PlaybookPatch, iso: string): PlaybookState {
+	const next: PlaybookState = { ...p }
+	if (patch.title !== undefined) next.title = patch.title
+	if (patch.description !== undefined) next.description = patch.description
+	if (patch.params !== undefined) next.params = patch.params
+	if (patch.sources !== undefined) next.sources = patch.sources
+	if (patch.files !== undefined) next.files = patch.files
+	if (patch.behavior !== undefined) next.behavior = patch.behavior
+	if (patch.stages !== undefined) next.stages = patch.stages.map((s, i) => ({ ...s, n: i + 1 }))
+	if (patch.rules !== undefined) {
+		const old = new Map(p.rules.map(r => [r.id, r]))
+		const used = new Set(old.keys())
+		const seen = new Set<string>()
+		const kept: RuleView[] = []
+		for (const input of patch.rules) {
+			if (input.id !== undefined) {
+				const was = old.get(input.id)
+				if (!was) throw new AppError(400, 'bad_request', `в плейбуке ${p.id} нет правила ${input.id}`)
+				if (seen.has(input.id)) throw new AppError(400, 'bad_request', `правило ${input.id} указано дважды`)
+				seen.add(input.id)
+				kept.push({ ...was, text: input.text, stage: input.stage })
+				continue
+			}
+			const full = createHash('sha1').update(`${p.id}\n${input.text}`).digest('hex')
+			let len = 6
+			while (used.has(`r-${full.slice(0, len)}`) && len < full.length) len++
+			const id = `r-${full.slice(0, len)}`
+			used.add(id)
+			kept.push({ id, text: input.text, stage: input.stage, status: 'candidate', up: 2, down: 0, evidence: [], against: [], lastAppliedAt: null, createdAt: iso })
+		}
+		const dropped = p.rules.filter(r => !seen.has(r.id)).map((r): RuleView => (r.status === 'archived' ? r : { ...r, status: 'archived' }))
+		next.rules = [...kept, ...dropped]
+	}
+	return next
 }

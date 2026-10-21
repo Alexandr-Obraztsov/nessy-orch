@@ -1,7 +1,7 @@
-import type { CaseGoal } from '../../shared/types'
+import type { CaseGoal, RawEvent, RawKind } from '../../shared/types'
 
-/** Вид события в `raw/events.jsonl` кейса. */
-export type RawKind = 'user' | 'claude' | 'task' | 'reply' | 'call' | 'skill'
+// вид и само событие кейса — часть контракта с клиентами
+export type { RawEvent, RawKind }
 
 /** Запись транскрипта Claude Code после разбора (`transcript.ts`). */
 export interface TranscriptEntry {
@@ -10,18 +10,6 @@ export interface TranscriptEntry {
 	ts: number
 	kind: 'user' | 'claude' | 'call' | 'skill'
 	text: string
-}
-
-/** Событие кейса со своей сквозной нумерацией `n`. */
-export interface RawEvent {
-	n: number
-	ts: number
-	kind: RawKind
-	from: string
-	to: string | null
-	text: string
-	/** откуда взято: id сообщения ленты или uuid записи транскрипта */
-	ref: string
 }
 
 /** Порция событий для сборщика: готовый текст и границы `n`. */

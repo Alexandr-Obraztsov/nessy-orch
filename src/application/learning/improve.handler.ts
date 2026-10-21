@@ -4,7 +4,7 @@ import { fillPrompt, parseImprovement } from '../../domain/learning-replies'
 import { similarity } from '../../domain/learning-search'
 import { correctionsSection, eventsAround, anchorRanges, playbookIdOf } from './judge.handler'
 import type { JobContext, JobHandler } from './handlers.types'
-import { applyEdit, countOf, editableFiles, mergeReviewPayload, untilRemoved } from './playbook-edits'
+import { applyEdit, countOf, editableFiles, mergeReviewPayload, ruleIdOf, untilRemoved } from './playbook-edits'
 import type { PlaybookState } from './learning.types'
 
 /** Похожие по смыслу кандидаты сливаются (порог сходства текстов). */
@@ -101,7 +101,7 @@ async function improveJob(ctx: JobContext): Promise<void> {
 				added++
 			}
 		} else if (!same) {
-			const id = `r-${createHash('sha1').update(`${p.id}\n${cand.text}`).digest('hex').slice(0, 6)}`
+			const id = ruleIdOf(p.id, cand.text)
 			if (rules.some(r => r.id === id)) continue
 			rules = [...rules, { id, text: cand.text, stage: cand.stage, status: 'candidate', up: 2, down: 0, evidence: cand.evidence, against: [], lastAppliedAt: null, createdAt: iso }]
 			added++

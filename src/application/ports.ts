@@ -139,6 +139,8 @@ export interface LearningStorePort {
 	 * остальные (`g-…`, `p-…`, `all`, `judge:…`) — `learning/runs/<subject без ':'>/<name>.md`; `name` — `<job.id>-<k>`.
 	 */
 	writeRun(subject: string, name: string, text: string): void
+	/** Ответы агентов задания (`<jobId>-<k>`), по порядку `k`; нет каталога — пусто. */
+	readRuns(subject: string, jobId: string): Array<{ name: string; text: string }>
 	/** Путь транскрипта лежит внутри `dir` (с учётом symlink: realpath). */
 	isAllowedTranscript(file: string, dir: string): boolean
 	loadMeta(): LearningMeta | null

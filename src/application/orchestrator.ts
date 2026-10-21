@@ -182,13 +182,20 @@ export class Orchestrator implements AgentHost {
 			lastSeq: () => this.feed.msgSeq,
 			sessionOfMessage: m => m.session ?? this.registry.agents.get(m.to)?.session ?? this.registry.agents.get(m.from)?.session ?? null,
 			isBusy: ids => [...this.registry.agents.values()].some(a => a.session !== null && ids.includes(a.session) && (a.isBusy || a.queue.length > 0)),
-			runAgent: async ({ name, title, prompt }) => {
+			// агент уже мог уйти (ответил и удалён): отмена ничего не ломает
+			cancelAgent: async agentId => {
+				await this.cancelAgent(agentId).catch(() => undefined)
+			},
+			runAgent: async ({ name, title, prompt, onSpawn }) => {
 				let agentId = ''
 				try {
 					const casesDir = this.deps.learningStore?.casesDir ?? ''
 					this.deps.learningStore?.ensureCasesDir()
 					this.ensureServiceSession(SERVICE_SESSION, 'Фон', casesDir)
-					const res = await this.spawn({ session: SERVICE_SESSION, name, title, prompt, wait: true, waitTimeoutSec: LEARNING_AGENT_TIMEOUT_SEC })
+					const res = await this.spawn({ session: SERVICE_SESSION, name, title, prompt, wait: true, waitTimeoutSec: LEARNING_AGENT_TIMEOUT_SEC }, id => {
+						agentId = id
+						onSpawn?.(id)
+					})
 					agentId = res.agent.id
 					const ok = !!res.reply && !res.reply.failed
 					// фоновые агенты реестр не засоряют: ответ сервис сохранит сам, агента убираем
@@ -318,8 +325,8 @@ export class Orchestrator implements AgentHost {
 		return this.registry.resolveAgent(ref).toJSON()
 	}
 
-	spawn(req: SpawnRequest): Promise<SpawnResponse> {
-		return this.agentsSvc.spawn(req)
+	spawn(req: SpawnRequest, onCreated?: (agentId: string) => void): Promise<SpawnResponse> {
+		return this.agentsSvc.spawn(req, onCreated)
 	}
 
 	removeAgent(ref: string): Promise<void> {
