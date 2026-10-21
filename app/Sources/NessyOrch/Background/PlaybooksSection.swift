@@ -9,10 +9,16 @@ struct PlaybooksSection: View {
 	private var learning: LearningStore { model.store.learning }
 
 	var body: some View {
-		HStack(spacing: 0) {
-			list.frame(width: 300)
-			DSSeparator().frame(maxHeight: .infinity)
-			detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+		// плейбуков нет совсем — одно пустое состояние на всё окно, без второго «Выберите плейбук»
+		if learning.playbooks.isEmpty && model.background.objectId == nil {
+			LearningEmptyState("Плейбуков пока нет", systemImage: "book.closed", message: "Плейбук собирается из трёх кейсов одной задачи.")
+				.frame(maxWidth: .infinity, maxHeight: .infinity)
+		} else {
+			HStack(spacing: 0) {
+				list.frame(width: 300)
+				DSVerticalSeparator()
+				detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+			}
 		}
 	}
 

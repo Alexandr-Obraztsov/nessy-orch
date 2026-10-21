@@ -167,6 +167,16 @@ struct DSSeparator: View {
 	}
 }
 
+/// Вертикальная волосяная линия между колонками (список ⇄ карточка).
+struct DSVerticalSeparator: View {
+	@Environment(\.colorSchemeContrast) private var contrast
+	var body: some View {
+		Rectangle().fill(DS.Palette.separator)
+			.frame(width: contrast == .increased ? DS.Metrics.hairlineHC : DS.Metrics.hairline)
+			.frame(maxHeight: .infinity)
+	}
+}
+
 // MARK: - Связка с моделью
 
 extension AgentView {

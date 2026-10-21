@@ -10,10 +10,16 @@ struct CasesSection: View {
 	private var learning: LearningStore { model.store.learning }
 
 	var body: some View {
-		HStack(spacing: 0) {
-			list.frame(width: 300)
-			DSSeparator().frame(maxHeight: .infinity)
-			detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+		// кейсов нет совсем — одно пустое состояние на всё окно, без второго «Выберите кейс»
+		if learning.cases.isEmpty && model.background.objectId == nil {
+			LearningEmptyState("Кейсов пока нет", systemImage: "tray.full", message: "Кейс появляется, когда сборщик описывает сессию.")
+				.frame(maxWidth: .infinity, maxHeight: .infinity)
+		} else {
+			HStack(spacing: 0) {
+				list.frame(width: 300)
+				DSVerticalSeparator()
+				detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+			}
 		}
 	}
 
