@@ -207,7 +207,9 @@ struct CaseCard: View {
 		defer { saving = false }
 		do {
 			if let d = summaryDraft {
-				try await client.putCaseSummary(item.id, text: CaseEditing.markdown(d))
+				let text = CaseEditing.markdown(d)
+				try await client.putCaseSummary(item.id, text: text, base: detail?.summaryHash ?? "")
+				detail?.summaryHash = TextHash.sha1(text)
 				parsed = CaseEditing.cleaned(d); summaryDraft = nil
 			}
 			if let n = notesDraft {

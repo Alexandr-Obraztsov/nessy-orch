@@ -27,10 +27,10 @@ final class PlaybookEditSession {
 		editing = false; draft = PlaybookDraft(p); lint = []; waiting = nil
 	}
 
-	func dirty(_ p: PlaybookView) -> Bool { editing && draft.isDirty(against: p) }
+	func dirty(_ p: PlaybookView) -> Bool { editing && draft.isDirty() }
 
 	func save(_ model: AppModel, _ p: PlaybookView) async {
-		guard let patch = draft.patch(against: p) else { editing = false; return }
+		guard let patch = draft.patch() else { editing = false; return }
 		saving = true; lint = []; waiting = nil
 		defer { saving = false; waiting = nil }
 		let client = model.store.client, id = p.id

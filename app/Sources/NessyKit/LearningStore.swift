@@ -34,7 +34,7 @@ public final class LearningStore {
 
 	private var refreshing = false
 	private var refreshAgain = false
-	private var buffered: [StreamEvent] = []
+	private var buffered: [(event: StreamEvent, rev: Int?)] = []
 
 	public init(source: any LearningSource) { self.source = source }
 
@@ -51,9 +51,11 @@ public final class LearningStore {
 			do {
 				let v = try await source.learning()
 				replace(with: v)
+				// событие с `rev` не больше ответного уже учтено в нём; новее — применяется поверх
 				let late = buffered
 				buffered = []
-				for e in late { apply(e, record: false) }
+				for b in late where b.rev.map({ $0 > v.rev }) ?? true { apply(b.event, rev: b.rev, record: false) }
+				for key in Array(chats.keys) { await loadChat(key) }
 			} catch let e as APIError where e.isUnavailable {
 				available = false; loaded = true
 			} catch {
@@ -90,9 +92,9 @@ public final class LearningStore {
 
 	// MARK: события
 
-	public func apply(_ e: StreamEvent) { apply(e, record: true) }
+	public func apply(_ e: StreamEvent, rev: Int? = nil) { apply(e, rev: rev, record: true) }
 
-	private func apply(_ e: StreamEvent, record: Bool) {
+	private func apply(_ e: StreamEvent, rev: Int?, record: Bool) {
 		switch e {
 		case .snapshot:
 			Task { await refresh() }
@@ -109,7 +111,7 @@ public final class LearningStore {
 		case .learningChat(let subject, let m): appendChat(subject, m)
 		default: return
 		}
-		if record && refreshing { buffered.append(e) }
+		if record && refreshing { buffered.append((e, rev)) }
 	}
 
 	private func appendChat(_ subject: String, _ m: ChatMessage) {

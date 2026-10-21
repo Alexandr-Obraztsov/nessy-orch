@@ -186,9 +186,29 @@ public struct RuleDraft: Hashable, Identifiable, Sendable {
 	}
 }
 
+/// Поле плейбука, которое правится блоками (для конфликтов при `rebase`).
+public enum PlaybookField: String, CaseIterable, Hashable, Sendable {
+	case title, description, params, sources, files, behavior, stages
+
+	public var label: String {
+		switch self {
+		case .title: "Название"
+		case .description: "Описание"
+		case .params: "Параметры"
+		case .sources: "Источники"
+		case .files: "Файлы"
+		case .behavior: "Поведение"
+		case .stages: "Этапы"
+		}
+	}
+}
+
 /// Правка плейбука блоками: изменения копятся в черновике и уходят одним `PATCH`. Этапы нумеруются по порядку, поэтому
-/// перенос и удаление этапа пересчитывают этап у правил.
+/// перенос и удаление этапа пересчитывают этап у правил. Черновик помнит снимок `base`, с которого начата правка: в патч идёт
+/// только то, что изменено относительно него, поэтому чужие правки версии, которых вы не трогали, не затираются.
 public struct PlaybookDraft: Hashable, Sendable {
+	/// плейбук в момент начала правки
+	public private(set) var base: PlaybookView
 	public var title: String
 	public var description: String
 	public var params: [PlaybookParam]
@@ -201,6 +221,7 @@ public struct PlaybookDraft: Hashable, Sendable {
 	private var nextKey = 0
 
 	public init(_ p: PlaybookView) {
+		base = p
 		title = p.title; description = p.description; params = p.params
 		sources = p.sources; files = p.files; behavior = p.behavior
 		stages = p.stages.enumerated().map { i, s in var s = s; s.n = i + 1; return s }
@@ -280,28 +301,112 @@ public struct PlaybookDraft: Hashable, Sendable {
 		return d
 	}
 
-	/// Тело `PATCH`: только изменённые поля относительно `original`; `nil` — менять нечего.
-	public func patch(against original: PlaybookView) -> PlaybookPatch? {
-		let base = PlaybookDraft(original).cleaned()
-		let now = cleaned()
-		var p = PlaybookPatch()
-		if now.title != base.title, !now.title.isEmpty { p.title = now.title }
-		if now.description != base.description { p.description = now.description }
-		if now.params != base.params { p.params = now.params }
-		if now.sources != base.sources { p.sources = now.sources }
-		if now.files != base.files { p.files = now.files }
-		if now.behavior != base.behavior { p.behavior = now.behavior }
-		if now.stages != base.stages { p.stages = now.stages }
-		let sig = { (r: [RuleDraft]) in r.map { "\($0.ruleId ?? "+")|\($0.text)|\($0.stage.map(String.init) ?? "-")" } }
-		if sig(now.rules) != sig(base.rules) { p.rules = now.rules.map { RulePatch(id: $0.ruleId, text: $0.text, stage: $0.stage) } }
-		return p == PlaybookPatch() ? nil : p
+	private static func key(_ r: RuleDraft) -> String { "\(r.text)|\(r.stage.map(String.init) ?? "-")" }
+
+	private func value(_ f: PlaybookField) -> AnyHashable {
+		switch f {
+		case .title: title
+		case .description: description
+		case .params: params
+		case .sources: sources
+		case .files: files
+		case .behavior: behavior
+		case .stages: stages
+		}
 	}
 
-	public func isDirty(against original: PlaybookView) -> Bool { patch(against: original) != nil }
+	private mutating func set(_ f: PlaybookField, from o: PlaybookDraft) {
+		switch f {
+		case .title: title = o.title
+		case .description: description = o.description
+		case .params: params = o.params
+		case .sources: sources = o.sources
+		case .files: files = o.files
+		case .behavior: behavior = o.behavior
+		case .stages: stages = o.stages
+		}
+	}
+
+	/// Тело `PATCH`: только поля, изменённые относительно `base`; правила — изменённые и новые, удалённые — в `removeRules`.
+	/// `nil` — менять нечего.
+	public func patch() -> PlaybookPatch? {
+		let was = PlaybookDraft(base).cleaned()
+		let now = cleaned()
+		var p = PlaybookPatch(baseVersion: base.version)
+		if now.title != was.title, !now.title.isEmpty { p.title = now.title }
+		if now.description != was.description { p.description = now.description }
+		if now.params != was.params { p.params = now.params }
+		if now.sources != was.sources { p.sources = now.sources }
+		if now.files != was.files { p.files = now.files }
+		if now.behavior != was.behavior { p.behavior = now.behavior }
+		if now.stages != was.stages { p.stages = now.stages }
+		let before = Dictionary(was.rules.compactMap { r in r.ruleId.map { ($0, Self.key(r)) } }, uniquingKeysWith: { $1 })
+		let changed = now.rules.filter { r in r.ruleId.map { before[$0] != Self.key(r) } ?? true }
+		if !changed.isEmpty { p.rules = changed.map { RulePatch(id: $0.ruleId, text: $0.text, stage: $0.stage) } }
+		let kept = Set(now.rules.compactMap(\.ruleId))
+		let removed = was.rules.compactMap(\.ruleId).filter { !kept.contains($0) }
+		if !removed.isEmpty { p.removeRules = removed }
+		return p == PlaybookPatch(baseVersion: base.version) ? nil : p
+	}
+
+	public func isDirty() -> Bool { patch() != nil }
 
 	/// Какие правила пропали из черновика (уйдут в архив).
-	public func removedRules(against original: PlaybookView) -> [RuleView] {
+	public func removedRules() -> [RuleView] {
 		let kept = Set(rules.compactMap(\.ruleId))
-		return original.rules.filter { $0.status != .archived && !kept.contains($0.id) }
+		return base.rules.filter { $0.status != .archived && !kept.contains($0.id) }
 	}
+
+	// MARK: перенос на свежую версию
+
+	/// Перенести свои правки на свежую версию плейбука (после 409 `stale`). Поле, изменённое только на сервере, берётся оттуда;
+	/// только у вас — остаётся ваше; у обоих по-разному — остаётся ваше и попадает в конфликты. Новый `base` — `fresh`.
+	public func rebase(onto fresh: PlaybookView) -> (draft: PlaybookDraft, conflicts: [String]) {
+		let r = rebaseFields(onto: fresh)
+		return (r.draft, r.fields.map(\.label) + r.ruleNotes)
+	}
+
+	/// То же, но конфликты полей — значениями `PlaybookField` (для выбора «оставить мои / взять новые»); конфликты правил — подписями.
+	public func rebaseFields(onto fresh: PlaybookView) -> (draft: PlaybookDraft, fields: [PlaybookField], ruleNotes: [String]) {
+		let was = PlaybookDraft(base).cleaned(), mine = cleaned(), theirs = PlaybookDraft(fresh).cleaned()
+		var d = PlaybookDraft(fresh)
+		d.nextKey = nextKey
+		var fields: [PlaybookField] = []
+		for f in PlaybookField.allCases {
+			let iChanged = mine.value(f) != was.value(f), theyChanged = theirs.value(f) != was.value(f)
+			if iChanged { d.set(f, from: self) }
+			if iChanged && theyChanged && mine.value(f) != theirs.value(f) { fields.append(f) }
+		}
+		// правила: за основу — свежие живые правила, поверх — ваши изменения
+		var notes: [String] = []
+		let baseRules = Dictionary(was.rules.compactMap { r in r.ruleId.map { ($0, r) } }, uniquingKeysWith: { $1 })
+		let freshRules = Dictionary(theirs.rules.compactMap { r in r.ruleId.map { ($0, r) } }, uniquingKeysWith: { $1 })
+		let myIds = Set(mine.rules.compactMap(\.ruleId))
+		for r in mine.rules {
+			guard let id = r.ruleId else { d.rules.append(r); continue }
+			guard let was = baseRules[id], Self.key(was) != Self.key(r) else { continue } // не тронуто: берётся свежее
+			if let t = freshRules[id] {
+				if Self.key(t) != Self.key(was), Self.key(t) != Self.key(r) { notes.append("Правило «\(Self.short(r.text))»") }
+				if let i = d.rules.firstIndex(where: { $0.ruleId == id }) { d.rules[i].text = r.text; d.rules[i].stage = r.stage }
+			} else {
+				// правило ушло в архив на сервере: ваша правка станет новым правилом
+				notes.append("Правило «\(Self.short(r.text))» убрано на сервере")
+				var n = r; n.ruleId = nil; n.key = "new-\(d.nextKey + 1)"; d.nextKey += 1; n.status = .candidate
+				d.rules.append(n)
+			}
+		}
+		for (id, was) in baseRules where !myIds.contains(id) {
+			// вы убрали правило; на сервере его изменили — удаление остаётся, но об этом надо сказать
+			if let t = freshRules[id], Self.key(t) != Self.key(was) { notes.append("Правило «\(Self.short(t.text))» вы убрали, а на сервере изменили") }
+			d.rules.removeAll { $0.ruleId == id }
+		}
+		return (d, fields, notes)
+	}
+
+	/// Взять поле из свежей версии вместо своего (выбор «взять новые» при конфликте).
+	public mutating func take(_ f: PlaybookField, from fresh: PlaybookView) {
+		set(f, from: PlaybookDraft(fresh))
+	}
+
+	private static func short(_ t: String) -> String { t.count > 40 ? String(t.prefix(40)) + "…" : t }
 }

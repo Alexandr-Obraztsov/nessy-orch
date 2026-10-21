@@ -78,7 +78,7 @@ export function createServer(orch: Orchestrator, opts: ServerOptions): http.Serv
 			}
 			const status = e instanceof AppError ? e.status : 500
 			const code = e instanceof AppError ? e.code : 'internal'
-			sendJson(res, status, { error: errMsg(e), code })
+			sendJson(res, status, { ...(e instanceof AppError ? e.extra : undefined), error: errMsg(e), code })
 		})
 	})
 }

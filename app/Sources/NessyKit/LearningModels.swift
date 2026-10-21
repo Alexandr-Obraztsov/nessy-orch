@@ -177,20 +177,24 @@ public struct CaseDetail: Codable, Hashable, Identifiable, Sendable {
 	public var view: CaseView
 	public var summary: String
 	public var notes: String
+	/// sha1 (hex) текущего `summary.md`: `base` при `PUT …/summary`
+	public var summaryHash: String
 	public var id: String { view.id }
 
-	private enum CodingKeys: String, CodingKey { case summary, notes }
+	private enum CodingKeys: String, CodingKey { case summary, notes, summaryHash }
 
 	public init(from decoder: Decoder) throws {
 		view = try CaseView(from: decoder)
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		summary = c.get(.summary, "")
 		notes = c.get(.notes, "")
+		summaryHash = c.get(.summaryHash, "")
 	}
 
 	public func encode(to encoder: Encoder) throws {
 		try view.encode(to: encoder)
 		var c = encoder.container(keyedBy: CodingKeys.self)
+		try c.encode(summaryHash, forKey: .summaryHash)
 		try c.encode(summary, forKey: .summary)
 		try c.encode(notes, forKey: .notes)
 	}
@@ -604,7 +608,7 @@ public struct PlaybookDetail: Codable, Hashable, Identifiable, Sendable {
 	}
 }
 
-/// Правило в теле `PATCH /learning/playbooks/:id`: без `id` — новое (кандидат); отсутствующие в массиве id уходят в архив.
+/// Правило в теле `PATCH /learning/playbooks/:id`: только изменённое или новое; с `id` заменяет текст и этап, без `id` — новое (кандидат).
 public struct RulePatch: Codable, Hashable, Sendable {
 	public var id: String?
 	public var text: String
@@ -622,8 +626,10 @@ public struct RulePatch: Codable, Hashable, Sendable {
 	}
 }
 
-/// Тело `PATCH /learning/playbooks/:id`: заменяет только переданные поля.
+/// Тело `PATCH /learning/playbooks/:id`: заменяет только переданные поля; `baseVersion` — версия, с которой начата правка
+/// (другая на сервере — 409 `stale`). Архивируются только id из `removeRules`.
 public struct PlaybookPatch: Encodable, Hashable, Sendable {
+	public var baseVersion: Int
 	public var title: String?
 	public var description: String?
 	public var params: [PlaybookParam]?
@@ -632,8 +638,10 @@ public struct PlaybookPatch: Encodable, Hashable, Sendable {
 	public var behavior: [String]?
 	public var stages: [PlaybookStage]?
 	public var rules: [RulePatch]?
+	public var removeRules: [String]?
 
-	public init(title: String? = nil, description: String? = nil, params: [PlaybookParam]? = nil, sources: [String]? = nil, files: [String]? = nil, behavior: [String]? = nil, stages: [PlaybookStage]? = nil, rules: [RulePatch]? = nil) {
+	public init(baseVersion: Int, title: String? = nil, description: String? = nil, params: [PlaybookParam]? = nil, sources: [String]? = nil, files: [String]? = nil, behavior: [String]? = nil, stages: [PlaybookStage]? = nil, rules: [RulePatch]? = nil, removeRules: [String]? = nil) {
+		self.baseVersion = baseVersion; self.removeRules = removeRules
 		self.title = title; self.description = description; self.params = params; self.sources = sources
 		self.files = files; self.behavior = behavior; self.stages = stages; self.rules = rules
 	}
@@ -693,8 +701,10 @@ public struct LearningView: Decodable, Sendable {
 	public var playbooks: [PlaybookView]
 	public var journal: [JournalEntry]
 	public var skipped = 0
+	/// номер шины событий на момент сборки ответа
+	public var rev = 0
 
-	private enum CodingKeys: String, CodingKey { case settings, jobs, cases, playbooks, journal }
+	private enum CodingKeys: String, CodingKey { case settings, jobs, cases, playbooks, journal, rev }
 
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -703,11 +713,12 @@ public struct LearningView: Decodable, Sendable {
 		let k = try? c.decodeIfPresent(LossyArray<CaseView>.self, forKey: .cases)
 		let p = try? c.decodeIfPresent(LossyArray<PlaybookView>.self, forKey: .playbooks)
 		let e = try? c.decodeIfPresent(LossyArray<JournalEntry>.self, forKey: .journal)
+		rev = (try? c.decodeIfPresent(Int.self, forKey: .rev)) ?? 0
 		jobs = j?.items ?? []; cases = k?.items ?? []; playbooks = p?.items ?? []; journal = e?.items ?? []
 		skipped = (j?.skipped ?? 0) + (k?.skipped ?? 0) + (p?.skipped ?? 0) + (e?.skipped ?? 0)
 	}
 
-	public init(settings: LearningSettings, jobs: [JobView] = [], cases: [CaseView] = [], playbooks: [PlaybookView] = [], journal: [JournalEntry] = []) {
-		self.settings = settings; self.jobs = jobs; self.cases = cases; self.playbooks = playbooks; self.journal = journal
+	public init(settings: LearningSettings, jobs: [JobView] = [], cases: [CaseView] = [], playbooks: [PlaybookView] = [], journal: [JournalEntry] = [], rev: Int = 0) {
+		self.rev = rev; self.settings = settings; self.jobs = jobs; self.cases = cases; self.playbooks = playbooks; self.journal = journal
 	}
 }

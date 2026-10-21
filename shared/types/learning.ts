@@ -92,6 +92,8 @@ export interface LearningView {
 	playbooks: PlaybookView[]
 	/** последние 200 записей */
 	journal: JournalEntry[]
+	/** номер шины (`hub.rev`) на момент сборки ответа: события с `rev` не больше него уже учтены */
+	rev: number
 }
 
 /** Прошлая сессия или транскрипт, который можно разобрать задним числом. */
@@ -106,6 +108,8 @@ export interface BackfillCandidate {
 /** Кейс с описанием сессии и заметками (`GET /learning/cases/:id`). */
 export interface CaseDetail extends CaseView {
 	summary: string
+	/** sha1 (hex) текущего `summary.md`: `base` для `PUT /learning/cases/:id/summary` */
+	summaryHash: string
 	notes: string
 }
 
@@ -243,6 +247,8 @@ export interface RuleInput {
 
 /** Тело `PATCH /learning/playbooks/:id`: переданные поля содержания заменяются целиком. */
 export interface PlaybookPatch {
+	/** версия плейбука, на которой правили; не совпала с текущей — 409 `stale` */
+	baseVersion: number
 	title?: string
 	description?: string
 	params?: PlaybookParam[]
@@ -250,5 +256,8 @@ export interface PlaybookPatch {
 	files?: string[]
 	behavior?: string[]
 	stages?: PlaybookStage[]
+	/** только изменённые (с `id`) и новые (без `id`) правила */
 	rules?: RuleInput[]
+	/** id правил, которые архивируются; остальные не трогаются */
+	removeRules?: string[]
 }

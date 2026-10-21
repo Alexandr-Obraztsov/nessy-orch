@@ -50,6 +50,25 @@ function parseMeta(raw: string | null): { title: string | null; goals: CaseGoal[
 	return { title, goals }
 }
 
+/** Заголовок (`# `) и цели (`## Goal: … (type: …)`) описания, записанного руками. */
+export function parseSummaryHeads(text: string): { title: string | null; goals: CaseGoal[] } {
+	let title: string | null = null
+	const goals: CaseGoal[] = []
+	for (const line of text.split('\n')) {
+		const h1 = /^#\s+(\S.*)$/.exec(line)
+		if (h1 && title === null) {
+			title = (h1[1] ?? '').trim()
+			continue
+		}
+		const g = /^##\s+Goal:\s*(.*?)\s*$/.exec(line)
+		if (!g) continue
+		const m = /^(.*?)\s*\(type:\s*([^)]*)\)\s*$/.exec(g[1] ?? '')
+		const goalTitle = (m ? m[1] : g[1]) ?? ''
+		if (goalTitle.trim() !== '') goals.push({ title: goalTitle.trim(), type: (m?.[2] ?? '').trim() })
+	}
+	return { title: title === '' ? null : title, goals }
+}
+
 /** Разбирает ответ сборщика; нет непустого `<summary>` — null. */
 export function parseCollectorReply(text: string): CollectorResult | null {
 	const summary = lastBlock(text, 'summary')?.trim() ?? ''

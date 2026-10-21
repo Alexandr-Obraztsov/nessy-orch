@@ -40,9 +40,9 @@ struct PlaybookEditingTests {
 	func patchOnlyChanged() throws {
 		let p = try pb()
 		var d = PlaybookDraft(p)
-		#expect(d.patch(against: p) == nil && !d.isDirty(against: p))
+		#expect(d.patch() == nil && !d.isDirty())
 		d.sources.append("  jira  "); d.sources.append("   ")
-		let patch = try #require(d.patch(against: p))
+		let patch = try #require(d.patch())
 		#expect(patch.sources == ["wiki", "jira"] && patch.files == nil && patch.rules == nil && patch.stages == nil)
 	}
 
@@ -54,9 +54,9 @@ struct PlaybookEditingTests {
 		d.rules[0].text = "один"
 		d.removeRule(key: "r-2")
 		d.addRule(text: "новое", stage: 2)
-		let r = try #require(d.patch(against: p)?.rules)
+		let r = try #require(d.patch()?.rules)
 		#expect(r.map(\.id) == ["r-1", nil] && r[0].text == "один" && r[1].stage == 2)
-		#expect(d.removedRules(against: p).map(\.id) == ["r-2"])
+		#expect(d.removedRules().map(\.id) == ["r-2"])
 	}
 
 	@Test("перенос этапа тянет за собой этап правил, удаление сдвигает и снимает")
@@ -71,7 +71,7 @@ struct PlaybookEditingTests {
 		#expect(d.rules.map(\.stage) == [1, nil])
 		d.moveStage(at: 1, by: 1) // за границу: ничего
 		#expect(d.stages.map(\.slug) == ["a", "c"])
-		let patch = try #require(d.patch(against: p))
+		let patch = try #require(d.patch())
 		#expect(patch.stages?.map(\.n) == [1, 2])
 	}
 
@@ -80,7 +80,7 @@ struct PlaybookEditingTests {
 		let p: PlaybookView = try decode(twoStages)
 		var d = PlaybookDraft(p)
 		d.addRule(text: "без этапа")
-		let data = try JSONEncoder().encode(try #require(d.patch(against: p)))
+		let data = try JSONEncoder().encode(try #require(d.patch()))
 		let s = String(decoding: data, as: UTF8.self)
 		#expect(s.contains(#""stage":null"#) && s.contains(#""text":"без этапа""#))
 		#expect(!s.contains(#""title""#))

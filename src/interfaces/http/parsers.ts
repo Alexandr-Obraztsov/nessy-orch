@@ -1,7 +1,7 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
 import type { AttachRequest, PlaybookParam, PlaybookPatch, PlaybookStage, RoleRequest, RuleInput, SendRequest, SpaceRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
-import { skillName } from '../../domain/playbook-render'
+import { stageSlug, uniqueSlugs } from '../../domain/playbook-render'
 import { isSessionStatus } from '../../domain/sessions'
 import { isObject } from '../../lib/json'
 
@@ -147,6 +147,14 @@ export function parseTextBody(b: unknown, allowEmpty = false): string {
 	return b['text']
 }
 
+/** Тело `PUT /learning/cases/:id/summary`: `{text, base}`, `base` — sha1 (hex) описания, против которого правили. */
+export function parseSummaryPut(b: unknown): { text: string; base: string } {
+	if (!isObject(b) || typeof b['text'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле text (строка)')
+	const base = b['base']
+	if (typeof base !== 'string' || !/^[0-9a-f]{40}$/.test(base)) throw new AppError(400, 'bad_request', 'нужно поле base (sha1 hex описания)')
+	return { text: b['text'], base }
+}
+
 /** Причина отказа: `{reason}`, необязательная. */
 export function parseReason(b: unknown): string {
 	if (!isObject(b)) return ''
@@ -183,12 +191,12 @@ const str = (o: Record<string, unknown>, k: string, where: string): string => {
 	return v
 }
 
-function parseStage(o: Record<string, unknown>): PlaybookStage {
+function parseStage(o: Record<string, unknown>, index: number): PlaybookStage {
 	const title = str(o, 'title', 'stages')
 	const role = o['role']
 	if (role !== null && role !== undefined && typeof role !== 'string') throw bad('stages.role — строка или null')
 	if (o['gate'] !== undefined && typeof o['gate'] !== 'boolean') throw bad('stages.gate — boolean')
-	const slug = typeof o['slug'] === 'string' && o['slug'] !== '' ? o['slug'] : skillName(title)
+	const slug = typeof o['slug'] === 'string' && o['slug'] !== '' ? o['slug'] : stageSlug(title, index + 1)
 	// `n` клиента не берётся: ступени нумеруются по порядку массива
 	return { n: 0, slug, title, role: role ?? null, where: str(o, 'where', 'stages'), produce: str(o, 'produce', 'stages'), done: str(o, 'done', 'stages'), gate: o['gate'] === true, template: str(o, 'template', 'stages') }
 }
@@ -196,14 +204,16 @@ function parseStage(o: Record<string, unknown>): PlaybookStage {
 /** Правка плейбука блоками: `PATCH /learning/playbooks/:id`; все поля необязательны, но хотя бы одно нужно. */
 export function parsePlaybookPatch(b: unknown): PlaybookPatch {
 	if (!isObject(b)) throw bad('ожидается JSON-объект')
-	const patch: PlaybookPatch = {}
+	const baseVersion = b['baseVersion']
+	if (typeof baseVersion !== 'number' || !Number.isInteger(baseVersion) || baseVersion < 1) throw bad('baseVersion — целое от 1 (версия, на которой правили)')
+	const patch: PlaybookPatch = { baseVersion }
 	if (b['title'] !== undefined) patch.title = str(b, 'title', 'body')
 	if (b['description'] !== undefined) patch.description = str(b, 'description', 'body')
 	if (b['params'] !== undefined) patch.params = objList(b['params'], 'params').map((o): PlaybookParam => ({ name: str(o, 'name', 'params'), description: str(o, 'description', 'params'), source: str(o, 'source', 'params') }))
 	if (b['sources'] !== undefined) patch.sources = strList(b['sources'], 'sources')
 	if (b['files'] !== undefined) patch.files = strList(b['files'], 'files')
 	if (b['behavior'] !== undefined) patch.behavior = strList(b['behavior'], 'behavior')
-	if (b['stages'] !== undefined) patch.stages = objList(b['stages'], 'stages').map(parseStage)
+	if (b['stages'] !== undefined) patch.stages = uniqueSlugs(objList(b['stages'], 'stages').map(parseStage))
 	if (b['rules'] !== undefined) {
 		patch.rules = objList(b['rules'], 'rules').map((o): RuleInput => {
 			const text = str(o, 'text', 'rules')
@@ -215,7 +225,8 @@ export function parsePlaybookPatch(b: unknown): PlaybookPatch {
 			return id === undefined ? { text, stage } : { id, text, stage }
 		})
 	}
-	if (!Object.keys(patch).length) throw bad('нужно хотя бы одно поле: title, description, params, sources, files, behavior, stages, rules')
+	if (b['removeRules'] !== undefined) patch.removeRules = strList(b['removeRules'], 'removeRules')
+	if (Object.keys(patch).length < 2) throw bad('нужно хотя бы одно поле: title, description, params, sources, files, behavior, stages, rules, removeRules')
 	return patch
 }
 

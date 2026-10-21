@@ -7,6 +7,29 @@ export function skillName(id: string): string {
 	return kebab || 'playbook'
 }
 
+const TRANSLIT: Record<string, string> = {
+	а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f',
+	х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+}
+
+/** Слаг этапа из названия: кириллица транслитерируется; без латиницы и цифр — `stage-<n>`. */
+export function stageSlug(title: string, n: number): string {
+	const latin = title.toLowerCase().replace(/[а-яё]/g, ch => TRANSLIT[ch] ?? ch)
+	const kebab = latin.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64).replace(/-+$/g, '')
+	return kebab || `stage-${n}`
+}
+
+/** Слаги этапов без повторов: второй и следующие с одинаковым слагом получают `-2`, `-3`… */
+export function uniqueSlugs<T extends { slug: string }>(stages: readonly T[]): T[] {
+	const seen = new Set<string>()
+	return stages.map(s => {
+		let slug = s.slug
+		for (let k = 2; seen.has(slug); k++) slug = `${s.slug}-${k}`
+		seen.add(slug)
+		return slug === s.slug ? s : { ...s, slug }
+	})
+}
+
 export function stagePath(s: PlaybookStage): string {
 	return `stages/${String(s.n).padStart(2, '0')}-${s.slug}.md`
 }

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { PlaybookPatch, RuleView } from '../../../shared/types'
+import type { PlaybookPatch, RuleInput, RuleView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { renderPlaybook, stagePath } from '../../domain/playbook-render'
 import type { PlaybookFiles } from '../../domain/playbook.types'
@@ -81,8 +81,9 @@ export const ruleIdOf = (playbookId: string, text: string): string => `r-${creat
 
 /**
  * Правка блоками: переданные поля содержания заменяются целиком; ступени нумеруются `n` по порядку массива.
- * Правила: без `id` — новое `candidate` (id — `ruleIdOf`, при совпадении удлиняется), отсутствующие в массиве — `archived`
- * (физически не удаляются: счётчики и журнал). Неизвестный или повторный `id` — 400.
+ * Правила: с `id` — замена текста и этапа (счётчики сохраняются), без `id` — новое `candidate` (id — `ruleIdOf`,
+ * при совпадении удлиняется); не упомянутые правила не трогаются, `archived` становятся только id из `removeRules`
+ * (физически правила не удаляются: счётчики и журнал). Неизвестный или повторный `id` — 400.
  */
 export function applyPatch(p: PlaybookState, patch: PlaybookPatch, iso: string): PlaybookState {
 	const next: PlaybookState = { ...p }
@@ -93,18 +94,16 @@ export function applyPatch(p: PlaybookState, patch: PlaybookPatch, iso: string):
 	if (patch.files !== undefined) next.files = patch.files
 	if (patch.behavior !== undefined) next.behavior = patch.behavior
 	if (patch.stages !== undefined) next.stages = patch.stages.map((s, i) => ({ ...s, n: i + 1 }))
-	if (patch.rules !== undefined) {
+	if (patch.rules !== undefined || patch.removeRules !== undefined) {
 		const old = new Map(p.rules.map(r => [r.id, r]))
 		const used = new Set(old.keys())
-		const seen = new Set<string>()
-		const kept: RuleView[] = []
-		for (const input of patch.rules) {
+		const changed = new Map<string, RuleInput>()
+		const fresh: RuleView[] = []
+		for (const input of patch.rules ?? []) {
 			if (input.id !== undefined) {
-				const was = old.get(input.id)
-				if (!was) throw new AppError(400, 'bad_request', `в плейбуке ${p.id} нет правила ${input.id}`)
-				if (seen.has(input.id)) throw new AppError(400, 'bad_request', `правило ${input.id} указано дважды`)
-				seen.add(input.id)
-				kept.push({ ...was, text: input.text, stage: input.stage })
+				if (!old.has(input.id)) throw new AppError(400, 'bad_request', `в плейбуке ${p.id} нет правила ${input.id}`)
+				if (changed.has(input.id)) throw new AppError(400, 'bad_request', `правило ${input.id} указано дважды`)
+				changed.set(input.id, input)
 				continue
 			}
 			const full = createHash('sha1').update(`${p.id}\n${input.text}`).digest('hex')
@@ -112,10 +111,20 @@ export function applyPatch(p: PlaybookState, patch: PlaybookPatch, iso: string):
 			while (used.has(`r-${full.slice(0, len)}`) && len < full.length) len++
 			const id = `r-${full.slice(0, len)}`
 			used.add(id)
-			kept.push({ id, text: input.text, stage: input.stage, status: 'candidate', up: 2, down: 0, evidence: [], against: [], lastAppliedAt: null, createdAt: iso })
+			fresh.push({ id, text: input.text, stage: input.stage, status: 'candidate', up: 2, down: 0, evidence: [], against: [], lastAppliedAt: null, createdAt: iso })
 		}
-		const dropped = p.rules.filter(r => !seen.has(r.id)).map((r): RuleView => (r.status === 'archived' ? r : { ...r, status: 'archived' }))
-		next.rules = [...kept, ...dropped]
+		const removed = new Set<string>()
+		for (const id of patch.removeRules ?? []) {
+			if (!old.has(id)) throw new AppError(400, 'bad_request', `в плейбуке ${p.id} нет правила ${id}`)
+			if (changed.has(id)) throw new AppError(400, 'bad_request', `правило ${id} и правится, и удаляется`)
+			removed.add(id)
+		}
+		const kept = p.rules.map((r): RuleView => {
+			const input = changed.get(r.id)
+			if (input) return { ...r, text: input.text, stage: input.stage }
+			return removed.has(r.id) && r.status !== 'archived' ? { ...r, status: 'archived' } : r
+		})
+		next.rules = [...kept, ...fresh]
 	}
 	return next
 }

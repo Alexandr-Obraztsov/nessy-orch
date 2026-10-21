@@ -1,12 +1,14 @@
 /** Плейбуки, сквозной сценарий: 3 сессии → кейсы → сопоставление → сборка → ревью → trial → плагин; журнал, откат, чат, CLI, права. */
 import assert from 'node:assert/strict'
 import { execFile, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, it } from 'node:test'
-import type { ApiError, CaseImpact, ChatMessage, JobDetail, JournalEntry, LearningView, RawEvent, PlaybookDetail, PlaybookView, SessionView, SpawnResponse } from '../../shared/types'
+import type { ApiError, CaseDetail, CaseImpact, ChatMessage, JobDetail, JournalEntry, LearningView, RawEvent, PlaybookDetail, PlaybookView, SessionView, SpawnResponse } from '../../shared/types'
 import { startHarness } from '../support/harness'
+import { repoRoot } from '../support/repo-root'
 import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
 
@@ -49,7 +51,7 @@ describe('плейбуки (сквозной)', () => {
 	})
 
 	const scenarios = (v: Record<string, string>): void => fs.writeFileSync(path.join(base, 'home', 'fake-scenarios.json'), JSON.stringify(Object.fromEntries(Object.entries(v).map(([k, t]) => [k, [{ text: t }]]))))
-	const CLI = path.resolve(__dirname, '..', '..', '..', 'bin', 'nessy-orch')
+	const CLI = path.join(repoRoot(), 'bin', 'nessy-orch')
 	const cli = (hh: Harness, ...args: string[]): Promise<{ code: number; out: string }> =>
 		new Promise(resolve => {
 			execFile(process.execPath, [CLI, ...args], { env: { ...process.env, ORCH_PORT: String(hh.port), NO_COLOR: '1' } }, (err, stdout, stderr) => resolve({ code: err ? 1 : 0, out: stdout + stderr }))
@@ -193,6 +195,7 @@ describe('плейбуки (сквозной)', () => {
 		assert.deepEqual(detail.body.runs.map(r => r.name), [`${job.id}-1`])
 		assert.match(detail.body.runs[0]?.text ?? '', /Review MR/)
 		assert.equal((await hh.api<ApiError>('GET', '/learning/jobs/j-nope')).status, 404)
+		assert.equal((await hh.api<ApiError>('POST', '/learning/jobs/j-nope/cancel', {})).status, 404)
 
 		// события кейса: якорь «открыть место в сессии»
 		const all = (await hh.api<RawEvent[]>('GET', `/learning/cases/${c1}/raw`)).body
@@ -203,9 +206,17 @@ describe('плейбуки (сквозной)', () => {
 		assert.equal((await hh.api<ApiError>('GET', '/learning/cases/c-nope/raw')).status, 404)
 
 		// правка описания руками
-		assert.equal((await hh.api('PUT', `/learning/cases/${c1}/summary`, { text: '# Edited by hand' })).status, 200)
-		assert.equal(fs.readFileSync(path.join(hh.home, 'cases', c1, 'summary.md'), 'utf8'), '# Edited by hand')
-		assert.equal((await hh.api<ApiError>('PUT', '/learning/cases/c-nope/summary', { text: 'x' })).status, 404)
+		const sha = (t: string): string => createHash('sha1').update(t).digest('hex')
+		const detail1 = (await hh.api<CaseDetail>('GET', `/learning/cases/${c1}`)).body
+		assert.equal(detail1.summaryHash, sha(detail1.summary))
+		const stale = await hh.api<ApiError>('PUT', `/learning/cases/${c1}/summary`, { text: '# X', base: sha('чужое') })
+		assert.deepEqual([stale.status, stale.body.code], [409, 'stale'])
+		assert.equal((await hh.api<ApiError>('PUT', `/learning/cases/${c1}/summary`, { text: '# X' })).status, 400)
+		assert.equal((await hh.api('PUT', `/learning/cases/${c1}/summary`, { text: '# Edited by hand\n## Goal: do it (type: fix)', base: detail1.summaryHash })).status, 200)
+		assert.equal(fs.readFileSync(path.join(hh.home, 'cases', c1, 'summary.md'), 'utf8'), '# Edited by hand\n## Goal: do it (type: fix)')
+		const detail2 = (await hh.api<CaseDetail>('GET', `/learning/cases/${c1}`)).body
+		assert.deepEqual([detail2.title, detail2.goals], ['Edited by hand', [{ title: 'do it', type: 'fix' }]])
+		assert.equal((await hh.api<ApiError>('PUT', '/learning/cases/c-nope/summary', { text: 'x', base: sha('') })).status, 404)
 
 		// плейбук с правилом, у которого два кейса-доказательства
 		const evidence = [c1, c2].map(caseId => ({ caseId, anchor: 'n 1' }))
@@ -216,14 +227,19 @@ describe('плейбуки (сквозной)', () => {
 		assert.equal((await hh.api<ApiError>('GET', '/learning/cases/c-nope/impact')).status, 404)
 
 		// PATCH: lint, успех (удалён шаг, новое правило), 404
-		const bad = await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, { description: 'Reviews merge requests' })
+		const bad = await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, { baseVersion: pb.version, description: 'Reviews merge requests' })
 		assert.equal(bad.status, 400)
 		assert.equal(bad.body.code, 'lint')
 		assert.match(bad.body.error, /Use when/)
-		assert.equal((await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, {})).status, 400)
+		assert.equal((await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, { baseVersion: pb.version })).status, 400)
+		assert.equal((await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, { title: 'x' })).status, 400)
+		const oldVer = await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, { baseVersion: pb.version + 5, title: 'x' })
+		assert.deepEqual([oldVer.status, oldVer.body.code, oldVer.body.version], [409, 'stale', pb.version])
 		const patched = await hh.api<PlaybookView>('PATCH', `/learning/playbooks/${pb.id}`, {
+			baseVersion: pb.version,
 			stages: [{ ...DRAFT.stages[0], slug: 'post', title: 'Post comments' }],
 			rules: [{ text: 'Check tests first', stage: 1 }],
+			removeRules: pb.rules.map(r => r.id),
 		})
 		assert.equal(patched.status, 200)
 		assert.equal(patched.body.version, pb.version + 1)
@@ -233,7 +249,7 @@ describe('плейбуки (сквозной)', () => {
 		assert.deepEqual(files, ['01-post.md'])
 		const journal = (await hh.api<JournalEntry[]>('GET', '/learning/journal')).body
 		assert.equal(journal.at(-1)?.kind, 'edit')
-		assert.equal((await hh.api<ApiError>('PATCH', '/learning/playbooks/p-nope', { title: 'x' })).status, 404)
+		assert.equal((await hh.api<ApiError>('PATCH', '/learning/playbooks/p-nope', { baseVersion: 1, title: 'x' })).status, 404)
 
 		// остановка сборщика: заданий нет — не ошибка, кейс остаётся
 		assert.equal((await hh.api('POST', `/learning/cases/${c2}/collector/stop`, {})).status, 200)
@@ -259,6 +275,7 @@ describe('плейбуки (сквозной)', () => {
 			['PUT', '/learning/cases/c-x/summary'],
 			['POST', '/learning/cases/c-x/collector/stop'],
 			['PATCH', '/learning/playbooks/p-x'],
+			['POST', '/learning/jobs/j-x/cancel'],
 			['POST', '/learning/journal/jr-x/revert'],
 			['POST', '/learning/chat/p-x'],
 		]

@@ -404,6 +404,7 @@ public enum StreamEvent: Sendable {
 
 	private struct Frame: Decodable {
 		var t: String
+		var rev: Int?
 		var message: Message?
 		var agent: AgentView?
 		var space: SpaceView?
@@ -420,12 +421,13 @@ public enum StreamEvent: Sendable {
 		var chatMessage: ChatMessage?
 
 		private enum CodingKeys: String, CodingKey {
-			case t, message, agent, space, role, session, id, name, job, `case`, settings, playbook, entry, subject
+			case t, rev, message, agent, space, role, session, id, name, job, `case`, settings, playbook, entry, subject
 		}
 
 		init(from decoder: Decoder) throws {
 			let c = try decoder.container(keyedBy: CodingKeys.self)
 			t = try c.decode(String.self, forKey: .t)
+			rev = try? c.decodeIfPresent(Int.self, forKey: .rev)
 			// записи разбираются по одной: битая запись события не должна ронять разбор остальных полей кадра
 			message = try? c.decodeIfPresent(Message.self, forKey: .message)
 			agent = try? c.decodeIfPresent(AgentView.self, forKey: .agent)
@@ -443,6 +445,11 @@ public enum StreamEvent: Sendable {
 			// в кадре `learning_chat` сообщение чата лежит в том же поле `message`, что и сообщение ленты
 			chatMessage = t == "learning_chat" ? (try? c.decodeIfPresent(ChatMessage.self, forKey: .message)) : nil
 		}
+	}
+
+	/// Событие и номер шины кадра (`rev`): по нему `LearningStore` отличает события, уже учтённые в ответе `GET /learning`.
+	public static func decodeWithRev(_ data: Data) -> (event: StreamEvent, rev: Int?) {
+		(decode(data), (try? JSONDecoder().decode(Frame.self, from: data))?.rev)
 	}
 
 	public static func decode(_ data: Data) -> StreamEvent {

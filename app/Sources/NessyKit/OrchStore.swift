@@ -75,8 +75,8 @@ public final class OrchStore {
 			onState: { [weak self] st in Task { @MainActor in self?.streamState(st) } },
 			onOpen: { },
 			onData: { [weak self] d in
-				let ev = StreamEvent.decode(d)
-				Task { @MainActor in self?.apply(ev) }
+				let (ev, rev) = StreamEvent.decodeWithRev(d)
+				Task { @MainActor in self?.apply(ev, rev: rev) }
 			}
 		)
 		pollTask = Task { [weak self] in
@@ -111,7 +111,7 @@ public final class OrchStore {
 
 	// MARK: применение событий
 
-	public func apply(_ e: StreamEvent) {
+	public func apply(_ e: StreamEvent, rev: Int? = nil) {
 		lastEventAt = Date()
 		switch e {
 		case .snapshot(let s):
@@ -128,9 +128,9 @@ public final class OrchStore {
 			if case .online = daemon {} else { daemon = .online(version: "") }
 			if primed { for a in s.agents { detect(old: old[a.id], new: a) } }
 			primed = true
-			learning.apply(e)
+			learning.apply(e, rev: rev)
 		case .learningJob, .learningCase, .learningCaseRemoved, .learningSettings, .learningPlaybook, .learningPlaybookRemoved, .learningJournal, .learningChat:
-			learning.apply(e)
+			learning.apply(e, rev: rev)
 		case .message(let m):
 			messages.append(m)
 			if messages.count > 2000 { messages.removeFirst(messages.count - 2000) }

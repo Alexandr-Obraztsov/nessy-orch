@@ -7,6 +7,7 @@ import * as path from 'node:path'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 import type { AgentView, ApiError, BackfillCandidate, BackfillResult, CaseDetail, LearningView, SessionView, SpawnResponse, StreamEvent } from '../../shared/types'
 import { startHarness } from '../support/harness'
+import { repoRoot } from '../support/repo-root'
 import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
 
@@ -91,7 +92,7 @@ describe('фоновое обучение (сборка)', () => {
 		assert.match(fs.readFileSync(path.join(h.home, 'cases', `c-${s.id}`, 'summary.md'), 'utf8'), /# T/)
 	})
 
-	const CLI = path.resolve(__dirname, '..', '..', '..', 'bin', 'nessy-orch')
+	const CLI = path.join(repoRoot(), 'bin', 'nessy-orch')
 	const cli = (hh: Harness, ...args: string[]): Promise<{ code: number; out: string }> =>
 		new Promise(resolve => {
 			execFile(process.execPath, [CLI, ...args], { env: { ...process.env, ORCH_PORT: String(hh.port), NO_COLOR: '1' } }, (err, stdout, stderr) => resolve({ code: err ? 1 : 0, out: stdout + stderr }))

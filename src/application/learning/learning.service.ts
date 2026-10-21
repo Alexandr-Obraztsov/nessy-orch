@@ -1,6 +1,8 @@
 import type { CaseImpact, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookPatch, PlaybookStatus, PlaybookView } from '../../../shared/types'
 import type { BackfillCandidate, BackfillResult, CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message, RawEvent, SessionView } from '../../../shared/types'
+import { createHash } from 'node:crypto'
 import { AppError } from '../../domain/errors'
+import { parseSummaryHeads } from '../../domain/collector'
 import { decide } from '../../domain/learning-schedule'
 import { parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
@@ -27,9 +29,14 @@ const FAILED_BUILD_MS = 24 * 3600 * 1000
 const RAW_LIMIT = 500
 /** Как часто пересчитываются счётчики правил (затухание). */
 const RECOUNT_MS = 24 * 3600 * 1000
+/** Пометка остановленного пользователем задания. */
+const CANCELLED = 'остановлено'
 
 /** id кейса транскрипта прошлого чата; имя безопасно для пути. */
 export const transcriptCaseId = (chatId: string): string => `c-t-${chatId.replace(/[^\w-]/g, '_')}`
+
+/** sha1 (hex) описания кейса: по нему клиент и сервер сверяют, что правили то же самое. */
+export const summaryHash = (text: string): string => createHash('sha1').update(text, 'utf8').digest('hex')
 
 const toView = (c: CaseState): CaseView => ({
 	id: c.id,
@@ -61,6 +68,8 @@ export class LearningService {
 	private readonly inflight = new Set<Promise<void>>()
 	/** задания, прерванные `stop()`: их поздние итоги игнорируются */
 	private readonly interrupted = new Set<string>()
+	/** задания, остановленные пользователем: обработчик получает отмену, итог игнорируется */
+	private readonly cancelled = new Set<string>()
 	private meta: LearningMeta = { startedAt: 0, startSeq: 0, removed: [] }
 	/** до какого `seq` ленты просмотрена цепочка без кейса (корень → seq), только в памяти */
 	private readonly scanned = new Map<string, number>()
@@ -175,7 +184,7 @@ export class LearningService {
 
 	view(): LearningView {
 		const cases = [...this.cases.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(toView)
-		return { settings: this.settings, jobs: this.queue.list().map(j => this.queue.toView(j)), cases, playbooks: this.playbooks?.list().map(playbookView) ?? [], journal: this.playbooks?.journal(200) ?? [] }
+		return { settings: this.settings, jobs: this.queue.list().map(j => this.queue.toView(j)), cases, playbooks: this.playbooks?.list().map(playbookView) ?? [], journal: this.playbooks?.journal(200) ?? [], rev: this.deps.hub.rev }
 	}
 
 	getCase(id: string): CaseState {
@@ -197,33 +206,59 @@ export class LearningService {
 		return this.deps.store.readRaw(id, from, to).slice(0, RAW_LIMIT)
 	}
 
-	/** Правка описания руками: `summary.md` целиком, курсор сборщика не трогается; пока по кейсу идёт задание — 409 `case_busy`. */
-	setCaseSummary(id: string, text: string): void {
-		this.getCase(id)
+	/**
+	 * Правка описания руками: `summary.md` целиком, курсор сборщика не трогается; пока по кейсу идёт задание — 409 `case_busy`.
+	 * `base` — sha1 описания, против которого правили; не совпал с текущим — 409 `stale`.
+	 * После записи название и цели кейса пересобираются из текста, `updatedAt` обновляется, публикуется `learning_case`.
+	 */
+	setCaseSummary(id: string, text: string, base: string): void {
+		const c = this.getCase(id)
 		this.assertIdle(id)
+		if (summaryHash(this.deps.store.readSummary(id)) !== base) throw new AppError(409, 'stale', `описание кейса ${id} изменилось`)
 		if (!this.deps.store.writeSummary(id, text)) throw new AppError(500, 'write_failed', 'не удалось записать summary.md')
+		const heads = parseSummaryHeads(text)
+		const next: CaseState = { ...c, title: heads.title ?? c.title, goals: heads.goals, updatedAt: new Date(this.deps.clock.now()).toISOString() }
+		this.cases.set(id, next)
+		this.deps.store.saveCase(next)
+		this.deps.hub.publish({ t: 'learning_case', case: toView(next) })
 	}
 
 	/**
-	 * Остановить сборщика кейса: `queued` снимаются, `running` прерывается (агент отменяется, итог игнорируется).
-	 * Потом кейс `ready`, если есть описание, иначе удаляется. Нет заданий сборки — ничего не меняется.
+	 * Остановить сборщика кейса: отмена всех его `collect`/`close` (см. `cancelJob`).
+	 * Кейс не запечатывается и не удаляется; `closing` возвращается в `collecting`.
 	 */
 	stopCollector(id: string): void {
 		this.getCase(id)
 		const jobs = this.queue.list().filter(j => j.caseId === id && (j.kind === 'collect' || j.kind === 'close') && (j.status === 'queued' || j.status === 'running'))
-		if (!jobs.length) return
-		for (const j of jobs) {
-			if (j.status === 'running') {
-				this.interrupted.add(j.id)
-				if (j.agentId) void this.deps.host.cancelAgent(j.agentId).catch(() => undefined)
-			}
-			this.jobsChanged(this.queue.cancel(j.id, 'остановлено пользователем'))
+		for (const j of jobs) this.cancelJob(j.id)
+		this.reopenClosing(id)
+	}
+
+	/**
+	 * Остановить задание любого вида: `queued` сразу `done` с пометкой, `running` — отмена агента;
+	 * обработчик, получивший отмену, ничего не пишет, а задание завершается `done` с пометкой после его возврата, без повторов и `error`.
+	 * Завершённое задание не меняется. Нет задания — 404 `no_job`.
+	 */
+	cancelJob(id: string): JobView {
+		const job = this.queue.list().find(j => j.id === id)
+		if (!job) throw new AppError(404, 'no_job', `нет задания ${id}`)
+		if (job.status === 'queued') {
+			this.jobsChanged(this.queue.cancel(id, CANCELLED))
+			this.reopenClosing(job.caseId)
+			this.pump()
+		} else if (job.status === 'running' && !this.cancelled.has(id)) {
+			this.cancelled.add(id)
+			if (job.agentId) void this.deps.host.cancelAgent(job.agentId).catch(() => undefined)
 		}
-		const c = this.cases.get(id)
-		if (!c) return
-		if (this.deps.store.readSummary(id).trim() === '') this.dropCase(c)
-		else this.seal(id)
-		this.pump()
+		return this.queue.toView(job)
+	}
+
+	/** Кейс в `closing`, у которого не осталось заданий сборки, возвращается в `collecting`. */
+	private reopenClosing(caseId: string): void {
+		const c = this.cases.get(caseId)
+		if (!c || c.status !== 'closing') return
+		if (this.queue.list().some(j => j.caseId === caseId && j.kind === 'close' && (j.status === 'queued' || j.status === 'running') && !this.cancelled.has(j.id))) return
+		this.update({ ...c, status: 'collecting', closedAt: null, updatedAt: new Date(this.deps.clock.now()).toISOString() })
 	}
 
 	/** Правила плейбуков, у которых кейс среди доказательств; `evidenceLeft` — другие известные кейсы в их доказательствах. */
@@ -242,24 +277,27 @@ export class LearningService {
 
 	/**
 	 * Правка плейбука блоками: новая версия и запись журнала `edit`. Замок плейбука — 409 `playbook_busy`;
+	 * `baseVersion` не совпала с текущей — 409 `stale` с `version`;
 	 * критичные замечания `lintPlaybook` (не строгие к доказательствам) — 400 `lint`.
 	 */
 	patchPlaybook(id: string, patch: PlaybookPatch): PlaybookView {
 		const ps = this.pb()
 		const p = ps.need(id)
 		this.assertPlaybookIdle(id)
+		if (patch.baseVersion !== p.version) throw new AppError(409, 'stale', `плейбук ${id} изменился: версия ${p.version}, правили ${patch.baseVersion}`, { version: p.version })
 		const next = applyPatch(p, patch, new Date(this.deps.clock.now()).toISOString())
 		const known = new Set(this.cases.keys())
 		const critical = lintPlaybook(next, renderPlaybook(next, ps.notes(id), ''), known, { strictEvidence: false }).filter(i => i.level === 'critical')
 		if (critical.length) throw new AppError(400, 'lint', critical.map(i => `${i.where}: ${i.text}`).join('\n'))
-		const fields = Object.keys(patch).join(', ')
+		const fields = Object.keys(patch).filter(k => k !== 'baseVersion').join(', ')
 		return playbookView(ps.saveVersion(next, `Edited by the user: ${fields}`, { kind: 'edit', subject: id, summary: `${id}: правка блоками (${fields})`, report: null, revertible: true, revertedBy: null }))
 	}
 
 	/** Кейс с описанием и заметками. */
 	getCaseDetail(id: string): CaseDetail {
 		const c = this.getCase(id)
-		return { ...toView(c), summary: this.deps.store.readSummary(id), notes: this.deps.store.readNotes(id) }
+		const summary = this.deps.store.readSummary(id)
+		return { ...toView(c), summary, summaryHash: summaryHash(summary), notes: this.deps.store.readNotes(id) }
 	}
 
 	// ---------- плейбуки, журнал, заметки и чат (API) ----------
@@ -942,10 +980,26 @@ export class LearningService {
 	private async execute(job: JobState): Promise<void> {
 		const handler = this.handlers.get(job.kind)
 		if (!handler) return this.fail(job, `нет обработчика задания ${job.kind}`, true)
-		await handler.run(this.context(job))
+		try {
+			await handler.run(this.context(job))
+		} catch (e) {
+			// остановка пользователем: обработчик бросил отмену агента — это не провал
+			if (this.cancelled.has(job.id)) return this.finishCancelled(job)
+			throw e
+		}
 		if (this.interrupted.has(job.id)) return
+		if (this.cancelled.has(job.id)) return this.finishCancelled(job)
 		// обработчик мог завершить задание сам (сбор: до постановки следующего)
 		if (job.status === 'running') this.finishJob(job)
+	}
+
+	/** Обработчик вернулся после остановки: задание `done` с пометкой, без повторов и `error`; кейс `closing` → `collecting`. */
+	private finishCancelled(job: JobState): void {
+		if (job.status === 'running') {
+			this.jobsChanged(this.queue.cancel(job.id, CANCELLED))
+			this.reopenClosing(job.caseId)
+		}
+		this.cancelled.delete(job.id)
 	}
 
 	private finishJob(job: JobState, note?: string): void {
@@ -963,6 +1017,7 @@ export class LearningService {
 			now: () => clock.now(),
 			settings: () => this.settings,
 			runAgent: async (name, title, prompt) => {
+				if (this.cancelled.has(job.id)) throw new Error(CANCELLED)
 				const res = await host.runAgent({
 					name,
 					title,
@@ -971,11 +1026,13 @@ export class LearningService {
 					onSpawn: agentId => {
 						job.agentId = agentId
 						this.jobsChanged(job)
-						if (this.interrupted.has(job.id)) void host.cancelAgent(agentId).catch(() => undefined)
+						if (this.interrupted.has(job.id) || this.cancelled.has(job.id)) void host.cancelAgent(agentId).catch(() => undefined)
 					},
 				})
 				job.agentId = res.agentId
 				// агент после ответа удаляется: ответ остаётся в runs/ (см. `LearningStorePort.writeRun`)
+				// остановлено пользователем: ответ не пишется
+				if (this.cancelled.has(job.id)) throw new Error(CANCELLED)
 				calls += 1
 				if (res.text) store.writeRun(job.subject, `${job.id}-${calls}`, res.text)
 				if (this.interrupted.has(job.id)) throw new Error('прервано остановкой')
@@ -1007,6 +1064,7 @@ export class LearningService {
 	/** Провал: повтор или `error`; окончательный провал задания (collect или close) переводит кейс в `error`. */
 	private fail(job: JobState, error: string, terminal = false): void {
 		if (this.interrupted.has(job.id)) return
+		if (this.cancelled.has(job.id)) return this.finishCancelled(job)
 		const j = this.queue.fail(job.id, error, terminal ? 0 : 2)
 		if (j.status === 'error' && (j.kind === 'collect' || j.kind === 'close')) {
 			const c = this.cases.get(j.caseId)

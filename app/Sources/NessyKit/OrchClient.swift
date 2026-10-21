@@ -4,6 +4,8 @@ public struct APIError: Error, LocalizedError, Sendable {
 	public var status: Int
 	public var code: String
 	public var message: String
+	/// текущая версия объекта в ответе 409 `stale`
+	public var version: Int? = nil
 	public var errorDescription: String? { message }
 	/// Демон недоступен (нет соединения), а не ответил ошибкой.
 	public var isOffline: Bool { status == 0 }
@@ -11,6 +13,8 @@ public struct APIError: Error, LocalizedError, Sendable {
 	public var isUnavailable: Bool { code == "learning_unavailable" || code == "playbooks_unavailable" || (status == 404 && (code == "not_found" || code == "http_404")) }
 	/// Объект занят фоновым агентом: правку надо повторить позже (`case_busy`, `playbook_busy`).
 	public var isBusy: Bool { code == "case_busy" || code == "playbook_busy" }
+	/// Правили устаревшую версию (плейбук или описание кейса изменились), 409 `stale`: перечитать и перенести правки.
+	public var isStale: Bool { code == "stale" }
 	/// Правка плейбука не прошла проверку (`lint`, 400): текст замечаний в `message`.
 	public var isLint: Bool { code == "lint" }
 }
@@ -59,9 +63,9 @@ public final class OrchClient: @unchecked Sendable {
 		catch { throw APIError(status: 0, code: "offline", message: "Оркестратор недоступен (\(baseURL.host ?? "?"):\(baseURL.port ?? 0))") }
 		let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
 		if status >= 400 {
-			struct E: Decodable { var error: String?; var code: String? }
+			struct E: Decodable { var error: String?; var code: String?; var version: Int? }
 			let e = try? JSONDecoder().decode(E.self, from: data)
-			throw APIError(status: status, code: e?.code ?? "http_\(status)", message: e?.error ?? "HTTP \(status)")
+			throw APIError(status: status, code: e?.code ?? "http_\(status)", message: e?.error ?? "HTTP \(status)", version: e?.version)
 		}
 		return data
 	}
@@ -126,6 +130,8 @@ public final class OrchClient: @unchecked Sendable {
 	}
 	@discardableResult
 	public func retryJob(_ id: String) async throws -> JobView { try await send("POST", "/learning/jobs/\(id)/retry", body: [String: String]()) }
+	/// Остановить задание любого вида: ждущее снимается, идущее прерывается без повторов.
+	public func cancelJob(_ id: String) async throws { try await raw("POST", "/learning/jobs/\(id)/cancel", body: [String: String]()) }
 	public func job(_ id: String) async throws -> JobDetail { try await get("/learning/jobs/\(id)") }
 
 	public func caseDetail(_ id: String) async throws -> CaseDetail { try await get("/learning/cases/\(id)") }
@@ -138,7 +144,8 @@ public final class OrchClient: @unchecked Sendable {
 	public func deleteCase(_ id: String) async throws { try await raw("DELETE", "/learning/cases/\(id)") }
 	@discardableResult
 	public func rebuildCase(_ id: String) async throws -> JobView { try await send("POST", "/learning/cases/\(id)/rebuild", body: [String: String]()) }
-	public func putCaseSummary(_ id: String, text: String) async throws { try await raw("PUT", "/learning/cases/\(id)/summary", body: ["text": text]) }
+	/// Записать описание; `base` — `CaseDetail.summaryHash`, с которым правили (изменилось на сервере — 409 `stale`).
+	public func putCaseSummary(_ id: String, text: String, base: String) async throws { try await raw("PUT", "/learning/cases/\(id)/summary", body: ["text": text, "base": base]) }
 	public func putCaseNotes(_ id: String, text: String) async throws { try await raw("PUT", "/learning/cases/\(id)/notes", body: ["text": text]) }
 	public func stopCollector(_ id: String) async throws { try await raw("POST", "/learning/cases/\(id)/collector/stop", body: [String: String]()) }
 

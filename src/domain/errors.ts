@@ -7,6 +7,8 @@ export class AppError extends Error {
 		public readonly status: number,
 		public readonly code: string,
 		message?: string,
+		/** дополнительные поля тела ответа (например, `version` при 409 `stale`) */
+		public readonly extra?: Record<string, unknown>,
 	) {
 		super(message ?? code)
 	}

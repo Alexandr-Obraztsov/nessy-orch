@@ -144,4 +144,6 @@ export interface StatusResponse {
 export interface ApiError {
 	error: string
 	code: string
+	/** у 409 `stale` правки плейбука — текущая версия */
+	version?: number
 }

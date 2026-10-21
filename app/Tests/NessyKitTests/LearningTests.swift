@@ -111,9 +111,9 @@ struct LearningDecodingTests {
 	}
 
 	@Test func patchEncoding() throws {
-		let patch = PlaybookPatch(title: "Новое", rules: [RulePatch(id: "r-1", text: "а", stage: 2), RulePatch(text: "б")])
+		let patch = PlaybookPatch(baseVersion: 3, title: "Новое", rules: [RulePatch(id: "r-1", text: "а", stage: 2), RulePatch(text: "б")])
 		let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(patch)) as! [String: Any]
-		#expect(Set(json.keys) == ["title", "rules"], "непереданные поля не уходят")
+		#expect(Set(json.keys) == ["baseVersion", "title", "rules"], "непереданные поля не уходят")
 		let rules = json["rules"] as! [[String: Any]]
 		#expect(rules[0]["stage"] as? Int == 2 && rules[0]["id"] as? String == "r-1")
 		#expect(rules[1]["id"] == nil && rules[1]["stage"] is NSNull, "правило без этапа — явный null, без id — новое")

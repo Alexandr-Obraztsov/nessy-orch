@@ -1,7 +1,9 @@
 /** Просмотр и правка блоками (этап 3): задание с ответами, raw, summary, остановка сборщика, impact, PATCH плейбука. */
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { beforeEach, describe, it } from 'node:test'
 import type { HubEvent, PlaybookView, RawEvent } from '../../../shared/types'
+import { AppError } from '../../../src/domain/errors'
 import { Hub } from '../../../src/application/hub'
 import { LearningService } from '../../../src/application/learning/learning.service'
 import type { CaseState, JobState, LearningHost, PlaybookState } from '../../../src/application/learning/learning.types'
@@ -9,6 +11,7 @@ import { MemoryLearningStore } from '../../support/memory-learning-store'
 import { MemoryPlaybookStore } from '../../support/memory-playbook-store'
 import { samplePlaybook } from '../../support/sample-playbook'
 
+const sha = (t: string): string => createHash('sha1').update(t).digest('hex')
 const T0 = Date.parse('2026-10-01T10:00:00.000Z')
 const flush = async (): Promise<void> => {
 	for (let i = 0; i < 20; i++) await new Promise<void>(r => setImmediate(r))
@@ -99,25 +102,26 @@ describe('LearningService: просмотр и правка блоками', () 
 		store.summaries.set('c-1', '# Old')
 		store.raw.set('c-1', [raw(1)])
 		const svc = make()
-		const before = JSON.stringify(svc.getCase('c-1'))
-		svc.setCaseSummary('c-1', '# New')
+		const before = svc.getCase('c-1')
+		svc.setCaseSummary('c-1', '# New', sha('# Old'))
 		assert.equal(store.summaries.get('c-1'), '# New')
-		assert.equal(JSON.stringify(svc.getCase('c-1')), before)
-		assert.throws(() => svc.setCaseSummary('c-x', 'x'), { code: 'no_case', status: 404 })
+		const after = svc.getCase('c-1')
+		assert.deepEqual([after.coveredUntil, after.nextN, after.feedSeq, after.status], [before.coveredUntil, before.nextN, before.feedSeq, before.status])
+		assert.throws(() => svc.setCaseSummary('c-x', 'x', sha('')), { code: 'no_case', status: 404 })
 		let release = (): void => {}
 		hold = new Promise<void>(r => {
 			release = r
 		})
 		svc.runNow('c-1')
 		await flush()
-		assert.throws(() => svc.setCaseSummary('c-1', 'x'), { code: 'case_busy', status: 409 })
+		assert.throws(() => svc.setCaseSummary('c-1', 'x', sha('# New')), { code: 'case_busy', status: 409 })
 		release()
 		await flush()
-		svc.setCaseSummary('c-1', '# Again')
+		svc.setCaseSummary('c-1', '# Again', sha(store.summaries.get('c-1') ?? ''))
 		assert.equal(store.summaries.get('c-1'), '# Again')
 	})
 
-	it('stopCollector: running прерывается (агент отменён, итог не пишется), кейс с описанием → ready', async () => {
+	it('stopCollector: running — агент отменён, итог не пишется, задание done «остановлено» после возврата обработчика; кейс не запечатывается', async () => {
 		store.cases.set('c-1', baseCase('c-1'))
 		store.raw.set('c-1', [raw(1)])
 		store.summaries.set('c-1', '# Есть описание')
@@ -132,17 +136,20 @@ describe('LearningService: просмотр и правка блоками', () 
 		assert.equal(running?.agentId, 'ag-live')
 		svc.stopCollector('c-1')
 		assert.deepEqual(cancelled, ['ag-live'])
-		assert.equal(svc.getCase('c-1').status, 'ready')
-		assert.equal(svc.view().jobs.find(j => j.id === running.id)?.status, 'done')
+		assert.equal(svc.getCase('c-1').status, 'collecting')
 		release()
 		await flush()
-		// поздний ответ агента игнорируется: описание прежнее, курсор не двигался
+		const done = svc.view().jobs.find(j => j.id === running.id)
+		assert.deepEqual([done?.status, done?.note, done?.error, done?.attempts], ['done', 'остановлено', null, 0])
+		// поздний ответ агента игнорируется: описание прежнее, курсор не двигался, ответ в runs не пишется
 		assert.equal(store.summaries.get('c-1'), '# Есть описание')
 		assert.equal(svc.getCase('c-1').coveredUntil, 0)
-		assert.equal(svc.getCase('c-1').status, 'ready')
+		assert.equal(svc.getCase('c-1').status, 'collecting')
+		assert.equal(store.runs.size, 0)
+		assert.deepEqual(svc.view().jobs.filter(j => j.status === 'queued'), [])
 	})
 
-	it('stopCollector: без описания кейс удаляется, queued снимаются; без заданий сборки — ничего', async () => {
+	it('stopCollector: close в работе — кейс closing → collecting, не удаляется даже без описания; без заданий сборки — ничего', async () => {
 		store.cases.set('c-1', baseCase('c-1'))
 		store.cases.set('c-2', baseCase('c-2', { status: 'ready' }))
 		store.raw.set('c-1', [raw(1)])
@@ -151,16 +158,47 @@ describe('LearningService: просмотр и правка блоками', () 
 		hold = new Promise<void>(r => {
 			release = r
 		})
-		svc.runNow('c-1')
+		svc.rebuild('c-1')
 		await flush()
+		assert.equal(svc.getCase('c-1').status, 'closing')
 		svc.stopCollector('c-1')
-		assert.equal(svc.view().cases.some(c => c.id === 'c-1'), false)
-		assert.ok(events.some(e => e.t === 'learning_case_removed' && e.id === 'c-1'))
 		release()
 		await flush()
+		assert.equal(svc.getCase('c-1').status, 'collecting')
+		assert.equal(svc.getCase('c-1').closedAt, null)
+		assert.equal(events.some(e => e.t === 'learning_case_removed'), false)
 		svc.stopCollector('c-2')
 		assert.equal(svc.getCase('c-2').status, 'ready')
 		assert.throws(() => svc.stopCollector('c-x'), { code: 'no_case', status: 404 })
+	})
+
+	it('cancelJob: queued → done «остановлено»; running любого вида — отмена агента, done после возврата, без повторов; нет задания — 404', async () => {
+		seedPlaybook({ status: 'draft' })
+		for (const id of ['c1', 'c2', 'c3']) store.cases.set(id, baseCase(id, { status: 'ready' }))
+		const svc = make()
+		let release = (): void => {}
+		hold = new Promise<void>(r => {
+			release = r
+		})
+		const rv = svc.requestReview('p-1')
+		await flush()
+		assert.equal(svc.view().jobs.find(j => j.id === rv.id)?.status, 'running')
+		svc.postChat('p-1', 'правка')
+		await flush()
+		const q = svc.view().jobs.find(j => j.kind === 'edit')
+		assert.equal(q?.status, 'queued')
+		svc.cancelJob(q.id)
+		assert.deepEqual([svc.view().jobs.find(j => j.id === q.id)?.status, svc.view().jobs.find(j => j.id === q.id)?.note], ['done', 'остановлено'])
+		svc.cancelJob(rv.id)
+		assert.deepEqual(cancelled, ['ag-live'])
+		assert.equal(svc.view().jobs.find(j => j.id === rv.id)?.status, 'running')
+		release()
+		await flush()
+		const done = svc.view().jobs.find(j => j.id === rv.id)
+		assert.deepEqual([done?.status, done?.note, done?.error, done?.attempts], ['done', 'остановлено', null, 0])
+		assert.equal(svc.playbooks?.get('p-1')?.version, 1)
+		assert.equal(svc.view().jobs.some(j => j.status === 'queued' || j.status === 'error'), false)
+		assert.throws(() => svc.cancelJob('j-x'), { code: 'no_job', status: 404 })
 	})
 
 	it('caseImpact: единственное доказательство → evidenceLeft 0, с другим кейсом → 1; архивные и чужие не считаются', () => {
@@ -184,7 +222,7 @@ describe('LearningService: просмотр и правка блоками', () 
 		store.cases.set('c2', baseCase('c2', { status: 'ready' }))
 		seedPlaybook()
 		const svc = make()
-		const view = svc.patchPlaybook('p-1', { stages: [{ n: 9, slug: 'implement', title: 'Implement', role: null, where: 'repo', produce: 'a diff', done: 'tests pass', gate: true, template: 'Code' }] })
+		const view = svc.patchPlaybook('p-1', { baseVersion: 1, stages: [{ n: 9, slug: 'implement', title: 'Implement', role: null, where: 'repo', produce: 'a diff', done: 'tests pass', gate: true, template: 'Code' }] })
 		assert.equal(view.version, 2)
 		assert.deepEqual(view.stages.map(s => [s.n, s.slug]), [[1, 'implement']])
 		const files = Object.keys(pstore.snapshots.get('p-1')?.at(-1)?.files ?? {})
@@ -200,9 +238,9 @@ describe('LearningService: просмотр и правка блоками', () 
 	it('patchPlaybook: description без «Use when» — 400 lint; нет плейбука — 404', () => {
 		seedPlaybook()
 		const svc = make()
-		assert.throws(() => svc.patchPlaybook('p-1', { description: 'Reviews things' }), { code: 'lint', status: 400 })
+		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 1, description: 'Reviews things' }), { code: 'lint', status: 400 })
 		assert.equal(svc.playbooks?.get('p-1')?.version, 1)
-		assert.throws(() => svc.patchPlaybook('p-x', { title: 'x' }), { code: 'no_playbook', status: 404 })
+		assert.throws(() => svc.patchPlaybook('p-x', { baseVersion: 1, title: 'x' }), { code: 'no_playbook', status: 404 })
 	})
 
 	it('patchPlaybook: правила — новые candidate с id, отсутствующие → archived (не удаляются), правка текста сохраняет счётчики', () => {
@@ -210,7 +248,7 @@ describe('LearningService: просмотр и правка блоками', () 
 		store.cases.set('c2', baseCase('c2', { status: 'ready' }))
 		seedPlaybook()
 		const svc = make()
-		const view = svc.patchPlaybook('p-1', { rules: [{ id: 'r1', text: 'Run lint and tests', stage: 1 }, { text: 'Brand new', stage: null }] })
+		const view = svc.patchPlaybook('p-1', { baseVersion: 1, rules: [{ id: 'r1', text: 'Run lint and tests', stage: 1 }, { text: 'Brand new', stage: null }] })
 		const byText = (t: string): PlaybookView['rules'][number] | undefined => view.rules.find(r => r.text === t)
 		const r1 = view.rules.find(r => r.id === 'r1')
 		assert.equal(r1?.text, 'Run lint and tests')
@@ -220,9 +258,9 @@ describe('LearningService: просмотр и правка блоками', () 
 		const fresh = byText('Brand new')
 		assert.match(fresh?.id ?? '', /^r-[0-9a-f]{6}$/)
 		assert.equal(fresh?.status, 'candidate')
-		assert.equal(view.rules.find(r => r.id === 'r2')?.status, 'archived')
+		assert.equal(view.rules.find(r => r.id === 'r2')?.status, 'candidate')
 		assert.equal(view.rules.length, 3)
-		assert.throws(() => svc.patchPlaybook('p-1', { rules: [{ id: 'r-nope', text: 'x', stage: null }] }), { code: 'bad_request', status: 400 })
+		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 2, rules: [{ id: 'r-nope', text: 'x', stage: null }] }), { code: 'bad_request', status: 400 })
 	})
 
 	it('patchPlaybook: по плейбуку идёт задание — 409 playbook_busy', async () => {
@@ -235,7 +273,71 @@ describe('LearningService: просмотр и правка блоками', () 
 		})
 		svc.requestReview('p-1')
 		await flush()
-		assert.throws(() => svc.patchPlaybook('p-1', { title: 'New title' }), { code: 'playbook_busy', status: 409 })
+		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 1, title: 'New title' }), { code: 'playbook_busy', status: 409 })
 		release()
+	})
+
+	it('patchPlaybook: baseVersion не совпала — 409 stale с текущей версией, плейбук не меняется', () => {
+		seedPlaybook()
+		const svc = make()
+		assert.throws(
+			() => svc.patchPlaybook('p-1', { baseVersion: 3, title: 'New' }),
+			(e: unknown) => e instanceof AppError && e.status === 409 && e.code === 'stale' && e.extra?.['version'] === 1,
+		)
+		assert.equal(svc.playbooks?.get('p-1')?.version, 1)
+		assert.equal(svc.patchPlaybook('p-1', { baseVersion: 1, title: 'New' }).version, 2)
+		// после правки та же база уже устарела
+		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 1, title: 'Again' }), { code: 'stale', status: 409 })
+	})
+
+	it('patchPlaybook: не упомянутые правила не архивируются (кандидат сервера цел); архивируются только removeRules', () => {
+		store.cases.set('c1', baseCase('c1', { status: 'ready' }))
+		store.cases.set('c2', baseCase('c2', { status: 'ready' }))
+		seedPlaybook()
+		const svc = make()
+		const view = svc.patchPlaybook('p-1', { baseVersion: 1, rules: [{ id: 'r1', text: 'Run lint twice', stage: 2 }], removeRules: ['r2'] })
+		assert.deepEqual(view.rules.map(r => [r.id, r.text, r.status]), [['r1', 'Run lint twice', 'active'], ['r2', 'Maybe', 'archived']])
+		const only = svc.patchPlaybook('p-1', { baseVersion: 2, title: 'T2' })
+		assert.deepEqual(only.rules.map(r => r.status), ['active', 'archived'])
+		const fresh = svc.patchPlaybook('p-1', { baseVersion: 3, rules: [{ text: 'New one', stage: null }] })
+		assert.equal(fresh.rules.length, 3)
+		assert.equal(fresh.rules.find(r => r.text === 'New one')?.status, 'candidate')
+		assert.equal(fresh.rules.find(r => r.id === 'r1')?.status, 'active')
+		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 4, removeRules: ['r-nope'] }), { code: 'bad_request', status: 400 })
+		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 4, rules: [{ id: 'r1', text: 'x', stage: null }], removeRules: ['r1'] }), { code: 'bad_request', status: 400 })
+	})
+
+	it('setCaseSummary: base не совпал — 409 stale, файл цел; после записи title и goals из текста, updatedAt и событие learning_case', () => {
+		store.cases.set('c-1', baseCase('c-1', { title: 'Старое', goals: [{ title: 'old', type: 'x' }] }))
+		store.summaries.set('c-1', '# Old')
+		const svc = make()
+		assert.throws(() => svc.setCaseSummary('c-1', '# New', sha('другое')), { code: 'stale', status: 409 })
+		assert.equal(store.summaries.get('c-1'), '# Old')
+		assert.equal(svc.getCaseDetail('c-1').summaryHash, sha('# Old'))
+		events.length = 0
+		const text = '# Новый заголовок\nпредисловие\n## Goal: Починить сборку (type: fix-build)\n### Actions\n- a\n## Goal: Без типа\n'
+		svc.setCaseSummary('c-1', text, sha('# Old'))
+		const c = svc.getCase('c-1')
+		assert.equal(c.title, 'Новый заголовок')
+		assert.deepEqual(c.goals, [{ title: 'Починить сборку', type: 'fix-build' }, { title: 'Без типа', type: '' }])
+		assert.equal(c.updatedAt, new Date(T0 + 3_600_000).toISOString())
+		assert.equal(events.filter(e => e.t === 'learning_case').length, 1)
+		assert.equal(svc.getCaseDetail('c-1').summaryHash, sha(text))
+		// без заголовка название остаётся прежним
+		svc.setCaseSummary('c-1', 'просто текст', sha(text))
+		assert.equal(svc.getCase('c-1').title, 'Новый заголовок')
+		assert.deepEqual(svc.getCase('c-1').goals, [])
+	})
+
+	it('view().rev — номер шины на момент ответа; события learning_* несут rev', () => {
+		store.cases.set('c-1', baseCase('c-1'))
+		store.summaries.set('c-1', '# Old')
+		const svc = make()
+		const r0 = svc.view().rev
+		svc.setCaseSummary('c-1', '# New', sha('# Old'))
+		const ev = events.find(e => e.t === 'learning_case')
+		assert.ok(ev)
+		assert.equal(ev.rev, r0 + 1)
+		assert.equal(svc.view().rev, r0 + 1)
 	})
 })

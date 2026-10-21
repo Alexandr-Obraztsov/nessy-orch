@@ -80,12 +80,12 @@ public enum CaseEditing {
 			g.plan = g.plan.filter { !t($0).isEmpty }
 			g.actions = g.actions.compactMap { a in
 				guard !t(a.what).isEmpty else { return nil }
-				return CaseSummary.Action(what: t(a.what), agent: t(a.agent), result: t(a.result), anchor: a.anchor)
+				return CaseSummary.Action(what: t(a.what), agent: t(a.agent), result: t(a.result), anchor: a.anchor, cont: a.cont)
 			}
 			g.sources = g.sources.map(t).filter { !$0.isEmpty }
 			g.corrections = g.corrections.compactMap { c in
 				guard !t(c.proposed).isEmpty || !t(c.user).isEmpty else { return nil }
-				return CaseSummary.Correction(proposed: t(c.proposed), user: t(c.user), anchor: c.anchor)
+				return CaseSummary.Correction(proposed: t(c.proposed), user: t(c.user), anchor: c.anchor, cont: c.cont)
 			}
 			g.open = g.open.map(t).filter { !$0.isEmpty }
 			return g

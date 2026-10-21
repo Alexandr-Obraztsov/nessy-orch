@@ -3,7 +3,7 @@ import type { PlaybookStatus } from '../../../../shared/types'
 import type { LearningService } from '../../../application/learning/learning.service'
 import type { Orchestrator } from '../../../application/orchestrator'
 import { AppError } from '../../../domain/errors'
-import { parseBackfillRequest, parseLearningRun, parsePlaybookPatch, parsePlaybookStatus, parseRawRange, parseReason, parseTextBody, parseVersion } from '../parsers'
+import { parseBackfillRequest, parseLearningRun, parsePlaybookPatch, parsePlaybookStatus, parseRawRange, parseReason, parseSummaryPut, parseTextBody, parseVersion } from '../parsers'
 import { queryNum, readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -25,6 +25,7 @@ export function registerLearningRoutes(r: Router): void {
 		sendJson(res, 200, session === undefined ? svc.runAll() : [svc.runNow(session)])
 	})
 	r.add('POST', '/learning/jobs/:id/retry', ({ res, orch, params }) => sendJson(res, 200, learning(orch).retry(params['id'] ?? '')))
+	r.add('POST', '/learning/jobs/:id/cancel', ({ res, orch, params }) => sendJson(res, 200, learning(orch).cancelJob(params['id'] ?? '')))
 	r.add('GET', '/learning/jobs/:id', ({ res, orch, params }) => sendJson(res, 200, learning(orch).jobDetail(params['id'] ?? '')))
 	r.add('GET', '/learning/cases/:id/raw', ({ res, orch, params, query }) => {
 		const { from, to } = parseRawRange(query.get('from'), query.get('to'))
@@ -33,7 +34,8 @@ export function registerLearningRoutes(r: Router): void {
 	r.add('GET', '/learning/cases/:id/impact', ({ res, orch, params }) => sendJson(res, 200, learning(orch).caseImpact(params['id'] ?? '')))
 	r.add('PUT', '/learning/cases/:id/summary', async ({ req, res, orch, params }) => {
 		const svc = learning(orch)
-		svc.setCaseSummary(params['id'] ?? '', parseTextBody(await readBody(req), true))
+		const { text, base } = parseSummaryPut(await readBody(req))
+		svc.setCaseSummary(params['id'] ?? '', text, base)
 		sendJson(res, 200, { ok: true })
 	})
 	r.add('POST', '/learning/cases/:id/collector/stop', ({ res, orch, params }) => {

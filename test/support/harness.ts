@@ -11,9 +11,10 @@ import { buildApp } from '../../src/app'
 import type { AppInstance } from '../../src/app.types'
 import type { Config } from '../../src/infrastructure/config/config.types'
 import { request, SseClient } from './http-client'
+import { repoRoot } from './repo-root'
 import type { Harness, HarnessOptions } from './support.types'
 
-const ROOT = path.resolve(__dirname, '..', '..', '..')
+const ROOT = repoRoot()
 const FAKE = path.join(__dirname, 'fake-nessy.js')
 const CLI = path.join(ROOT, 'bin', 'nessy-orch')
 let counter = 0
@@ -37,6 +38,8 @@ function serveBasePort(): number {
 }
 
 export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> {
+	// при нестандартном outDir (не dist/) postbuild exec-бит не ставил: без него serve не запускается и сборщики висят
+	fs.chmodSync(FAKE, 0o755)
 	const base = opts.base ?? fs.mkdtempSync(path.join(os.tmpdir(), 'nessy-orch-test-'))
 	const home = path.join(base, 'home')
 	const ws = path.join(base, 'ws')
