@@ -30,6 +30,10 @@ final class AppModel {
 	/// показать главное окно ждали, пока из окружения появится `openWindow` (ссылка при холодном старте)
 	@ObservationIgnored private var pendingShow = false
 	@ObservationIgnored var debugLaunched = false
+	/// окно «Фон»: раздел и объект; открывается ссылкой `nessy-orch://background/…`, кнопкой шапки, меню и ⌘⇧B
+	let background = BackgroundNav()
+	@ObservationIgnored private var openBackgroundAction: (() -> Void)?
+	@ObservationIgnored private var pendingBackground = false
 	/// черновики поля ввода по агентам
 	var drafts: [String: String] = [:]
 	var showPalette = false
@@ -157,6 +161,8 @@ final class AppModel {
 		// для снимков: `-debug.panel hidden` — боковая панель свёрнута с самого начала
 		if UserDefaults.standard.string(forKey: "debug.panel") == "hidden" { showAgents = false }
 		notifier.requestAuthorization()
+		// обучение читается сразу, не дожидаясь снимка потока: значок «Фон» и окно уже знают, что в работе
+		Task { [store] in await store.learning.refresh() }
 	}
 
 	// MARK: проекты (вкладки одного окна)
@@ -164,7 +170,18 @@ final class AppModel {
 	/// Запомнить действия «открыть окно» (берутся из окружения окна) и выполнить отложенные.
 	func registerWindowOpeners(_ open: OpenWindowAction) {
 		openMainWindowAction = { open(id: "main") }
+		openBackgroundAction = { open(id: "background") }
 		if pendingShow { pendingShow = false; showMainWindow() }
+		if pendingBackground { pendingBackground = false; openBackground() }
+	}
+
+	/// Открыть окно «Фон» (на разделе и объекте, если заданы) и поднять его.
+	func openBackground(_ section: BackgroundSection? = nil, id: String? = nil) {
+		if let section { background.go(section, id: id) }
+		NSApp.activate()
+		if let f = openBackgroundAction { f() } else { pendingBackground = true }
+		// окно уже открыто: SwiftUI его не пересоздаёт, поднимаем сами
+		if let w = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("background") == true }) { w.makeKeyAndOrderFront(nil) }
 	}
 
 	/// Главное окно (его делегат — `CloseGuard`).
@@ -317,6 +334,7 @@ final class AppModel {
 		case "terminal": if let d = TerminalLaunch.directory(from: url) { openTerminal(dir: d) }
 		case "session": if !id.isEmpty { show(session: id) }
 		case "agent": if !id.isEmpty { reveal(agent: id) }
+		case "background": if let t = BackgroundSection.parse(host: url.host, path: url.pathComponents) { openBackground(t.section, id: t.id) }
 		default: break
 		}
 	}

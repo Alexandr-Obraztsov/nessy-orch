@@ -48,5 +48,7 @@ open "nessy-orch://terminal?dir=%2FUsers%2Fme%2Fproj"
 - Кнопки: круглые Liquid Glass, 36 pt, иконка без текста; не больше трёх в полосе (карта — в layout-v2.md).
 - Отладочные флаги для снимков: `-debug.appearance light|dark`, `-debug.terminalDir <папка>`, `-debug.openSession <id>`,
   `-debug.terminalCommand "<команда>"` (выполнить и остаться в оболочке, например `type claude; claude --version`),
-  `-debug.panel hidden`, `-debug.openAgent <id>`, `-debug.fullscreen YES|NO`, `-debug.goalOpen/planOpen/focusComposer/rolesPopover`, `-debug.menuPreview YES`.
+  `-debug.panel hidden`, `-debug.openAgent <id>`, `-debug.fullscreen YES|NO`, `-debug.goalOpen/planOpen/focusComposer/rolesPopover`, `-debug.menuPreview YES`,
+  `-debug.openBackground work|cases|playbooks|journal|settings` (окно «Фон»).
+- Окно «Фон» (обучение): кнопка в шапке, меню «Сессия → Фон…» (⇧⌘B), ссылка `nessy-orch://background/<раздел>[/<id>]`.
 - Запросов прав в интерфейсе нет (автоподтверждение), копирования из чата тоже нет — текст выделяется вручную.

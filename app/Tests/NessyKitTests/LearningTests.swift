@@ -41,6 +41,15 @@ final class FakeLearning: LearningSource, @unchecked Sendable {
 	}
 }
 
+extension FakeLearning {
+	/// Пустое состояние обучения для тестов `OrchStore`: `snapshot` перечитывает его, не ходя в сеть.
+	static func empty() -> FakeLearning {
+		let f = FakeLearning()
+		f.view = try? learningView()
+		return f
+	}
+}
+
 func learningView(jobs: [String] = [], cases: [String] = [], playbooks: [String] = [], journal: [String] = []) throws -> LearningView {
 	try decode(#"{"settings":\#(settingsJSON),"jobs":[\#(jobs.joined(separator: ","))],"cases":[\#(cases.joined(separator: ","))],"playbooks":[\#(playbooks.joined(separator: ","))],"journal":[\#(journal.joined(separator: ","))]}"#)
 }
@@ -195,7 +204,7 @@ struct LearningStoreTests {
 	}
 
 	@Test func orchStoreForwardsLearningEvents() throws {
-		let o = OrchStore(defaults: UserDefaults(suiteName: "test-\(UUID())")!)
+		let o = OrchStore(learning: FakeLearning.empty(), defaults: UserDefaults(suiteName: "test-\(UUID())")!)
 		o.apply(frame(#"{"t":"learning_job","job":\#(jobJSON())}"#))
 		o.apply(frame(#"{"t":"learning_case","case":\#(caseJSON())}"#))
 		#expect(o.learning.jobs.count == 1 && o.learning.cases.count == 1)
@@ -330,5 +339,44 @@ struct CaseSummaryTests {
 		s.goals[0].sources.append("file: a.txt")
 		let again = CaseSummary.parse(s.render())
 		#expect(again == s && again.goals[0].actions.count == 2)
+	}
+}
+
+@Suite("Обучение: тексты и ссылки")
+struct LearningTextTests {
+	@Test func kindsAndStatuses() throws {
+		#expect(LearningText.kind(.collect) == "Описание сессии" && LearningText.kind(.match) == "Сопоставление" && LearningText.kind(.edit) == "Правка из чата")
+		let review: JobView = try decode(jobJSON(kind: "review"))
+		#expect(LearningText.step(review) == "Ревью")
+		let staged: JobView = try decode(jobJSON(kind: "review").replacingOccurrences(of: #""note":null"#, with: #""note":"ступень 4""#))
+		#expect(LearningText.step(staged) == "Ревью: ступень 4")
+		#expect(LearningText.caseStatus(.collecting) == "собирается" && LearningText.playbookStatus(.review) == "ждёт вас")
+		#expect(LearningText.journalKind(.reviewFailed) == "Ревью не пройдено" && LearningText.rawKind(.reply) == "ответ агента")
+	}
+
+	@Test func queueNoteForMatch() throws {
+		let match: JobView = try decode(jobJSON(id: "j-m", kind: "match", status: "queued"))
+		let collect: JobView = try decode(jobJSON(id: "j-c", kind: "collect", status: "running"))
+		#expect(LearningText.queueNote(match, among: [match, collect]) == "ждёт пачку бэкфилла")
+		#expect(LearningText.queueNote(match, among: [match]) == nil)
+	}
+
+	@Test func sinceLine() {
+		#expect(LearningText.sinceLine((0, 0, 0)) == nil)
+		#expect(LearningText.sinceLine((2, 1, 0)) == "Пока вас не было: 2 кейса закрыто, 1 правило включено")
+	}
+
+	@Test func anchorText() {
+		#expect(LearningText.anchor(3...7) == "n 3–7" && LearningText.anchor(5...5) == "n 5")
+		#expect(LearningText.parseAnchor("n 3–7") == 3...7 && LearningText.parseAnchor("(n 12)") == 12...12 && LearningText.parseAnchor("3-7") == nil)
+	}
+
+	@Test func backgroundLinks() {
+		let a = BackgroundSection.parse(host: "background", path: ["/", "cases", "c-1"])
+		#expect(a?.section == .cases && a?.id == "c-1")
+		#expect(BackgroundSection.parse(host: "background", path: [])?.section == .work)
+		#expect(BackgroundSection.parse(host: "background", path: ["/", "nope"]) == nil)
+		#expect(BackgroundSection.parse(host: "session", path: ["/", "x"]) == nil)
+		#expect(BackgroundSection.playbooks.link(id: "p-1")?.absoluteString == "nessy-orch://background/playbooks/p-1")
 	}
 }

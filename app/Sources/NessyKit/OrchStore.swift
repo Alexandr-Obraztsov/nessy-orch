@@ -57,9 +57,10 @@ public final class OrchStore {
 	private let defaults: UserDefaults
 	private static let seenKey = "seenReplies"
 
-	public init(client: OrchClient = OrchClient(), defaults: UserDefaults = .standard) {
+	/// `learning` — источник данных обучения; по умолчанию `client` (тесты подставляют заглушку, чтобы не ходить в сеть).
+	public init(client: OrchClient = OrchClient(), learning: (any LearningSource)? = nil, defaults: UserDefaults = .standard) {
 		self.client = client
-		self.learning = LearningStore(source: client)
+		self.learning = LearningStore(source: learning ?? client)
 		self.defaults = defaults
 		self.seenReplies = Set(defaults.stringArray(forKey: Self.seenKey) ?? [])
 	}

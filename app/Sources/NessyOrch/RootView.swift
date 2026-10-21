@@ -535,6 +535,7 @@ private struct WindowBar: View {
 						BarIcon(systemImage: win.shellOpen ? "terminal.fill" : "terminal", help: (win.shellOpen ? "Скрыть терминал проекта" : "Терминал проекта") + " (\(Hotkeys.shared.display(.toggleShell)))") { win.toggleShell() }
 					}
 					BarIcon(systemImage: "person.text.rectangle", help: "Роли агентов (\(Hotkeys.shared.display(.roles)))") { openWindow(id: "roles") }
+					BarIcon(systemImage: "graduationcap", help: "Фон: обучение (\(Hotkeys.shared.display(.background)))", badge: model.store.learning.badge) { model.openBackground() }
 					BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
 					SettingsButton()
 				}
@@ -558,6 +559,8 @@ private struct WindowBar: View {
 private struct BarIcon: View {
 	var systemImage: String
 	var help: String
+	/// число поверх значка (ошибки и ожидание вас); 0 — без значка
+	var badge = 0
 	var action: () -> Void
 	@State private var hover = false
 	var body: some View {
@@ -565,6 +568,14 @@ private struct BarIcon: View {
 			Image(systemName: systemImage).font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
 				.background(hover ? DS.Palette.hover : .clear, in: Capsule())
 				.contentShape(Capsule())
+				.overlay(alignment: .topTrailing) {
+					if badge > 0 {
+						DSCount(value: badge).font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+							.padding(.horizontal, 4).frame(minWidth: 14, minHeight: 14)
+							.background(DS.Palette.accent, in: Capsule())
+							.offset(x: 2, y: -2).allowsHitTesting(false)
+					}
+				}
 		}
 		.buttonStyle(.plain).focusEffectDisabled()
 		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
