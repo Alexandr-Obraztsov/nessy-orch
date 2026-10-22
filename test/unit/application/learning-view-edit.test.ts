@@ -41,9 +41,10 @@ describe('LearningService: просмотр и правка блоками', () 
 			return Promise.resolve()
 		},
 		runAgent: async req => {
-			drainReads(current)
 			req.onSpawn?.('ag-live')
 			if (hold) await hold
+			// остановленный агент блоков уже не принимает
+			if (!cancelled.length) drainReads(current)
 			return { agentId: 'ag-live', ok: true, text: GOOD }
 		},
 	}
@@ -311,7 +312,7 @@ describe('LearningService: просмотр и правка блоками', () 
 		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 4, rules: [{ id: 'r1', text: 'x', stage: null }], removeRules: ['r1'] }), { code: 'bad_request', status: 400 })
 	})
 
-	it('setCaseSummary: base не совпал — 409 stale, файл цел; после записи title и goals из текста, updatedAt и событие learning_case', () => {
+	it('setCaseSummary: base не совпал — 409 stale, файл цел; после записи goals из текста (title не трогается), updatedAt и событие learning_case', () => {
 		store.cases.set('c-1', baseCase('c-1', { title: 'Старое', goals: [{ title: 'old', type: 'x' }] }))
 		store.summaries.set('c-1', '# Old')
 		const svc = make()
@@ -322,14 +323,13 @@ describe('LearningService: просмотр и правка блоками', () 
 		const text = '# Новый заголовок\nпредисловие\n## Goal: Починить сборку (type: fix-build)\n### Actions\n- a\n## Goal: Без типа\n'
 		svc.setCaseSummary('c-1', text, sha('# Old'))
 		const c = svc.getCase('c-1')
-		assert.equal(c.title, 'Новый заголовок')
+		assert.equal(c.title, 'Старое', 'название кейса — название сессии, правка описания его не меняет')
 		assert.deepEqual(c.goals, [{ title: 'Починить сборку', type: 'fix-build' }, { title: 'Без типа', type: '' }])
 		assert.equal(c.updatedAt, new Date(T0 + 3_600_000).toISOString())
 		assert.equal(events.filter(e => e.t === 'learning_case').length, 1)
 		assert.equal(svc.getCaseDetail('c-1').summaryHash, sha(text))
-		// без заголовка название остаётся прежним
 		svc.setCaseSummary('c-1', 'просто текст', sha(text))
-		assert.equal(svc.getCase('c-1').title, 'Новый заголовок')
+		assert.equal(svc.getCase('c-1').title, 'Старое')
 		assert.deepEqual(svc.getCase('c-1').goals, [])
 	})
 

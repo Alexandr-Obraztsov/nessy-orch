@@ -48,6 +48,8 @@ describe('LearningService: ревью этапа 1', () => {
 	const clock = { t: T0 + MIN, now: () => clock.t }
 
 	let current: LearningService | null = null
+	/** false — агент падает, ничего не прочитав (иначе принятые блоки сохраняются, и повтор нечего собирать) */
+	let drain = true
 	const host: LearningHost = {
 		sessions: () => sessions,
 		messagesSince: s => {
@@ -59,7 +61,7 @@ describe('LearningService: ревью этапа 1', () => {
 		isBusy: () => false,
 		cancelAgent: () => Promise.resolve(),
 		runAgent: async () => {
-			drainReads(current)
+			if (drain) drainReads(current)
 			calls += 1
 			return { agentId: `ag${calls}`, ...(await reply()) }
 		},
@@ -102,11 +104,13 @@ describe('LearningService: ревью этапа 1', () => {
 		calls = 0
 		reads = []
 		reply = () => Promise.resolve({ ok: true, text: GOOD })
+		drain = true
 		clock.t = T0 + MIN
 	})
 
-	it('1. постоянная ошибка агента: повторы идут бесконечно с ростом паузы до 10 мин, кейс остаётся collecting', async () => {
+	it('1. постоянная ошибка агента: повторы идут бесконечно с ростом паузы до 2 мин, кейс остаётся collecting', async () => {
 		reply = () => Promise.resolve({ ok: false, text: '', error: 'сбой' })
+		drain = false
 		const svc = make()
 		feed = [msg('s1')]
 		for (let i = 0; i < 120; i++) {
@@ -114,8 +118,8 @@ describe('LearningService: ревью этапа 1', () => {
 			await flush()
 			clock.t += 30_000
 		}
-		// за час (120 × 30 с): паузы 30, 60, 90 … с: 14 запусков (сумма арифметической прогрессии), не шторм
-		assert.ok(calls > 3 && calls <= 16, `запусков ${calls}`)
+		// за час (120 × 30 с): паузы 5, 10, 20, 40, 80, 120, 120 … с (тик раз в 30 с): ~35 запусков, не шторм
+		assert.ok(calls > 20 && calls <= 40, `запусков ${calls}`)
 		assert.equal(svc.getCase('c-s1').status, 'collecting')
 		const job = svc.view().jobs.find(j => j.kind === 'collect')
 		assert.equal(job?.status, 'queued')
@@ -123,6 +127,7 @@ describe('LearningService: ревью этапа 1', () => {
 		assert.equal(svc.view().jobs.some(j => j.status === 'error'), false)
 		const before = calls
 		reply = () => Promise.resolve({ ok: true, text: GOOD })
+		drain = true
 		for (let i = 0; i < 25; i++) {
 			svc.tick()
 			await flush()
@@ -176,12 +181,11 @@ describe('LearningService: ревью этапа 1', () => {
 		feed.push(msg('fresh'))
 		svc.tick()
 		assert.deepEqual(svc.view().cases.map(c => c.id), ['c-fresh'])
-		// бэкфилл старой
-		const r = svc.backfill(['old1'])
-		assert.equal(r.created.length, 1)
+		// ручной запуск по старой сессии заводит кейс (явное желание пользователя)
+		svc.runNow('old1')
 		await flush()
 		assert.equal(svc.getCase('c-old1').status, 'ready')
-		assert.equal(svc.getCase('c-old1').source, 'backfill')
+		assert.equal(svc.getCase('c-old1').source, 'live')
 	})
 
 	it('2. точка отсчёта переживает рестарт, цепочка читается с startSeq', () => {

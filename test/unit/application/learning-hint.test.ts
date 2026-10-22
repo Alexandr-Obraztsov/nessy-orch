@@ -106,16 +106,17 @@ describe('подсказка плейбука: hintFor', () => {
 })
 
 describe('сборщик: подсказка при новой цели', () => {
-	function run(before: CaseState, reply: string, playbooks: PlaybookState[], withHints = true) {
+	function run(before: CaseState, type: string, playbooks: PlaybookState[], withHints = true) {
 		const store = { ...before }
 		const queue: Array<[string, string]> = []
+		const job: { kind: string; caseId: string; final: boolean; range: null; protocol?: { blocks: number } } = { kind: 'collect', caseId: before.id, final: false, range: null }
 		const ctx = {
-			job: { kind: 'collect', caseId: before.id, final: false, range: null, readUntil: null },
+			job,
 			now: () => 1,
 			prompt: () => '{{summary}}',
 			cases: {
 				get: () => store,
-				raw: () => [{ n: 1, kind: 'user', from: 'user', text: 'x', at: 0 }],
+				raw: (_id: string, from: number) => (from > 1 ? [] : [{ n: 1, kind: 'user', from: 'user', text: 'x', at: 0 }]),
 				summary: () => '',
 				notes: () => '',
 				writeSummary: () => true,
@@ -126,26 +127,30 @@ describe('сборщик: подсказка при новой цели', () => 
 			},
 			playbooks: { list: () => playbooks },
 			hints: withHints ? ({ queueHint: (c: string, p: string) => void queue.push([c, p]) } as unknown as HintHost) : undefined,
-			runAgent: () => Promise.resolve({ agentId: 'a', text: reply }),
+			// агент принял блок: сервер уже записал цели принятого описания и сдвинул курсор
+			runAgent: () => {
+				if (job.protocol) job.protocol.blocks = 1
+				Object.assign(store, { goals: type === '' ? store.goals : [{ title: 'g', type }], coveredUntil: 1 })
+				return Promise.resolve({ agentId: 'a', text: 'ответ не важен' })
+			},
 			enqueue: () => undefined,
 			finish: () => undefined,
 			changed: () => undefined,
 		} as unknown as JobContext
 		return collectHandler.run(ctx).then(() => queue)
 	}
-	const reply = (type: string): string => `<summary>\n# T\n## Goal: g\n</summary>\n<meta>{"title":"T","goals":[{"title":"g","type":"${type}"}]}</meta>`
 
 	it('новая цель с типом плейбука кладёт подсказку в очередь', async () => {
-		const q = await run(caseState(), reply('implement-package'), ALL)
+		const q = await run(caseState(), 'implement-package', ALL)
 		assert.deepEqual(q, [['c-s1', PACKAGE.id]])
 	})
 	it('цель с тем же типом не новая; чужой тип и уже подсказанный плейбук — ничего', async () => {
-		assert.deepEqual(await run(caseState({ goals: [{ title: 'g', type: 'implement-package' }] }), reply('implement-package'), ALL), [])
-		assert.deepEqual(await run(caseState(), reply('write-docs'), ALL), [])
-		assert.deepEqual(await run(caseState({ hinted: [PACKAGE.id] }), reply('implement-package'), ALL), [])
-		assert.deepEqual(await run(caseState(), reply('implement-package'), [{ ...PACKAGE, status: 'draft' }]), [])
+		assert.deepEqual(await run(caseState({ goals: [{ title: 'g', type: 'implement-package' }] }), 'implement-package', ALL), [])
+		assert.deepEqual(await run(caseState(), 'write-docs', ALL), [])
+		assert.deepEqual(await run(caseState({ hinted: [PACKAGE.id] }), 'implement-package', ALL), [])
+		assert.deepEqual(await run(caseState(), 'implement-package', [{ ...PACKAGE, status: 'draft' }]), [])
 	})
 	it('без очереди подсказок в контексте сборщик работает как раньше', async () => {
-		assert.deepEqual(await run(caseState(), reply('implement-package'), ALL, false), [])
+		assert.deepEqual(await run(caseState(), 'implement-package', ALL, false), [])
 	})
 })

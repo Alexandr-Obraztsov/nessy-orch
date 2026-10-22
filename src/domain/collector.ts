@@ -1,5 +1,6 @@
 import type { CaseGoal } from '../../shared/types'
-import type { CollectorInput, CollectorResult } from './learning.types'
+import { BLOCK_EVENTS, MAX_REJECTS } from './learning-settings'
+import type { CollectorInput } from './learning.types'
 
 const EMPTY_SUMMARY = '(empty — start a new summary)'
 const MODE_FINAL = 'final: finish every section, the session has ended'
@@ -14,38 +15,10 @@ export function buildCollectorPrompt(template: string, input: CollectorInput): s
 		notes: input.notes.trim() === '' ? '(none)' : input.notes,
 		total: String(input.total),
 		mode: input.final ? MODE_FINAL : MODE_INCREMENTAL,
+		block_events: String(BLOCK_EVENTS),
+		max_attempts: String(MAX_REJECTS),
 	}
-	return template.replace(/\{\{(case_id|session_title|summary|notes|total|mode)\}\}/g, (_m, key: string) => values[key] ?? '')
-}
-
-function lastBlock(text: string, tag: string): string | null {
-	const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'g')
-	let found: string | null = null
-	for (const m of text.matchAll(re)) found = m[1] ?? ''
-	return found
-}
-
-function parseMeta(raw: string | null): { goals: CaseGoal[] } {
-	const empty = { goals: [] }
-	if (raw === null) return empty
-	let data: unknown
-	try {
-		data = JSON.parse(raw.trim())
-	} catch {
-		return empty
-	}
-	if (typeof data !== 'object' || data === null) return empty
-	const obj = data as Record<string, unknown>
-	const goals: CaseGoal[] = []
-	if (Array.isArray(obj.goals)) {
-		for (const g of obj.goals) {
-			if (typeof g !== 'object' || g === null) continue
-			const goal = g as Record<string, unknown>
-			if (typeof goal.title !== 'string' || goal.title.trim() === '') continue
-			goals.push({ title: goal.title.trim(), type: typeof goal.type === 'string' ? goal.type.trim() : '' })
-		}
-	}
-	return { goals }
+	return template.replace(/\{\{(case_id|session_title|summary|notes|total|mode|block_events|max_attempts)\}\}/g, (_m, key: string) => values[key] ?? '')
 }
 
 /** Цели (`## Goal: … (type: …)`) описания, записанного руками; название кейса — название сессии, из текста не берётся. */
@@ -59,11 +32,4 @@ export function parseSummaryHeads(text: string): { goals: CaseGoal[] } {
 		if (goalTitle.trim() !== '') goals.push({ title: goalTitle.trim(), type: (m?.[2] ?? '').trim() })
 	}
 	return { goals }
-}
-
-/** Разбирает ответ сборщика; нет непустого `<summary>` — null. */
-export function parseCollectorReply(text: string): CollectorResult | null {
-	const summary = lastBlock(text, 'summary')?.trim() ?? ''
-	if (summary === '') return null
-	return { summary, ...parseMeta(lastBlock(text, 'meta')) }
 }

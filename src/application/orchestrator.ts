@@ -54,8 +54,8 @@ import { SourcesService } from './services/sources.service'
 const SNAPSHOT_MESSAGES = 300
 /** сколько последних сообщений читаем с диска, когда окна памяти не хватает (как в Feed) */
 const DISK_HISTORY_LIMIT = 100_000
-/** сколько ждём ответ фонового агента (сек) */
-const LEARNING_AGENT_TIMEOUT_SEC = 1800
+/** жёсткий предел ожидания фонового агента (сек); зависшего снимает сторож заданий (`JOB_STALL_MS`) */
+const LEARNING_AGENT_TIMEOUT_SEC = 4 * 3600
 const DEFAULT_CANCEL_GRACE_MS = 3000
 const DEFAULT_IDLE_CLOSE_MS = 120_000
 const GC_INTERVAL_MS = 5 * 60_000

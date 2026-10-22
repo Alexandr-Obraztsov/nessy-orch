@@ -3,8 +3,9 @@ import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import * as path from 'node:path'
 import { after, before, describe, it } from 'node:test'
-import type { ApiError, CaseDetail, CaseReadBlock, SessionView, SpawnResponse } from '../../shared/types'
+import type { ApiError, CaseDetail, CaseDraftResult, CaseReadBlock, RawEvent, SessionView, SpawnResponse } from '../../shared/types'
 import { startHarness } from '../support/harness'
+import { summaryFor } from '../support/read-blocks'
 import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
 
@@ -50,20 +51,39 @@ describe('агент-сборщик: read и draft', () => {
 	})
 	after(() => h.close())
 
-	it('GET read и POST draft доступны агенту по ключу; прочее меняющее — нет', T, async () => {
-		const first = await h.api<CaseReadBlock>('GET', `/learning/cases/${caseId}/read?maxChars=100000`, undefined, agent)
+	const events = async (): Promise<RawEvent[]> => (await h.api<RawEvent[]>('GET', `/learning/cases/${caseId}/raw?from=1`)).body
+
+	it('GET read и POST draft доступны агенту по ключу; блок → 409 до принятого описания → 422 на плохое → 200 на хорошее → done → --final', T, async () => {
+		const first = await h.api<CaseReadBlock>('GET', `/learning/cases/${caseId}/read`, undefined, agent)
 		assert.equal(first.status, 200)
 		assert.ok(first.body.total >= 2)
-		assert.equal(first.body.done, true)
+		assert.match(first.body.header, /^BLOCK 1 \(n 1–\d+\), events 0\/\d+ acknowledged$/)
 		assert.match(first.body.text, /^\[1\] /)
-		const again = await h.api<CaseReadBlock>('GET', `/learning/cases/${caseId}/read`, undefined, agent)
-		assert.equal(again.body.done, true)
-		assert.equal(again.body.text, '')
-		const d = await h.api('POST', `/learning/cases/${caseId}/draft`, { text: '# черновик', from: agentId }, agent)
+		assert.match(first.body.card, /NO BLOCK IS CLOSED WITHOUT AN ACCEPTED SUMMARY/)
+		// следующий блок — только после принятого описания
+		const again = await h.api<ApiError>('GET', `/learning/cases/${caseId}/read`, undefined, agent)
+		assert.equal(again.status, 409)
+		assert.equal(again.body.code, 'summary_required')
+		assert.match(again.body.error, /^Block n 1–\d+ has no accepted summary yet\./)
+		const bad = await h.api<ApiError>('POST', `/learning/cases/${caseId}/draft`, { text: '# черновик', from: agentId }, agent)
+		assert.equal(bad.status, 422)
+		assert.equal(bad.body.code, 'rejected')
+		assert.match(bad.body.error, /^REJECTED \(attempt 1\/3\): R2: /)
+		const evs = await events()
+		const good = summaryFor(evs, first.body)
+		const d = await h.api<CaseDraftResult>('POST', `/learning/cases/${caseId}/draft`, { text: good, from: agentId }, agent)
 		assert.equal(d.status, 200)
+		assert.equal(d.body.remaining, 0)
+		const done = await h.api<CaseReadBlock>('GET', `/learning/cases/${caseId}/read`, undefined, agent)
+		assert.equal(done.body.done, true)
+		assert.match(done.body.card, /--final/)
 		const detail = (await h.api<CaseDetail>('GET', `/learning/cases/${caseId}`)).body
-		assert.equal(detail.draft, '# черновик')
+		assert.equal(detail.summary, good)
+		assert.equal(detail.coveredUntil, first.body.until)
 		assert.deepEqual(detail.progress, { read: first.body.total, total: first.body.total })
+		const fin = await h.api<CaseDraftResult>('POST', `/learning/cases/${caseId}/draft?final=1`, { text: good, from: agentId }, agent)
+		assert.equal(fin.status, 200)
+		assert.equal(fin.body.final, true)
 		const denied = await h.api<ApiError>('POST', `/learning/cases/${caseId}/rebuild`, {}, agent)
 		assert.equal(denied.status, 403)
 		// без from или с чужим ключом — отказ, чужой агент не сборщик
@@ -72,19 +92,24 @@ describe('агент-сборщик: read и draft', () => {
 		assert.equal((await h.api<ApiError>('GET', '/learning/cases/c-nope/read', undefined, agent)).status, 404)
 	})
 
-	it('задание в JobView: title = название сессии, progress; read до сброса указателя', T, async () => {
-		const job = (await h.api<{ jobs: Array<{ status: string; title: string | null; progress: { read: number; total: number } | null }> }>('GET', '/learning')).body.jobs.find(j => j.status === 'running')
+	it('задание в JobView: title = название сессии, progress принятых событий, phase', T, async () => {
+		const job = (await h.api<{ jobs: Array<{ status: string; title: string | null; progress: { read: number; total: number } | null; phase: string | null }> }>('GET', '/learning')).body.jobs.find(j => j.status === 'running')
 		assert.equal(job?.title, 'Работа')
 		assert.ok(job.progress && job.progress.read === job.progress.total)
+		assert.equal(job.phase, 'reading')
 	})
 
-	it('CLI: case draft из stdin, case read печатает блок и прогресс в stderr', T, async () => {
-		const w = await cli('# из stdin', 'case', 'draft', caseId, '--from', agentId, '--key', agent['X-Agent-Key'] ?? '')
-		assert.equal(w.code, 0, w.err)
-		assert.equal((await h.api<CaseDetail>('GET', `/learning/cases/${caseId}`)).body.draft, '# из stdin')
-		const r = await cli(null, 'case', 'read', caseId, '--max-chars', '500')
+	it('CLI: read после done — done в stderr; draft --final из stdin принят; плохой draft — код 1 и текст отказа в stderr', T, async () => {
+		const r = await cli(null, 'case', 'read', caseId)
 		assert.equal(r.code, 0, r.err)
 		assert.equal(r.out.trim(), '')
 		assert.match(r.err, /^done/)
+		const summary = (await h.api<CaseDetail>('GET', `/learning/cases/${caseId}`)).body.summary
+		const w = await cli(summary, 'case', 'draft', caseId, '--final', '--from', agentId, '--key', agent['X-Agent-Key'] ?? '')
+		assert.equal(w.code, 0, w.err)
+		assert.match(w.err, /ACCEPTED: final/)
+		const bad = await cli('# плохо', 'case', 'draft', caseId, '--final', '--from', agentId, '--key', agent['X-Agent-Key'] ?? '')
+		assert.equal(bad.code, 1)
+		assert.match(bad.err, /REJECTED \(attempt 1\/3\): R9: /)
 	})
 })

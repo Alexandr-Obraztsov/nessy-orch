@@ -47,25 +47,25 @@ describe('JobQueue', () => {
 		assert.deepEqual(q.list().map(j => j.id), [a.id, b.id, other.id])
 	})
 
-	it('повторы бесконечные: пауза 30 с × попытка, не больше 10 мин, error — последняя ошибка, статус не error', () => {
+	it('повторы бесконечные: пауза 5 с × 2^(попытка−1), не больше 2 мин, error — последняя ошибка, статус не error', () => {
 		const { q, clock } = make()
 		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
 		q.start(a.id, null)
 		let j = q.fail(a.id, 'e1')
 		assert.equal(j.status, 'queued')
-		assert.equal(j.retryAt, clock.t + 30_000)
+		assert.equal(j.retryAt, clock.t + 5_000)
 		assert.equal(j.error, 'e1')
 		assert.equal(q.next(clock.t), null)
-		assert.equal(q.next(clock.t + 30_000)?.id, a.id)
+		assert.equal(q.next(clock.t + 5_000)?.id, a.id)
 		q.start(a.id, null)
 		j = q.fail(a.id, 'e2')
-		assert.equal(j.retryAt, clock.t + 60_000)
+		assert.equal(j.retryAt, clock.t + 10_000)
 		q.start(a.id, null)
 		j = q.fail(a.id, 'e3')
 		assert.equal(j.status, 'queued')
 		assert.equal(j.attempts, 3)
 		assert.equal(j.error, 'e3')
-		assert.equal(j.retryAt, clock.t + 90_000)
+		assert.equal(j.retryAt, clock.t + 20_000)
 		assert.equal(j.finishedAt, null)
 		assert.equal(q.hasJob('c1'), true)
 		for (let i = 0; i < 40; i++) {
@@ -74,17 +74,46 @@ describe('JobQueue', () => {
 		}
 		assert.equal(j.status, 'queued')
 		assert.equal(j.attempts, 43)
-		assert.equal(j.retryAt, clock.t + 600_000)
+		assert.equal(j.retryAt, clock.t + 120_000)
 	})
 
-	it('delayMs откладывает первый запуск; start сбрасывает указатель чтения', () => {
+	it('провал при ждущем задании того же объекта: остаётся одно, final и close сводятся, срок — более ранний', () => {
+		const { q, clock } = make()
+		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
+		q.start(a.id, null)
+		const b = q.enqueue('close', 'c1', { caseId: 'c1', final: true })
+		const j = q.fail(a.id, 'e')
+		assert.equal(j.id, a.id)
+		assert.equal(j.kind, 'close')
+		assert.equal(j.final, true)
+		assert.equal(j.retryAt, null) // ручная постановка не ждала паузы
+		assert.equal(b.status, 'done')
+		assert.equal(b.note, `объединено с ${a.id}`)
+		assert.equal(q.list().filter(x => x.subject === 'c1' && x.status === 'queued').length, 1)
+		assert.deepEqual(q.takeAbsorbed().map(x => x.id), [b.id])
+		assert.equal(q.next(clock.t)?.id, a.id)
+	})
+
+	it('touch: только идущее задание; start ставит activityAt', () => {
+		const { q, clock } = make()
+		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
+		assert.equal(q.touch(a.id), false)
+		q.start(a.id, null)
+		assert.equal(a.activityAt, clock.t)
+		clock.t += 5_000
+		assert.equal(q.touch(a.id), true)
+		assert.equal(a.activityAt, clock.t)
+		q.fail(a.id, 'e')
+		assert.equal(a.activityAt, null)
+	})
+
+	it('delayMs откладывает первый запуск', () => {
 		const { q, clock } = make()
 		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false, delayMs: 30_000 })
 		assert.equal(q.next(clock.t), null)
 		assert.equal(q.next(clock.t + 30_000)?.id, a.id)
-		a.readUntil = 7
 		q.start(a.id, null)
-		assert.equal(a.readUntil, null)
+		assert.equal(a.status, 'running')
 	})
 
 	it('retry: только из error', () => {
@@ -132,8 +161,9 @@ describe('JobQueue', () => {
 		assert.equal(all.some(j => j.caseId === 'c204'), true)
 		const view = q.toView(active)
 		assert.equal('final' in view, false)
-		assert.equal('retryAt' in view, false)
-		assert.equal('readUntil' in view, false)
+		assert.equal(view.retryAt, null)
+		assert.equal(view.waiting, null)
+		assert.equal('activityAt' in view, false)
 		assert.equal(view.title, null)
 		assert.equal(view.progress, null)
 		q.removeCase('active')

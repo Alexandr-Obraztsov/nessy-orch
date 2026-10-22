@@ -199,23 +199,6 @@ describe('шторм агентов', () => {
 		})
 	})
 
-	describe('B2-batch пачка бэкфилла в meta.json', () => {
-		it('после рестарта пачка есть: match ждёт всю пачку, запись стирается при выдаче', async () => {
-			addCase('c1', 1, { status: 'closing' })
-			addCase('c2', 2, { status: 'closing' })
-			store.meta = META({ batches: { c1: ['c1', 'c2'], c2: ['c1', 'c2'] } })
-			const svc = await start()
-			;(svc as unknown as { seal(id: string): void }).seal('c1')
-			const job = svc.view().jobs.find(j => j.kind === 'match')
-			assert.ok(job)
-			assert.deepEqual(savedMeta()?.batches, { c2: ['c1', 'c2'] })
-			// c2 ещё не ready: match ждёт
-			await flush(10)
-			assert.equal(count('PLAYBOOK MATCHER'), 0)
-			assert.equal(svc.view().jobs.find(j => j.kind === 'match')?.status, 'queued')
-		})
-	})
-
 	describe('B2-decay затухание раз в сутки', () => {
 		const old = (id: string): PlaybookState['rules'][number] => ({ id, text: `rule ${id}`, stage: null, status: 'active', up: 2, down: 0, evidence: [{ caseId: 'c1', anchor: 'n 1' }, { caseId: 'c2', anchor: 'n 2' }], against: [], lastAppliedAt: null, createdAt: new Date(now - 130 * 24 * HOUR).toISOString() })
 

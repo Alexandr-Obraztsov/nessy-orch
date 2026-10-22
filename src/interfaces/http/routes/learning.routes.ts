@@ -31,11 +31,8 @@ export function registerLearningRoutes(r: Router): void {
 		const { from, to } = parseRawRange(query.get('from'), query.get('to'))
 		sendJson(res, 200, learning(orch).caseRaw(params['id'] ?? '', from, to))
 	})
-	r.add('GET', '/learning/cases/:id/read', ({ res, orch, params, query }) => {
-		const max = queryNum(query.get('maxChars'), 60_000)
-		sendJson(res, 200, learning(orch).caseRead(params['id'] ?? '', max > 0 ? max : 60_000))
-	})
-	r.add('POST', '/learning/cases/:id/draft', async ({ req, res, orch, params, caller }) => {
+	r.add('GET', '/learning/cases/:id/read', ({ res, orch, params }) => sendJson(res, 200, learning(orch).caseRead(params['id'] ?? '')))
+	r.add('POST', '/learning/cases/:id/draft', async ({ req, res, orch, params, caller, query }) => {
 		const svc = learning(orch)
 		const body = await readBody(req)
 		const id = params['id'] ?? ''
@@ -45,8 +42,8 @@ export function registerLearningRoutes(r: Router): void {
 			orch.authorizeSender(from, caller)
 			svc.assertCollector(id, orch.resolveAgent(from ?? '').id)
 		}
-		svc.setCaseDraft(id, parseTextBody(body, true))
-		sendJson(res, 200, { ok: true })
+		// `?final=1` — итоговая консолидация после `done`
+		sendJson(res, 200, svc.caseDraft(id, parseTextBody(body, true), query.get('final') === '1'))
 	})
 	r.add('GET', '/learning/cases/:id/impact', ({ res, orch, params }) => sendJson(res, 200, learning(orch).caseImpact(params['id'] ?? '')))
 	r.add('PUT', '/learning/cases/:id/summary', async ({ req, res, orch, params }) => {

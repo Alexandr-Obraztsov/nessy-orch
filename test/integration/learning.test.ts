@@ -5,7 +5,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, it } from 'node:test'
-import type { AgentView, ApiError, BackfillCandidate, BackfillResult, CaseDetail, LearningView, SessionView, SpawnResponse, StreamEvent } from '../../shared/types'
+import type { AgentView, ApiError, CaseDetail, LearningView, SessionView, SpawnResponse, StreamEvent } from '../../shared/types'
 import { startHarness } from '../support/harness'
 import { repoRoot } from '../support/repo-root'
 import type { Harness } from '../support/support.types'
@@ -56,7 +56,9 @@ describe('фоновое обучение (сборка)', () => {
 			'learning_case ready',
 		)
 		stream.close()
-		assert.equal(ready.case.title, 'T')
+		// название кейса — название сессии, а не <meta> сборщика
+		assert.equal(ready.case.title, 'Работа')
+		assert.equal(ready.case.source, 'live')
 		const summary = fs.readFileSync(path.join(h.home, 'cases', `c-${s.id}`, 'summary.md'), 'utf8')
 		assert.match(summary, /# T/)
 		// фоновый агент удалён из реестра, ответ лежит в runs/
@@ -141,40 +143,24 @@ describe('фоновое обучение (сборка)', () => {
 		assert.equal((await h.api<ApiError>('POST', '/learning/jobs/j-none/retry', {})).body.code, 'no_job')
 	})
 
-	it('разбор прошлых сессий: транскрипт из CLAUDE_PROJECTS_DIR → кейс ready; CLI case ls / learn off --session', T, async () => {
+	it('CLI: case ls / show, learn on|off --session; разбора прошлых сессий нет', T, async () => {
 		scenarios({ 'SESSION COLLECTOR': [{ text: REPLY }] })
-		const projects = path.join(base, 'projects')
-		fs.mkdirSync(path.join(projects, 'p1'), { recursive: true })
-		const rec = (o: unknown): string => JSON.stringify(o)
-		fs.writeFileSync(
-			path.join(projects, 'p1', 'chat-old.jsonl'),
-			[
-				rec({ type: 'user', uuid: 'u1', timestamp: '2026-09-01T10:00:00Z', message: { role: 'user', content: 'разбери репозиторий' } }),
-				rec({ type: 'assistant', uuid: 'a1', timestamp: '2026-09-01T10:00:01Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'nessy-orch spawn --role code-explorer "найди"' } }] } }),
-			].join('\n') + '\n',
-		)
-		h = await startHarness({ base, config: { learningDefaultOn: false, claudeProjectsDir: projects } })
-		const list = await h.api<BackfillCandidate[]>('GET', '/learning/backfill')
-		assert.equal(list.body.length, 1)
-		assert.equal(list.body[0]?.id, 'chat-old')
-		assert.equal(list.body[0].title, 'разбери репозиторий')
-		const r = await h.api<BackfillResult>('POST', '/learning/backfill', { ids: ['chat-old'] })
-		assert.equal(r.status, 200)
-		assert.equal(r.body.created[0]?.id, 'c-t-chat-old')
+		h = await startHarness({ base, config: { learningDefaultOn: true } })
+		const s = await work(h)
+		await h.api('POST', `/sessions/${s.id}/closed`)
 		const learning = h.orch.learning
 		assert.ok(learning)
-		await until(() => learning.view().cases.some(c => c.status === 'ready'), 40000, 'кейс разбора ready')
-		assert.match(fs.readFileSync(path.join(h.home, 'cases', 'c-t-chat-old', 'summary.md'), 'utf8'), /# T/)
-		assert.equal((await h.api<BackfillCandidate[]>('GET', '/learning/backfill')).body.length, 0)
-		const again = await h.api<BackfillResult>('POST', '/learning/backfill', { ids: ['chat-old'] })
-		assert.equal(again.body.created.length, 0)
-		assert.equal((await h.api<ApiError>('POST', '/learning/backfill', { ids: ['нет'] })).status, 404)
+		await until(() => learning.view().cases.some(c => c.status === 'ready'), 40000, 'кейс ready')
+		const id = `c-${s.id}`
+		assert.equal((await h.api<ApiError>('GET', '/learning/backfill')).status, 404)
+		assert.equal((await h.api<ApiError>('POST', '/learning/backfill', { ids: ['x'] })).status, 404)
+		assert.notEqual((await cli(h, 'learn', 'backfill')).code, 0)
 
 		const ls = await cli(h, 'case', 'ls')
 		assert.equal(ls.code, 0)
-		assert.match(ls.out, /c-t-chat-old/)
+		assert.match(ls.out, new RegExp(id))
 		assert.match(ls.out, /ready/)
-		const show = await cli(h, 'case', 'show', 'c-t-chat-old')
+		const show = await cli(h, 'case', 'show', id)
 		assert.match(show.out, /# T/)
 		const off = await cli(h, 'learn', 'off', '--session', 'S1')
 		assert.equal(off.code, 0)
@@ -184,7 +170,7 @@ describe('фоновое обучение (сборка)', () => {
 		assert.deepEqual((await h.api<LearningView>('GET', '/learning')).body.settings.disabledSessions, [])
 		const status = await cli(h, 'learn')
 		assert.match(status.out, /обучение/)
-		assert.match(status.out, /c-t-chat-old/)
+		assert.match(status.out, new RegExp(id))
 		assert.equal((await cli(h, 'learn', '--json')).code, 0)
 	})
 
@@ -195,7 +181,6 @@ describe('фоновое обучение (сборка)', () => {
 		const writes: Array<[string, string]> = [
 			['PATCH', '/learning/settings'],
 			['POST', '/learning/run'],
-			['POST', '/learning/backfill'],
 			['POST', '/learning/jobs/j1/retry'],
 			['POST', '/learning/cases/c1/rebuild'],
 			['DELETE', '/learning/cases/c1'],

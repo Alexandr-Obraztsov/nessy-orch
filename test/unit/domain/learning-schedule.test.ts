@@ -15,15 +15,15 @@ describe('decide', () => {
 		['задание уже есть', { hasJob: true, pending: 20 }, 'none'],
 		['закрытый кейс без новых событий', { status: 'ready', pending: 0 }, 'none'],
 		['закрытый кейс с новыми событиями — снова собирать', { status: 'ready', pending: 2 }, 'collect'],
-		['закрытый кейс: пауза от lastRunAt тоже соблюдается', { status: 'ready', pending: 2, lastRunAt: NOW - 30_000 }, 'none'],
+		['закрытый кейс: пауза от lastRunAt тоже соблюдается', { status: 'ready', pending: 2, lastRunAt: NOW - 10_000 }, 'none'],
 		['кейс в error сам ничего не запускает', { status: 'error', pending: 20, lastEventAt: NOW - 40 * MIN }, 'none'],
 		['простой дольше idleMin закрывает', { lastEventAt: NOW - 30 * MIN, pending: 3 }, 'close'],
 		['занятая сессия не закрывается', { lastEventAt: NOW - 40 * MIN, busy: true }, 'none'],
-		['пауза 60 с блокирует сбор', { pending: 20, lastRunAt: NOW - 30_000 }, 'none'],
-		['15 событий запускают раньше интервала', { pending: 15, lastRunAt: NOW - 2 * MIN }, 'collect'],
-		['интервал прошёл, события есть', { pending: 1, lastRunAt: NOW - 10 * MIN }, 'collect'],
-		['интервал не прошёл, событий мало', { pending: 3, lastRunAt: NOW - 5 * MIN }, 'none'],
-		['интервал прошёл, событий нет', { pending: 0, lastRunAt: NOW - 20 * MIN }, 'none'],
+		['пауза 20 с блокирует сбор', { pending: 20, lastRunAt: NOW - 10_000 }, 'none'],
+		['одно событие и пауза прошла — сбор', { pending: 1, lastRunAt: NOW - 20_000 }, 'collect'],
+		['много событий: порога нет, только пауза', { pending: 15, lastRunAt: NOW - 10_000 }, 'none'],
+		['новый кейс (lastRunAt 0) с событием — сразу', { pending: 1, lastRunAt: 0 }, 'collect'],
+		['интервал intervalMin не нужен: событий нет — нечего собирать', { pending: 0, lastRunAt: NOW - 20 * MIN }, 'none'],
 	]
 	for (const [name, patch, want] of rows) {
 		it(name, () => assert.equal(decide({ ...base, ...patch }, NOW, s), want))

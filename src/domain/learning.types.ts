@@ -1,4 +1,4 @@
-import type { CaseGoal, RawEvent, RawKind } from '../../shared/types'
+import type { RawEvent, RawKind } from '../../shared/types'
 
 // вид и само событие кейса — часть контракта с клиентами
 export type { RawEvent, RawKind }
@@ -32,8 +32,21 @@ export interface CollectorInput {
 	final: boolean
 }
 
-/** Разобранный ответ сборщика. */
-export interface CollectorResult {
-	summary: string
-	goals: CaseGoal[]
+/** Нарушение проверки описания (`summary-gate`): код правила и что именно не так. */
+export interface GateIssue {
+	code: string
+	text: string
+}
+
+/** Вход проверки описания к блоку событий. */
+export interface GateInput {
+	/** предлагаемое полное описание */
+	text: string
+	/** предыдущее принятое описание ('' — первого нет) */
+	prev: string
+	/** события выданного блока */
+	events: readonly RawEvent[]
+	/** границы блока: `from..until` (`until` — и верхняя граница допустимых якорей) */
+	from: number
+	until: number
 }

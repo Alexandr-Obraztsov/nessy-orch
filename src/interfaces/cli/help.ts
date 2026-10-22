@@ -46,8 +46,8 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
   learn run [--session S]   собрать описание сейчас (сессии или кейса; без --session — все открытые кейсы)
   case ls              кейсы        case show <id>   шапка и summary.md        case rm <id>   удалить кейс
   case rebuild <id>    пересобрать описание заново      case note <id> "<текст>"   заметки пользователя кейса
-  case read <id> [--max-chars N]   следующий блок событий кейса (агент-сборщик; в stderr — прогресс или done)
-  case draft <id> [--file F] [--from A --key K]   сохранить черновик описания (иначе stdin)
+  case read <id>   следующий блок событий кейса (агент-сборщик; следующий — только после принятого draft; протокол в stderr)
+  case draft <id> [--file F] [--final] [--from A --key K]   сдать полное описание за блок (иначе stdin), --final — итоговая консолидация
   playbook ls | show <id>    плейбуки, которые обучение собрало из кейсов (статусы: draft, review, trial, active, disabled, archived)
   playbook review <id>       запустить авто-ревью            playbook approve <id> | reject <id> [--reason R]   ручное решение
   playbook revert <id> --version N   откат к версии (новой версией)      playbook rm <id>   удалить      playbook note <id> "<текст>"   заметки

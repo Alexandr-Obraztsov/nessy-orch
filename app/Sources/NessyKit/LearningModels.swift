@@ -232,10 +232,16 @@ public struct JobView: Codable, Hashable, Identifiable, Sendable {
 	public var title: String?
 	/// идущее `collect`/`close`: прочитано / всего событий
 	public var progress: JobProgress?
+	/// чего ждёт задание в очереди: `retry` — паузы после провала, `lock` — другого задания по тому же объекту; `nil` — только свободного слота
+	public var waiting: String?
+	/// когда повторится задание, ждущее повтор (ISO)
+	public var retryAt: String?
 
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		id = try c.decode(String.self, forKey: .id)
+		waiting = c.getOpt(.waiting)
+		retryAt = c.getOpt(.retryAt)
 		title = c.getOpt(.title)
 		progress = c.getOpt(.progress)
 		kind = c.get(.kind, .unknown)

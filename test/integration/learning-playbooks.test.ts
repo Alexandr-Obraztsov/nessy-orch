@@ -215,7 +215,8 @@ describe('плейбуки (сквозной)', () => {
 		assert.equal((await hh.api('PUT', `/learning/cases/${c1}/summary`, { text: '# Edited by hand\n## Goal: do it (type: fix)', base: detail1.summaryHash })).status, 200)
 		assert.equal(fs.readFileSync(path.join(hh.home, 'cases', c1, 'summary.md'), 'utf8'), '# Edited by hand\n## Goal: do it (type: fix)')
 		const detail2 = (await hh.api<CaseDetail>('GET', `/learning/cases/${c1}`)).body
-		assert.deepEqual([detail2.title, detail2.goals], ['Edited by hand', [{ title: 'do it', type: 'fix' }]])
+		// название кейса — название сессии: правка описания его не меняет
+		assert.deepEqual([detail2.title, detail2.goals], [detail1.title, [{ title: 'do it', type: 'fix' }]])
 		assert.equal((await hh.api<ApiError>('PUT', '/learning/cases/c-nope/summary', { text: 'x', base: sha('') })).status, 404)
 
 		// плейбук с правилом, у которого два кейса-доказательства

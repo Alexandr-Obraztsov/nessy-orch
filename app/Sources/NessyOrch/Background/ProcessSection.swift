@@ -55,7 +55,7 @@ private struct JobTile: View {
 				Text(BackgroundLogic.progressLine(job.progress)).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).monospacedDigit()
 				ProgressBar(progress: job.progress)
 			} else {
-				LearningChip("в очереди")
+				LearningChip(job.waiting == "retry" ? "повтор скоро" : "в очереди")
 			}
 		}
 		if let action { CardButton(selected: selected, action: action) { content } }

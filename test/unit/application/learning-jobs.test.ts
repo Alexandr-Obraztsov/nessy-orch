@@ -6,9 +6,8 @@ import { Hub } from '../../../src/application/hub'
 import { LearningService } from '../../../src/application/learning/learning.service'
 import type { CaseState, JobState, LearningHost } from '../../../src/application/learning/learning.types'
 import { YOU } from '../../../src/domain/constants'
-import { PORTION_CHARS } from '../../../src/domain/learning-settings'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
-import { drainReads } from '../../support/read-blocks'
+import { drainReads, submitBlock, summaryFor } from '../../support/read-blocks'
 
 const T0 = Date.parse('2026-10-01T10:00:00.000Z')
 
@@ -109,7 +108,7 @@ describe('LearningService: задания', () => {
 		clock.t = T0 + 60_000
 	})
 
-	it('15 событий: одно collect, summary записан, coveredUntil = 15, learning_case опубликован', async () => {
+	it('много событий: одно collect, summary записан, coveredUntil = 15, learning_case опубликован', async () => {
 		const svc = make()
 		feed = Array.from({ length: 15 }, () => msg('s1'))
 		svc.tick()
@@ -124,11 +123,12 @@ describe('LearningService: задания', () => {
 		assert.equal(calls.length, 1)
 		assert.equal(calls[0]?.name, 'session-s1')
 		assert.equal(calls[0].title, 's1')
-		assert.equal(store.summaries.get('c-s1'), '# T')
+		assert.match(store.summaries.get('c-s1') ?? '', /^# T\n## Goal: do the task/)
 		const c = svc.getCase('c-s1')
 		assert.equal(c.coveredUntil, 15)
-		assert.equal(c.title, 'T')
-		assert.deepEqual(c.goals, [{ title: 'g', type: 't' }])
+		// <meta>.title сборщика игнорируется: название кейса — название сессии
+		assert.equal(c.title, 's1')
+		assert.deepEqual(c.goals, [{ title: 'do the task', type: 'do task' }])
 		assert.equal(c.status, 'collecting')
 		assert.equal(jobs(svc)[0]?.status, 'done')
 		assert.equal(jobs(svc)[0]?.agentId, 'ag1')
@@ -138,58 +138,61 @@ describe('LearningService: задания', () => {
 		assert.equal(store.cases.get('c-s1')?.coveredUntil, 15)
 	})
 
-	it('ответ без <summary>: summary и coveredUntil не тронуты, повторы бесконечные с паузой 30, 60, 90 с, кейс не в error', async () => {
+	it('ответ агента без <summary> не мешает: итог — принятые сервером описания', async () => {
+		const svc = make()
+		feed = [msg('s1'), msg('s1')]
+		svc.tick()
+		script = [{ ok: true, text: 'нет блока, просто текст' }]
+		svc.runNow('c-s1')
+		await flush()
+		assert.equal(jobs(svc)[0]?.status, 'done')
+		assert.match(store.summaries.get('c-s1') ?? '', /^# T\n## Goal: do the task \(type: do task\)/)
+		assert.equal(svc.getCase('c-s1').coveredUntil, 2)
+		assert.deepEqual(svc.getCase('c-s1').goals, [{ title: 'do the task', type: 'do task' }])
+	})
+
+	it('агент не принял ни одного блока: провал no progress, повторы с паузой 5, 10, 20 с, summary и coveredUntil не тронуты, кейс не в error', async () => {
 		const svc = make()
 		store.summaries.set('c-s1', 'старое')
 		feed = [msg('s1')]
 		svc.tick()
-		const bad: Reply = { ok: true, text: 'нет блока' }
-		script = [bad, bad, bad, { ok: true, text: GOOD('Новый') }]
+		drain = false
 		svc.runNow('c-s1')
 		await flush()
 		assert.equal(calls.length, 1)
 		assert.equal(jobs(svc)[0]?.status, 'queued')
 		assert.equal(jobs(svc)[0]?.attempts, 1)
+		assert.match(jobs(svc)[0]?.error ?? '', /^no progress/)
 		assert.equal(store.summaries.get('c-s1'), 'старое')
 		assert.equal(svc.getCase('c-s1').coveredUntil, 0)
-		clock.t += 29_000
+		assert.notEqual(svc.getCase('c-s1').status, 'error')
+		clock.t += 4_000
 		svc.tick()
 		await flush()
-		assert.equal(calls.length, 1) // 30 с ещё не прошло
+		assert.equal(calls.length, 1) // 5 с ещё не прошло
 		clock.t += 1_000
 		svc.tick()
 		await flush()
 		assert.equal(calls.length, 2)
 		assert.equal(jobs(svc)[0]?.attempts, 2)
-		clock.t += 59_000
+		clock.t += 9_000
 		svc.tick()
 		await flush()
-		assert.equal(calls.length, 2) // пауза 60 с
+		assert.equal(calls.length, 2) // пауза 10 с
+		drain = true
 		clock.t += 1_000
 		svc.tick()
 		await flush()
 		assert.equal(calls.length, 3)
-		assert.equal(jobs(svc)[0]?.status, 'queued') // третий провал — не error, пауза 90 с
-		assert.equal(jobs(svc)[0]?.attempts, 3)
-		assert.match(jobs(svc)[0]?.error ?? '', /summary/)
-		assert.notEqual(svc.getCase('c-s1').status, 'error')
-		assert.equal(store.summaries.get('c-s1'), 'старое')
-		clock.t += 89_000
-		svc.tick()
-		await flush()
-		assert.equal(calls.length, 3)
-		clock.t += 1_000
-		svc.tick()
-		await flush()
-		assert.equal(calls.length, 4)
 		assert.equal(jobs(svc)[0]?.status, 'done')
-		assert.equal(store.summaries.get('c-s1'), '# Новый')
+		assert.match(store.summaries.get('c-s1') ?? '', /^# T/)
 	})
 
 	it('ok: false и исключение — тоже провал с текстом', async () => {
 		const svc = make()
 		feed = [msg('s1')]
 		svc.tick()
+		drain = false
 		script = [{ ok: false, text: '', error: 'таймаут' }]
 		svc.runNow('c-s1')
 		await flush()
@@ -226,123 +229,278 @@ describe('LearningService: задания', () => {
 		assert.equal(svc.getCase('c-s1').coveredUntil, 3)
 		feed.push(msg('s1'))
 		svc.onSessionClosed('s1')
-		assert.match(calls[2]?.prompt ?? '', /^final:.*\|1\|# Два$/) // только новые события, прежнее описание ушло в промпт
+		assert.match(calls[2]?.prompt ?? '', /^final:[^|]*\|1\|# T\n## Goal/) // только новые события, прежнее описание ушло в промпт
 		await flush()
 		assert.equal(svc.getCase('c-s1').status, 'ready')
 	})
 
-	it('агент читает по блоку: два задания подряд, курсор доходит до конца', async () => {
+	it('агент принял один блок из трёх и ушёл: coveredUntil — до принятого, продолжение сразу, без паузы; новый агент начинает с ackedUntil', async () => {
 		const svc = make()
-		const total = Math.ceil((PORTION_CHARS / 2000) * 1.5)
-		feed = Array.from({ length: total }, () => msg('s1', 'x'.repeat(2500)))
+		feed = Array.from({ length: 60 }, () => msg('s1', 'x'))
 		svc.tick()
 		drain = false
-		const untils: number[] = []
-		const readOnce = (): Promise<Reply> => {
-			untils.push(svc.caseRead('c-s1', PORTION_CHARS).until)
-			return Promise.resolve({ ok: true, text: GOOD() })
-		}
-		script = [readOnce, readOnce]
+		const firsts: number[] = []
+		script = [
+			() => {
+				firsts.push(submitBlock(svc, 'c-s1').from)
+				return Promise.resolve({ ok: true, text: 'устал' })
+			},
+			() => {
+				firsts.push(submitBlock(svc, 'c-s1').from)
+				submitBlock(svc, 'c-s1')
+				return Promise.resolve({ ok: true, text: 'конец' })
+			},
+		]
 		svc.onSessionClosed('s1')
 		await flush()
+		assert.deepEqual(firsts, [1, 26]) // второй агент не читает принятое заново
 		assert.equal(calls.length, 2)
+		assert.equal(svc.getCase('c-s1').coveredUntil, 60)
+		assert.equal(svc.getCase('c-s1').status, 'ready')
 		assert.equal(jobs(svc).filter(j => j.status === 'done').length, 2)
-		assert.ok((untils[0] ?? 0) < total)
-		assert.equal(untils[1], total)
-		const c = svc.getCase('c-s1')
-		assert.equal(c.coveredUntil, total)
-		assert.equal(c.status, 'ready') // final и всё покрыто — только после последнего блока
 		assert.ok(jobs(svc).every(j => j.kind === 'close'))
 	})
 
-	it('агент не читал ни разу: ответ принят, coveredUntil не двигается, следующее задание с паузой 30 с', async () => {
+	it('полный проход на три блока (25 + 25 + 10): drain сдаёт блоки и --final, кейс ready', async () => {
 		const svc = make()
-		feed = [msg('s1'), msg('s1')]
+		feed = Array.from({ length: 60 }, () => msg('s1', 'x'))
 		svc.tick()
-		drain = false
-		svc.runNow('c-s1')
+		svc.onSessionClosed('s1')
 		await flush()
 		assert.equal(calls.length, 1)
-		assert.equal(store.summaries.get('c-s1'), '# T')
-		assert.equal(svc.getCase('c-s1').coveredUntil, 0)
-		assert.equal(jobs(svc).filter(j => j.status === 'queued').length, 1)
-		clock.t += 29_000
-		svc.tick()
-		await flush()
-		assert.equal(calls.length, 1)
-		clock.t += 1_000
-		svc.tick()
-		await flush()
-		assert.equal(calls.length, 2)
+		const c = svc.getCase('c-s1')
+		assert.equal(c.coveredUntil, 60)
+		assert.equal(c.status, 'ready')
+		assert.match(store.summaries.get('c-s1') ?? '', /\(n 60\)/)
+		assert.equal(jobs(svc)[0]?.status, 'done')
 	})
 
-	it('прочитал не всё: coveredUntil — до прочитанного, остальное в следующем задании', async () => {
+	it('read без принятого описания: 409 summary_required; описание с пропуском события: REJECTED R2; три отказа — провал, чекпоинт сохранён, свежий агент продолжает с принятого', async () => {
 		const svc = make()
-		feed = Array.from({ length: 3 }, () => msg('s1', 'y'.repeat(100)))
+		feed = Array.from({ length: 30 }, () => msg('s1', 'x'))
 		svc.tick()
 		drain = false
+		const failures: string[] = []
 		script = [
 			() => {
-				const b = svc.caseRead('c-s1', 1)
-				assert.equal(b.until, 1)
-				assert.equal(b.done, false)
-				return Promise.resolve({ ok: true, text: GOOD() })
+				assert.throws(() => svc.caseDraft('c-s1', '# x', false), { status: 409, code: 'no_block' })
+				submitBlock(svc, 'c-s1') // блок 1 принят: чекпоинт
+				const b = svc.caseRead('c-s1') // блок 2 выдан
+				assert.equal(b.from, 26)
+				assert.match(b.header, /^BLOCK 2 \(n 26–30\), events 25\/30 acknowledged$/)
+				assert.throws(() => svc.caseRead('c-s1'), { status: 409, code: 'summary_required', message: /^Block n 26–30 has no accepted summary yet\. Submit the updated summary with 'nessy-orch case draft'/ })
+				const full = summaryFor(svc.caseRaw('c-s1', 1, 30), b)
+				const bad = full.split('\n').filter(l => !l.includes('(n 28)')).join('\n')
+				for (let i = 1; i <= 3; i++) {
+					try {
+						svc.caseDraft('c-s1', bad, false)
+					} catch (e) {
+						failures.push(e instanceof Error ? e.message : String(e))
+					}
+				}
+				return Promise.resolve({ ok: true, text: 'не вышло' })
+			},
+			() => {
+				// свежий агент: читает блок 2, а не блок 1
+				const b = svc.caseRead('c-s1')
+				assert.equal(b.from, 26)
+				svc.caseDraft('c-s1', summaryFor(svc.caseRaw('c-s1', 1, 30), b), false)
+				return Promise.resolve({ ok: true, text: 'ок' })
 			},
 		]
 		svc.runNow('c-s1')
 		await flush()
-		assert.equal(svc.getCase('c-s1').coveredUntil, 1)
-		assert.equal(jobs(svc).filter(j => j.status === 'queued').length, 1)
+		assert.equal(failures.length, 3)
+		assert.match(failures[0] ?? '', /^REJECTED \(attempt 1\/3\): R2: coverage: events n 28 /)
+		assert.match(failures[0] ?? '', /Fix only the listed items\. Do not resubmit until all checks pass\.$/)
+		assert.match(failures[2] ?? '', /^REJECTED \(attempt 3\/3\)/)
+		assert.equal(jobs(svc)[0]?.attempts, 1)
+		assert.match(jobs(svc)[0]?.error ?? '', /3 rejected drafts/)
+		assert.equal(svc.getCase('c-s1').coveredUntil, 25) // чекпоинт блока 1 сохранён
+		assert.match(store.summaries.get('c-s1') ?? '', /\(n 25\)/)
+		clock.t += 5_000
+		svc.tick()
+		await flush()
+		assert.equal(calls.length, 2)
+		assert.equal(jobs(svc)[0]?.status, 'done')
+		assert.equal(svc.getCase('c-s1').coveredUntil, 30)
 	})
 
-	it('после успеха draft.md удалён, при старте задания тоже; read/draft публикуют learning_job с progress', async () => {
+	/** упрямый агент: читает блок и три раза сдаёт мусор; сообщения гейта складываются в `msgs` */
+	const stubborn = (svc: LearningService, msgs: string[], text = '# x'): (() => Promise<Reply>) => () => {
+		svc.caseRead('c-s1')
+		for (let i = 0; i < 3; i++) {
+			try {
+				msgs.push(svc.caseDraft('c-s1', text, false).message)
+			} catch (e) {
+				msgs.push(e instanceof Error ? e.message : String(e))
+			}
+		}
+		return Promise.resolve({ ok: true, text: 'не вышло' })
+	}
+
+	it('лестница смягчения: упрямец проходит блок не более чем за 3 задания; на последней ступени сервер сам описывает блок (auto), счётчик сбрасывается', async () => {
 		const svc = make()
-		feed = Array.from({ length: 4 }, () => msg('s1', 'z'.repeat(50)))
+		feed = [msg('s1', 'a1'), msg('s1', 'b2'), msg('s1', 'c3')]
+		svc.tick()
+		drain = false
+		const msgs: string[] = []
+		script = [stubborn(svc, msgs), stubborn(svc, msgs), stubborn(svc, msgs)]
+		svc.runNow('c-s1')
+		await flush()
+		assert.equal(svc.getCase('c-s1').blockFails?.fails, 1)
+		assert.equal(svc.getCase('c-s1').coveredUntil, 0)
+		for (let i = 0; i < 2; i++) {
+			clock.t += 130_000
+			svc.tick()
+			await flush()
+		}
+		assert.equal(calls.length, 3)
+		assert.match(msgs[0] ?? '', /^REJECTED \(attempt 1\/3\)/)
+		assert.match(msgs[2] ?? '', /^REJECTED \(attempt 3\/3\).*Attempt limit reached/)
+		assert.match(msgs[5] ?? '', /^REJECTED \(attempt 3\/3\)/)
+		// третье задание: первая же сдача принимается
+		assert.match(msgs[6] ?? '', /^ACCEPTED \(gate waived after repeated rejections: description built by the server, marked \(auto\)\): block n 1–3 closed/)
+		const c = svc.getCase('c-s1')
+		assert.equal(c.coveredUntil, 3)
+		assert.equal(c.blockFails?.fails, 0)
+		assert.match(store.summaries.get('c-s1') ?? '', /- \(auto\) \[1\] task .*: a1 \(n 1\)/)
+		assert.equal(jobs(svc).filter(j => j.status === 'done').length, 1)
+	})
+
+	it('лестница: после одного исчерпания R4/R6/R7 — предупреждения (ACCEPTED with warnings), прочие правила жёстки; принятие сбрасывает счётчик', async () => {
+		const svc = make()
+		feed = Array.from({ length: 12 }, () => msg('s1', 'x'))
+		svc.tick()
+		drain = false
+		const msgs: string[] = []
+		const sparse = (): string => {
+			const b = svc.caseRead('c-s1')
+			const full = summaryFor(svc.caseRaw('c-s1', 1, b.until), b)
+			return full.split('\n').filter(l => !/^- task step/.test(l)).join('\n').replace('### Actions', '### Actions\n- everything (n 1–12)')
+		}
+		script = [
+			stubborn(svc, msgs),
+			() => {
+				const text = sparse()
+				// R4 (мало пунктов) на ступени 1 — предупреждение; R9 по-прежнему жёсткое
+				assert.throws(() => svc.caseDraft('c-s1', '# x\n' + text.split('\n').slice(1).join('\n').replace('### Skipped', '### Nope'), false), { code: 'rejected' })
+				msgs.push(svc.caseDraft('c-s1', text, false).message)
+				return Promise.resolve({ ok: true, text: '' })
+			},
+		]
+		svc.runNow('c-s1')
+		await flush()
+		assert.equal(svc.getCase('c-s1').blockFails?.fails, 1)
+		clock.t += 130_000
+		svc.tick()
+		await flush()
+		assert.match(msgs[3] ?? '', /^ACCEPTED with warnings: R4: density: 1 anchored items/)
+		assert.equal(svc.getCase('c-s1').coveredUntil, 12)
+		assert.equal(svc.getCase('c-s1').blockFails?.fails, 0)
+	})
+
+	it('ступень ≥ 2: прошёл только каркас (R1, R3, R9) — блок принят, непокрытые события сервер дописывает в ### Skipped', async () => {
+		const svc = make()
+		feed = Array.from({ length: 6 }, () => msg('s1', 'x'))
+		svc.tick()
+		drain = false
+		const c = svc.getCase('c-s1')
+		store.saveCase({ ...c, blockFails: { from: 1, fails: 2 } })
+		const svc2 = make()
+		let got = ''
+		script = [
+			() => {
+				const b = svc2.caseRead('c-s1')
+				const text = summaryFor(svc2.caseRaw('c-s1', 1, b.until), b).replace(/^- task step.*\(n [2-6]\)$/gm, '')
+				got = svc2.caseDraft('c-s1', text, false).message
+				return Promise.resolve({ ok: true, text: '' })
+			},
+		]
+		svc2.runNow('c-s1')
+		await flush()
+		assert.match(got, /^ACCEPTED \(gate waived after repeated rejections\): block n 1–6 closed/)
+		assert.match(store.summaries.get('c-s1') ?? '', /### Skipped\n- n 2–6 — not summarized \(gate waived after repeated rejections\)/)
+	})
+
+	it('--final только после done; после done обычный draft — 409 no_block; итог сохраняет сервер, задание завершается без ответа агента', async () => {
+		const svc = make()
+		feed = [msg('s1', 'x'), msg('s1', 'y')]
+		svc.tick()
+		drain = false
+		script = [
+			() => {
+				assert.throws(() => svc.caseDraft('c-s1', '# x', true), { status: 409, code: 'not_done' })
+				const b = submitBlock(svc, 'c-s1')
+				assert.equal(b.done, false)
+				const d = svc.caseRead('c-s1')
+				assert.equal(d.done, true)
+				assert.match(d.card, /case draft --final/)
+				assert.throws(() => svc.caseDraft('c-s1', summaryFor(svc.caseRaw('c-s1', 1, 2), b), false), { status: 409, code: 'no_block' })
+				const r = svc.caseDraft('c-s1', svc.getCaseDetail('c-s1').summary, true)
+				assert.equal(r.final, true)
+				return Promise.resolve({ ok: true, text: '' })
+			},
+		]
+		svc.runNow('c-s1')
+		await flush()
+		assert.equal(jobs(svc)[0]?.status, 'done')
+		assert.equal(svc.getCase('c-s1').coveredUntil, 2)
+	})
+
+	it('draft.md очищается при старте и в конце; read/draft публикуют learning_job с progress и phase (reading ↔ summarizing)', async () => {
+		const svc = make()
+		feed = Array.from({ length: 30 }, () => msg('s1', 'z'.repeat(50)))
 		svc.tick()
 		store.drafts.set('c-s1', 'старый черновик')
 		drain = false
-		const seen: Array<{ read: number; total: number } | null> = []
+		const seen: Array<[{ read: number; total: number } | null, string | null | undefined]> = []
 		script = [
 			() => {
 				assert.equal(store.drafts.has('c-s1'), false) // старый черновик убран при старте
 				events.length = 0
-				svc.caseRead('c-s1', 1)
-				svc.setCaseDraft('c-s1', '# draft')
-				for (const e of events) if (e.t === 'learning_job') seen.push(e.job.progress)
-				assert.equal(svc.getCaseDetail('c-s1').draft, '# draft')
-				assert.deepEqual(svc.getCaseDetail('c-s1').progress, { read: 1, total: 4 })
+				const b = svc.caseRead('c-s1')
+				assert.equal(jobs(svc)[0]?.phase, 'summarizing')
+				svc.caseDraft('c-s1', summaryFor(svc.caseRaw('c-s1', 1, b.until), b), false)
+				for (const e of events) if (e.t === 'learning_job') seen.push([e.job.progress, e.job.phase])
+				assert.equal(jobs(svc)[0]?.phase, 'reading')
+				assert.deepEqual(svc.getCaseDetail('c-s1').progress, { read: 25, total: 30 })
+				assert.match(svc.getCaseDetail('c-s1').draft, /^# T/)
 				drainReads(svc)
-				return Promise.resolve({ ok: true, text: GOOD() })
+				return Promise.resolve({ ok: true, text: 'x' })
 			},
 		]
 		svc.runNow('c-s1')
 		await flush()
-		assert.deepEqual(seen, [{ read: 1, total: 4 }, { read: 1, total: 4 }])
+		assert.deepEqual(seen[0], [{ read: 0, total: 30 }, 'summarizing'])
+		assert.deepEqual(seen.at(-1), [{ read: 25, total: 30 }, 'reading'])
 		assert.equal(store.drafts.has('c-s1'), false)
-		assert.equal(svc.getCaseDetail('c-s1').draft, '')
 		assert.equal(svc.getCaseDetail('c-s1').progress, null)
-		assert.equal(svc.getCase('c-s1').coveredUntil, 4)
+		assert.equal(svc.getCase('c-s1').coveredUntil, 30)
+		// служебное состояние протокола наружу не отдаётся
+		assert.equal('protocol' in (svc.view().jobs[0] ?? {}), false)
 	})
 
-	it('caseRead: блоки по порядку, done и пустой text в конце; без идущего задания — 409 no_job', async () => {
+	it('блок: не больше 25 событий и 12 000 знаков, одно событие берётся всегда; без идущего задания — 409 no_job', async () => {
 		const svc = make()
-		feed = Array.from({ length: 3 }, (_, i) => msg('s1', `событие ${i}`))
+		feed = Array.from({ length: 6 }, () => msg('s1', 'ab '.repeat(666).trim()))
 		svc.tick()
 		assert.throws(() => svc.caseRead('c-s1'), { status: 409, code: 'no_job' })
 		drain = false
-		let blocks: Array<ReturnType<typeof svc.caseRead>> = []
+		const got: number[][] = []
 		script = [
 			() => {
-				blocks = [svc.caseRead('c-s1', 1), svc.caseRead('c-s1', 1), svc.caseRead('c-s1'), svc.caseRead('c-s1')]
-				return Promise.resolve({ ok: true, text: GOOD() })
+				for (let i = 0; i < 2; i++) {
+					const b = svc.caseRead('c-s1')
+					got.push([b.from, b.until, b.remaining])
+					svc.caseDraft('c-s1', summaryFor(svc.caseRaw('c-s1', 1, b.until), b), false)
+				}
+				return Promise.resolve({ ok: true, text: '' })
 			},
 		]
 		svc.runNow('c-s1')
 		await flush()
-		assert.deepEqual(blocks.map(b => [b.from, b.until, b.remaining, b.done]), [[1, 1, 2, false], [2, 2, 1, false], [3, 3, 0, true], [0, 3, 0, true]])
-		assert.equal(blocks[3]?.text, '')
-		assert.match(blocks[0]?.text ?? '', /^\[1\] /)
-		assert.equal(blocks[0]?.total, 3)
+		assert.deepEqual(got, [[1, 5, 1], [6, 6, 0]])
 	})
 
 	it('название агента и заголовок — название последней сессии цепочки; нет сессии — заголовок кейса', async () => {
@@ -354,6 +512,40 @@ describe('LearningService: задания', () => {
 		await flush()
 		assert.equal(calls[0]?.name, 'session-reliz-paketa-2')
 		assert.equal(calls[0].title, 'Релиз пакета 2')
+	})
+
+	it('название кейса = название сессии: при заведении и при переименовании на тике; <meta> и правка описания его не меняют', async () => {
+		sessions = [session('s1', { title: 'Первое название' })]
+		const svc = make()
+		feed = [msg('s1')]
+		svc.tick()
+		assert.equal(svc.getCase('c-s1').title, 'Первое название')
+		events.length = 0
+		// Claude переименовал чат (PATCH /sessions/:id {title}): кейс подхватывает без новых событий
+		sessions = [session('s1', { title: 'Новое название' })]
+		svc.tick()
+		assert.equal(svc.getCase('c-s1').title, 'Новое название')
+		assert.ok(events.some(e => e.t === 'learning_case' && e.case.title === 'Новое название'))
+		// сборщик ответил с title в <meta>: название не меняется
+		svc.runNow('c-s1')
+		await flush()
+		assert.equal(svc.getCase('c-s1').title, 'Новое название')
+		assert.equal(calls[calls.length - 1]?.title, 'Новое название')
+		// пустое название сессии — прежнее остаётся
+		sessions = [session('s1', { title: '  ' })]
+		svc.tick()
+		assert.equal(svc.getCase('c-s1').title, 'Новое название')
+	})
+
+	it('промпт сборщика получает название сессии через {{session_title}}', async () => {
+		store.prompts.set('session-collector', 'T={{session_title}}')
+		sessions = [session('s1', { title: 'Релиз пакета 2' })]
+		const svc = make()
+		feed = [msg('s1')]
+		svc.tick()
+		svc.runNow('c-s1')
+		await flush()
+		assert.equal(calls[0]?.prompt, 'T=Релиз пакета 2')
 	})
 
 	it('maxAgents: 2, три кейса — третий ждёт queued, пока не освободится место', async () => {
@@ -433,6 +625,7 @@ describe('LearningService: задания', () => {
 		setSettings({ enabled: false })
 		feed.push(msg('s1'))
 		clock.t += 40 * 60_000
+		svc.touchJob('c-s1') // агент жив (читает блоки): сторож задание не снимает
 		svc.tick()
 		svc.onSessionClosed('s2')
 		assert.equal(jobs(svc).length, 1)
@@ -481,6 +674,7 @@ describe('LearningService: задания', () => {
 		feed = [msg('s1')]
 		svc.tick()
 		const bad: Reply = { ok: false, text: '', error: 'сбой' }
+		drain = false
 		script = [bad, bad, bad, bad]
 		svc.onSessionClosed('s1')
 		for (let i = 0; i < 3; i++) {

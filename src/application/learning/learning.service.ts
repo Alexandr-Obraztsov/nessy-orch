@@ -1,11 +1,10 @@
-import type { CaseImpact, CaseReadBlock, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookPatch, PlaybookStatus, PlaybookView } from '../../../shared/types'
+import type { CaseDraftResult, CaseImpact, CaseReadBlock, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookPatch, PlaybookStatus, PlaybookView } from '../../../shared/types'
 import type { CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message, RawEvent, SessionView } from '../../../shared/types'
 import { createHash } from 'node:crypto'
 import { AppError } from '../../domain/errors'
 import { parseSummaryHeads } from '../../domain/collector'
 import { decide } from '../../domain/learning-schedule'
-import { renderPortion } from '../../domain/case-events'
-import { PORTION_CHARS, parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
+import { COOLDOWN_MS, JOB_STALL_MS, TICK_DEBOUNCE_MS, parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
 import { onCaseReady } from './case-ready'
 import { buildHandler } from './build.handler'
@@ -21,6 +20,7 @@ import { approvePlaybook, meanCorrections, rejectPlaybook, reviewHandler } from 
 import type { HintHost, JobContext, JobHandler } from './handlers.types'
 import { JobQueue } from './job-queue'
 import { PlaybookService, playbookView } from './playbook.service'
+import { ReadProtocol, protocolPhase, protocolProgress } from './read-protocol'
 import type { CaseState, EnqueueOpts, FailedBuild, JobState, LearningDeps, LearningMeta, TranscriptCursor } from './learning.types'
 import { recount } from '../../domain/rule-counters'
 
@@ -52,16 +52,29 @@ const toView = (c: CaseState): CaseView => ({
 })
 
 /** Фоновое обучение: события сессий (с учётом цепочки `/clear`) собираются в кейсы, кейсам назначаются задания. */
+/** Сколько задание может молчать: сборщик сессии (читает блоками и сдаёт саммари) — `JOB_STALL_MS`; сборка плейбука, ревью и прочие долгие работы одним ходом — втрое дольше. */
+const stallMs = (j: { kind: string }): number => (j.kind === 'collect' || j.kind === 'close' ? JOB_STALL_MS : JOB_STALL_MS * 3)
+
 export class LearningService {
 	private readonly cases = new Map<string, CaseState>()
 	private settings: LearningSettings
 	private settingsMtime = -1
 	private loaded = false
 	private readonly queue: JobQueue
+	/** протокол чтения сборщика (создаётся при первом обращении) */
+	private readProtocol: ReadProtocol | null = null
 	private stopped = false
 	private pumping = false
 	private ticker: NodeJS.Timeout | null = null
 	private wake: NodeJS.Timeout | null = null
+	/** отложенный `tick` по событию шины (окно `TICK_DEBOUNCE_MS`) */
+	private tickSoon: NodeJS.Timeout | null = null
+	/** `tick` к моменту, когда у кейса с необработанными событиями кончится пауза `COOLDOWN_MS` */
+	private tickDue: { at: number; timer: NodeJS.Timeout } | null = null
+	private unsubscribe: (() => void) | null = null
+	/** поколение запуска задания: сторож или остановка меняют его, и поздние итоги прежнего запуска игнорируются */
+	private readonly runGen = new Map<string, number>()
+	private genSeq = 0
 	/** идущие исполнения заданий: `stop()` ждёт их */
 	private readonly inflight = new Set<Promise<void>>()
 	/** задания, прерванные `stop()`: их поздние итоги игнорируются */
@@ -141,6 +154,12 @@ export class LearningService {
 	start(): void {
 		this.stopped = false
 		this.pump()
+		// новое сообщение или сессия — `tick` через `TICK_DEBOUNCE_MS`, не дожидаясь опроса (он остался подстраховкой)
+		if (this.deps.tickMs > 0 && !this.unsubscribe) {
+			this.unsubscribe = this.deps.hub.subscribe(e => {
+				if (e.t === 'session' || (e.t === 'message' && this.deps.host.sessionOfMessage(e.message) !== null)) this.requestTick()
+			})
+		}
 		if (this.deps.tickMs > 0 && !this.ticker) {
 			this.ticker = setInterval(() => {
 				try {
@@ -158,8 +177,14 @@ export class LearningService {
 		this.stopped = true
 		if (this.ticker) clearInterval(this.ticker)
 		if (this.wake) clearTimeout(this.wake)
+		if (this.tickSoon) clearTimeout(this.tickSoon)
+		if (this.tickDue) clearTimeout(this.tickDue.timer)
+		this.unsubscribe?.()
 		this.ticker = null
 		this.wake = null
+		this.tickSoon = null
+		this.tickDue = null
+		this.unsubscribe = null
 		if (!this.inflight.size) return
 		let timer: NodeJS.Timeout | undefined
 		const limit = new Promise<void>(resolve => {
@@ -312,36 +337,60 @@ export class LearningService {
 		return this.queue.running().find(j => j.caseId === caseId && (j.kind === 'collect' || j.kind === 'close'))
 	}
 
-	/** Прогресс чтения: `read` — события от `coveredUntil` до указателя, `total` — все события после `coveredUntil`. */
+	/** Прогресс сбора: `read` — принятые события идущего задания, `total` — события к обработке на старте задания. */
 	private progressOf(caseId: string): { read: number; total: number } | null {
 		const job = this.collecting(caseId)
-		const c = this.cases.get(caseId)
-		if (!job || !c) return null
-		const events = this.deps.store.readRaw(caseId, c.coveredUntil + 1)
-		const until = job.readUntil ?? null
-		return { read: until === null ? 0 : events.filter(e => e.n <= until).length, total: events.length }
+		return job ? protocolProgress(job) : null
 	}
 
 	private jobView(j: JobState): JobView {
-		return this.queue.toView(j, j.status === 'running' && (j.kind === 'collect' || j.kind === 'close') ? this.progressOf(j.caseId) : null)
+		const collect = j.status === 'running' && (j.kind === 'collect' || j.kind === 'close')
+		const view: JobView & { protocol?: unknown } = { ...this.queue.toView(j, collect ? protocolProgress(j) : null, this.waitingOf(j)), phase: protocolPhase(j) }
+		// служебное состояние протокола наружу не отдаётся
+		delete view.protocol
+		return view
+	}
+
+	/** Чего ждёт `queued` кроме слота: паузу повтора (`retry`) или замок (`lock`); готовое к запуску — null. */
+	private waitingOf(j: JobState): JobView['waiting'] {
+		if (j.status !== 'queued') return null
+		if (j.retryAt !== null && j.retryAt > this.deps.clock.now()) return 'retry'
+		if (this.isWaiting(j) || this.queue.running().some(r => r.subject === j.subject)) return 'lock'
+		return null
 	}
 
 	/**
-	 * Следующий блок событий кейса для агента-сборщика: после указателя чтения идущего задания
-	 * (старт — `coveredUntil + 1`), одно событие берётся всегда; нет идущего задания — 409 `no_job`.
+	 * Активность идущего задания объекта (кейса `c-…`, плейбука и т. п.): сбрасывает сторожевой таймер.
+	 * Зовут маршруты `read`/`draft` сборщика; нет идущего задания — ничего не делает.
 	 */
-	caseRead(id: string, maxChars: number = PORTION_CHARS): CaseReadBlock {
-		const c = this.getCase(id)
-		const job = this.collecting(id)
-		if (!job) throw new AppError(409, 'no_job', `по кейсу ${id} нет идущего задания сбора`)
-		const all = this.deps.store.readRaw(id, c.coveredUntil + 1)
-		const from = (job.readUntil ?? c.coveredUntil) + 1
-		const rest = all.filter(e => e.n >= from)
-		const portion = rest.length ? renderPortion(rest, maxChars) : null
-		if (portion) job.readUntil = portion.until
-		const remaining = portion ? rest.filter(e => e.n > portion.until).length : 0
-		this.jobsChanged(job)
-		return { text: portion?.text ?? '', from: portion?.from ?? 0, until: portion?.until ?? job.readUntil ?? c.coveredUntil, total: all.length, remaining, done: remaining === 0 }
+	touchJob(subjectOrCaseId: string): void {
+		for (const j of this.queue.running()) if (j.subject === subjectOrCaseId || j.caseId === subjectOrCaseId) this.queue.touch(j.id)
+	}
+
+	/** Строгий протокол чтения (`case read` / `case draft`). */
+	private proto(): ReadProtocol {
+		this.readProtocol ??= new ReadProtocol({
+			getCase: id => this.getCase(id),
+			collecting: id => this.collecting(id),
+			readRaw: (id, from, to) => this.deps.store.readRaw(id, from, to),
+			readSummary: id => this.deps.store.readSummary(id),
+			writeSummary: (id, text) => this.deps.store.writeSummary(id, text),
+			writeDraft: (id, text) => this.deps.store.writeDraft(id, text),
+			update: c => this.update(c),
+			changed: job => this.jobsChanged(job),
+			touch: id => this.touchJob(id),
+			cancelAgent: agentId => void this.deps.host.cancelAgent(agentId).catch(() => undefined),
+			now: () => this.deps.clock.now(),
+		})
+		return this.readProtocol
+	}
+
+	/**
+	 * Следующий блок событий кейса для агента-сборщика (≤ 25 событий и ≤ 12 000 знаков): пока описание выданного блока
+	 * не принято — 409 `summary_required`; нет идущего задания — 409 `no_job`; все блоки приняты — `done`.
+	 */
+	caseRead(id: string): CaseReadBlock {
+		return this.proto().read(id)
 	}
 
 	/** Агент — сборщик идущего задания кейса; иначе 403 `not_collector`. */
@@ -350,12 +399,12 @@ export class LearningService {
 		if (this.collecting(caseId)?.agentId !== agentId) throw new AppError(403, 'not_collector', `агент ${agentId} не собирает кейс ${caseId}`)
 	}
 
-	/** Черновик описания от агента-сборщика (`draft.md`); публикуется `learning_job` с прогрессом. */
-	setCaseDraft(id: string, text: string): void {
-		this.getCase(id)
-		if (!this.deps.store.writeDraft(id, text)) throw new AppError(500, 'write_failed', 'не удалось записать draft.md')
-		const job = this.collecting(id)
-		if (job) this.jobsChanged(job)
+	/**
+	 * Описание за выданный блок (`final` — итоговая консолидация после `done`) от агента-сборщика: проверки R1–R9,
+	 * принято — `summary.md` и `coveredUntil` обновлены сразу; отказ — 422 `rejected` со всеми нарушениями.
+	 */
+	caseDraft(id: string, text: string, final = false): CaseDraftResult {
+		return this.proto().draft(id, text, final)
 	}
 
 	// ---------- плейбуки, журнал, заметки и чат (API) ----------
@@ -612,10 +661,55 @@ export class LearningService {
 	/** Синхронно: собирает события всех цепочек, затем принимает решения. Ленту читает один раз за тик. */
 	tick(): void {
 		this.readSettings()
+		this.checkStalls()
 		// уже поставленные задания (повторы, ручные) идут и при выключенном обучении
 		this.pump()
 		if (!this.settings.enabled) return
 		this.decay()
+		this.scheduleTickAt(this.scan())
+	}
+
+	/**
+	 * Отложенный `tick` (окно `TICK_DEBOUNCE_MS`): события шины и конец задания не плодят тиков.
+	 * Без опроса (`tickMs` 0) не работает: тесты и вызывающий ведут `tick` сами.
+	 */
+	private requestTick(): void {
+		if (this.stopped || this.deps.tickMs <= 0 || this.tickSoon) return
+		this.tickSoon = setTimeout(() => {
+			this.tickSoon = null
+			if (this.stopped) return
+			try {
+				this.tick()
+			} catch {
+				/* сбой не должен ронять сервер */
+			}
+		}, TICK_DEBOUNCE_MS)
+		this.tickSoon.unref()
+	}
+
+	/** `tick` в момент `at` (конец паузы сбора); раньше уже назначенного не откладывает. */
+	private scheduleTickAt(at: number | null): void {
+		if (this.stopped || this.deps.tickMs <= 0) return
+		if (this.tickDue && (at === null || this.tickDue.at <= at)) return
+		if (this.tickDue) clearTimeout(this.tickDue.timer)
+		this.tickDue = null
+		if (at === null) return
+		const timer = setTimeout(() => {
+			this.tickDue = null
+			if (this.stopped) return
+			try {
+				this.tick()
+			} catch {
+				/* сбой не должен ронять сервер */
+			}
+		}, Math.max(0, at - this.deps.clock.now()))
+		timer.unref()
+		this.tickDue = { at, timer }
+	}
+
+	/** Просмотр цепочек и решения по кейсам; возвращает ближайший момент, когда кончится пауза сбора (или null). */
+	private scan(): number | null {
+		let due: number | null = null
 		const { host, clock } = this.deps
 		const sessions = host.sessions()
 		const byId = new Map(sessions.map(s => [s.id, s]))
@@ -634,7 +728,7 @@ export class LearningService {
 			if (c) items.push({ root, chain, from: c.feedSeq })
 			else if (this.isFresh(chain, byId)) items.push({ root, chain, from: Math.max(this.scanned.get(root) ?? 0, this.meta.startSeq) })
 		}
-		if (!items.length) return
+		if (!items.length) return null
 		const messages = host.messagesSince(Math.min(...items.map(i => i.from)))
 		const top = messages.reduce((max, m) => Math.max(max, m.seq), 0)
 		const now = clock.now()
@@ -649,14 +743,22 @@ export class LearningService {
 			if (c.status === 'error') continue
 			const pending = c.events - c.coveredUntil
 			const action = decide({ status: c.status, pending, lastRunAt: c.lastRunAt, lastEventAt: c.lastEventAt, busy: host.isBusy(chain), hasJob: this.hasJob(c.id) }, now, this.settings)
+			if (action === 'none' && pending > 0 && !this.hasJob(c.id) && now - c.lastRunAt < COOLDOWN_MS) {
+				const at = c.lastRunAt + COOLDOWN_MS
+				due = due === null ? at : Math.min(due, at)
+			}
 			if (action === 'collect') {
 				// закрытый кейс получил события: сессия вернулась
 				if (c.status === 'ready') this.update({ ...c, status: 'collecting', closedAt: null, updatedAt: new Date(now).toISOString() })
 				this.request('collect', c.id, false)
 			} else if (action === 'close') {
 				this.request('close', c.id, true)
+			} else if (c.status === 'closing' && !this.hasJob(c.id)) {
+				// `closing` без задания закрытия (потеряно при отмене или сбое) — самолечение: обратно в сбор
+				this.reopenClosing(c.id)
 			}
 		}
+		return due
 	}
 
 	/** Новые события одной цепочки: лента (только сообщения сессий цепочки) и транскрипты. Возвращает кейс цепочки (если есть). */
@@ -684,7 +786,7 @@ export class LearningService {
 			nextN: 1,
 			lastEventAt: 0,
 			rootId: root,
-			// новый кейс первый раз собирается по интервалу или по 15 событиям, а не сразу
+			// начало кейса — точка отсчёта паузы `COOLDOWN_MS`: всплеск первых событий уходит в один первый сбор
 			lastRunAt: now,
 			nessyCalls: false,
 			hinted: [],
@@ -861,11 +963,12 @@ export class LearningService {
 	private jobsChanged(job: JobState): void {
 		this.deps.store.saveJobs(this.queue.list())
 		this.deps.hub.publish({ t: 'learning_job', job: this.jobView(job) })
+		for (const merged of this.queue.takeAbsorbed()) this.deps.hub.publish({ t: 'learning_job', job: this.jobView(merged) })
 	}
 
 	/**
-	 * Насос: пока есть место (`maxAgents`) и готовое задание — запускает.
-	 * Повторы с `retryAt` будит таймер на ближайший срок (unref) и каждый `tick`.
+	 * Насос: пока есть место (`maxAgents`) и готовое задание — запускает, синхронно и сразу (из `enqueue`, конца задания, смены настроек).
+	 * Повторы с `retryAt` и сторожевые сроки будит таймер на ближайший срок (unref) и каждый `tick`.
 	 */
 	private pump(): void {
 		if (this.stopped || this.pumping) return
@@ -883,45 +986,87 @@ export class LearningService {
 		this.scheduleWake()
 	}
 
+	/** Таймер на ближайший срок: конец паузы повтора или истечение сторожа идущего задания. */
 	private scheduleWake(): void {
 		if (this.wake) clearTimeout(this.wake)
 		this.wake = null
 		if (this.stopped) return
 		const now = this.deps.clock.now()
-		const due = this.queue.list().flatMap(j => (j.status === 'queued' && j.retryAt !== null && j.retryAt > now ? [j.retryAt] : []))
+		const due = this.queue.list().flatMap(j => {
+			if (j.status === 'queued' && j.retryAt !== null && j.retryAt > now) return [j.retryAt]
+			if (j.status === 'running') return [(j.activityAt ?? now) + stallMs(j)]
+			return []
+		})
 		if (!due.length) return
 		this.wake = setTimeout(() => {
 			this.wake = null
+			this.checkStalls()
 			this.pump()
-		}, Math.min(...due) - now)
+		}, Math.max(0, Math.min(...due) - now))
 		this.wake.unref()
+	}
+
+	/** Сторож: идущие задания без активности `JOB_STALL_MS` снимаются. */
+	private checkStalls(): void {
+		const now = this.deps.clock.now()
+		for (const j of this.queue.running()) {
+			if (j.activityAt === undefined || j.activityAt === null) j.activityAt = now
+			else if (now - j.activityAt >= stallMs(j)) this.stall(j)
+		}
+	}
+
+	/**
+	 * Зависшее задание: агент отменяется, итог прежнего запуска игнорируется, слот свободен;
+	 * задание — провал (попытка++, пауза), а остановленное пользователем — `done`.
+	 */
+	private stall(job: JobState): void {
+		this.runGen.delete(job.id)
+		if (job.agentId) void this.deps.host.cancelAgent(job.agentId).catch(() => undefined)
+		if (this.cancelled.has(job.id)) return this.finishCancelled(job)
+		this.failNow(job, `нет активности ${Math.round(stallMs(job) / 60_000)} мин: агент снят`)
 	}
 
 	private launch(queued: JobState): void {
 		const job = this.queue.start(queued.id, null)
-		const c = this.cases.get(job.caseId)
-		if (c && job.kind === 'close' && c.status !== 'closing') this.update({ ...c, status: 'closing', updatedAt: new Date(this.deps.clock.now()).toISOString() })
-		this.jobsChanged(job)
-		const run = this.execute(job)
-			.catch((e: unknown) => this.fail(job, e instanceof Error ? e.message : String(e)))
+		const gen = ++this.genSeq
+		this.runGen.set(job.id, gen)
+		try {
+			const c = this.cases.get(job.caseId)
+			if (c && job.kind === 'close' && c.status !== 'closing') this.update({ ...c, status: 'closing', updatedAt: new Date(this.deps.clock.now()).toISOString() })
+			this.jobsChanged(job)
+		} catch {
+			/* запись на диск не удалась: задание всё равно идёт, иначе слот завис бы в `running` без исполнителя */
+		}
+		const run = this.execute(job, gen)
+			.catch((e: unknown) => this.fail(job, e instanceof Error ? e.message : String(e), gen))
 			.finally(() => {
 				this.inflight.delete(run)
+				if (this.runGen.get(job.id) === gen) this.runGen.delete(job.id)
 				this.pump()
+				// конец запуска сдвигает `lastRunAt`: события, пришедшие за время работы, не ждут опроса
+				this.requestTick()
 			})
 		this.inflight.add(run)
 	}
 
+	private isStale(job: JobState, gen: number): boolean {
+		return this.runGen.get(job.id) !== gen
+	}
+
 	/** Исполнение задания обработчиком своего вида; исключение — провал, нет обработчика — окончательный провал без повторов. */
-	private async execute(job: JobState): Promise<void> {
+	private async execute(job: JobState, gen: number): Promise<void> {
 		const handler = this.handlers.get(job.kind)
-		if (!handler) return this.fail(job, `нет обработчика задания ${job.kind}`)
+		if (!handler) return this.fail(job, `нет обработчика задания ${job.kind}`, gen)
 		try {
-			await handler.run(this.context(job))
+			await handler.run(this.context(job, gen))
 		} catch (e) {
+			// сторож уже снял этот запуск: поздний итог игнорируется
+			if (this.isStale(job, gen)) return
 			// остановка пользователем: обработчик бросил отмену агента — это не провал
 			if (this.cancelled.has(job.id)) return this.finishCancelled(job)
 			throw e
 		}
+		if (this.isStale(job, gen)) return
 		if (this.interrupted.has(job.id)) return
 		if (this.cancelled.has(job.id)) return this.finishCancelled(job)
 		// обработчик мог завершить задание сам (сбор: до постановки следующего)
@@ -943,7 +1088,7 @@ export class LearningService {
 		this.jobsChanged(job)
 	}
 
-	private context(job: JobState): JobContext {
+	private context(job: JobState, gen: number): JobContext {
 		const { store, host, clock } = this.deps
 		// порядковый номер вызова агента в задании: несколько агентов не затирают ответы друг друга
 		let calls = 0
@@ -953,6 +1098,8 @@ export class LearningService {
 			settings: () => this.settings,
 			runAgent: async (name, title, prompt) => {
 				if (this.cancelled.has(job.id)) throw new Error(CANCELLED)
+				// новый вызов агента — активность (сторожевой таймер считается от него)
+				this.queue.touch(job.id)
 				job.title = title
 				const res = await host.runAgent({
 					name,
@@ -960,11 +1107,14 @@ export class LearningService {
 					prompt,
 					// id агента известен сразу: «Остановить» и живой чат в приложении работают, пока агент идёт
 					onSpawn: agentId => {
+						if (this.isStale(job, gen)) return void host.cancelAgent(agentId).catch(() => undefined)
 						job.agentId = agentId
+						this.queue.touch(job.id)
 						this.jobsChanged(job)
 						if (this.interrupted.has(job.id) || this.cancelled.has(job.id)) void host.cancelAgent(agentId).catch(() => undefined)
 					},
 				})
+				if (this.isStale(job, gen)) throw new Error('снято сторожем')
 				job.agentId = res.agentId
 				// агент после ответа удаляется: ответ остаётся в runs/ (см. `LearningStorePort.writeRun`)
 				// остановлено пользователем: ответ не пишется
@@ -994,15 +1144,26 @@ export class LearningService {
 			hints: this.hints,
 			enqueue: (kind, subject, opts) => void this.enqueue(kind, subject, opts),
 			chat: (subject, text, changes) => void this.addChat(subject, 'agent', text, changes),
-			finish: note => this.finishJob(job, note),
-			changed: () => this.jobsChanged(job),
+			finish: note => {
+				if (!this.isStale(job, gen)) this.finishJob(job, note)
+			},
+			changed: () => {
+				if (this.isStale(job, gen)) return
+				this.queue.touch(job.id)
+				this.jobsChanged(job)
+			},
 		}
 	}
 
-	/** Провал: задание снова в очереди с растущей паузой (до 10 мин), кейс в `error` не переходит. */
-	private fail(job: JobState, error: string): void {
-		if (this.interrupted.has(job.id)) return
+	/** Провал запуска `gen`: поздний итог снятого сторожем запуска игнорируется. */
+	private fail(job: JobState, error: string, gen: number): void {
+		if (this.interrupted.has(job.id) || this.isStale(job, gen)) return
 		if (this.cancelled.has(job.id)) return this.finishCancelled(job)
+		this.failNow(job, error)
+	}
+
+	/** Задание снова в очереди с паузой `min(5 с × 2^(попытка−1), 2 мин)`, кейс в `error` не переходит. */
+	private failNow(job: JobState, error: string): void {
 		const j = this.queue.fail(job.id, error)
 		// провал любой попытки сборки: пока она повторяется или окончательно упала, `match` не ставит ту же группу заново
 		if (j.kind === 'build') this.rememberFailedBuild(j)

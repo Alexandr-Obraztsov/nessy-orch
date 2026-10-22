@@ -1,4 +1,4 @@
-import type { CaseView, JobView, JournalEntry, Message, PlaybookView, SessionView } from '../../../shared/types'
+import type { CaseView, JobView, JournalEntry, Message, PlaybookView, RawEvent, SessionView } from '../../../shared/types'
 import type { RuleVerdict } from '../../domain/playbook.types'
 import type { Clock, IdGenerator, LearningStorePort, PlaybookStorePort } from '../ports'
 import type { Hub } from '../hub'
@@ -23,6 +23,8 @@ export interface CaseState extends CaseView {
 	nessyCalls: boolean
 	/** плейбуки, уже подсказанные в этой цепочке сессий (хук UserPromptSubmit) */
 	hinted: string[]
+	/** сколько заданий подряд исчерпали отказы на блоке, начинающемся с `from` (нет — 0; сбрасывается принятием блока): лестница смягчения гейта */
+	blockFails?: { from: number; fails: number }
 	/** корень цепочки при заведении кейса (корень мог быть удалён; нет в старых — первый из `sessions`) */
 	rootId?: string
 }
@@ -48,15 +50,62 @@ export interface FailedBuild {
 	at: number
 }
 
-export type JobState = Omit<JobView, 'progress' | 'title'> & {
+export type JobState = Omit<JobView, 'progress' | 'phase' | 'title' | 'retryAt' | 'waiting'> & {
 	/** название сессии кейса = имя агента-сборщика (нет — null) */
 	title?: string | null
-	/** указатель чтения агента-сборщика: `n` последнего выданного `read` события (null/нет — не читал) */
-	readUntil?: number | null
 	final: boolean
+	/** когда можно запускать (мс): повтор после провала или отложенный старт; null — готово */
 	retryAt: number | null
+	/** последняя активность идущего задания, мс (старт, `read`, `draft`, вызов агента): сторожевой таймер */
+	activityAt?: number | null
+	/** строгий протокол чтения сборщика (`collect`/`close`): принятые блоки, выданный блок, отказы; задаётся обработчиком при старте */
+	protocol?: ProtocolState | null
 	/** параметры задания (у `match` — `caseIds`, у любого — `after`: кейсы, которых надо дождаться) */
 	payload: Record<string, unknown> | null
+}
+
+/** Блок, выданный `case read`, но ещё без принятого описания. */
+export interface PendingBlock {
+	from: number
+	until: number
+	/** текст блока: по нему проверяется описание */
+	text: string
+}
+
+/** Шаги сборщика: чтение блок за блоком, следующий блок — только после принятого описания. */
+export interface ProtocolState {
+	/** `coveredUntil` на старте задания */
+	base: number
+	/** событий к обработке на старте задания */
+	total: number
+	/** до какого `n` описание принято (старт — `base`) */
+	ackedUntil: number
+	/** принятых событий в этом задании */
+	acknowledged: number
+	/** принятых блоков в этом задании */
+	blocks: number
+	pending: PendingBlock | null
+	/** отказы по текущему блоку */
+	rejects: number
+	/** отказов набралось на провал: агент снимается, задание повторяется свежим агентом */
+	exhausted: boolean
+	/** принята итоговая консолидация (`--final`) */
+	finalAccepted: boolean
+}
+
+/** Что протокол чтения берёт у сервиса обучения. */
+export interface ProtocolHost {
+	getCase(id: string): CaseState
+	collecting(id: string): JobState | undefined
+	readRaw(id: string, from: number, to?: number): RawEvent[]
+	readSummary(id: string): string
+	writeSummary(id: string, text: string): boolean
+	writeDraft(id: string, text: string): boolean
+	update(c: CaseState): void
+	changed(job: JobState): void
+	touch(caseId: string): void
+	cancelAgent(agentId: string): void
+	now(): number
 }
 
 /** Плейбук на диске: видимая часть и служебное состояние обучения. */

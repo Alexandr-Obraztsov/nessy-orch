@@ -157,11 +157,14 @@ describe('LearningService: сбор событий', () => {
 		assert.equal(off.view().cases.length, 0)
 	})
 
-	it('15 событий запускают сбор после паузы', () => {
-		feed = Array.from({ length: 15 }, () => msg({ session: 's1' }))
+	it('события запускают сбор после паузы 20 с: порога событий нет, хватает одного', () => {
+		feed = [msg({ session: 's1' })]
 		svc.tick()
-		assert.deepEqual(jobs(), []) // пауза 60 с после заведения кейса
-		clock.t += 61_000
+		assert.deepEqual(jobs(), []) // пауза 20 с после заведения кейса
+		clock.t += 19_000
+		svc.tick()
+		assert.deepEqual(jobs(), [])
+		clock.t += 1_000
 		svc.tick()
 		assert.deepEqual(jobs(), [['collect', 'c-s1', 'running']])
 		assert.match(prompts[0] ?? '', /incremental/)
@@ -179,7 +182,7 @@ describe('LearningService: сбор событий', () => {
 		assert.equal(svc.getCase('c-s1').status, 'closing')
 	})
 
-	it('занятость блокирует close (остаётся только сбор по интервалу)', () => {
+	it('занятость блокирует close (остаётся только сбор по событиям)', () => {
 		feed = [msg({ session: 's1' })]
 		svc.tick()
 		clock.t += 31 * 60_000

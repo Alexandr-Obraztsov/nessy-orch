@@ -56,11 +56,17 @@ export interface JobView {
 	range: [number, number] | null
 	/** название сессии кейса = имя и заголовок агента-сборщика (у остальных заданий — null) */
 	title: string | null
-	/** идущее `collect`/`close`: прочитано / всего событий кейса после `coveredUntil` */
+	/** идущее `collect`/`close`: принято событий этого задания / событий к обработке на старте задания */
 	progress: { read: number; total: number } | null
+	/** идущее `collect`/`close`: `reading` — агент читает блок, `summarizing` — блок выдан, описание ещё не принято; иначе null */
+	phase?: 'reading' | 'summarizing' | null
 	createdAt: string
 	startedAt: string | null
 	finishedAt: string | null
+	/** `queued`: когда закончится пауза повтора (ISO); нет паузы — null */
+	retryAt: string | null
+	/** `queued`: чего ждёт кроме слота — `retry` (пауза повтора), `lock` (замок: правка или идущее задание того же объекта); готовое к запуску — null */
+	waiting: 'retry' | 'lock' | null
 }
 
 /** Задание и ответы его агентов из `runs/` по порядку вызова (`GET /learning/jobs/:id`). */
@@ -113,16 +119,33 @@ export interface CaseDetail extends CaseView {
 	progress: { read: number; total: number } | null
 }
 
-/** Блок событий кейса для агента-сборщика (`GET /learning/cases/:id/read`). */
+/** Блок событий кейса для агента-сборщика (`GET /learning/cases/:id/read`). Следующий блок выдаётся только после принятого описания предыдущего. */
 export interface CaseReadBlock {
+	/** события блока (`[n] …`); у `done` пусто */
 	text: string
+	/** `BLOCK k (n a–b), events x/total acknowledged`; у `done` пусто */
+	header: string
+	/** карточка протокола (чек-лист) или, у `done`, инструкция сдать `case draft --final` */
+	card: string
 	from: number
 	until: number
-	/** события кейса после `coveredUntil` */
+	/** событий к обработке на старте задания */
 	total: number
-	/** сколько событий ещё не прочитано */
+	/** сколько событий ещё не выдано после этого блока */
 	remaining: number
+	/** все блоки приняты: осталась итоговая консолидация */
 	done: boolean
+}
+
+/** Ответ на принятое описание (`POST /learning/cases/:id/draft`); отказ — 422 `rejected` с текстом `REJECTED (attempt N/3): …`. */
+export interface CaseDraftResult {
+	ok: true
+	final: boolean
+	/** принятый блок (у `final` — последний) */
+	accepted: { from: number; until: number }
+	/** сколько событий ещё не выдано */
+	remaining: number
+	message: string
 }
 
 export type PlaybookStatus = 'draft' | 'review' | 'trial' | 'active' | 'disabled' | 'archived'

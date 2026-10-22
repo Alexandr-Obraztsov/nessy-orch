@@ -2,11 +2,11 @@
  * Команды фонового обучения:
  *   learn [status] | on | off [--session S] | run [--session S]
  *   learn journal [--limit N] [--revert <id>]
- *   case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>" | read <id> [--max-chars N] | draft <id> [--file F]
+ *   case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>" | read <id> | draft <id> [--file F] [--final]
  *   playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason] | revert <id> --version N | rm <id> | note <id> "<текст>"
  *   playbook edits <id> | accept <id> <hash> | reject <id> <hash>   правки улучшателя без авто-ревью (`autoReview: false`)
  */
-import type { CaseDetail, CaseReadBlock, JobView, JournalEntry, LearningSettings, LearningView, PendingEdit, PlaybookDetail, PlaybookView } from '../../../../shared/types'
+import type { CaseDetail, CaseDraftResult, CaseReadBlock, JobView, JournalEntry, LearningSettings, LearningView, PendingEdit, PlaybookDetail, PlaybookView } from '../../../../shared/types'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { FlagSpec, Parsed } from '../args.types'
 import { CliError } from '../errors'
@@ -16,7 +16,7 @@ import { del, enc, get, info, json, out, patch, post, put } from '../io'
 import type { CommandTable } from './command.types'
 
 export const LEARN_FLAGS: FlagSpec = { bool: ['json', 'help', 'all'], value: ['session', 'revert', 'limit'], short: { a: 'all' } }
-export const CASE_FLAGS: FlagSpec = { bool: ['json', 'help'], value: ['max-chars', 'file', 'from', 'key'] }
+export const CASE_FLAGS: FlagSpec = { bool: ['json', 'help', 'final'], value: ['file', 'from', 'key'] }
 export const PLAYBOOK_FLAGS: FlagSpec = { bool: ['json', 'help'], value: ['reason', 'version'] }
 
 const LEARN_USAGE = `использование:
@@ -24,8 +24,8 @@ const LEARN_USAGE = `использование:
   nessy-orch learn journal [--limit N] [--revert <id записи>]`
 const CASE_USAGE = `использование:
   nessy-orch case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"
-  nessy-orch case read <id> [--max-chars N]   следующий блок событий кейса (для агента-сборщика)
-  nessy-orch case draft <id> [--file F] [--from A --key K]   сохранить черновик описания (иначе stdin)`
+  nessy-orch case read <id>   следующий блок событий кейса (для агента-сборщика; следующий — только после принятого draft)
+  nessy-orch case draft <id> [--file F] [--final] [--from A --key K]   сдать полное описание за блок (иначе stdin); --final — итоговая консолидация после done`
 const PLAYBOOK_USAGE = `использование:
   nessy-orch playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason R] | revert <id> --version N | rm <id> | note <id> "<текст>"
   nessy-orch playbook edits <id> | accept <id> <hash> | reject <id> <hash>   правки улучшателя, ждущие решения (авто-ревью выключено)`
@@ -126,11 +126,15 @@ async function cmdCase(p: Parsed): Promise<void> {
 	}
 	if (sub === 'read') {
 		const id = needId(rest[0], 'read')
-		const max = flagNum(p, 'max-chars')
-		const b = await get<CaseReadBlock>(`/learning/cases/${enc(id)}/read${max === undefined ? '' : `?maxChars=${max}`}`)
+		// 409 `summary_required` — исключение: текст протокола в stderr целиком, код 1
+		const b = await get<CaseReadBlock>(`/learning/cases/${enc(id)}/read`)
 		if (asJson) return json(b)
-		if (b.text) out(b.text)
-		info(b.done && !b.text ? 'done' : `прочитано ${b.from}–${b.until} из ${b.total}, осталось ${b.remaining}${b.done ? ' (done)' : ''}`)
+		if (b.done) {
+			info(`done\n${b.card}`)
+			return
+		}
+		out(`${b.header}\n\n${b.text}\n\n${b.card}`)
+		info(`block n ${b.from}–${b.until} issued, ${b.remaining} events remain after it`)
 		return
 	}
 	if (sub === 'draft') {
@@ -143,8 +147,12 @@ async function cmdCase(p: Parsed): Promise<void> {
 			throw new CliError(`не удалось прочитать ${file ?? 'stdin'}: ${e instanceof Error ? e.message : String(e)}`, 2)
 		}
 		const from = flagStr(p, 'from')
-		await post(`/learning/cases/${enc(id)}/draft`, from === undefined ? { text } : { text, from })
-		return asJson ? json({ ok: true }) : out(`${green('✓')} черновик кейса ${id} сохранён`)
+		const final = flagBool(p, 'final')
+		// отказ (422 `rejected`) — исключение: список нарушений в stderr целиком, код 1
+		const r = await post<CaseDraftResult>(`/learning/cases/${enc(id)}/draft${final ? '?final=1' : ''}`, from === undefined ? { text } : { text, from })
+		if (asJson) return json(r)
+		info(r.message)
+		return
 	}
 	throw new CliError(`неизвестная подкоманда case ${sub}\n${CASE_USAGE}`, 2)
 }

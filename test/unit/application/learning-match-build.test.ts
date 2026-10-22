@@ -204,21 +204,11 @@ describe('сопоставитель и сборщик плейбука', () => 
 		assert.equal(svc.playbooks?.list().length, 1)
 	})
 
-	it('бэкфилл 5 кейсов: match ждёт, пока пачка не станет готовой', async () => {
-		const ids = ['c1', 'c2', 'c3', 'c4', 'c5']
-		for (const [i, id] of ids.entries()) addCase(id, i, { status: id === 'c5' ? 'closing' : 'ready' })
-		reply['PLAYBOOK MATCHER'] = () => result({ groups: [] })
-		const svc = await run([matchJob(ids, { after: ids })])
-		// c5 ещё не готов — задание ждёт
-		assert.equal(calls.length, 0)
-		assert.deepEqual(kinds(svc), ['match:queued'])
-	})
-
-	it('бэкфилл 5 готовых кейсов: один match и один вызов сопоставителя со всеми', async () => {
+	it('5 готовых кейсов: один match и один вызов сопоставителя со всеми', async () => {
 		const ids = ['c1', 'c2', 'c3', 'c4', 'c5']
 		for (const [i, id] of ids.entries()) addCase(id, i)
 		reply['PLAYBOOK MATCHER'] = () => result({ groups: [] })
-		const svc = await run([matchJob(ids, { after: ids })])
+		const svc = await run([matchJob(ids)])
 		assert.deepEqual(calls.map(c => c.marker), ['PLAYBOOK MATCHER'])
 		for (const id of ids) assert.ok((calls[0]?.prompt ?? '').includes(`CASE ${id}`))
 		assert.deepEqual(kinds(svc), ['match:done'])

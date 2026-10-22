@@ -38,7 +38,8 @@ export function condenseReply(text: string, max = 1500): string {
 	return [...kept, ...status].join('\n\n')
 }
 
-function eventText(e: RawEvent): string {
+/** Текст события так, как его видит сборщик (с ограничением длины, ответы агентов сжаты). */
+export function eventText(e: RawEvent): string {
 	return e.kind === 'reply' ? condenseReply(e.text) : clip(e.text, LIMITS[e.kind])
 }
 

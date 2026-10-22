@@ -134,23 +134,6 @@ describe('обработчики заданий и onCaseReady', () => {
 		assert.equal(svc.getCase('c-s1').playbook, 'p-aff@1')
 		assert.equal(svc.view().playbooks.length, 1)
 	})
-
-	it('бэкфилл пачки из 3: один match с after = вся пачка и caseIds = все три', async () => {
-		const svc = make(true)
-		const payloads: Array<Record<string, unknown> | null> = []
-		svc.registerHandler({ kinds: ['match'], run: ctx => Promise.resolve(void payloads.push(ctx.job.payload)) })
-		feed = [msg('s1'), msg('s2'), msg('s3')]
-		svc.backfill(['s1', 's2', 's3'])
-		// пачка лежит в meta.json (переживает рестарт) и стирается, когда кейс стал ready
-		assert.deepEqual(Object.keys(store.meta?.batches ?? {}).sort(), ['c-s1', 'c-s2', 'c-s3'])
-		await flush()
-		assert.deepEqual(Object.keys(store.meta?.batches ?? {}), [])
-		assert.equal(payloads.length, 1)
-		const sorted = (v: unknown): unknown[] => (Array.isArray(v) ? v.map(String).sort() : [])
-		assert.deepEqual(sorted(payloads[0]?.['caseIds']), ['c-s1', 'c-s2', 'c-s3'])
-		assert.deepEqual(sorted(payloads[0]?.['after']), ['c-s1', 'c-s2', 'c-s3'])
-		assert.ok(svc.view().cases.every(c => c.status === 'ready'))
-	})
 })
 
 describe('onCaseReady (без насоса)', () => {
@@ -161,17 +144,14 @@ describe('onCaseReady (без насоса)', () => {
 	const caseWith = (id: string, playbook: string | null): CaseState => ({ ...baseCase, id, playbook })
 	let queue: JobQueue
 	let cases: Map<string, CaseState>
-	let batches: Map<string, string[]>
 	const host = () => ({
 		cases: { get: (id: string) => cases.get(id) ?? null },
 		enqueue: (k: Parameters<JobQueue['enqueue']>[0], s: string, o?: Parameters<JobQueue['enqueue']>[2]) => void queue.enqueue(k, s, o),
-		batch: (id: string) => batches.get(id) ?? null,
 	})
 
 	beforeEach(() => {
 		queue = new JobQueue({ ids: { next: () => Math.random().toString(36).slice(2, 8) }, now: () => 1 })
 		cases = new Map([caseWith('c1', null), caseWith('c2', 'p-x@1'), caseWith('c3', null)].map(c => [c.id, c]))
-		batches = new Map()
 	})
 
 	it('judge ставится только при playbook', () => {
@@ -193,15 +173,5 @@ describe('onCaseReady (без насоса)', () => {
 		assert.equal(matches.length, 1)
 		assert.equal(matches[0]?.subject, 'all')
 		assert.deepEqual(matches[0].payload, { caseIds: ['c1', 'c3'] })
-	})
-
-	it('пачка бэкфилла: after = все кейсы пачки', () => {
-		const batch = ['c1', 'c2', 'c3']
-		for (const id of batch) batches.set(id, batch)
-		onCaseReady(host(), 'c1')
-		onCaseReady(host(), 'c3')
-		const matches = queue.list().filter(j => j.kind === 'match')
-		assert.equal(matches.length, 1)
-		assert.deepEqual(matches[0]?.payload, { caseIds: ['c1', 'c3'], after: batch })
 	})
 })

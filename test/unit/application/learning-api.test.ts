@@ -1,4 +1,4 @@
-/** Сервис обучения для API: настройки, удаление, пересборка, разбор прошлых сессий. */
+/** Сервис обучения для API: настройки, удаление, пересборка. */
 import assert from 'node:assert/strict'
 import { beforeEach, describe, it } from 'node:test'
 import type { HubEvent, Message, SessionView } from '../../../shared/types'
@@ -34,14 +34,6 @@ const GOOD = '<summary>\n# T\n</summary>\n<meta>{"title":"T","goals":[]}</meta>'
 const flush = async (): Promise<void> => {
 	for (let i = 0; i < 5; i++) await new Promise<void>(r => setImmediate(r))
 }
-const line = (o: unknown): string => JSON.stringify(o)
-const TRANSCRIPT =
-	[
-		line({ type: 'user', uuid: 'u1', timestamp: '2026-09-01T10:00:00Z', message: { role: 'user', content: 'сделай задачу' } }),
-		line({ type: 'assistant', uuid: 'a1', timestamp: '2026-09-01T10:00:01Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'nessy-orch spawn --role x "y"' } }] } }),
-		line({ type: 'user', uuid: 'u2', timestamp: '2026-09-01T10:00:02Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ответ агента' }] } }),
-		line({ type: 'assistant', uuid: 'a2', timestamp: '2026-09-01T10:00:03Z', message: { role: 'assistant', content: [{ type: 'text', text: 'готово' }] } }),
-	].join('\n') + '\n'
 
 describe('LearningService: API', () => {
 	let store: MemoryLearningStore
@@ -60,8 +52,8 @@ describe('LearningService: API', () => {
 		isBusy: () => false,
 		cancelAgent: () => Promise.resolve(),
 		runAgent: async () => {
-			drainReads(current)
 			if (hold) await hold
+			drainReads(current)
 			return { agentId: 'ag1', ok: true, text: GOOD }
 		},
 	}
@@ -152,7 +144,7 @@ describe('LearningService: API', () => {
 		release()
 		await flush()
 		assert.equal(svc.getCase('c-s1').coveredUntil, 2)
-		assert.equal(store.summaries.get('c-s1'), '# T')
+		assert.match(store.summaries.get('c-s1') ?? '', /^# T\n## Goal/)
 	})
 
 	it('runAll: close по всем незакрытым кейсам', async () => {
@@ -166,70 +158,5 @@ describe('LearningService: API', () => {
 		await flush()
 		assert.ok(svc.view().cases.every(c => c.status === 'ready'))
 		assert.equal(svc.runAll().length, 0)
-	})
-
-	it('кандидаты: сессии без кейса с сообщениями и транскрипты без известных чатов', () => {
-		const svc = make()
-		sessions = [session('s1'), session('s2'), session('s3')]
-		feed = [msg('s1'), msg('s1'), msg('s2')]
-		store.candidates = [
-			{ kind: 'transcript', id: 'chat-s1', title: 'чат сессии', date: '2026-09-01T00:00:00.000Z', size: 10 },
-			{ kind: 'transcript', id: 'old', title: 'старый', date: '2026-09-02T00:00:00.000Z', size: 20 },
-		]
-		svc.tick() // кейсы c-s1, c-s2 появились
-		sessions = [...sessions, session('s4')]
-		feed = [...feed, msg('s4')]
-		const list = svc.backfillCandidates()
-		assert.deepEqual(list.map(c => `${c.kind}:${c.id}`), ['session:s4', 'transcript:old'])
-		assert.equal(list[0]?.size, 1)
-	})
-
-	it('backfill транскрипта: кейс c-t-…, source backfill, события из транскрипта, сразу final close; повтор — пропуск', async () => {
-		const svc = make()
-		store.candidates = [{ kind: 'transcript', id: 'chat.x', title: 'старый', date: '2026-09-02T00:00:00.000Z', size: 20 }]
-		store.transcriptPaths.set('chat.x', '/p/a/chat.x.jsonl')
-		store.files.set('/p/a/chat.x.jsonl', TRANSCRIPT)
-		let release = (): void => {}
-		hold = new Promise<void>(r => {
-			release = r
-		})
-		const r = svc.backfill(['chat.x'])
-		assert.deepEqual(r.skipped, [])
-		assert.equal(r.created[0]?.id, 'c-t-chat_x')
-		const st = store.cases.get('c-t-chat_x')
-		assert.equal(st?.source, 'backfill')
-		assert.equal(st.nessyCalls, true)
-		assert.deepEqual(st.sessions, [])
-		assert.deepEqual(Object.keys(st.transcripts), ['chat.x'])
-		assert.equal(st.transcripts['chat.x']?.path, '/p/a/chat.x.jsonl')
-		assert.equal(st.events, 3)
-		assert.equal(store.raw.get('c-t-chat_x')?.filter(e => e.kind === 'call').length, 1)
-		const job = svc.view().jobs[0]
-		assert.equal(job?.kind, 'close')
-		assert.equal(job.status, 'running')
-		release()
-		await flush()
-		assert.equal(svc.getCase('c-t-chat_x').status, 'ready')
-		assert.equal(svc.getCase('c-t-chat_x').coveredUntil, 3)
-		// повтор: кандидата уже нет, но кейс есть — пропуск без дубля
-		const again = svc.backfill(['chat.x'])
-		assert.deepEqual(again, { created: [], skipped: [{ id: 'chat.x', reason: 'кейс уже есть' }] })
-		assert.equal(svc.view().cases.length, 1)
-		assert.throws(() => svc.backfill(['нет-такого']), { code: 'no_candidate', status: 404 })
-	})
-
-	it('backfill сессии: кейс backfill с feedSeq из ленты, итоговое задание', async () => {
-		const svc = make()
-		feed = [msg('s1'), msg('s1')]
-		const list = svc.backfillCandidates()
-		assert.deepEqual(list.map(c => c.id), ['s1'])
-		const r = svc.backfill(['s1'])
-		assert.equal(r.created[0]?.source, 'backfill')
-		assert.equal(store.cases.get('c-s1')?.nessyCalls, false)
-		await flush()
-		const c = svc.getCase('c-s1')
-		assert.equal(c.status, 'ready')
-		assert.equal(c.coveredUntil, 2)
-		assert.equal(c.source, 'backfill')
 	})
 })
