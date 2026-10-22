@@ -81,6 +81,7 @@ export class ReadProtocol {
 		const portion = renderPortion(events.slice(0, BLOCK_EVENTS), BLOCK_CHARS)
 		p.pending = { from: portion.from, until: portion.until, text: portion.text }
 		this.host.changed(job)
+		this.host.log('info', id, `«${this.host.title(id)}»: блок ${p.blocks + 1} — события ${portion.from}–${portion.until}`)
 		return {
 			text: portion.text,
 			header: `BLOCK ${p.blocks + 1} (n ${portion.from}–${portion.until}), events ${p.acknowledged}/${p.total} acknowledged`,
@@ -131,6 +132,10 @@ export class ReadProtocol {
 				if (job.agentId) this.host.cancelAgent(job.agentId)
 			}
 			this.host.changed(job)
+			const what = final ? 'итоговое описание' : `саммари блока ${p.blocks + 1}`
+			const why = hard.map(i => `${i.code}: ${i.text.length > 70 ? `${i.text.slice(0, 70)}…` : i.text}`).join('; ')
+			this.host.log('warn', id, `«${this.host.title(id)}»: ${what} отклонено (попытка ${p.rejects}/${MAX_REJECTS}): ${why}`)
+			if (p.exhausted) this.host.log('warn', id, `«${this.host.title(id)}»: лимит отказов, агент снят, продолжит новый`)
 			throw new AppError(422, 'rejected', msg, { attempt: p.rejects, issues: hard.map(i => i.code) })
 		}
 		if (hard.length) {
@@ -150,6 +155,7 @@ export class ReadProtocol {
 		const goals = parseSummaryHeads(text).goals
 		this.host.update({ ...latest, coveredUntil: Math.max(latest.coveredUntil, block.until), goals: goals.length ? goals : latest.goals, lastRunAt: now, updatedAt: new Date(now).toISOString(), blockFails: { from: 0, fails: 0 } })
 		p.rejects = 0
+		const blockNo = p.blocks + 1
 		if (final) {
 			p.finalAccepted = true
 		} else if (p.pending) {
@@ -161,6 +167,10 @@ export class ReadProtocol {
 		this.host.touch(id)
 		this.host.changed(job)
 		const remaining = this.host.readRaw(id, p.ackedUntil + 1).length
+		const title = this.host.title(id)
+		const waived = hard.length ? ' (описание собрано сервером после повторных отказов)' : fails >= 2 ? ' (проверки смягчены после повторных отказов)' : warnings.length ? ` (замечания ${warnings.map(i => i.code).join(', ')})` : ''
+		if (final) this.host.log(waived ? 'warn' : 'info', id, `«${title}»: итоговое описание принято${waived}`)
+		else this.host.log(waived ? 'warn' : 'info', id, `«${title}»: саммари блока ${blockNo} принято, ${p.acknowledged} из ${p.total}${waived}`)
 		const message = final
 			? `ACCEPTED${note}: final description saved. The job is complete; stop.`
 			: `ACCEPTED${note}: block n ${block.from}–${block.until} closed. ${remaining ? "Read the next block with 'nessy-orch case read'." : "No events left: run 'nessy-orch case read' (it reports done), then submit 'nessy-orch case draft --final'."}`

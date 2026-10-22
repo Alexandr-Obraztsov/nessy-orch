@@ -100,7 +100,7 @@ export function registerLearningRoutes(r: Router): void {
 		svc.setCaseNotes(params['id'] ?? '', parseTextBody(await readBody(req), true))
 		sendJson(res, 200, { ok: true })
 	})
-	r.add('GET', '/learning/journal', ({ res, orch, query }) => sendJson(res, 200, learning(orch).journal(queryNum(query.get('limit'), 200))))
+	r.add('GET', '/learning/journal', ({ res, orch, query }) => sendJson(res, 200, learning(orch).journal(queryNum(query.get('limit'), 200), query.get('before') || undefined)))
 	r.add('POST', '/learning/journal/:id/revert', ({ res, orch, params }) => sendJson(res, 200, learning(orch).revertJournal(params['id'] ?? '')))
 	r.add('GET', '/learning/chat/:subject', ({ res, orch, params, query }) => sendJson(res, 200, learning(orch).chatOf(params['subject'] ?? '', queryNum(query.get('limit'), 200))))
 	r.add('POST', '/learning/chat/:subject', async ({ req, res, orch, params }) => {

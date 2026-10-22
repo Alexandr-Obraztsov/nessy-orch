@@ -21,7 +21,7 @@ import type { HintHost, JobContext, JobHandler } from './handlers.types'
 import { JobQueue } from './job-queue'
 import { PlaybookService, playbookView } from './playbook.service'
 import { ReadProtocol, protocolPhase, protocolProgress } from './read-protocol'
-import type { CaseState, EnqueueOpts, FailedBuild, JobState, LearningDeps, LearningMeta, TranscriptCursor } from './learning.types'
+import type { CaseState, EnqueueOpts, FailedBuild, JobState, LearningDeps, LearningMeta, LogLevel, TranscriptCursor } from './learning.types'
 import { recount } from '../../domain/rule-counters'
 
 /** Сколько после окончательного провала сборки `match` не повторяет ту же группу. */
@@ -35,6 +35,23 @@ const CANCELLED = 'остановлено'
 
 /** sha1 (hex) описания кейса: по нему клиент и сервер сверяют, что правили то же самое. */
 export const summaryHash = (text: string): string => createHash('sha1').update(text, 'utf8').digest('hex')
+
+/** Длительность для человека: «45 с», «2 мин 10 с», «1 ч 5 мин». */
+export function fmtDuration(ms: number): string {
+	const sec = Math.max(0, Math.round(ms / 1000))
+	if (sec < 60) return `${sec} с`
+	const min = Math.floor(sec / 60)
+	if (min < 60) return sec % 60 ? `${min} мин ${sec % 60} с` : `${min} мин`
+	return min % 60 ? `${Math.floor(min / 60)} ч ${min % 60} мин` : `${Math.floor(min / 60)} ч`
+}
+
+/** Русское множественное число: 1 событие, 2 события, 5 событий. */
+const plural = (n: number, one: string, few: string, many: string): string => {
+	const m10 = n % 10
+	const m100 = n % 100
+	if (m10 === 1 && m100 !== 11) return one
+	return m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many
+}
 
 const toView = (c: CaseState): CaseView => ({
 	id: c.id,
@@ -144,6 +161,7 @@ export class LearningService {
 		}
 		const jobs = this.deps.store.loadJobs()
 		this.queue.load(jobs)
+		for (const j of jobs) if (j.status === 'running') this.log('warn', j.subject, `${this.jobLabel(j)}: прервано перезапуском, продолжаю`)
 		// после рестарта `running` вернулись в очередь: фиксируем это на диске
 		if (jobs.some(j => j.status === 'running')) this.deps.store.saveJobs(this.queue.list())
 		this.readSettings()
@@ -153,6 +171,8 @@ export class LearningService {
 	/** Запуск: насос сразу (задания после рестарта) и таймер `tick` раз в `tickMs` (0 — без таймера). */
 	start(): void {
 		this.stopped = false
+		const pending = this.queue.list().filter(j => j.status === 'queued' || j.status === 'running').length
+		this.log('info', '', `Фоновое обучение запущено: кейсов ${this.cases.size}, заданий в работе и очереди ${pending}`)
 		this.pump()
 		// новое сообщение или сессия — `tick` через `TICK_DEBOUNCE_MS`, не дожидаясь опроса (он остался подстраховкой)
 		if (this.deps.tickMs > 0 && !this.unsubscribe) {
@@ -175,6 +195,7 @@ export class LearningService {
 	/** Останавливает таймеры и приём заданий; идущих сборщиков ждёт не дольше 5 с (остальные вернутся в очередь при рестарте). */
 	async stop(): Promise<void> {
 		this.stopped = true
+		this.log('info', '', 'Фоновое обучение остановлено')
 		if (this.ticker) clearInterval(this.ticker)
 		if (this.wake) clearTimeout(this.wake)
 		if (this.tickSoon) clearTimeout(this.tickSoon)
@@ -197,6 +218,7 @@ export class LearningService {
 		const cut = this.queue.running()
 		for (const j of cut) {
 			this.interrupted.add(j.id)
+			this.log('warn', j.subject, `${this.jobLabel(j)}: прервано остановкой, вернётся в очередь`)
 			this.jobsChanged(this.queue.requeue(j.id, 'прервано остановкой'))
 		}
 	}
@@ -207,7 +229,7 @@ export class LearningService {
 
 	view(): LearningView {
 		const cases = [...this.cases.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(toView)
-		return { settings: this.settings, jobs: this.queue.list().map(j => this.jobView(j)), cases, playbooks: this.playbooks?.list().map(playbookView) ?? [], journal: this.playbooks?.journal(200) ?? [], rev: this.deps.hub.rev }
+		return { settings: this.settings, jobs: this.queue.list().map(j => this.jobView(j)), cases, playbooks: this.playbooks?.list().map(playbookView) ?? [], journal: this.playbooks?.journal(300) ?? [], rev: this.deps.hub.rev }
 	}
 
 	getCase(id: string): CaseState {
@@ -238,7 +260,7 @@ export class LearningService {
 		const c = this.getCase(id)
 		this.assertIdle(id)
 		if (summaryHash(this.deps.store.readSummary(id)) !== base) throw new AppError(409, 'stale', `описание кейса ${id} изменилось`)
-		if (!this.deps.store.writeSummary(id, text)) throw new AppError(500, 'write_failed', 'не удалось записать summary.md')
+		if (!this.writeSummaryLogged(id, text)) throw new AppError(500, 'write_failed', 'не удалось записать summary.md')
 		const heads = parseSummaryHeads(text)
 		const next: CaseState = { ...c, goals: heads.goals, updatedAt: new Date(this.deps.clock.now()).toISOString() }
 		this.cases.set(id, next)
@@ -266,11 +288,13 @@ export class LearningService {
 		const job = this.queue.list().find(j => j.id === id)
 		if (!job) throw new AppError(404, 'no_job', `нет задания ${id}`)
 		if (job.status === 'queued') {
+			this.log('info', job.subject, `${this.jobLabel(job)}: остановлено пользователем`)
 			this.jobsChanged(this.queue.cancel(id, CANCELLED))
 			this.reopenClosing(job.caseId)
 			this.pump()
 		} else if (job.status === 'running' && !this.cancelled.has(id)) {
 			this.cancelled.add(id)
+			this.log('info', job.subject, `${this.jobLabel(job)}: остановка по просьбе пользователя`)
 			if (job.agentId) void this.deps.host.cancelAgent(job.agentId).catch(() => undefined)
 		}
 		return this.jobView(job)
@@ -323,6 +347,48 @@ export class LearningService {
 		return { ...toView(c), summary, summaryHash: summaryHash(summary), notes: this.deps.store.readNotes(id), draft: this.deps.store.readDraft(id), progress: this.progressOf(id) }
 	}
 
+	/**
+	 * Строка журнала обучения (человеческий текст). Без хранилища плейбуков молча пропускается; сбой записи сервер не роняет.
+	 * `subject` — id кейса или плейбука, у общих строк пусто.
+	 */
+	log(level: LogLevel, subject: string, text: string): void {
+		if (!this.playbooks) return
+		try {
+			this.playbooks.record({ kind: 'log', level, subject, summary: text, report: null, revertible: false, revertedBy: null })
+		} catch {
+			/* журнал не должен ломать обучение */
+		}
+	}
+
+	/** Название объекта для журнала: сессия кейса или заголовок плейбука (нет — id). */
+	private nameOf(id: string): string {
+		if (id.startsWith('c-')) return this.sessionTitle(id)
+		return this.playbooks?.get(id)?.title || id
+	}
+
+	/** Что делает задание, словами: «Описание «X»», «Ревью плейбука «Y»»… */
+	private jobLabel(j: JobState): string {
+		const playbook = (): string => this.nameOf(this.playbookOfJob(j) ?? j.subject)
+		switch (j.kind) {
+			case 'collect':
+				return `Описание «${this.nameOf(j.caseId)}»`
+			case 'close':
+				return `Итоговое описание «${this.nameOf(j.caseId)}»`
+			case 'match':
+				return 'Сопоставление кейсов с плейбуками'
+			case 'build':
+				return 'Сборка плейбука'
+			case 'review':
+				return `Ревью плейбука «${playbook()}»`
+			case 'judge':
+				return `Судья по сессии «${this.nameOf(j.caseId)}»`
+			case 'improve':
+				return `Улучшение плейбука «${playbook()}»`
+			case 'edit':
+				return `Правка «${this.nameOf(j.subject.replace(/^edit:/, ''))}» по чату`
+		}
+	}
+
 	/** Название сессии кейса: у цепочки последняя сессия, иначе заголовок кейса, иначе id. */
 	private sessionTitle(caseId: string): string {
 		const c = this.cases.get(caseId)
@@ -367,6 +433,12 @@ export class LearningService {
 		for (const j of this.queue.running()) if (j.subject === subjectOrCaseId || j.caseId === subjectOrCaseId) this.queue.touch(j.id)
 	}
 
+	private writeSummaryLogged(id: string, text: string): boolean {
+		const ok = this.deps.store.writeSummary(id, text)
+		if (!ok) this.log('error', id, `«${this.sessionTitle(id)}»: не удалось записать описание на диск`)
+		return ok
+	}
+
 	/** Строгий протокол чтения (`case read` / `case draft`). */
 	private proto(): ReadProtocol {
 		this.readProtocol ??= new ReadProtocol({
@@ -374,13 +446,15 @@ export class LearningService {
 			collecting: id => this.collecting(id),
 			readRaw: (id, from, to) => this.deps.store.readRaw(id, from, to),
 			readSummary: id => this.deps.store.readSummary(id),
-			writeSummary: (id, text) => this.deps.store.writeSummary(id, text),
+			writeSummary: (id, text) => this.writeSummaryLogged(id, text),
 			writeDraft: (id, text) => this.deps.store.writeDraft(id, text),
 			update: c => this.update(c),
 			changed: job => this.jobsChanged(job),
 			touch: id => this.touchJob(id),
 			cancelAgent: agentId => void this.deps.host.cancelAgent(agentId).catch(() => undefined),
 			now: () => this.deps.clock.now(),
+			title: id => this.sessionTitle(id),
+			log: (level, subject, text) => this.log(level, subject, text),
 		})
 		return this.readProtocol
 	}
@@ -502,8 +576,8 @@ export class LearningService {
 		this.deps.store.writeNotes(id, text)
 	}
 
-	journal(limit = 200): JournalEntry[] {
-		return this.pb().journal(limit)
+	journal(limit = 200, before?: string): JournalEntry[] {
+		return this.pb().journal(limit, before)
 	}
 
 	revertJournal(id: string): JournalEntry {
@@ -542,6 +616,7 @@ export class LearningService {
 	/** Правка настроек из API: сохраняет `learning.json`, публикует `learning_settings`. */
 	updateSettings(patch: unknown): LearningSettings {
 		const next = patchLearningSettings(this.settings, patch)
+		if (next.enabled !== this.settings.enabled) this.log('info', '', next.enabled ? 'Фоновое обучение включено' : 'Фоновое обучение выключено')
 		// сессию вернули в обучение — надгробие её удалённого кейса снимается
 		const back = this.settings.disabledSessions.filter(s => !next.disabledSessions.includes(s))
 		if (back.length) this.untomb(back.flatMap(s => chainOf(this.deps.host.sessions(), s)))
@@ -563,8 +638,12 @@ export class LearningService {
 
 	private dropCase(c: CaseState): void {
 		const id = c.id
+		const title = this.sessionTitle(id)
 		// надгробие: живая сессия этого кейса заново его не заведёт
+		const tombed = this.meta.removed.length
 		this.tomb([c.rootId ?? c.sessions[0] ?? '', ...c.sessions])
+		this.log('info', id, `Сессия «${title}» удалена из обучения: кейс и его события стёрты`)
+		if (this.meta.removed.length > tombed) this.log('info', id, `Сессия «${title}»: поставлено надгробие, новый кейс по ней не заводится`)
 		this.cases.delete(id)
 		this.queue.removeCase(id)
 		this.deps.store.removeCase(id)
@@ -826,8 +905,12 @@ export class LearningService {
 			updatedAt: events.length || chain.join() !== base.sessions.join() || title !== base.title ? iso : base.updatedAt,
 		}
 		// не записалось — курсоры ленты и транскриптов не двигаем: следующий тик повторит
-		if (events.length && !store.appendRaw(id, events)) return existing
+		if (events.length && !store.appendRaw(id, events)) {
+			this.log('error', id, `«${next.title ?? id}»: не удалось записать события на диск, повторю на следующем тике`)
+			return existing
+		}
 		this.update(next)
+		if (!existing) this.log('info', id, `Новая сессия «${this.sessionTitle(id)}»: начат сбор`)
 		return next
 	}
 
@@ -844,8 +927,10 @@ export class LearningService {
 		const mtime = this.deps.store.settingsMtime()
 		if (mtime === this.settingsMtime) return
 		const { raw, mtimeMs } = this.deps.store.loadSettings()
+		const was = this.settings.enabled
 		this.settings = raw === undefined ? parseLearningSettings({ enabled: this.deps.defaultOn }) : parseLearningSettings(raw)
 		this.settingsMtime = mtimeMs
+		if (this.loaded && this.settings.enabled !== was) this.log('info', '', this.settings.enabled ? 'Фоновое обучение включено (настройки изменены в файле)' : 'Фоновое обучение выключено (настройки изменены в файле)')
 	}
 
 	private request(kind: JobKind, caseId: string, final: boolean): JobState {
@@ -853,7 +938,9 @@ export class LearningService {
 	}
 
 	private enqueue(kind: JobKind, subject: string, opts: EnqueueOpts = {}): JobState {
+		const known = this.queue.list().some(j => j.subject === subject && j.status === 'queued')
 		const job = this.queue.enqueue(kind, subject, opts)
+		if (!known && kind !== 'collect' && kind !== 'close') this.log('info', subject, `${this.jobLabel(job)}: поставлено в очередь`)
 		this.jobsChanged(job)
 		this.pump()
 		return job
@@ -1023,11 +1110,12 @@ export class LearningService {
 		this.runGen.delete(job.id)
 		if (job.agentId) void this.deps.host.cancelAgent(job.agentId).catch(() => undefined)
 		if (this.cancelled.has(job.id)) return this.finishCancelled(job)
-		this.failNow(job, `нет активности ${Math.round(stallMs(job) / 60_000)} мин: агент снят`)
+		this.failNow(job, `нет активности ${Math.round(stallMs(job) / 60_000)} мин: агент снят`, true)
 	}
 
 	private launch(queued: JobState): void {
 		const job = this.queue.start(queued.id, null)
+		this.log('info', job.subject, `${this.jobLabel(job)}: агент запущен, попытка ${job.attempts + 1}`)
 		const gen = ++this.genSeq
 		this.runGen.set(job.id, gen)
 		try {
@@ -1076,6 +1164,7 @@ export class LearningService {
 	/** Обработчик вернулся после остановки: задание `done` с пометкой, без повторов и `error`; кейс `closing` → `collecting`. */
 	private finishCancelled(job: JobState): void {
 		if (job.status === 'running') {
+			this.log('info', job.subject, `${this.jobLabel(job)}: остановлено пользователем`)
 			this.jobsChanged(this.queue.cancel(job.id, CANCELLED))
 			this.reopenClosing(job.caseId)
 		}
@@ -1084,6 +1173,8 @@ export class LearningService {
 
 	private finishJob(job: JobState, note?: string): void {
 		if (note !== undefined) job.note = note
+		const took = job.startedAt ? fmtDuration(this.deps.clock.now() - Date.parse(job.startedAt)) : null
+		this.log('info', job.subject, `${this.jobLabel(job)}: готово${took ? ` за ${took}` : ''}${note ? ` (${note})` : ''}`)
 		this.queue.finish(job.id)
 		this.jobsChanged(job)
 	}
@@ -1163,8 +1254,10 @@ export class LearningService {
 	}
 
 	/** Задание снова в очереди с паузой `min(5 с × 2^(попытка−1), 2 мин)`, кейс в `error` не переходит. */
-	private failNow(job: JobState, error: string): void {
+	private failNow(job: JobState, error: string, stalled = false): void {
 		const j = this.queue.fail(job.id, error)
+		const pause = j.retryAt === null ? '' : `; повтор через ${fmtDuration(j.retryAt - this.deps.clock.now())}`
+		this.log('warn', j.subject, stalled ? `${this.jobLabel(j)}: ${error}${pause}` : `${this.jobLabel(j)}: не удалось: ${error}${pause}`)
 		// провал любой попытки сборки: пока она повторяется или окончательно упала, `match` не ставит ту же группу заново
 		if (j.kind === 'build') this.rememberFailedBuild(j)
 		this.jobsChanged(j)
@@ -1221,6 +1314,7 @@ export class LearningService {
 		if (!c) return
 		const iso = new Date(this.deps.clock.now()).toISOString()
 		if (c.events === 0 && this.deps.store.readSummary(caseId).trim() === '') {
+			this.log('info', caseId, `Сессия «${this.sessionTitle(caseId)}»: событий нет, кейс убран`)
 			this.cases.delete(caseId)
 			this.queue.removeCase(caseId)
 			this.deps.store.removeCase(caseId)
@@ -1229,6 +1323,7 @@ export class LearningService {
 			return
 		}
 		this.update({ ...c, status: 'ready', closedAt: iso, updatedAt: iso })
+		this.log('info', caseId, `Сессия «${this.sessionTitle(caseId)}» обработана: ${c.events} ${plural(c.events, 'событие', 'события', 'событий')}, ${c.goals.length} ${plural(c.goals.length, 'цель', 'цели', 'целей')}`)
 		// судья и сопоставитель — только при плейбуках
 		if (this.playbooks) {
 			onCaseReady(

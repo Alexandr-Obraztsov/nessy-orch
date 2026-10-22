@@ -176,6 +176,39 @@ describe('FilePlaybookStore', () => {
 		assert.equal(last[0]?.revertedBy, 'j4')
 	})
 
+	it('журнал: страница старее записи (before), хвост читается блоками', () => {
+		for (let i = 1; i <= 10; i++) store.appendJournal(mkEntry(`j${i}`))
+		assert.deepEqual(store.loadJournal(3, 'j8').map(e => e.id), ['j5', 'j6', 'j7'])
+		assert.deepEqual(store.loadJournal(5, 'j3').map(e => e.id), ['j1', 'j2'])
+		assert.deepEqual(store.loadJournal(5, 'j1'), [])
+		assert.deepEqual(store.loadJournal(5, 'нет'), [])
+		assert.deepEqual(store.loadJournal(0), [])
+		// запись длиннее блока чтения не ломает хвост
+		store.appendJournal(mkEntry('big', { summary: 'я'.repeat(200_000) }))
+		store.appendJournal(mkEntry('after'))
+		assert.deepEqual(store.loadJournal(2).map(e => e.id), ['big', 'after'])
+		assert.equal(store.loadJournal(2)[0]?.summary.length, 200_000)
+		assert.deepEqual(store.loadJournal(2, 'big').map(e => e.id), ['j9', 'j10'])
+	})
+
+	it('журнал: свыше 6000 записей обрезается до последних 5000', () => {
+		for (let i = 1; i <= 6000; i++) store.appendJournal(mkEntry(`j${i}`))
+		assert.equal(store.loadJournal(Number.MAX_SAFE_INTEGER).length, 6000)
+		store.appendJournal(mkEntry('j6001'))
+		const all = store.loadJournal(Number.MAX_SAFE_INTEGER)
+		assert.equal(all.length, 5000)
+		assert.equal(all[0]?.id, 'j1002')
+		assert.equal(all[4999]?.id, 'j6001')
+		// после обрезки счёт продолжается
+		store.appendJournal(mkEntry('j6002'))
+		assert.equal(store.loadJournal(Number.MAX_SAFE_INTEGER).length, 5001)
+		// новый экземпляр на том же файле считает записи заново
+		const again = new FilePlaybookStore(home, pluginDir)
+		again.appendJournal(mkEntry('j6003'))
+		assert.equal(again.loadJournal(1)[0]?.id, 'j6003')
+		assert.equal(again.loadJournal(Number.MAX_SAFE_INTEGER).length, 5002)
+	})
+
 	it('чаты кейса и плейбука лежат в своих каталогах', () => {
 		store.appendChat('c-s1', mkMsg('a'))
 		store.appendChat('c-s1', mkMsg('b'))

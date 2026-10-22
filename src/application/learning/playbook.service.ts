@@ -88,9 +88,9 @@ export class PlaybookService {
 		return { ...playbookView(p), fileTexts: { ...fileTexts, 'notes.md': store.readNotes(id) || fileTexts['notes.md'] || '' }, notes: store.readNotes(id), changelog: fileTexts['CHANGELOG.md'] ?? '', versions: store.versions(id), reviews: store.loadReviews(id) }
 	}
 
-	/** Последние записи журнала, старые первыми. */
-	journal(limit = 200): JournalEntry[] {
-		return this.deps.store.loadJournal(limit)
+	/** Последние записи журнала, старые первыми; `before` — id записи: страница старее неё. */
+	journal(limit = 200, before?: string): JournalEntry[] {
+		return this.deps.store.loadJournal(limit, before)
 	}
 
 	/** Плейбук кейса по `case.playbook` вида `<id>@<версия>`. */

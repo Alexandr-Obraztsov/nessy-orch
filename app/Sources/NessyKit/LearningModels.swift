@@ -69,9 +69,20 @@ public enum JournalKind: String, Codable, Sendable {
 	case trialFailed = "trial_failed"
 	case ruleActivated = "rule_activated"
 	case ruleArchived = "rule_archived"
-	case version, reverted, edit, unknown
+	case version, reverted, edit
+	/// строка общего журнала: готовая фраза в `summary`
+	case log
+	case unknown
 	public init(from decoder: Decoder) throws {
 		self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+	}
+}
+
+/// Важность записи журнала; нет поля или неизвестное — `info`.
+public enum JournalLevel: String, Codable, Sendable {
+	case info, warn, error
+	public init(from decoder: Decoder) throws {
+		self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .info
 	}
 }
 
@@ -619,6 +630,7 @@ public struct JournalEntry: Codable, Hashable, Identifiable, Sendable {
 	public var id: String
 	public var ts: String
 	public var kind: JournalKind
+	public var level: JournalLevel
 	public var subject: String
 	public var summary: String
 	/// отчёт решения (JSON ревью и т. п.)
@@ -631,6 +643,7 @@ public struct JournalEntry: Codable, Hashable, Identifiable, Sendable {
 		id = try c.decode(String.self, forKey: .id)
 		ts = c.get(.ts, "")
 		kind = c.get(.kind, .unknown)
+		level = c.get(.level, .info)
 		subject = c.get(.subject, "")
 		summary = c.get(.summary, "")
 		report = c.getOpt(.report)

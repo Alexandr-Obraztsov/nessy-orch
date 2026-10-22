@@ -106,7 +106,14 @@ export interface ProtocolHost {
 	touch(caseId: string): void
 	cancelAgent(agentId: string): void
 	now(): number
+	/** название сессии кейса (для строк журнала) */
+	title(caseId: string): string
+	/** строка журнала обучения */
+	log(level: LogLevel, subject: string, text: string): void
 }
+
+/** Уровень строки журнала (`JournalEntry.level`). */
+export type LogLevel = NonNullable<JournalEntry['level']>
 
 /** Плейбук на диске: видимая часть и служебное состояние обучения. */
 export interface PlaybookState extends PlaybookView {

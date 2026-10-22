@@ -17,13 +17,17 @@ import type { PlaybookStorePort } from '../../application/ports'
 import type { PlaybookState } from '../../application/learning/learning.types'
 import type { PlaybookFiles } from '../../domain/playbook.types'
 import { errMsg, isObject, parseJson } from '../../lib/json'
-import { appendJsonl, readJsonl, readText, writeAtomic } from './jsonl'
+import { appendJsonl, readJsonl, readTailLines, readText, writeAtomic } from './jsonl'
 
 const PLAYBOOK_ID = /^p-[a-z0-9-]{1,64}$/
 const CASE_ID = /^c-[\w.-]{1,200}$/
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }
 const GIT_ARGS = ['-c', 'user.name=nessy-orch', '-c', 'user.email=nessy-orch@localhost', '-c', 'commit.gpgsign=false']
 // якоря со слешем: правила только для корня плейбука (`files/notes.md` остаётся в git)
+/** Сколько записей журнала остаётся после обрезки. */
+export const JOURNAL_KEEP = 5000
+/** Больше стольких записей — журнал обрезается до `JOURNAL_KEEP`. */
+export const JOURNAL_MAX = 6000
 const GITIGNORE = '/notes.md\n/chat.jsonl\n/reviews/\n'
 
 export class FilePlaybookStore implements PlaybookStorePort {
@@ -33,6 +37,8 @@ export class FilePlaybookStore implements PlaybookStorePort {
 	private readonly tmpDir: string
 	private readonly oldDir: string
 	private lastWarn = 0
+	/** число записей в `journal.jsonl` (считается при первой записи) */
+	private journalLines = -1
 
 	constructor(
 		readonly home: string,
@@ -217,12 +223,40 @@ export class FilePlaybookStore implements PlaybookStorePort {
 	appendJournal(e: JournalEntry): void {
 		this.safe('журнал обучения', () => {
 			fs.mkdirSync(path.dirname(this.journalPath), { recursive: true })
+			if (this.journalLines < 0) this.journalLines = readText(this.journalPath).split('\n').filter(Boolean).length
 			appendJsonl(this.journalPath, e)
+			this.journalLines += 1
+			if (this.journalLines > JOURNAL_MAX) this.trimJournal()
 		})
 	}
 
-	loadJournal(limit: number): JournalEntry[] {
-		return readJsonl<JournalEntry>(this.journalPath, limit)
+	/** Оставляет последние `JOURNAL_KEEP` записей. */
+	private trimJournal(): void {
+		const keep = readTailLines(this.journalPath, JOURNAL_KEEP).lines
+		writeAtomic(this.journalPath, keep.map(l => l + '\n').join(''))
+		this.journalLines = keep.length
+	}
+
+	loadJournal(limit: number, before?: string): JournalEntry[] {
+		if (limit <= 0) return []
+		if (limit >= Number.MAX_SAFE_INTEGER / 2) return readJsonl<JournalEntry>(this.journalPath, limit)
+		const parse = (lines: string[]): JournalEntry[] => {
+			const out: JournalEntry[] = []
+			for (const l of lines) {
+				const v = parseJson(l)
+				if (isObject(v)) out.push(v as unknown as JournalEntry)
+			}
+			return out
+		}
+		if (before === undefined) return parse(readTailLines(this.journalPath, limit).lines)
+		// страница старее `before`: хвост растёт, пока запись не найдётся или не кончится файл
+		for (let want = limit * 2 + 50; ; want *= 4) {
+			const { lines, complete } = readTailLines(this.journalPath, want)
+			const all = parse(lines)
+			const i = all.findIndex(x => x.id === before)
+			if (i >= 0) return all.slice(Math.max(0, i - limit), i)
+			if (complete) return []
+		}
 	}
 
 	updateJournal(e: JournalEntry): void {

@@ -4,6 +4,12 @@ import Observation
 /// Что `LearningStore` берёт с сервера. `OrchClient` соответствует протоколу; в тестах подставляется заглушка.
 public protocol LearningSource: Sendable {
 	func learning() async throws -> LearningView
+	func journal(limit: Int?, before: String?) async throws -> [JournalEntry]
+}
+
+extension LearningSource {
+	/// Источники без страниц журнала (заглушки) отдают пусто.
+	public func journal(limit: Int?, before: String?) async throws -> [JournalEntry] { [] }
 }
 
 extension OrchClient: LearningSource {}
@@ -19,7 +25,7 @@ public final class LearningStore {
 	public private(set) var jobs: [JobView] = []
 	public private(set) var cases: [CaseView] = []
 	public private(set) var playbooks: [PlaybookView] = []
-	/// последние 200 записей, старые первыми
+	/// до 2000 записей, старые первыми
 	public private(set) var journal: [JournalEntry] = []
 	/// сервер умеет обучение: `false` при `learning_unavailable` или отсутствии маршрута
 	public private(set) var available = true
@@ -27,8 +33,12 @@ public final class LearningStore {
 	public private(set) var loaded = false
 	/// записей последнего ответа, которые не удалось разобрать
 	public private(set) var skippedRecords = 0
-	public static let journalLimit = 200
+	public static let journalLimit = 2000
+	public static let journalPage = 200
 
+	private var loadingMore = false
+	/// старее записей нет (страница пришла пустой)
+	public private(set) var journalExhausted = false
 	private var refreshing = false
 	private var refreshAgain = false
 	private var buffered: [(event: StreamEvent, rev: Int?)] = []
@@ -60,12 +70,23 @@ public final class LearningStore {
 		} while refreshAgain
 	}
 
+	/// Страница старее самой старой записи (`before`); пустая страница — дальше нет.
+	public func loadMoreJournal() async {
+		guard !loadingMore, !journalExhausted, let oldest = journal.first else { return }
+		loadingMore = true
+		defer { loadingMore = false }
+		guard let page = try? await source.journal(limit: Self.journalPage, before: oldest.id) else { return }
+		let before = journal.count
+		journal = JournalLogic.merge(journal, page, limit: Self.journalLimit)
+		if journal.count == before { journalExhausted = true }
+	}
+
 	private func replace(with v: LearningView) {
 		settings = v.settings
 		jobs = v.jobs
 		cases = v.cases
 		playbooks = v.playbooks
-		journal = Array(v.journal.suffix(Self.journalLimit))
+		journal = JournalLogic.merge(journal, v.journal, limit: Self.journalLimit)
 		skippedRecords = v.skipped
 		available = true
 		loaded = true
@@ -87,8 +108,7 @@ public final class LearningStore {
 		case .learningPlaybook(let p): upsert(&playbooks, p)
 		case .learningPlaybookRemoved(let id): playbooks.removeAll { $0.id == id }
 		case .learningJournal(let j):
-			if let i = journal.firstIndex(where: { $0.id == j.id }) { journal[i] = j } else { journal.append(j) }
-			if journal.count > Self.journalLimit { journal.removeFirst(journal.count - Self.journalLimit) }
+			journal = JournalLogic.merge(journal, [j], limit: Self.journalLimit)
 		default: return
 		}
 		if record && refreshing { buffered.append((e, rev)) }

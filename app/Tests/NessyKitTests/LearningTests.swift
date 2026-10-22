@@ -28,6 +28,12 @@ final class FakeLearning: LearningSource, @unchecked Sendable {
 	var delay: Duration = .zero
 	var calls = 0
 	var chat: [ChatMessage] = []
+	var journalPages: [[JournalEntry]] = []
+	var journalBefore: [String?] = []
+	func journal(limit: Int?, before: String?) async throws -> [JournalEntry] {
+		journalBefore.append(before)
+		return journalPages.isEmpty ? [] : journalPages.removeFirst()
+	}
 	func learning() async throws -> LearningView {
 		calls += 1
 		let v = view, e = error
@@ -151,11 +157,11 @@ struct LearningStoreTests {
 		s.apply(frame(#"{"t":"learning_case","case":\#(caseJSON(id: "c-2"))}"#))
 		s.apply(frame(#"{"t":"learning_case_removed","id":"c-1"}"#))
 		#expect(s.cases.map(\.id) == ["c-2"])
-		for i in 0..<250 { s.apply(frame(#"{"t":"learning_journal","entry":\#(journalJSON(id: "e-\(i)"))}"#)) }
-		#expect(s.journal.count == 200 && s.journal.first?.id == "e-50" && s.journal.last?.id == "e-249")
+		for i in 0..<2050 { s.apply(frame(#"{"t":"learning_journal","entry":\#(journalJSON(id: "e-\(i)"))}"#)) }
+		#expect(s.journal.count == 2000 && s.journal.first?.id == "e-50" && s.journal.last?.id == "e-2049")
 		// повторная запись (откат) заменяет, а не дублирует
-		s.apply(frame(#"{"t":"learning_journal","entry":\#(journalJSON(id: "e-249", kind: "reverted"))}"#))
-		#expect(s.journal.count == 200 && s.journal.last?.kind == .reverted)
+		s.apply(frame(#"{"t":"learning_journal","entry":\#(journalJSON(id: "e-2049", kind: "reverted"))}"#))
+		#expect(s.journal.count == 2000 && s.journal.last?.kind == .reverted)
 	}
 
 	@Test func snapshotTriggersRefresh() async throws {

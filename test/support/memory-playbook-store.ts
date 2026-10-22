@@ -79,8 +79,10 @@ export class MemoryPlaybookStore implements PlaybookStorePort {
 	appendJournal(e: JournalEntry): void {
 		this.journal.push({ ...e })
 	}
-	loadJournal(limit: number): JournalEntry[] {
-		return this.journal.slice(-limit).map(e => ({ ...e }))
+	loadJournal(limit: number, before?: string): JournalEntry[] {
+		const i = before === undefined ? -1 : this.journal.findIndex(e => e.id === before)
+		const upto = i >= 0 ? this.journal.slice(0, i) : this.journal
+		return upto.slice(-limit).map(e => ({ ...e }))
 	}
 	updateJournal(e: JournalEntry): void {
 		const i = this.journal.findIndex(x => x.id === e.id)

@@ -51,6 +51,7 @@ public enum LearningText {
 		case .version: "Новая версия"
 		case .reverted: "Откат"
 		case .edit: "Правка"
+		case .log: "Событие"
 		case .unknown: "Событие"
 		}
 	}

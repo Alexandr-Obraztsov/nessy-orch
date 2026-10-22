@@ -151,8 +151,9 @@ public final class OrchClient: @unchecked Sendable {
 	}
 	public func deletePlaybook(_ id: String) async throws { try await raw("DELETE", "/learning/playbooks/\(id)") }
 
-	public func journal(limit: Int? = nil) async throws -> [JournalEntry] {
-		(try await get("/learning/journal", query: ["limit": limit.map(String.init)], as: LossyArray<JournalEntry>.self)).items
+	/// Записи журнала; `before` — id записи, старше которой нужна страница.
+	public func journal(limit: Int? = nil, before: String? = nil) async throws -> [JournalEntry] {
+		(try await get("/learning/journal", query: ["limit": limit.map(String.init), "before": before], as: LossyArray<JournalEntry>.self)).items
 	}
 	// MARK: потоки
 	public func stream() -> SSEStream { SSEStream(url: url("/stream")) }

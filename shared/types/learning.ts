@@ -101,7 +101,7 @@ export interface LearningView {
 	jobs: JobView[]
 	cases: CaseView[]
 	playbooks: PlaybookView[]
-	/** последние 200 записей */
+	/** последние 300 записей */
 	journal: JournalEntry[]
 	/** номер шины (`hub.rev`) на момент сборки ответа: события с `rev` не больше него уже учтены */
 	rev: number
@@ -264,8 +264,12 @@ export interface PlaybookDetail extends PlaybookView {
 export interface JournalEntry {
 	id: string
 	ts: string
-	kind: 'playbook_created' | 'review_passed' | 'review_failed' | 'published' | 'trial_passed' | 'trial_failed' | 'rule_activated' | 'rule_archived' | 'version' | 'reverted' | 'edit'
+	kind: 'playbook_created' | 'review_passed' | 'review_failed' | 'published' | 'trial_passed' | 'trial_failed' | 'rule_activated' | 'rule_archived' | 'version' | 'reverted' | 'edit' | 'log'
+	/** уровень строки `log`; нет — `info` */
+	level?: 'info' | 'warn' | 'error'
+	/** id кейса или плейбука; у общей строки `log` — пусто */
 	subject: string
+	/** у `log` — полная фраза для человека (названия сессий и плейбуков, не id) */
 	summary: string
 	report: string | null
 	revertible: boolean

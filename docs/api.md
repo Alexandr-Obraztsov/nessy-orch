@@ -191,7 +191,7 @@
 
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
-| GET | `/learning` | — | `LearningView {settings, jobs[], cases[], playbooks[], journal[], rev}` (кейсы по свежести); `rev` — номер шины (`hub.rev`) на момент сборки ответа: клиент после `refresh` применяет накопленные за это время события `learning_*` только с `rev` больше него |
+| GET | `/learning` | — | `LearningView {settings, jobs[], cases[], playbooks[], journal[] (последние 300), rev}` (кейсы по свежести); `rev` — номер шины (`hub.rev`) на момент сборки ответа: клиент после `refresh` применяет накопленные за это время события `learning_*` только с `rev` больше него |
 | PATCH | `/learning/settings` | частичный `LearningSettings` | `LearningSettings`; пишет `<home>/learning.json`, событие `learning_settings`; неверный тип поля — `400 bad_request`, числа ограничиваются |
 | POST | `/learning/run` | `{session?}` | `JobView[]`: итоговое задание `close` по сессии или кейсу (`404 no_case`); без `session` — по всем незакрытым кейсам. Работает и при выключенном обучении |
 | GET | `/learning/jobs/:id` | — | `JobDetail {job: JobView, runs: [{name, text}]}`: ответы агентов задания из `runs/` (`name` = `<jobId>-<k>`, по порядку `k`); `404 no_job`. `JobView.agentId` заполняется сразу при запуске агента, а не по его ответу |
@@ -250,7 +250,7 @@
 | POST | `/learning/playbooks/:id/edits/:hash/reject` | — | `PlaybookView`: отклонить правку — снимается из `pendingEdits`, хэш уходит в `rejectedEdits` |
 | DELETE | `/learning/playbooks/:id` | — | `{ok:true}`; идёт или ждёт задание плейбука — `409 playbook_busy` |
 | PUT | `/learning/playbooks/:id/notes` · `/learning/cases/:id/notes` | `{text}` | `{ok:true}`: заметки пользователя (`notes.md`); автоматически не переписываются, уходят следующим сборщикам, судьям и ревьюерам объекта |
-| GET | `/learning/journal?limit=` | — | `JournalEntry[]` (старые первыми): каждое автоматическое решение с отчётом |
+| GET | `/learning/journal?limit=&before=` | — | `JournalEntry[]` (старые первыми): каждое автоматическое решение с отчётом и все события фонового обучения (`kind: 'log'`, `level` `info`/`warn`/`error`, `summary` — фраза для человека; `revertible: false`, `report: null`). `before` — id записи: страница старее неё. Файл `learning/journal.jsonl` хранит последние 5000 записей (при 6000 обрезается) |
 | POST | `/learning/journal/:id/revert` | — | `JournalEntry` (запись `reverted`): откат статуса, правила или версии; повторный — `409 already_reverted` |
 | GET | `/learning/chat/:subject` | — | `ChatMessage[]` чата кейса (`c-…`) или плейбука (`p-…`); `?limit=` |
 | POST | `/learning/chat/:subject` | `{text}` | `ChatMessage` (сообщение пользователя); ставится задание `edit:<subject>`, агент-редактор отвечает ещё одним `ChatMessage`. У кейса меняется только `summary.md`; у плейбука — поля плейбука, выходит новая версия (журнал `edit`). Постоянная инструкция («всегда проверяй X») дописывается в `notes.md` строкой `- <дата>: <текст>` |

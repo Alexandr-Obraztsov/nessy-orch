@@ -173,7 +173,8 @@ export interface PlaybookStorePort {
 	saveReview(r: ReviewReport): void
 	loadReviews(id: string): ReviewReport[]
 	appendJournal(e: JournalEntry): void
-	loadJournal(limit: number): JournalEntry[]
+	/** последние `limit` записей, старые первыми; `before` — id записи: страница старее неё */
+	loadJournal(limit: number, before?: string): JournalEntry[]
 	updateJournal(e: JournalEntry): void
 	appendChat(subject: string, m: ChatMessage): void
 	loadChat(subject: string, limit: number): ChatMessage[]
