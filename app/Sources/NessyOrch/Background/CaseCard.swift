@@ -21,13 +21,11 @@ struct CaseCard: View {
 	var body: some View {
 		VStack(spacing: 0) {
 			header
-			DSSeparator()
 			ScrollView {
-				VStack(alignment: .leading, spacing: DS.Metrics.s4) {
-					meta
+				VStack(alignment: .leading, spacing: 0) {
+					meta.padding(.horizontal, DS.Metrics.s4).padding(.bottom, DS.Metrics.s3)
 					summarySection
 				}
-				.padding(DS.Metrics.s4)
 				.frame(maxWidth: .infinity, alignment: .leading)
 			}
 			.scrollEdgeEffectStyle(.soft, for: .top)
@@ -42,29 +40,27 @@ struct CaseCard: View {
 	}
 
 	private var header: some View {
-		PanelHeader(model.title(ofCase: item), subtitle: subtitle) {
-			Button("Удалить…", role: .destructive) { askDelete() }.disabled(model.isOffline)
-		}
-		.buttonStyle(SettingsButtonStyle())
+		PanelHeader(model.title(ofCase: item), subtitle: subtitle, onDelete: { askDelete() })
 	}
 
-	private var subtitle: String? { ISO.parse(item.updatedAt).map { "обновлён " + $0.learningStamp } }
+	/// Одна строка: тип задачи (если цель одна — её тип, иначе типы через запятую) и «обновлён …».
+	private var subtitle: String? {
+		let types = Array(Set(parsed.goals.map(\.type).filter { !$0.isEmpty })).sorted().joined(separator: ", ")
+		let stamp = ISO.parse(item.updatedAt).map { "обновлён " + $0.learningStamp }
+		return [types, stamp].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+	}
 
-	/// Сессии (клик — вкладка сессии) и плейбук «Название · v3» (клик — раздел «Плейбуки»).
+	/// Сессии (клик — вкладка сессии) и плейбук «Название · v3» (клик — раздел «Плейбуки») — ссылки-строки.
 	private var meta: some View {
-		FlowLayout(spacing: DS.Metrics.s1) {
+		FlowLayout(spacing: DS.Metrics.s3) {
 			let titles = model.sessionTitles(of: item)
 			ForEach(Array(zip(item.sessions, titles)), id: \.0) { id, t in
 				if model.store.session(id) != nil {
-					Button { model.show(session: id) } label: { LearningChip(t, systemImage: "bubble.left") }
-						.buttonStyle(.plain).help("Открыть сессию")
+					LinkLine(text: t, systemImage: "bubble.left", help: "Открыть сессию") { model.show(session: id) }
 				}
 			}
 			if let ref = item.playbookRef, let p = learning.playbook(ref.id) {
-				Button { model.background.go(.playbooks, id: ref.id) } label: {
-					LearningChip("\(p.title)" + (ref.version.map { " · v\($0)" } ?? ""), systemImage: "book.closed", tint: DS.Palette.accentText)
-				}
-				.buttonStyle(.plain).help("Открыть плейбук")
+				LinkLine(text: p.title + (ref.version.map { " · v\($0)" } ?? ""), systemImage: "book.closed", help: "Открыть плейбук") { model.background.go(.playbooks, id: ref.id) }
 			}
 		}
 	}
@@ -75,12 +71,16 @@ struct CaseCard: View {
 			else { ProgressView().controlSize(.small) }
 		} else if parsed.unparsed {
 			if let text = detail?.summary, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-				MarkdownView(text: text).padding(DS.Metrics.s3).frame(maxWidth: .infinity, alignment: .leading).dsGroup()
+				MarkdownView(text: text).padding(.horizontal, DS.Metrics.s4).padding(.vertical, DS.Metrics.s3).frame(maxWidth: .infinity, alignment: .leading)
 			} else {
-				Text("Пока пусто").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+				Text("Пока пусто").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).padding(.horizontal, DS.Metrics.s4)
 			}
 		} else {
-			ForEach(Array(parsed.goals.enumerated()), id: \.offset) { _, g in CaseGoalView(caseId: item.id, goal: g) }
+			// цель одна — без отдельного блока с названием: сразу разделы; название — тихой строкой, только если не повторяет название кейса
+			let single = parsed.goals.count == 1
+			ForEach(Array(parsed.goals.enumerated()), id: \.offset) { _, g in
+				CaseGoalView(caseId: item.id, goal: g, showTitle: !single, note: single && g.title != model.title(ofCase: item) ? g.title : nil)
+			}
 		}
 	}
 
@@ -118,62 +118,53 @@ struct CaseCard: View {
 
 // MARK: - Цель
 
-/// Одна цель описания: сворачивается целиком; внутри сворачиваются план, действия, источники, поправки, вопросы.
+/// Одна цель описания: заголовок (если целей несколько), под ним разделы «План», «Действия», «Источники», «Поправки», «Вопросы».
 private struct CaseGoalView: View {
 	var caseId: String
 	var goal: CaseSummary.Goal
-	@State private var open = true
+	var showTitle: Bool
+	var note: String?
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
-			Button { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } } label: {
-				HStack(spacing: DS.Metrics.s2) {
-					Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.textTertiary)
-						.rotationEffect(.degrees(open ? 90 : 0))
-					Text(BackgroundLogic.inline(goal.title.isEmpty ? "Цель" : goal.title)).font(DS.Typography.panelTitle).multilineTextAlignment(.leading)
-					if !goal.type.isEmpty { LearningChip(goal.type, mono: true) }
-					Spacer(minLength: 0)
-				}
-				.contentShape(Rectangle())
+		VStack(alignment: .leading, spacing: 0) {
+			if showTitle {
+				DSSeparator()
+				Text(BackgroundLogic.inline(goal.title.isEmpty ? "Цель" : goal.title)).font(DS.Typography.agentName)
+					.padding(.horizontal, DS.Metrics.s4).padding(.vertical, DS.Metrics.s3)
+			} else if let note, !note.isEmpty {
+				Text(BackgroundLogic.inline(note)).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+					.padding(.horizontal, DS.Metrics.s4).padding(.bottom, DS.Metrics.s3)
 			}
-			.buttonStyle(.plain)
-			if open {
-				VStack(alignment: .leading, spacing: DS.Metrics.s4) {
-					if !goal.plan.isEmpty {
-						Collapsible("План") {
-							VStack(alignment: .leading, spacing: 2) {
-								ForEach(Array(goal.plan.enumerated()), id: \.offset) { _, l in
-									Text(BackgroundLogic.inline(BackgroundLogic.planLine(l))).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
-										.textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-								}
-							}
-						}
-					}
-					if !goal.actions.isEmpty { Collapsible("Действия", count: goal.actions.count) { ActionsList(caseId: caseId, actions: goal.actions) } }
-					if !goal.sources.isEmpty { Collapsible("Источники", count: goal.sources.count) { SourceChips(sources: goal.sources) } }
-					if !goal.corrections.isEmpty {
-						Collapsible("Поправки", count: goal.corrections.count) {
-							VStack(spacing: DS.Metrics.s2) { ForEach(Array(goal.corrections.enumerated()), id: \.offset) { _, c in correction(c) } }
-						}
-					}
-					if !goal.open.isEmpty {
-						Collapsible("Вопросы", count: goal.open.count) {
-							VStack(alignment: .leading, spacing: DS.Metrics.s1) {
-								ForEach(Array(goal.open.enumerated()), id: \.offset) { _, q in
-									Label { Text(BackgroundLogic.inline(q)) } icon: { Image(systemName: "questionmark.circle") }
-										.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary).textSelection(.enabled)
-								}
-							}
-							.frame(maxWidth: .infinity, alignment: .leading)
+			if !goal.plan.isEmpty {
+				Collapsible("План") {
+					VStack(alignment: .leading, spacing: 2) {
+						ForEach(Array(goal.plan.enumerated()), id: \.offset) { _, l in
+							Text(BackgroundLogic.inline(BackgroundLogic.planLine(l))).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary)
+								.textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
 						}
 					}
 				}
-				.transition(.opacity)
+			}
+			if !goal.actions.isEmpty { Collapsible("Действия", count: goal.actions.count) { ActionsList(caseId: caseId, actions: goal.actions) } }
+			if !goal.sources.isEmpty { Collapsible("Источники", count: goal.sources.count) { SourceChips(sources: goal.sources) } }
+			if !goal.corrections.isEmpty {
+				Collapsible("Поправки", count: goal.corrections.count) {
+					VStack(alignment: .leading, spacing: DS.Metrics.s3) { ForEach(Array(goal.corrections.enumerated()), id: \.offset) { _, c in correction(c) } }
+				}
+			}
+			if !goal.open.isEmpty {
+				Collapsible("Вопросы", count: goal.open.count) {
+					VStack(alignment: .leading, spacing: DS.Metrics.s1) {
+						ForEach(Array(goal.open.enumerated()), id: \.offset) { _, q in
+							Label { Text(BackgroundLogic.inline(q)) } icon: { Image(systemName: "questionmark.circle") }
+								.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary).textSelection(.enabled)
+						}
+					}
+					.frame(maxWidth: .infinity, alignment: .leading)
+				}
 			}
 		}
-		.padding(DS.Metrics.s4)
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.dsGroup()
 	}
 
 	/// «предлагал → вы сказали»
@@ -190,9 +181,7 @@ private struct CaseGoalView: View {
 				Text(BackgroundLogic.inline(c.user)).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textPrimary).textSelection(.enabled)
 			}
 		}
-		.padding(DS.Metrics.s3)
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Metrics.s2, style: .continuous))
 	}
 }
 
@@ -229,7 +218,6 @@ private struct ActionsList: View {
 			.textSelection(.enabled)
 			if open, let r = a.anchor {
 				RawEventsList(caseId: caseId, range: r).frame(height: 280)
-					.background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Metrics.s2, style: .continuous))
 			}
 		}
 		.padding(.vertical, DS.Metrics.s2)

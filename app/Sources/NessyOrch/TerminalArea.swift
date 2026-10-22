@@ -83,60 +83,67 @@ struct SettingsButton: View {
 	}
 }
 
-/// Нет открытых проектов: «Последние сессии» (продолжить чат агента) и отдельно «Папки» (новый чат в папке).
+/// Нет открытых проектов: две колонки — «Проекты» (открыть папку, недавние папки) и «Сессии» (продолжить чат агента).
+/// Блок компактный и по центру: колонки не растягиваются на всю высоту окна, длинные списки прокручиваются внутри.
 struct NoProjectView: View {
 	@Environment(AppModel.self) private var model
 
 	private var folders: [String] {
-		model.recentProjects.filter { FileManager.default.fileExists(atPath: $0) }.prefix(6).map { $0 }
+		model.recentProjects.filter { FileManager.default.fileExists(atPath: $0) }.prefix(12).map { $0 }
 	}
 
 	var body: some View {
-		let sessions = model.recentSessions
-		GeometryReader { geo in
-		ScrollView {
-			VStack(spacing: DS.Metrics.s3) {
-				Image(systemName: "folder.badge.plus").font(.system(size: 34, weight: .light)).foregroundStyle(DS.Palette.textTertiary)
-				Text("Проект не открыт").font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary)
-				Text("Продолжите прошлую сессию или откройте папку — в ней сразу запустится агент.")
-					.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).multilineTextAlignment(.center)
-				Button("Открыть папку…") { model.openFolderPanel() }
-					.buttonStyle(.plain).foregroundStyle(DS.Palette.accentText).font(DS.Typography.secondary.weight(.medium))
-					.padding(.top, DS.Metrics.s1)
-				Text(Hotkeys.shared.display(.openFolder)).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
-				if !sessions.isEmpty {
-					group("Последние сессии") {
-						ForEach(Array(sessions.enumerated()), id: \.element.id) { i, s in
-							if i > 0 { DSSeparator(leading: DS.Metrics.s3) }
-							RecentSessionRow(session: s) { model.show(session: s.id) }
-						}
-					}
+		let sessions = model.recentSessions(limit: 12)
+		HStack(alignment: .top, spacing: DS.Metrics.s5) {
+			column("Проекты") {
+				Button { model.openFolderPanel() } label: {
+					Label("Открыть папку", systemImage: "folder.badge.plus").font(DS.Typography.caption.weight(.medium))
 				}
-				if !folders.isEmpty {
-					group("Папки") {
-						ForEach(Array(folders.enumerated()), id: \.element) { i, dir in
-							if i > 0 { DSSeparator(leading: DS.Metrics.s3) }
-							RecentRow(dir: dir) { model.openTerminal(dir: dir) }
-						}
-					}
+				.buttonStyle(.plain).foregroundStyle(DS.Palette.textSecondary)
+				.help("Открыть папку (\(Hotkeys.shared.display(.openFolder)))")
+			} rows: {
+				if folders.isEmpty { empty("Нет недавних проектов") }
+				ForEach(Array(folders.enumerated()), id: \.element) { i, dir in
+					if i > 0 { DSSeparator(leading: DS.Metrics.s3) }
+					RecentRow(dir: dir) { model.openTerminal(dir: dir) }
 				}
 			}
-			// по центру окна и по вертикали (под шапкой), а не прижато к верху
-			.frame(maxWidth: .infinity, minHeight: geo.size.height - DS.Metrics.s6)
-			.padding(.horizontal, DS.Metrics.s6).padding(.top, DS.Metrics.s6)
+			column("Сессии") {
+				EmptyView()
+			} rows: {
+				if sessions.isEmpty { empty("Нет сессий") }
+				ForEach(Array(sessions.enumerated()), id: \.element.id) { i, s in
+					if i > 0 { DSSeparator(leading: DS.Metrics.s3) }
+					RecentSessionRow(session: s) { model.show(session: s.id) }
+				}
+			}
 		}
-		.scrollBounceBehavior(.basedOnSize)
-		}
+		.frame(maxWidth: 900)
+		.padding(DS.Metrics.s6)
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 	}
 
-	private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
-			Text(title).font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.textTertiary).padding(.horizontal, DS.Metrics.s3)
-			VStack(spacing: 0, content: content).dsGroup()
+	/// Колонка: заголовок с действием справа и список в группе; длинный список прокручивается (не выше ~6 строк).
+	private func column<A: View, R: View>(_ title: String, @ViewBuilder action: () -> A, @ViewBuilder rows: () -> R) -> some View {
+		let list = VStack(spacing: 0, content: rows)
+		return VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+			HStack {
+				Text(title).font(DS.Typography.groupTitle).foregroundStyle(DS.Palette.textSecondary)
+				Spacer(minLength: DS.Metrics.s2)
+				action()
+			}
+			.padding(.horizontal, DS.Metrics.s3)
+			ViewThatFits(in: .vertical) {
+				list.dsGroup()
+				ScrollView { list }.frame(maxHeight: 330).dsGroup()
+			}
 		}
-		.frame(maxWidth: 460)
-		.padding(.top, DS.Metrics.s5)
+		.frame(maxWidth: .infinity, alignment: .topLeading)
+	}
+
+	private func empty(_ text: String) -> some View {
+		Text(text).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textTertiary)
+			.frame(maxWidth: .infinity, minHeight: 46, alignment: .center)
 	}
 }
 

@@ -65,13 +65,11 @@ private struct JournalRow: View {
 		switch JournalLogic.target(entry) {
 		case .playbook(let id)?:
 			if let p = l.playbook(id) {
-				Button { model.background.go(.playbooks, id: id) } label: { LearningChip(p.title, systemImage: "book.closed", tint: DS.Palette.accentText) }
-					.buttonStyle(.plain).help("Открыть плейбук")
+				LinkLine(text: p.title, systemImage: "book.closed", help: "Открыть плейбук") { model.background.go(.playbooks, id: id) }
 			}
 		case .caseView(let id)?:
 			if let c = l.caseView(id) {
-				Button { model.background.go(.cases, id: id) } label: { LearningChip(model.title(ofCase: c), systemImage: "tray.full", tint: DS.Palette.accentText) }
-					.buttonStyle(.plain).help("Открыть кейс")
+				LinkLine(text: model.title(ofCase: c), systemImage: "tray.full", help: "Открыть кейс") { model.background.go(.cases, id: id) }
 			}
 		case nil: EmptyView()
 		}

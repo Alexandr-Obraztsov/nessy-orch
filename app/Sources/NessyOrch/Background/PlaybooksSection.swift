@@ -65,7 +65,7 @@ private struct PlaybookTile: View {
 				Spacer(minLength: 0)
 				HStack(spacing: DS.Metrics.s1) {
 					if !item.taskType.isEmpty { LearningChip(item.taskType, mono: true) }
-					if item.status == .review { LearningChip("ждёт вас", tint: DS.Palette.accentText) }
+					if item.status == .review { LearningChip("ждёт вас", dot: DS.Palette.accent) }
 					else if let t = BackgroundLogic.trialLine(item) { LearningChip("пробный: \(t)") }
 					else { LearningChip(BackgroundLogic.playbookLine(item)) }
 					Spacer(minLength: 0)

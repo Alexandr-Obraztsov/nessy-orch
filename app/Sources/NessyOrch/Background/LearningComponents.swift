@@ -11,13 +11,16 @@ struct LearningChip: View {
 	var systemImage: String?
 	var tint: Color = DS.Palette.textSecondary
 	var mono = false
+	/// точка-индикатор слева (акцентом): метка «ждёт вас» остаётся серой, цветом выделена только точка
+	var dot: Color?
 
-	init(_ text: String, systemImage: String? = nil, tint: Color = DS.Palette.textSecondary, mono: Bool = false) {
-		self.text = text; self.systemImage = systemImage; self.tint = tint; self.mono = mono
+	init(_ text: String, systemImage: String? = nil, tint: Color = DS.Palette.textSecondary, mono: Bool = false, dot: Color? = nil) {
+		self.text = text; self.systemImage = systemImage; self.tint = tint; self.mono = mono; self.dot = dot
 	}
 
 	var body: some View {
 		HStack(spacing: 4) {
+			if let dot { Circle().fill(dot).frame(width: 6, height: 6) }
 			if let systemImage { Image(systemName: systemImage).font(.system(size: 10, weight: .semibold)) }
 			Text(text).lineLimit(1)
 		}
@@ -25,6 +28,30 @@ struct LearningChip: View {
 		.foregroundStyle(tint)
 		.padding(.horizontal, DS.Metrics.s2).padding(.vertical, 2)
 		.background(DS.Palette.hover, in: Capsule())
+	}
+}
+
+/// Ссылка-строка: значок и текст `textSecondary`; под курсором текст темнеет и подчёркивается.
+struct LinkLine: View {
+	var text: String
+	var systemImage: String
+	var help: String
+	var action: () -> Void
+	@State private var hover = false
+
+	var body: some View {
+		Button(action: action) {
+			HStack(spacing: DS.Metrics.s1) {
+				Image(systemName: systemImage).font(.system(size: 10, weight: .semibold))
+				Text(text).lineLimit(1).underline(hover)
+			}
+			.font(DS.Typography.caption)
+			.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.onHover { hover = $0 }
+		.help(help)
 	}
 }
 
@@ -92,7 +119,7 @@ struct AnchorButton: View {
 	var body: some View {
 		Button { open.toggle() } label: {
 			Text(LearningText.anchor(range)).font(DS.Typography.monoCaption)
-				.foregroundStyle(DS.Palette.accentText)
+				.foregroundStyle(DS.Palette.textSecondary)
 				.padding(.horizontal, DS.Metrics.s2).padding(.vertical, 2)
 				.background(DS.Palette.hover, in: Capsule())
 				.contentShape(Capsule())
@@ -152,15 +179,16 @@ struct RawEventsList: View {
 
 // MARK: - Заголовок карточки
 
-/// Шапка правого блока: название, под ним метаданные, действия и ✕ (Esc тоже закрывает).
+/// Шапка правого блока: название, под ним одна строка метаданных, справа действия, «⋯» (если есть удаление) и ✕ (Esc тоже закрывает).
 struct PanelHeader<Actions: View>: View {
 	@Environment(AppModel.self) private var model
 	var title: String
 	var subtitle: String?
+	var onDelete: (() -> Void)?
 	@ViewBuilder var actions: Actions
 
-	init(_ title: String, subtitle: String? = nil, @ViewBuilder actions: () -> Actions) {
-		self.title = title; self.subtitle = subtitle; self.actions = actions()
+	init(_ title: String, subtitle: String? = nil, onDelete: (() -> Void)? = nil, @ViewBuilder actions: () -> Actions) {
+		self.title = title; self.subtitle = subtitle; self.onDelete = onDelete; self.actions = actions()
 	}
 
 	var body: some View {
@@ -170,7 +198,17 @@ struct PanelHeader<Actions: View>: View {
 				if let subtitle, !subtitle.isEmpty { Text(subtitle).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1) }
 			}
 			Spacer(minLength: DS.Metrics.s2)
-			HStack(spacing: DS.Metrics.s2) { actions }
+			HStack(spacing: DS.Metrics.s2) {
+				actions.buttonStyle(SettingsButtonStyle())
+				if let onDelete {
+					Menu {
+						Button("Удалить…", role: .destructive, action: onDelete)
+					} label: { Image(systemName: "ellipsis").foregroundStyle(DS.Palette.textSecondary) }
+						.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+						.help("Ещё")
+				}
+			}
+			.disabled(model.isOffline)
 			PlainIconButton(systemImage: "xmark", help: "Закрыть", size: 24) { model.background.close() }
 				.keyboardShortcut(.cancelAction)
 		}
@@ -179,7 +217,7 @@ struct PanelHeader<Actions: View>: View {
 }
 
 extension PanelHeader where Actions == EmptyView {
-	init(_ title: String, subtitle: String? = nil) { self.init(title, subtitle: subtitle) { EmptyView() } }
+	init(_ title: String, subtitle: String? = nil, onDelete: (() -> Void)? = nil) { self.init(title, subtitle: subtitle, onDelete: onDelete) { EmptyView() } }
 }
 
 // MARK: - Длинный текст
@@ -229,7 +267,8 @@ struct LearningEmptyState: View {
 
 // MARK: - Сворачиваемый блок
 
-/// Блок с заголовком-шевроном: сворачивается и разворачивается; `open` — каким он стартует.
+/// Раздел правого блока: тонкий разделитель сверху, заголовок со стрелкой слева и счётчиком; `open` — каким стартует.
+/// Лежит прямо на поверхности панели (без рамок), поля — `s4`.
 struct Collapsible<Content: View>: View {
 	var title: String
 	var count: Int?
@@ -241,9 +280,13 @@ struct Collapsible<Content: View>: View {
 	}
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-			DSGroupHeader(title: title, count: count, expanded: $open)
-			if open { content.transition(.opacity) }
+		VStack(alignment: .leading, spacing: 0) {
+			DSSeparator()
+			VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+				DSGroupHeader(title: title, count: count, expanded: $open)
+				if open { content }
+			}
+			.padding(.horizontal, DS.Metrics.s4).padding(.vertical, DS.Metrics.s3)
 		}
 	}
 }

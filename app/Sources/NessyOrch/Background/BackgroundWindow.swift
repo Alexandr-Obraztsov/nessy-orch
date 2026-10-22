@@ -27,17 +27,20 @@ final class BackgroundNav {
 		section = BackgroundSection(rawValue: UserDefaults.standard.string(forKey: "background.section") ?? "") ?? .work
 	}
 
+	/// Анимируется только выезд и уезд блока (был закрыт — стал открыт и наоборот); смена объекта при открытом блоке — мгновенная.
+	private func apply(_ change: () -> Void, willOpen: Bool) {
+		if (objectId != nil) != willOpen { withAnimation(dsAnimation(DS.Motion.panel), change) }
+		else { var t = Transaction(); t.disablesAnimations = true; withTransaction(t, change) }
+	}
+
 	func go(_ s: BackgroundSection, id: String? = nil) {
-		withAnimation(dsAnimation(DS.Motion.panel)) {
-			section = s
-			objectId = id
-		}
+		apply({ section = s; objectId = id }, willOpen: id != nil)
 	}
 
 	/// Клик по карточке: открывает блок справа; повторный клик по выбранной закрывает.
 	func toggle(_ s: BackgroundSection, id: String) { go(s, id: section == s && objectId == id ? nil : id) }
 
-	func close() { withAnimation(dsAnimation(DS.Motion.panel)) { objectId = nil } }
+	func close() { apply({ objectId = nil }, willOpen: false) }
 }
 
 /// Окно «Фон»: слева четыре раздела и шестерёнка настроек, справа содержимое. Образец — окно «Роли».
