@@ -22,6 +22,8 @@ export interface Portion {
 /** Вход сборщика сессии. */
 export interface CollectorInput {
 	caseId: string
+	/** название сессии кейса: первая строка описания `# <название>` */
+	sessionTitle: string
 	summary: string
 	notes: string
 	/** событий в кейсе после `coveredUntil` */
@@ -33,6 +35,5 @@ export interface CollectorInput {
 /** Разобранный ответ сборщика. */
 export interface CollectorResult {
 	summary: string
-	title: string | null
 	goals: CaseGoal[]
 }

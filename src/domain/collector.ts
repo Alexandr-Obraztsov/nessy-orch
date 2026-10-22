@@ -9,12 +9,13 @@ const MODE_INCREMENTAL = 'incremental: update only what the new events change'
 export function buildCollectorPrompt(template: string, input: CollectorInput): string {
 	const values: Record<string, string> = {
 		case_id: input.caseId,
+		session_title: input.sessionTitle.replace(/\s+/g, ' ').trim(),
 		summary: input.summary.trim() === '' ? EMPTY_SUMMARY : input.summary,
 		notes: input.notes.trim() === '' ? '(none)' : input.notes,
 		total: String(input.total),
 		mode: input.final ? MODE_FINAL : MODE_INCREMENTAL,
 	}
-	return template.replace(/\{\{(case_id|summary|notes|total|mode)\}\}/g, (_m, key: string) => values[key] ?? '')
+	return template.replace(/\{\{(case_id|session_title|summary|notes|total|mode)\}\}/g, (_m, key: string) => values[key] ?? '')
 }
 
 function lastBlock(text: string, tag: string): string | null {
@@ -24,8 +25,8 @@ function lastBlock(text: string, tag: string): string | null {
 	return found
 }
 
-function parseMeta(raw: string | null): { title: string | null; goals: CaseGoal[] } {
-	const empty = { title: null, goals: [] }
+function parseMeta(raw: string | null): { goals: CaseGoal[] } {
+	const empty = { goals: [] }
 	if (raw === null) return empty
 	let data: unknown
 	try {
@@ -35,7 +36,6 @@ function parseMeta(raw: string | null): { title: string | null; goals: CaseGoal[
 	}
 	if (typeof data !== 'object' || data === null) return empty
 	const obj = data as Record<string, unknown>
-	const title = typeof obj.title === 'string' && obj.title.trim() !== '' ? obj.title.trim() : null
 	const goals: CaseGoal[] = []
 	if (Array.isArray(obj.goals)) {
 		for (const g of obj.goals) {
@@ -45,26 +45,20 @@ function parseMeta(raw: string | null): { title: string | null; goals: CaseGoal[
 			goals.push({ title: goal.title.trim(), type: typeof goal.type === 'string' ? goal.type.trim() : '' })
 		}
 	}
-	return { title, goals }
+	return { goals }
 }
 
-/** Заголовок (`# `) и цели (`## Goal: … (type: …)`) описания, записанного руками. */
-export function parseSummaryHeads(text: string): { title: string | null; goals: CaseGoal[] } {
-	let title: string | null = null
+/** Цели (`## Goal: … (type: …)`) описания, записанного руками; название кейса — название сессии, из текста не берётся. */
+export function parseSummaryHeads(text: string): { goals: CaseGoal[] } {
 	const goals: CaseGoal[] = []
 	for (const line of text.split('\n')) {
-		const h1 = /^#\s+(\S.*)$/.exec(line)
-		if (h1 && title === null) {
-			title = (h1[1] ?? '').trim()
-			continue
-		}
 		const g = /^##\s+Goal:\s*(.*?)\s*$/.exec(line)
 		if (!g) continue
 		const m = /^(.*?)\s*\(type:\s*([^)]*)\)\s*$/.exec(g[1] ?? '')
 		const goalTitle = (m ? m[1] : g[1]) ?? ''
 		if (goalTitle.trim() !== '') goals.push({ title: goalTitle.trim(), type: (m?.[2] ?? '').trim() })
 	}
-	return { title: title === '' ? null : title, goals }
+	return { goals }
 }
 
 /** Разбирает ответ сборщика; нет непустого `<summary>` — null. */

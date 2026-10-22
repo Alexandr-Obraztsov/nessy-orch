@@ -29,7 +29,7 @@ The events are NOT in this prompt. Read them yourself, block by block, with the 
 ## Summary format
 
 ```
-# <session title, 3–8 words>
+# {{session_title}}
 ## Goal: <goal title> (type: <short task type>)
 ### Plan
 <what the orchestrator planned or agreed with the user, a few lines>
@@ -43,20 +43,21 @@ The events are NOT in this prompt. Read them yourself, block by block, with the 
 - <...>
 ```
 
-Repeat the block from `## Goal:` for each further goal. An empty section stays with a single line `- none`.
+The first line is the session title exactly as given: {{session_title}} (never reworded, never shortened). Repeat the block from `## Goal:` for each further goal. An empty section stays with a single line `- none`.
 
 ## Output contract
 
 Your task preamble may ask for the answer in the form "Итог / Детали / Источники / Не проверено / Статус:". That is fine: you may put that frame around the answer. But the answer MUST contain these two blocks, exactly once each, as plain text with the tags on their own lines:
 
 1. `<summary>` ... `</summary>`: the COMPLETE new `summary.md`, from the `# ` title line to the end of the last section. It is a full replacement of the file, never a diff, never only the changed parts, never "unchanged" placeholders.
-2. `<meta>` ... `</meta>`: one JSON object: `{"title": "<session title>", "goals": [{"title": "<goal title>", "type": "<short task type>"}]}`. List every goal of the whole session, not only new ones.
+2. `<meta>` ... `</meta>`: one JSON object: `{"goals": [{"title": "<goal title>", "type": "<short task type>"}]}`. List every goal of the whole session, not only new ones.
 
 Do not put anything else inside the two blocks. Do not wrap the blocks in code fences.
 
 ## Input
 
 CASE: {{case_id}}
+SESSION TITLE (data): {{session_title}}
 MODE: {{mode}}
 EVENTS TO READ: {{total}} (read them with `nessy-orch case read {{case_id}}`)
 

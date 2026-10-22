@@ -1,5 +1,5 @@
 /** Форматирование вывода CLI (для человека; для машин есть --json). */
-import type { AgentPlan, AgentView, BackfillCandidate, CaseView, JobView, JournalEntry, Message, PlaybookView, RoleView, SpaceView, SessionView } from '../../../shared/types'
+import type { AgentPlan, AgentView, CaseView, JobView, JournalEntry, Message, PlaybookView, RoleView, SpaceView, SessionView } from '../../../shared/types'
 import { formatPlanLine } from '../../domain/plan'
 
 const tty = process.stdout.isTTY && !process.env['NO_COLOR']
@@ -166,8 +166,8 @@ const when = (iso: string): string => dim(iso.slice(0, 16).replace('T', ' '))
 export function casesTable(cases: readonly CaseView[]): string {
 	if (!cases.length) return dim('кейсов пока нет')
 	return table(
-		cases.map(c => [bold(c.id), status(c.status), c.source === 'backfill' ? 'разбор' : 'живой', `${c.coveredUntil}/${c.events}`, (c.title ?? '—').slice(0, 60), when(c.updatedAt)]),
-		['ID', 'СТАТУС', 'ОТКУДА', 'СОБЫТИЯ', 'ЗАГОЛОВОК', 'ОБНОВЛЁН'],
+		cases.map(c => [bold(c.id), status(c.status), `${c.coveredUntil}/${c.events}`, (c.title ?? '—').slice(0, 60), when(c.updatedAt)]),
+		['ID', 'СТАТУС', 'СОБЫТИЯ', 'ЗАГОЛОВОК', 'ОБНОВЛЁН'],
 	)
 }
 
@@ -198,13 +198,3 @@ export function journalTable(list: readonly JournalEntry[]): string {
 	)
 }
 
-const kb = (n: number): string => (n >= 1024 ? `${Math.round(n / 1024)} КБ` : `${n} Б`)
-
-/** Кандидаты разбора прошлых сессий (размер: сессия — сообщений, транскрипт — байты). */
-export function candidatesTable(list: readonly BackfillCandidate[]): string {
-	if (!list.length) return dim('разбирать нечего')
-	return table(
-		list.map(x => [bold(x.id), x.kind === 'session' ? 'сессия' : 'транскрипт', when(x.date), x.kind === 'session' ? `${x.size} сообщ.` : kb(x.size), x.title.slice(0, 60)]),
-		['ID', 'ВИД', 'ДАТА', 'РАЗМЕР', 'ЗАГОЛОВОК'],
-	)
-}

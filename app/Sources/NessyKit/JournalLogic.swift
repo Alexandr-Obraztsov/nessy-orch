@@ -42,19 +42,4 @@ public enum JournalLogic {
 		if e.subject.hasPrefix("c-") { return .caseView(e.subject) }
 		return nil
 	}
-
-	/// «12 сообщений» / «340 КБ» у кандидата разбора.
-	public static func size(_ c: BackfillCandidate) -> String {
-		switch c.kind {
-		case .session: return "\(c.size) \(Durations.plural(c.size, "сообщение", "сообщения", "сообщений"))"
-		default:
-			if c.size >= 1_048_576 { return String(format: "%.1f МБ", Double(c.size) / 1_048_576) }
-			return "\(max(1, (c.size + 512) / 1024)) КБ"
-		}
-	}
-
-	/// Итог разбора: «создано 3, пропущено 1».
-	public static func backfillLine(_ r: BackfillResult) -> String {
-		"создано \(r.created.count), пропущено \(r.skipped.count)"
-	}
 }

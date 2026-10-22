@@ -152,8 +152,9 @@ struct RawEventsList: View {
 
 // MARK: - Заголовок карточки
 
-/// Шапка карточки: крупное название, строка-подпись (статусы, даты) и справа действия.
-struct CardHeader<Actions: View>: View {
+/// Шапка правого блока: название, под ним метаданные, действия и ✕ (Esc тоже закрывает).
+struct PanelHeader<Actions: View>: View {
+	@Environment(AppModel.self) private var model
 	var title: String
 	var subtitle: String?
 	@ViewBuilder var actions: Actions
@@ -165,16 +166,19 @@ struct CardHeader<Actions: View>: View {
 	var body: some View {
 		HStack(alignment: .top, spacing: DS.Metrics.s3) {
 			VStack(alignment: .leading, spacing: 2) {
-				Text(title).font(.system(size: 22, weight: .semibold)).lineLimit(2).textSelection(.enabled)
-				if let subtitle, !subtitle.isEmpty { Text(subtitle).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).lineLimit(2) }
+				Text(title).font(DS.Typography.panelTitle).lineLimit(2).textSelection(.enabled)
+				if let subtitle, !subtitle.isEmpty { Text(subtitle).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1) }
 			}
 			Spacer(minLength: DS.Metrics.s2)
 			HStack(spacing: DS.Metrics.s2) { actions }
+			PlainIconButton(systemImage: "xmark", help: "Закрыть", size: 24) { model.background.close() }
+				.keyboardShortcut(.cancelAction)
 		}
+		.padding(.horizontal, DS.Metrics.s4).padding(.vertical, DS.Metrics.s3)
 	}
 }
 
-extension CardHeader where Actions == EmptyView {
+extension PanelHeader where Actions == EmptyView {
 	init(_ title: String, subtitle: String? = nil) { self.init(title, subtitle: subtitle) { EmptyView() } }
 }
 
@@ -213,33 +217,13 @@ struct LongText: View {
 
 // MARK: - Пустые и служебные состояния
 
-/// Пустое состояние раздела: значок, фраза и, если нужно, подсказка.
+/// Пустое состояние: одна строка.
 struct LearningEmptyState: View {
-	var systemImage: String
 	var title: String
-	var message: String?
-	init(_ title: String, systemImage: String, message: String? = nil) { self.title = title; self.systemImage = systemImage; self.message = message }
+	init(_ title: String) { self.title = title }
 	var body: some View {
-		ContentUnavailableView {
-			Label(title, systemImage: systemImage)
-		} description: {
-			if let message { Text(message) }
-		}
-		.frame(maxWidth: .infinity, minHeight: 220)
-	}
-}
-
-/// Объект, который выбран, но его больше нет (удалён).
-struct DeletedObjectView: View {
-	@Environment(AppModel.self) private var model
-	var title: String
-
-	var body: some View {
-		VStack(spacing: DS.Metrics.s3) {
-			LearningEmptyState(title, systemImage: "trash", message: "Его больше нет на сервере.")
-			Button("Закрыть") { model.background.forceGo(model.background.section) }.buttonStyle(SettingsButtonStyle())
-		}
-		.frame(maxWidth: .infinity)
+		Text(title).font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+			.frame(maxWidth: .infinity, minHeight: 120)
 	}
 }
 
@@ -264,23 +248,119 @@ struct Collapsible<Content: View>: View {
 	}
 }
 
-/// Строка списка слева: выделение и подсветка при наведении; содержимое — снаружи.
-struct ListRowButton<Content: View>: View {
+/// Карточка списка: скруглённая поверхность, у выбранной — рамка акцентом, при наведении — лёгкая подсветка.
+/// Все карточки окна «Фон» — одной высоты (список ровный, как в сетке плиток).
+enum CardMetrics { static let height: CGFloat = 96 }
+
+struct CardButton<Content: View>: View {
 	var selected: Bool
 	var action: () -> Void
 	@ViewBuilder var content: Content
 	@State private var hover = false
 
 	var body: some View {
+		let shape = RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous)
 		Button(action: action) {
 			content
-				.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
-				.frame(maxWidth: .infinity, alignment: .leading)
-				.background(selected ? DS.Palette.selection : (hover ? DS.Palette.hover : .clear), in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))
-				.contentShape(Rectangle())
+				.padding(DS.Metrics.s4)
+				.frame(maxWidth: .infinity, minHeight: CardMetrics.height, maxHeight: CardMetrics.height, alignment: .topLeading)
+				.background(DS.Palette.surface, in: shape)
+				.background(hover && !selected ? DS.Palette.hover : .clear, in: shape)
+				.overlay(shape.strokeBorder(selected ? DS.Palette.accent : DS.Palette.border, lineWidth: selected ? 1.5 : DS.Metrics.hairline))
+				.contentShape(shape)
 		}
 		.buttonStyle(.plain)
 		.onHover { hover = $0 }
+		.accessibilityAddTraits(selected ? .isSelected : [])
+	}
+}
+
+/// Сетка карточек: столбцы подстраиваются под ширину.
+struct CardGrid<Item: Identifiable, Card: View>: View {
+	var items: [Item]
+	@ViewBuilder var card: (Item) -> Card
+
+	var body: some View {
+		LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: DS.Metrics.s3, alignment: .top)], alignment: .leading, spacing: DS.Metrics.s3) {
+			ForEach(items) { card($0) }
+		}
+	}
+}
+
+/// Группа карточек с заголовком; пустая не показывается.
+struct CardGroup<Item: Identifiable, Card: View>: View {
+	var title: String
+	var items: [Item]
+	@ViewBuilder var card: (Item) -> Card
+
+	var body: some View {
+		if !items.isEmpty {
+			VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+				DSGroupHeader(title: title, count: items.count)
+				CardGrid(items: items, card: card)
+			}
+		}
+	}
+}
+
+/// Полоса прогресса чтения сессии.
+struct ProgressBar: View {
+	var progress: JobProgress?
+
+	var body: some View {
+		GeometryReader { geo in
+			ZStack(alignment: .leading) {
+				Capsule().fill(DS.Palette.separator)
+				Capsule().fill(DS.Palette.textSecondary).frame(width: max(DS.Metrics.progressSize.height, geo.size.width * BackgroundLogic.progressFraction(progress)))
+			}
+		}
+		.frame(height: DS.Metrics.progressSize.height)
+		.animation(DS.Motion.progress, value: BackgroundLogic.progressFraction(progress))
+	}
+}
+
+/// Область раздела: карточки на всю ширину и, когда объект выбран, справа выезжающий блок. Левый край блока тянется мышью;
+/// двойной щелчок по нему — ширина по умолчанию.
+struct BackgroundSplit<Cards: View, Panel: View>: View {
+	@Environment(AppModel.self) private var model
+	var open: Bool
+	@ViewBuilder var cards: Cards
+	@ViewBuilder var panel: Panel
+	@State private var start: CGFloat?
+
+	private let minCards: CGFloat = 320
+
+	var body: some View {
+		GeometryReader { geo in
+			let nav = model.background
+			let width = min(nav.panelWidth, max(DS.Metrics.sidePanelWidth.min, geo.size.width - minCards))
+			let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
+			HStack(spacing: 0) {
+				cards.frame(maxWidth: .infinity, maxHeight: .infinity)
+				if open {
+					panel
+						.frame(width: width).frame(maxHeight: .infinity)
+						.background(DS.Palette.surface, in: shape)
+						.overlay(shape.strokeBorder(DS.Palette.border, lineWidth: DS.Metrics.hairline))
+						.clipShape(shape)
+						.overlay(alignment: .leading) {
+							Color.clear.frame(width: 8).contentShape(Rectangle())
+								.pointerStyle(.columnResize)
+								.gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+									.onChanged { g in
+										if start == nil { start = width }
+										nav.setPanelWidth((start ?? width) - g.translation.width)
+									}
+									.onEnded { _ in start = nil })
+								.onTapGesture(count: 2) { nav.setPanelWidth(DS.Metrics.sidePanelWidth.ideal) }
+								.help("Потяните, чтобы изменить ширину")
+						}
+						.padding(.trailing, DS.Metrics.s2).padding(.vertical, DS.Metrics.s2)
+						.transition(.move(edge: .trailing).combined(with: .opacity))
+				}
+			}
+			.animation(start == nil ? dsAnimation(DS.Motion.panel) : nil, value: open)
+		}
 	}
 }
 
@@ -305,14 +385,14 @@ struct LearningOfflineLine: View {
 /// Сервер не умеет обучение (старая версия) — вместо содержимого окна.
 struct LearningUnavailableView: View {
 	var body: some View {
-		LearningEmptyState("Фоновое обучение недоступно на этом сервере", systemImage: "graduationcap", message: "Обновите службу оркестратора до версии с обучением.")
+		LearningEmptyState("Фоновое обучение недоступно: обновите службу оркестратора")
 	}
 }
 
 // MARK: - Данные для разделов
 
 extension AppModel {
-	/// Названия сессий кейса (без дублей, порядок кейса); сессия, которой нет в оркестраторе, — по id.
+	/// Названия сессий кейса (порядок кейса); сессия, которой нет в оркестраторе, — по id.
 	func sessionTitles(of c: CaseView) -> [String] {
 		c.sessions.map { id in
 			let t = store.session(id)?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -320,8 +400,10 @@ extension AppModel {
 		}
 	}
 
-	/// Заголовок кейса: свой, иначе название первой сессии, иначе id.
+	/// Название кейса — название его сессии (как в списке сессий); своё название кейса — только если сессии нет в оркестраторе.
 	func title(ofCase c: CaseView) -> String {
+		if let id = c.sessions.first(where: { store.session($0).map { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false }),
+			let t = store.session(id)?.title.trimmingCharacters(in: .whitespacesAndNewlines) { return t }
 		if let t = c.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty { return t }
 		return sessionTitles(of: c).first ?? c.id
 	}

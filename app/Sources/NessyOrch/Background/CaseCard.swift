@@ -19,17 +19,19 @@ struct CaseCard: View {
 	private var client: OrchClient { model.store.client }
 
 	var body: some View {
-		ScrollView {
-			VStack(alignment: .leading, spacing: DS.Metrics.s5) {
-				header
-				meta
-				summarySection
+		VStack(spacing: 0) {
+			header
+			DSSeparator()
+			ScrollView {
+				VStack(alignment: .leading, spacing: DS.Metrics.s4) {
+					meta
+					summarySection
+				}
+				.padding(DS.Metrics.s4)
+				.frame(maxWidth: .infinity, alignment: .leading)
 			}
-			.padding(DS.Metrics.s5)
-			.frame(maxWidth: 820, alignment: .leading)
-			.frame(maxWidth: .infinity)
+			.scrollEdgeEffectStyle(.soft, for: .top)
 		}
-		.scrollEdgeEffectStyle(.soft, for: .top)
 		.task(id: "\(item.id)|\(item.updatedAt)|\(item.coveredUntil)|\(item.status)") { await load() }
 		.confirmationDialog("Удалить кейс «\(model.title(ofCase: item))»?", isPresented: $confirmDelete, titleVisibility: .visible) {
 			Button("Удалить", role: .destructive) { delete() }
@@ -40,19 +42,13 @@ struct CaseCard: View {
 	}
 
 	private var header: some View {
-		CardHeader(model.title(ofCase: item), subtitle: subtitle) {
+		PanelHeader(model.title(ofCase: item), subtitle: subtitle) {
 			Button("Удалить…", role: .destructive) { askDelete() }.disabled(model.isOffline)
 		}
 		.buttonStyle(SettingsButtonStyle())
 	}
 
-	private var subtitle: String {
-		var p: [String] = []
-		if item.source == .backfill { p.append("из прошлых сессий") }
-		if let d = ISO.parse(item.updatedAt) { p.append("обновлён " + d.learningStamp) }
-		p.append("событий: \(item.events)")
-		return p.joined(separator: " · ")
-	}
+	private var subtitle: String? { ISO.parse(item.updatedAt).map { "обновлён " + $0.learningStamp } }
 
 	/// Сессии (клик — вкладка сессии) и плейбук «Название · v3» (клик — раздел «Плейбуки»).
 	private var meta: some View {
@@ -81,7 +77,7 @@ struct CaseCard: View {
 			if let text = detail?.summary, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 				MarkdownView(text: text).padding(DS.Metrics.s3).frame(maxWidth: .infinity, alignment: .leading).dsGroup()
 			} else {
-				Text("Описание пусто.").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+				Text("Пока пусто").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
 			}
 		} else {
 			ForEach(Array(parsed.goals.enumerated()), id: \.offset) { _, g in CaseGoalView(caseId: item.id, goal: g) }
@@ -114,7 +110,7 @@ struct CaseCard: View {
 		Task {
 			await model.run("Удаление кейса") {
 				try await client.deleteCase(id)
-				await MainActor.run { if model.background.objectId == id { model.background.go(.cases) } }
+				await MainActor.run { if model.background.objectId == id { model.background.close() } }
 			}
 		}
 	}

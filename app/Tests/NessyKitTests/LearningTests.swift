@@ -106,8 +106,6 @@ struct LearningDecodingTests {
 		#expect(raw.id == 3 && raw.kind == .user && raw.to == nil)
 		let imp = try decode(#"{"rules":[{"playbookId":"p-1","ruleId":"r-1","text":"t","evidenceLeft":1}]}"#, as: CaseImpact.self)
 		#expect(imp.rules.first?.evidenceLeft == 1)
-		let br = try decode(#"{"created":[\#(caseJSON())],"skipped":[{"id":"s2","reason":"кейс уже есть"}]}"#, as: BackfillResult.self)
-		#expect(br.created.count == 1 && br.skipped.first?.reason == "кейс уже есть")
 	}
 
 	@Test func apiErrorFlags() {

@@ -89,13 +89,6 @@ public enum RawKind: String, Codable, Sendable {
 	}
 }
 
-public enum BackfillKind: String, Codable, Sendable {
-	case session, transcript, unknown
-	public init(from decoder: Decoder) throws {
-		self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-	}
-}
-
 // MARK: настройки, кейсы, задания
 
 public struct LearningSettings: Codable, Hashable, Sendable {
@@ -334,47 +327,6 @@ public struct CaseImpact: Codable, Hashable, Sendable {
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		rules = (try? c.decodeIfPresent(LossyArray<Rule>.self, forKey: .rules))?.items ?? []
-	}
-}
-
-/// Прошлая сессия или транскрипт, который можно разобрать задним числом.
-public struct BackfillCandidate: Codable, Hashable, Identifiable, Sendable {
-	public var kind: BackfillKind
-	public var id: String
-	public var title: String
-	public var date: String
-	/// сообщений у сессии, байт у транскрипта
-	public var size: Int
-
-	public init(from decoder: Decoder) throws {
-		let c = try decoder.container(keyedBy: CodingKeys.self)
-		kind = c.get(.kind, .unknown)
-		id = try c.decode(String.self, forKey: .id)
-		title = c.get(.title, "")
-		date = c.get(.date, "")
-		size = c.get(.size, 0)
-	}
-}
-
-public struct BackfillResult: Codable, Hashable, Sendable {
-	public struct Skipped: Codable, Hashable, Identifiable, Sendable {
-		public var id: String
-		public var reason: String
-
-		public init(from decoder: Decoder) throws {
-			let c = try decoder.container(keyedBy: CodingKeys.self)
-			id = c.get(.id, "")
-			reason = c.get(.reason, "")
-		}
-	}
-
-	public var created: [CaseView]
-	public var skipped: [Skipped]
-
-	public init(from decoder: Decoder) throws {
-		let c = try decoder.container(keyedBy: CodingKeys.self)
-		created = (try? c.decodeIfPresent(LossyArray<CaseView>.self, forKey: .created))?.items ?? []
-		skipped = (try? c.decodeIfPresent(LossyArray<Skipped>.self, forKey: .skipped))?.items ?? []
 	}
 }
 

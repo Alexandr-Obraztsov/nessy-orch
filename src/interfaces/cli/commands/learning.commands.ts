@@ -1,16 +1,16 @@
 /**
  * Команды фонового обучения:
- *   learn [status] | on | off [--session S] | run [--session S] | backfill [--all | <id…>]
+ *   learn [status] | on | off [--session S] | run [--session S]
  *   learn journal [--limit N] [--revert <id>]
  *   case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>" | read <id> [--max-chars N] | draft <id> [--file F]
  *   playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason] | revert <id> --version N | rm <id> | note <id> "<текст>"
  *   playbook edits <id> | accept <id> <hash> | reject <id> <hash>   правки улучшателя без авто-ревью (`autoReview: false`)
  */
-import type { BackfillCandidate, BackfillResult, CaseDetail, CaseReadBlock, JobView, JournalEntry, LearningSettings, LearningView, PendingEdit, PlaybookDetail, PlaybookView } from '../../../../shared/types'
+import type { CaseDetail, CaseReadBlock, JobView, JournalEntry, LearningSettings, LearningView, PendingEdit, PlaybookDetail, PlaybookView } from '../../../../shared/types'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { FlagSpec, Parsed } from '../args.types'
 import { CliError } from '../errors'
-import { bold, candidatesTable, casesTable, dim, green, jobsTable, journalTable, playbooksTable } from '../format'
+import { bold, casesTable, dim, green, jobsTable, journalTable, playbooksTable } from '../format'
 import * as fs from 'node:fs'
 import { del, enc, get, info, json, out, patch, post, put } from '../io'
 import type { CommandTable } from './command.types'
@@ -21,7 +21,6 @@ export const PLAYBOOK_FLAGS: FlagSpec = { bool: ['json', 'help'], value: ['reaso
 
 const LEARN_USAGE = `использование:
   nessy-orch learn [status] | on | off [--session S] | run [--session S]
-  nessy-orch learn backfill [--all | <id…>]
   nessy-orch learn journal [--limit N] [--revert <id записи>]`
 const CASE_USAGE = `использование:
   nessy-orch case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"
@@ -48,7 +47,7 @@ function printStatus(v: LearningView): void {
 
 function printCase(c: CaseDetail): void {
 	out(`${bold(c.id)}  ${c.status}  ${c.title ?? dim('без заголовка')}`)
-	out(dim(`источник: ${c.source === 'backfill' ? 'разбор прошлого' : 'живая сессия'} · сессии: ${c.sessions.join(', ') || '—'} · события ${c.coveredUntil}/${c.events}`))
+	out(dim(`сессии: ${c.sessions.join(', ') || '—'} · события ${c.coveredUntil}/${c.events}`))
 	out(dim(`создан ${c.createdAt} · обновлён ${c.updatedAt}${c.closedAt ? ` · закрыт ${c.closedAt}` : ''}`))
 	if (c.goals.length) out(dim(`цели: ${c.goals.map(g => `${g.title} (${g.type})`).join('; ')}`))
 	out('')
@@ -69,7 +68,7 @@ async function setEnabled(p: Parsed, enabled: boolean): Promise<void> {
 }
 
 async function cmdLearn(p: Parsed): Promise<void> {
-	const [sub = 'status', ...rest] = p.positionals
+	const [sub = 'status'] = p.positionals
 	const asJson = flagBool(p, 'json')
 	if (sub === 'status') {
 		const v = await get<LearningView>('/learning')
@@ -81,16 +80,6 @@ async function cmdLearn(p: Parsed): Promise<void> {
 		const jobs = await post<JobView[]>('/learning/run', session === undefined ? {} : { session })
 		if (asJson) return json(jobs)
 		return out(jobs.length ? `${green('✓')} заданий поставлено: ${jobs.length}\n${jobsTable(jobs)}` : dim('открытых кейсов нет'))
-	}
-	if (sub === 'backfill') {
-		const list = await get<BackfillCandidate[]>('/learning/backfill')
-		const ids = flagBool(p, 'all') ? list.map(x => x.id) : rest
-		if (!ids.length) return asJson ? json(list) : out(`${candidatesTable(list)}\n${list.length ? dim('разобрать: nessy-orch learn backfill --all | <id…>') : ''}`.trimEnd())
-		const r = await post<BackfillResult>('/learning/backfill', { ids })
-		if (asJson) return json(r)
-		out(`${green('✓')} кейсов заведено: ${r.created.length}${r.created.length ? ` (задания close в очереди)\n${casesTable(r.created)}` : ''}`)
-		for (const s of r.skipped) out(dim(`пропущен ${s.id}: ${s.reason}`))
-		return
 	}
 	if (sub === 'journal') {
 		const revert = flagStr(p, 'revert')

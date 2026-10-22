@@ -12,7 +12,7 @@ struct JournalSection: View {
 		ScrollView {
 			LazyVStack(alignment: .leading, spacing: DS.Metrics.s5) {
 				if days.isEmpty {
-					LearningEmptyState("Журнал пуст", systemImage: "list.bullet.rectangle", message: "Сюда попадают сборка плейбуков, ревью и включение правил.")
+					LearningEmptyState("Журнал пуст")
 				}
 				ForEach(days) { day in
 					VStack(alignment: .leading, spacing: DS.Metrics.s2) {

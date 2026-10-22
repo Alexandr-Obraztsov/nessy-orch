@@ -141,11 +141,6 @@ public final class OrchClient: @unchecked Sendable {
 	public func caseImpact(_ id: String) async throws -> CaseImpact { try await get("/learning/cases/\(id)/impact") }
 	public func deleteCase(_ id: String) async throws { try await raw("DELETE", "/learning/cases/\(id)") }
 
-	public func backfillCandidates() async throws -> [BackfillCandidate] {
-		(try await get("/learning/backfill", as: LossyArray<BackfillCandidate>.self)).items
-	}
-	public func backfill(ids: [String]) async throws -> BackfillResult { try await send("POST", "/learning/backfill", body: ["ids": ids]) }
-
 	public func playbooks() async throws -> [PlaybookView] { (try await get("/learning/playbooks", as: LossyArray<PlaybookView>.self)).items }
 	public func playbookDetail(_ id: String) async throws -> PlaybookDetail { try await get("/learning/playbooks/\(id)") }
 	@discardableResult

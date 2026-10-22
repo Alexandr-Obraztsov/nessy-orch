@@ -60,8 +60,6 @@ export interface JobHandler {
 export interface CaseReadyHost {
 	cases: { get(id: string): CaseState | null }
 	enqueue(kind: JobKind, subject: string, opts?: JobEnqueueOpts): void
-	/** пачка бэкфилла кейса (все её кейсы) или null; пачка выдаётся один раз */
-	batch(caseId: string): string[] | null
 }
 
 /** Что подсказка плейбука берёт у сервиса обучения (`hintFor`, сборщик); `hinted` переживает рестарт. */

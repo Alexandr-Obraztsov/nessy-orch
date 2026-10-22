@@ -37,8 +37,6 @@ export interface LearningMeta {
 	removed: string[]
 	/** окончательные провалы сборки: по ним `match` не повторяет сборку той же группы сутки */
 	failedBuilds?: FailedBuild[]
-	/** пачки бэкфилла: кейс → все кейсы его пачки (выдаётся один раз при `ready`, переживает рестарт) */
-	batches?: Record<string, string[]>
 	/** когда последний раз пересчитывались счётчики правил (затухание), мс */
 	lastRecountAt?: number
 }

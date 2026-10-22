@@ -40,14 +40,15 @@ export const collectHandler: JobHandler = {
 		job.range = [events[0]?.n ?? c.coveredUntil + 1, lastN]
 		ctx.cases.writeDraft(c.id, '')
 		ctx.changed()
+		const title = ctx.cases.sessionTitle(c.id)
 		const prompt = buildCollectorPrompt(ctx.prompt('session-collector'), {
 			caseId: c.id,
+			sessionTitle: title,
 			summary: ctx.cases.summary(c.id),
 			notes: ctx.cases.notes(c.id),
 			total: events.length,
 			final: job.final,
 		})
-		const title = ctx.cases.sessionTitle(c.id)
 		const res = await ctx.runAgent(`session-${slugify(title, c.id)}`, title, prompt)
 		const parsed = parseCollectorReply(res.text)
 		if (!parsed) throw new Error('в ответе нет <summary>')
@@ -68,7 +69,6 @@ export const collectHandler: JobHandler = {
 		ctx.cases.update({
 			...latest,
 			coveredUntil: covered,
-			title: parsed.title ?? latest.title,
 			goals,
 			lastRunAt: now,
 			updatedAt: new Date(now).toISOString(),

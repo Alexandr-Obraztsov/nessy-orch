@@ -33,7 +33,8 @@ export interface CaseView {
 	updatedAt: string
 	closedAt: string | null
 	playbook: string | null
-	source: 'live' | 'backfill'
+	/** всегда `live`: разбор прошлых сессий убран, поле осталось для совместимости клиентов */
+	source: 'live'
 }
 
 export type JobKind = 'collect' | 'close' | 'match' | 'build' | 'review' | 'judge' | 'improve' | 'edit'
@@ -100,15 +101,6 @@ export interface LearningView {
 	rev: number
 }
 
-/** Прошлая сессия или транскрипт, который можно разобрать задним числом. */
-export interface BackfillCandidate {
-	kind: 'session' | 'transcript'
-	id: string
-	title: string
-	date: string
-	size: number
-}
-
 /** Кейс с описанием сессии и заметками (`GET /learning/cases/:id`). */
 export interface CaseDetail extends CaseView {
 	summary: string
@@ -131,12 +123,6 @@ export interface CaseReadBlock {
 	/** сколько событий ещё не прочитано */
 	remaining: number
 	done: boolean
-}
-
-/** Итог запуска разбора: заведённые кейсы и пропущенные кандидаты (кейс уже есть, нет транскрипта). */
-export interface BackfillResult {
-	created: CaseView[]
-	skipped: Array<{ id: string; reason: string }>
 }
 
 export type PlaybookStatus = 'draft' | 'review' | 'trial' | 'active' | 'disabled' | 'archived'

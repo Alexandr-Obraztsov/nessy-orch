@@ -3,7 +3,7 @@ import type { PlaybookStatus } from '../../../../shared/types'
 import type { LearningService } from '../../../application/learning/learning.service'
 import type { Orchestrator } from '../../../application/orchestrator'
 import { AppError } from '../../../domain/errors'
-import { parseBackfillRequest, parseLearningRun, parsePlaybookPatch, parsePlaybookStatus, parseRawRange, parseReason, parseSummaryPut, parseTextBody, parseVersion } from '../parsers'
+import { parseLearningRun, parsePlaybookPatch, parsePlaybookStatus, parseRawRange, parseReason, parseSummaryPut, parseTextBody, parseVersion } from '../parsers'
 import { queryNum, readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -65,11 +65,6 @@ export function registerLearningRoutes(r: Router): void {
 		sendJson(res, 200, { ok: true })
 	})
 	r.add('POST', '/learning/cases/:id/rebuild', ({ res, orch, params }) => sendJson(res, 200, learning(orch).rebuild(params['id'] ?? '')))
-	r.add('GET', '/learning/backfill', ({ res, orch }) => sendJson(res, 200, learning(orch).backfillCandidates()))
-	r.add('POST', '/learning/backfill', async ({ req, res, orch }) => {
-		const svc = learning(orch)
-		sendJson(res, 200, svc.backfill(parseBackfillRequest(await readBody(req))))
-	})
 
 	// ---------- плейбуки, журнал, заметки и чат ----------
 	r.add('GET', '/learning/playbooks', ({ res, orch }) => sendJson(res, 200, learning(orch).playbookList()))

@@ -44,7 +44,6 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
 ФОНОВОЕ ОБУЧЕНИЕ (оркестратор сам собирает кейсы из сессий; настройки — ~/.nessy-orch/learning.json)
   learn [status]       настройки, очередь заданий, кейсы       learn on | off [--session S]   включить/выключить (в целом или для сессии)
   learn run [--session S]   собрать описание сейчас (сессии или кейса; без --session — все открытые кейсы)
-  learn backfill [--all | <id…>]   без аргументов — кандидаты (прошлые сессии и транскрипты Claude Code), иначе завести кейсы
   case ls              кейсы        case show <id>   шапка и summary.md        case rm <id>   удалить кейс
   case rebuild <id>    пересобрать описание заново      case note <id> "<текст>"   заметки пользователя кейса
   case read <id> [--max-chars N]   следующий блок событий кейса (агент-сборщик; в stderr — прогресс или done)

@@ -15,13 +15,12 @@
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { BackfillCandidate, LearningSettings } from '../../../shared/types'
+import type { LearningSettings } from '../../../shared/types'
 import type { LearningStorePort } from '../../application/ports'
 import type { CaseState, FailedBuild, JobState, LearningMeta, TranscriptCursor } from '../../application/learning/learning.types'
 import type { RawEvent } from '../../domain/learning.types'
 import { arr, errMsg, isObject, parseJson } from '../../lib/json'
 import { appendJsonl, readJsonl, readText, writeAtomic } from './jsonl'
-import { findTranscript, scanTranscripts } from './transcript-scan'
 
 const RAW_LIMIT = 1_000_000
 /** За один вызов `copyTranscript` читается не больше (остаток — в следующий тик) */
@@ -48,14 +47,6 @@ export class FileLearningStore implements LearningStorePort {
 
 	ensureCasesDir(): void {
 		this.safe('каталог кейсов', () => fs.mkdirSync(this.casesDir, { recursive: true }))
-	}
-
-	scanTranscripts(dir: string, known: ReadonlySet<string>): BackfillCandidate[] {
-		return scanTranscripts(dir, known)
-	}
-
-	findTranscript(dir: string, chatId: string): string | null {
-		return findTranscript(dir, chatId)
 	}
 
 	loadSettings(): { raw: unknown; mtimeMs: number } {
@@ -222,12 +213,6 @@ export class FileLearningStore implements LearningStorePort {
 			isObject(f) && typeof f['hash'] === 'string' && typeof f['at'] === 'number' ? [{ hash: f['hash'], at: f['at'], cases: arr(f['cases']).filter((x): x is string => typeof x === 'string') }] : [],
 		)
 		if (failed.length) meta.failedBuilds = failed
-		const batchesRaw = v['batches']
-		if (isObject(batchesRaw)) {
-			const batches: Record<string, string[]> = {}
-			for (const [k, list] of Object.entries(batchesRaw)) batches[k] = arr(list).filter((x): x is string => typeof x === 'string')
-			if (Object.keys(batches).length) meta.batches = batches
-		}
 		if (typeof v['lastRecountAt'] === 'number') meta.lastRecountAt = v['lastRecountAt']
 		return meta
 	}

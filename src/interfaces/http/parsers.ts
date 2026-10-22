@@ -135,12 +135,6 @@ export function parseLearningRun(b: unknown): { session?: string } {
 	return s === undefined ? {} : { session: s }
 }
 
-/** Разбор прошлых сессий: `ids` — id кандидатов из `GET /learning/backfill`. */
-export function parseBackfillRequest(b: unknown): string[] {
-	if (!isObject(b) || !Array.isArray(b['ids']) || b['ids'].some(x => typeof x !== 'string' || x === '')) throw new AppError(400, 'bad_request', 'нужно поле ids (массив непустых строк)')
-	return b['ids'] as string[]
-}
-
 /** Тело с одной строкой: `{text}` (заметки, чат); пустая строка допустима, если `allowEmpty`. */
 export function parseTextBody(b: unknown, allowEmpty = false): string {
 	if (!isObject(b) || typeof b['text'] !== 'string' || (!allowEmpty && b['text'].trim() === '')) throw new AppError(400, 'bad_request', 'нужно поле text (строка)')

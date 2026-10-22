@@ -1,83 +1,69 @@
 import SwiftUI
 import NessyKit
 
-/// Раздел «В процессе»: слева сессии «Ждут обработки» и «Обрабатываются», справа — агент обрабатываемой (чат и промежуточный результат).
+/// Раздел «В процессе»: карточки сессий «Обрабатываются» и «Ждут обработки»; клик по обрабатываемой открывает справа её агента
+/// (чат и промежуточный результат).
 struct ProcessSection: View {
 	@Environment(AppModel.self) private var model
 
 	private var learning: LearningStore { model.store.learning }
 
+	/// Название сессии: локально найденное по кейсу, иначе от сервера.
+	private func title(_ j: JobView) -> String {
+		let local = learning.caseView(j.caseId).flatMap { c -> String? in
+			let t = model.store.session(c.sessions.first ?? "")?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+			return t.isEmpty ? nil : t
+		}
+		return local ?? BackgroundLogic.jobTitle(j, fallback: learning.caseView(j.caseId).map { model.title(ofCase: $0) } ?? "Сессия")
+	}
+
 	var body: some View {
 		let waiting = BackgroundLogic.waiting(learning.jobs), processing = BackgroundLogic.processing(learning.jobs)
-		if waiting.isEmpty && processing.isEmpty && model.background.objectId == nil {
-			LearningEmptyState("Сейчас ничего не обрабатывается", systemImage: "tray",
-				message: learning.loaded ? "Сессии описываются сами, пока вы работаете." : "Данные появятся, как только приложение свяжется с оркестратором.")
-				.frame(maxWidth: .infinity, maxHeight: .infinity)
-		} else {
-			HStack(spacing: 0) {
-				list(waiting, processing).frame(width: 300)
-				DSVerticalSeparator()
-				detail(waiting, processing).frame(maxWidth: .infinity, maxHeight: .infinity)
-			}
-		}
-	}
-
-	private func title(_ j: JobView) -> String {
-		BackgroundLogic.jobTitle(j, fallback: learning.caseView(j.caseId).map { model.title(ofCase: $0) } ?? "Сессия")
-	}
-
-	private func list(_ waiting: [JobView], _ processing: [JobView]) -> some View {
-		ScrollView {
-			VStack(alignment: .leading, spacing: DS.Metrics.s4) {
-				group("Обрабатываются", processing)
-				group("Ждут обработки", waiting)
-			}
-			.padding(.horizontal, DS.Metrics.s2).padding(.vertical, DS.Metrics.s3)
-		}
-	}
-
-	@ViewBuilder private func group(_ name: String, _ jobs: [JobView]) -> some View {
-		if !jobs.isEmpty {
-			VStack(alignment: .leading, spacing: DS.Metrics.s1) {
-				DSGroupHeader(title: name, count: jobs.count)
-				ForEach(jobs) { j in
-					ListRowButton(selected: model.background.objectId == j.id) { model.background.go(.work, id: j.id) } content: {
-						HStack(spacing: DS.Metrics.s2) {
-							if j.status == .running { ProgressView().controlSize(.small) }
-							Text(title(j)).font(DS.Typography.agentName).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
-							Spacer(minLength: 0)
+		let selected = model.background.objectId.flatMap { id in processing.first { $0.id == id } }
+		BackgroundSplit(open: selected != nil) {
+			if waiting.isEmpty && processing.isEmpty {
+				LearningEmptyState("Нет сессий").frame(maxHeight: .infinity)
+			} else {
+				ScrollView {
+					VStack(alignment: .leading, spacing: DS.Metrics.s5) {
+						CardGroup(title: "Обрабатываются", items: processing) { j in
+							JobTile(job: j, title: title(j), selected: model.background.objectId == j.id) { model.background.toggle(.work, id: j.id) }
 						}
+						CardGroup(title: "Ждут обработки", items: waiting) { j in JobTile(job: j, title: title(j), selected: false, action: nil) }
 					}
+					.padding(DS.Metrics.s4)
 				}
 			}
+		} panel: {
+			if let j = selected { ProcessCard(job: j, title: title(j)).id(j.id) }
 		}
 	}
+}
 
-	@ViewBuilder private func detail(_ waiting: [JobView], _ processing: [JobView]) -> some View {
-		if let id = model.background.objectId, let j = (processing + waiting).first(where: { $0.id == id }) {
-			if j.status == .running {
-				ProcessCard(job: j, title: title(j)).id(j.id)
+/// Карточка сессии: название и статус; у обрабатываемой — прогресс чтения.
+private struct JobTile: View {
+	var job: JobView
+	var title: String
+	var selected: Bool
+	var action: (() -> Void)?
+
+	var body: some View {
+		let content = VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+			Text(title).font(DS.Typography.agentName).foregroundStyle(DS.Palette.textPrimary).lineLimit(2).multilineTextAlignment(.leading)
+			Spacer(minLength: 0)
+			if job.status == .running {
+				Text(BackgroundLogic.progressLine(job.progress)).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).monospacedDigit()
+				ProgressBar(progress: job.progress)
 			} else {
-				LearningEmptyState(title(j), systemImage: "hourglass", message: "Ждёт обработки.")
-			}
-		} else if let id = model.background.objectId, let j = learning.jobs.first(where: { $0.id == id }), j.status == .done {
-			finished(j)
-		} else if model.background.objectId != nil, learning.loaded {
-			LearningEmptyState("Сессия обработана", systemImage: "checkmark.circle", message: "Её больше нет в очереди.")
-		} else {
-			LearningEmptyState("Выберите сессию", systemImage: "tray", message: "Слева — сессии, которые описывает фон.")
-		}
-	}
-
-	/// Задание закончилось, пока карточка была открыта: кейс уже в «Кейсах».
-	private func finished(_ j: JobView) -> some View {
-		VStack(spacing: DS.Metrics.s3) {
-			LearningEmptyState("Сессия обработана", systemImage: "checkmark.circle", message: title(j))
-			if learning.caseView(j.caseId) != nil {
-				Button("Открыть кейс") { model.background.go(.cases, id: j.caseId) }.buttonStyle(SettingsButtonStyle())
+				LearningChip("в очереди")
 			}
 		}
-		.frame(maxWidth: .infinity)
+		if let action { CardButton(selected: selected, action: action) { content } }
+		else {
+			content.padding(DS.Metrics.s4).frame(maxWidth: .infinity, minHeight: CardMetrics.height, maxHeight: CardMetrics.height, alignment: .topLeading)
+				.background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous))
+				.overlay(RoundedRectangle(cornerRadius: DS.Metrics.cardRadius, style: .continuous).strokeBorder(DS.Palette.border, lineWidth: DS.Metrics.hairline))
+		}
 	}
 }
 
@@ -94,15 +80,13 @@ private struct ProcessCard: View {
 
 	var body: some View {
 		VStack(spacing: 0) {
-			HStack(spacing: DS.Metrics.s3) {
-				Text(title).font(DS.Typography.panelTitle).lineLimit(1)
-				Spacer(minLength: DS.Metrics.s2)
-				Picker("Вкладка", selection: $tab) {
-					ForEach(ProcessTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-				}
-				.pickerStyle(.segmented).labelsHidden().fixedSize()
+			PanelHeader(title) { }
+			// вкладки под названием: в узком блоке название не сжимается до «Оче…»
+			Picker("Вкладка", selection: $tab) {
+				ForEach(ProcessTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
 			}
-			.padding(.horizontal, DS.Metrics.s4).padding(.vertical, DS.Metrics.s3)
+			.pickerStyle(.segmented).labelsHidden()
+			.padding(.horizontal, DS.Metrics.s4).padding(.bottom, DS.Metrics.s3)
 			DSSeparator()
 			switch tab {
 			case .chat: ProcessChat(job: job)
@@ -137,7 +121,7 @@ private struct ProcessChat: View {
 							.fixedSize(horizontal: false, vertical: true)
 						}
 				} else {
-					LearningEmptyState("Агент запускается", systemImage: "hourglass")
+					LearningEmptyState("Агент запускается")
 				}
 			}
 			.frame(width: geo.size.width, height: geo.size.height)
@@ -161,14 +145,7 @@ private struct ProgressStrip: View {
 	var body: some View {
 		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 			Text(BackgroundLogic.progressLine(progress)).font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.textSecondary).monospacedDigit()
-			GeometryReader { geo in
-				ZStack(alignment: .leading) {
-					Capsule().fill(DS.Palette.separator)
-					Capsule().fill(DS.Palette.textSecondary).frame(width: max(DS.Metrics.progressSize.height, geo.size.width * BackgroundLogic.progressFraction(progress)))
-				}
-			}
-			.frame(height: DS.Metrics.progressSize.height)
-			.animation(DS.Motion.progress, value: BackgroundLogic.progressFraction(progress))
+			ProgressBar(progress: progress)
 		}
 		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
 		.frame(maxWidth: .infinity, alignment: .leading)
@@ -191,7 +168,7 @@ private struct ProcessResult: View {
 				if let d = draft, !BackgroundLogic.draftText(d).isEmpty {
 					MarkdownView(text: BackgroundLogic.draftText(d))
 				} else {
-					Text("Агент ещё ничего не сохранил").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
+					Text("Пока пусто").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
 				}
 			}
 			.padding(DS.Metrics.s5)

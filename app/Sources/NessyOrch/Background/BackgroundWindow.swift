@@ -12,17 +12,32 @@ final class BackgroundNav {
 	/// выбранный объект раздела: id задания («В процессе»), кейса (`c-…`) или плейбука (`p-…`); `nil` — список без выбора
 	var objectId: String?
 
+	/// ширина правого блока; помнится между запусками
+	private(set) var panelWidth: CGFloat = {
+		let w = UserDefaults.standard.double(forKey: "background.panelWidth")
+		return w > 0 ? min(DS.Metrics.sidePanelWidth.max, max(DS.Metrics.sidePanelWidth.min, CGFloat(w))) : 420
+	}()
+
+	func setPanelWidth(_ v: CGFloat) {
+		panelWidth = min(DS.Metrics.sidePanelWidth.max, max(DS.Metrics.sidePanelWidth.min, v))
+		UserDefaults.standard.set(Double(panelWidth), forKey: "background.panelWidth")
+	}
+
 	init() {
 		section = BackgroundSection(rawValue: UserDefaults.standard.string(forKey: "background.section") ?? "") ?? .work
 	}
 
 	func go(_ s: BackgroundSection, id: String? = nil) {
-		section = s
-		objectId = id
+		withAnimation(dsAnimation(DS.Motion.panel)) {
+			section = s
+			objectId = id
+		}
 	}
 
-	/// Прежнее имя перехода «без вопросов»: теперь вопросов нет.
-	func forceGo(_ s: BackgroundSection, id: String? = nil) { go(s, id: id) }
+	/// Клик по карточке: открывает блок справа; повторный клик по выбранной закрывает.
+	func toggle(_ s: BackgroundSection, id: String) { go(s, id: section == s && objectId == id ? nil : id) }
+
+	func close() { withAnimation(dsAnimation(DS.Motion.panel)) { objectId = nil } }
 }
 
 /// Окно «Фон»: слева четыре раздела и шестерёнка настроек, справа содержимое. Образец — окно «Роли».
