@@ -68,7 +68,6 @@ function summary(title, goals) {
 	}
 	return out.join('\n') + '\n'
 }
-const metaOf = (title, goals) => ({ title, goals: goals.map(g => ({ title: g.title, type: g.type })) })
 
 // ---------- события кейсов ----------
 /** list: [kind, who, text]; task — who это адресат, reply — отправитель; нумерация с 1, шаг ~40 с. */
@@ -308,6 +307,32 @@ const AFF_ACTIVE = base('p-aff-package', {
 	sources: ['Jira ticket and linked tickets', 'Wiki space AFFDATA', 'packages/aff-currency, packages/aff-lang, packages/aff-geo', 'GitLab merge requests'],
 	files: ['packages/aff-*/src/index.ts', 'packages/aff-*/test/', 'packages/aff-*/CHANGELOG.md'],
 	behavior: ['Show the loaded data to the user at the data stage before implementing.', 'Never push to `main`; MRs go into `release`.', 'Run independent agents in parallel: ticket reading and the sibling survey.'],
+	tools: [
+		{
+			name: 'normalize-rates.mjs',
+			description: 'Round rates and amounts of a JSON array to two decimals; usage: `node tools/normalize-rates.mjs rates.json > rates.normalized.json`',
+			content: [
+				'#!/usr/bin/env node',
+				"import { readFileSync } from 'node:fs'",
+				"const rows = JSON.parse(readFileSync(process.argv[2], 'utf8'))",
+				'const round = v => (typeof v === \'number\' ? Math.round(v * 100) / 100 : v)',
+				"const out = rows.map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, /rate|amount/i.test(k) ? round(v) : v])))",
+				'console.log(JSON.stringify(out, null, 2))',
+				'',
+			].join('\n'),
+		},
+		{
+			name: 'fetch-ticket.sh',
+			description: 'Print the Jira ticket and its linked tickets as markdown; usage: `bash tools/fetch-ticket.sh AFF-412`',
+			content: [
+				'#!/bin/sh',
+				'set -eu',
+				'key="${1:?ticket key, for example AFF-412}"',
+				'nessy-orch ask --role jira-analyst "Print ticket $key and linked tickets as markdown: key, title, description, acceptance criteria"',
+				'',
+			].join('\n'),
+		},
+	],
 	stages: AFF_STAGES,
 	rules: AFF_RULES,
 	createdAt: ago(9 * D),
@@ -325,7 +350,7 @@ const AFF_ACTIVE = base('p-aff-package', {
 		],
 	},
 })
-const AFF_V1 = { ...AFF_ACTIVE, version: 1, stages: AFF_STAGES.slice(0, 4).map(s => ({ ...s, gate: false })), rules: AFF_RULES.slice(0, 3).map(r => ({ ...r, up: 1, down: 0 })), cases: ['c-demo-aff-pkg'], behavior: ['Never push to `main`.'], updatedAt: ago(9 * D) }
+const AFF_V1 = { ...AFF_ACTIVE, tools: [], version: 1, stages: AFF_STAGES.slice(0, 4).map(s => ({ ...s, gate: false })), rules: AFF_RULES.slice(0, 3).map(r => ({ ...r, up: 1, down: 0 })), cases: ['c-demo-aff-pkg'], behavior: ['Never push to `main`.'], updatedAt: ago(9 * D) }
 const AFF_V2 = { ...AFF_ACTIVE, version: 2, rules: AFF_RULES.slice(0, 5).map(r => ({ ...r, up: Math.max(1, r.up - 1) })), cases: ['c-demo-aff-pkg', 'c-demo-aff-pkg-2'], updatedAt: ago(3 * D) }
 
 const AFF_NOTES = `# Notes
@@ -465,12 +490,13 @@ function build() {
 	// collecting: сборщик ещё не дошёл до конца
 	const colEvs = events(NOW - 40 * 60_000, [['user', '', 'Подготовь отчёт по расходам на CI за квартал.'], ['claude', '', 'Соберу данные по пайплайнам.'], ['task', 'analyst-1', 'Цель: выгрузить минуты CI по проектам за квартал.'], ['reply', 'analyst-1', '**Итог** — выгружено 31 проект.\n\nСтатус: DONE'], ['user', '', 'Минуты в деньги переведи по тарифу 0,008 за минуту.'], ['task', 'analyst-1', 'Цель: посчитать расходы по тарифу.'], ['reply', 'analyst-1', '**Итог** — итого 14 280.\n\nСтатус: DONE']])
 	const colG = [{ title: 'CI cost report for the quarter', type: 'prepare report', plan: ['- Export CI minutes per project, convert to money.'], actions: [['Export CI minutes', 'analyst-1, analyst', '31 projects', [3, 4]]], sources: ['GitLab CI statistics'], corrections: [], open: ['Rate for converting minutes is not confirmed yet'] }]
-	put('c-demo-collecting', { title: 'CI cost report', status: 'collecting', startedAgo: 45 * 60_000, covered: 4, sessions: ['s-ci-cost'], updatedAgo: 10 * 60_000 }, colEvs, colG, null, summary('CI cost report', colG))
+	put('c-demo-collecting', { title: 'Отчёт по расходам на CI', status: 'collecting', startedAgo: 45 * 60_000, covered: 4, sessions: ['s-ci-cost'], updatedAgo: 10 * 60_000 }, colEvs, colG, null, summary('CI cost report', colG))
 	const clEvs = events(NOW - 3 * H, [['user', '', 'Обнови зависимости в shippy.'], ['task', 'executor-1', 'Цель: обновить зависимости.'], ['reply', 'executor-1', '**Итог** — обновлено 12.\n\nСтатус: DONE'], ['user', '', 'Мажорные версии не трогай.'], ['task', 'executor-1', 'Цель: откатить мажорные.'], ['reply', 'executor-1', '**Итог** — откатил 2.\n\nСтатус: DONE']])
 	const clG = [{ title: 'Update dependencies in shippy', type: 'update dependencies', plan: ['- Update everything except major versions.'], actions: [['Update dependencies', 'executor-1, executor', '12 updated', [2, 3]]], sources: ['shippy/package.json'], corrections: [['Update all', 'do not touch major versions', [4, 4]]], open: [] }]
 	put('c-demo-closing', { title: 'Update dependencies in shippy', status: 'closing', startedAgo: 3 * H, covered: 3, sessions: ['s-shippy-deps'], updatedAgo: 90_000 }, clEvs, clG, null, summary('Update dependencies in shippy', clG))
 	const erEvs = events(NOW - 6 * H, [['user', '', 'Разберись с флейками в e2e.'], ['task', 'explorer-1', 'Цель: найти флейкающие тесты.'], ['reply', 'explorer-1', '**Итог** — 5 тестов.\n\nСтатус: DONE'], ['claude', '', 'Готово.']])
-	put('c-demo-error', { title: 'Flaky e2e tests', status: 'error', startedAgo: 6 * H, covered: 0, sessions: ['s-e2e'], updatedAgo: 25 * 60_000 }, erEvs, [], null, '', [])
+	put('c-demo-error', { title: 'Флейки в e2e-тестах', status: 'closing', startedAgo: 6 * H, covered: 0, sessions: ['s-e2e'], updatedAgo: 25 * 60_000 }, erEvs, [], null, '', [])
+
 
 	// запись
 	for (const c of caseDefs) {
@@ -569,21 +595,20 @@ function build() {
 		job('j-demo-3', 'collect', 'c-demo-collecting', 'done', { created: 70 * 60_000, started: 69 * 60_000, finished: 66 * 60_000, extra: { range: [1, 4] } }),
 		job('j-demo-4', 'review', 'p-incident-triage', 'done', { created: 4 * H + 20 * 60_000, started: 4 * H + 15 * 60_000, finished: 4 * H, extra: { note: 'ревью не пройдено' } }),
 		job('j-demo-5', 'match', 'all', 'done', { created: 2 * H, started: 2 * H - 60_000, finished: 2 * H - 4 * 60_000, extra: { payload: { caseIds: ['c-demo-mr-1', 'c-demo-mr-2', 'c-demo-mr-3'] } } }),
-		job('j-demo-6', 'close', 'c-demo-error', 'error', { created: 6 * H, started: 5 * H + 50 * 60_000, finished: 5 * H + 40 * 60_000, extra: { final: true, attempts: 3, error: 'в ответе нет <summary>', range: [1, 4] } }),
-		job('j-demo-7', 'close', 'c-demo-closing', 'queued', { created: 2 * 60_000, extra: { final: true, retryAt: NOW + 2 * H } }),
-		job('j-demo-8', 'build', 'g-demo-1', 'queued', { created: 60_000, extra: { retryAt: NOW + 2 * H, payload: { caseIds: ['c-demo-mr-1', 'c-demo-mr-2'] } } }),
+		// ошибок для человека нет: сбой — это повтор через паузу
+		job('j-demo-6', 'close', 'c-demo-error', 'queued', { created: 6 * H, started: 5 * H + 50 * 60_000, extra: { final: true, attempts: 3, error: 'в ответе нет <summary>', range: [1, 4], retryAt: NOW + 10 * 60_000, title: 'Флейки в e2e-тестах' } }),
+		job('j-demo-7', 'close', 'c-demo-closing', 'queued', { created: 2 * 60_000, extra: { final: true, retryAt: NOW + 2 * H, title: 'Update dependencies in shippy' } }),
+		job('j-demo-9', 'collect', 'c-demo-collecting', 'queued', { created: 3 * 60_000, extra: { retryAt: NOW + 2 * H, title: 'Отчёт по расходам на CI' } }),
+		job('j-demo-8', 'build', 'p-jira-triage', 'queued', { created: 60_000, extra: { retryAt: NOW + 2 * H, payload: { task: 'triage tickets', taskType: 'triage tickets', playbookId: 'p-jira-triage', cases: ['c-demo-dirty', 'c-demo-incident-long'] } } }),
 	])
 }
 
 // ---------- фейковый nessy: сценарии сборщиков живых сессий ----------
-const SUM_B = summary('Release checklist for shippy 2.5', [
-	{ title: 'Prepare the shippy 2.5 release checklist', type: 'prepare release', plan: ['- Collect merged MRs since 2.4, group them, write the checklist.'], actions: [['List merged MRs since 2.4', 'release-lister, gitlab-mr-reviewer', '23 MRs', [1, 2]], ['Group MRs by area', 'release-grouper, analyst', '5 areas', [3, 4]]], sources: ['GitLab shippy MRs since tag 2.4'], corrections: [['Group by author', 'group by area, not by author', [3, 3]]], open: ['Release date is not set'] },
-])
 const scenarios = {
 	// сопоставитель после закрытия живого кейса: без групп (иначе задание ушло бы в ошибку)
 	'# PLAYBOOK MATCHER': [{ text: '<result>\n{"groups": []}\n</result>' }],
 	'CASE: c-demo-learn-a': [{ thought: 'Читаю события и составляю описание сессии.' }, { hang: 'Собираю описание сессии demo-learn-a' }],
-	'CASE: c-demo-learn-b': [{ text: `<summary>\n${SUM_B}</summary>\n<meta>\n${JSON.stringify(metaOf('Release checklist for shippy 2.5', [{ title: 'Prepare the shippy 2.5 release checklist', type: 'prepare release' }]))}\n</meta>` }],
+	'CASE: c-demo-learn-b': [{ thought: 'Читаю события блоками и веду черновик.' }, { hang: 'Собираю описание сессии demo-learn-b' }],
 	'Цель: составить чеклист релиза shippy 2.5': '#work 3 Найти MR после 2.4 => GitLab: MR since 2.4; Сгруппировать => Think: группы; Написать чеклист => Think: чеклист || **Итог** — чеклист релиза готов.\n\n**Источники**\n1. GitLab shippy\n\nСтатус: DONE',
 	'Цель: сгруппировать MR по областям': '#work 2 Взять список MR => Read: список; Сгруппировать => Think: группы || **Итог** — 5 областей.\n\n**Источники**\n1. GitLab shippy\n\nСтатус: DONE',
 	'Цель: выяснить, почему растёт очередь заданий в billing': '#work 2 Посмотреть метрики очереди => Grafana: billing queue; Найти потребителя => Grep: consumer || **Итог** — потребитель отстаёт после деплоя 14:20.\n\n**Источники**\n1. Grafana billing\n\nСтатус: DONE',
@@ -681,6 +706,45 @@ async function seedLive() {
 	for (const id of ['demo-learn-a', 'demo-learn-b']) {
 		const r = await api('POST', '/learning/run', { session: id })
 		console.log(`[demo-learning] сборщик ${id}: ${r.status}`)
+	}
+	await progressRunning()
+}
+
+// Фейковый сборщик не вызывает `case read/draft` сам — делаем это за него теми же ручками API (оператору они разрешены):
+// читаем маленький блок событий (указатель чтения → прогресс) и кладём черновик с промежуточным описанием.
+async function progressRunning() {
+	const t0 = Date.now()
+	let running = []
+	while (Date.now() - t0 < 30_000) {
+		const l = await api('GET', '/learning')
+		running = (l.body.jobs ?? []).filter(j => j.status === 'running' && (j.kind === 'collect' || j.kind === 'close') && j.caseId)
+		if (running.length >= 2) break
+		await sleep(500)
+	}
+	for (const j of running) {
+		const blk = await api('GET', `/learning/cases/${j.caseId}/read?maxChars=400`)
+		const draft = [
+			'<summary>',
+			`# ${j.title ?? j.caseId}`,
+			'',
+			'## Goal 1: черновик',
+			'',
+			'**Plan**',
+			'- Собрать события сессии и описать цели, действия агентов и поправки пользователя.',
+			'',
+			'**Actions**',
+			'1. Прочитан первый блок событий (n ' + blk.body.from + '–' + blk.body.until + '): запрос пользователя и поручение агенту.',
+			'',
+			'**Corrections**',
+			'- пока нет',
+			'',
+			'**Open questions**',
+			'- Описание неполное: сборщик прочитал не все события.',
+			'</summary>',
+			'',
+		].join('\n')
+		const r = await api('POST', `/learning/cases/${j.caseId}/draft`, { text: draft })
+		console.log(`[demo-learning] прогресс ${j.caseId}: read ${blk.status}, draft ${r.status}`)
 	}
 }
 
