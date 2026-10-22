@@ -110,7 +110,7 @@ describe('сборщик: подсказка при новой цели', () => 
 		const store = { ...before }
 		const queue: Array<[string, string]> = []
 		const ctx = {
-			job: { kind: 'collect', caseId: before.id, final: false, range: null },
+			job: { kind: 'collect', caseId: before.id, final: false, range: null, readUntil: null },
 			now: () => 1,
 			prompt: () => '{{summary}}',
 			cases: {
@@ -119,6 +119,8 @@ describe('сборщик: подсказка при новой цели', () => 
 				summary: () => '',
 				notes: () => '',
 				writeSummary: () => true,
+				writeDraft: () => true,
+				sessionTitle: () => 'T',
 				update: (c: CaseState) => Object.assign(store, c),
 				seal: () => undefined,
 			},

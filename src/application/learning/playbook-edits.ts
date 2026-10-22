@@ -20,6 +20,8 @@ export const countOf = (text: string, part: string): number => (part === '' ? 0 
  * Если цитата начинается с маркера списка `- `, он отбрасывается.
  */
 export function applyEdit(p: PlaybookState, file: string, before: string, after: string): PlaybookState | null {
+	// скрипты и раздел Tools в `SKILL.md` улучшатель не правит: leaves их не содержат
+	if (file.startsWith('tools/')) return null
 	const leaves: Array<{ text: string; put: (v: string) => PlaybookState }> = []
 	const stages = (keys: ReadonlyArray<'title' | 'where' | 'produce' | 'done' | 'template'>, only?: number): void => {
 		p.stages.forEach((s, i) => {

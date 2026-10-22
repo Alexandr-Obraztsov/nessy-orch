@@ -163,6 +163,16 @@ describe('FileLearningStore', () => {
 		assert.deepEqual(loaded.map(j => [j.subject, j.payload]), [['c1', null]])
 	})
 
+	it('черновик: writeDraft пишет cases/<id>/draft.md, readDraft читает, пустой текст удаляет', () => {
+		assert.equal(store.readDraft('c1'), '')
+		assert.equal(store.writeDraft('c1', '# черновик'), true)
+		assert.equal(fs.readFileSync(path.join(store.casesDir, 'c1', 'draft.md'), 'utf8'), '# черновик')
+		assert.equal(store.readDraft('c1'), '# черновик')
+		assert.equal(store.writeDraft('c1', ''), true)
+		assert.equal(fs.existsSync(path.join(store.casesDir, 'c1', 'draft.md')), false)
+		assert.equal(store.writeDraft('c-нет', ''), true)
+	})
+
 	it('writeNotes пишет cases/<id>/notes.md, readNotes читает', () => {
 		store.writeNotes('c1', '- заметка')
 		assert.equal(store.readNotes('c1'), '- заметка')

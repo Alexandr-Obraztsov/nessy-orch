@@ -188,6 +188,14 @@ describe('FilePlaybookStore', () => {
 		assert.throws(() => store.loadChat('x-1', 10))
 	})
 
+	it('публикация: tools/* получают exec-бит, остальное нет', () => {
+		store.publish([{ id: 'p-aff', files: { 'SKILL.md': 'A', 'tools/run.sh': 'echo 1' } }], '1')
+		const mode = (f: string): number => fs.statSync(path.join(pluginDir, 'skills', 'p-aff', f)).mode & 0o777
+		assert.equal(mode('tools/run.sh'), 0o755)
+		assert.notEqual(mode('SKILL.md') & 0o111, 0o111)
+		assert.equal(fs.readFileSync(path.join(pluginDir, 'skills', 'p-aff', 'tools', 'run.sh'), 'utf8'), 'echo 1')
+	})
+
 	it('публикация плагина: два плейбука, один, пусто', () => {
 		store.publish([{ id: 'p-aff', files: { 'SKILL.md': 'A', 'refs/r.md': 'R' } }, { id: 'p-bee', files: { 'SKILL.md': 'B' } }], '1.2.3')
 		const meta: unknown = JSON.parse(fs.readFileSync(path.join(pluginDir, '.claude-plugin', 'plugin.json'), 'utf8'))

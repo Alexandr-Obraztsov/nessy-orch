@@ -47,11 +47,13 @@ export class JobQueue {
 			error: null,
 			note: null,
 			range: null,
+			title: null,
+			readUntil: null,
 			createdAt: new Date(this.deps.now()).toISOString(),
 			startedAt: null,
 			finishedAt: null,
 			final,
-			retryAt: null,
+			retryAt: opts.delayMs ? this.deps.now() + opts.delayMs : null,
 			payload,
 		}
 		this.jobs.push(job)
@@ -73,6 +75,7 @@ export class JobQueue {
 		j.agentId = agentId
 		j.startedAt = this.iso()
 		j.retryAt = null
+		j.readUntil = null
 		return j
 	}
 
@@ -84,21 +87,17 @@ export class JobQueue {
 		return j
 	}
 
-	/** Провал: пока попыток не больше `maxAttempts` — снова в очередь с паузой `pauseMs * attempts`, иначе `error`. */
-	fail(id: string, error: string, maxAttempts = 2, pauseMs = 30_000): JobState {
+	/**
+	 * Провал: задание всегда возвращается в очередь (ошибок для человека нет, повторы бесконечные)
+	 * с паузой `min(pauseMs * попытка, maxPauseMs)`; `error` хранит последнюю ошибку.
+	 */
+	fail(id: string, error: string, pauseMs = 30_000, maxPauseMs = 600_000): JobState {
 		const j = this.get(id)
 		j.attempts++
 		j.error = error
-		if (j.attempts <= maxAttempts) {
-			j.status = 'queued'
-			j.startedAt = null
-			j.retryAt = this.deps.now() + pauseMs * j.attempts
-		} else {
-			j.status = 'error'
-			j.retryAt = null
-			j.finishedAt = this.iso()
-			this.prune()
-		}
+		j.status = 'queued'
+		j.startedAt = null
+		j.retryAt = this.deps.now() + Math.min(pauseMs * j.attempts, maxPauseMs)
 		return j
 	}
 
@@ -150,9 +149,10 @@ export class JobQueue {
 		return [...this.jobs]
 	}
 
-	toView(j: JobState): JobView {
-		const { final: _final, retryAt: _retryAt, payload: _payload, ...view } = j
-		return view
+	/** Вид без служебных полей; `progress` считает сервис (нужны события кейса). */
+	toView(j: JobState, progress: JobView['progress'] = null): JobView {
+		const { final: _final, retryAt: _retryAt, payload: _payload, readUntil: _readUntil, title, ...view } = j
+		return { ...view, title: title ?? null, progress }
 	}
 
 	private get(id: string): JobState {

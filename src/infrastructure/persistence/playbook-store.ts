@@ -264,7 +264,8 @@ export class FilePlaybookStore implements PlaybookStorePort {
 						assertRelPath(name)
 						const file = path.join(tmp, 'skills', pb.id, name)
 						fs.mkdirSync(path.dirname(file), { recursive: true })
-						fs.writeFileSync(file, text)
+						fs.writeFileSync(file, text, name.startsWith('tools/') ? { mode: 0o755 } : undefined)
+						if (name.startsWith('tools/')) fs.chmodSync(file, 0o755)
 					}
 				}
 				fs.rmSync(old, { recursive: true, force: true })

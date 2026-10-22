@@ -1,7 +1,7 @@
 import SwiftUI
 import NessyKit
 
-/// Раздел «Настройки» (спека §6): форма как в `Settings.swift`; каждое изменение уходит в `PATCH /learning/settings`.
+/// Вкладка «Фон» окна настроек приложения (спека §6): форма как в `Settings.swift`; каждое изменение уходит в `PATCH /learning/settings`.
 struct LearningSettingsView: View {
 	@Environment(AppModel.self) private var model
 	@State private var interval = 10

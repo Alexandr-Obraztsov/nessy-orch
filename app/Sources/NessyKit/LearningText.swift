@@ -16,27 +16,6 @@ public enum LearningText {
 		}
 	}
 
-	/// Шаг работы: вид задания; у ревью — «Ревью: ступень N», если номер ступени есть в пометке задания.
-	public static func step(_ j: JobView) -> String {
-		guard j.kind == .review, let n = stage(in: j.note) else { return kind(j.kind) }
-		return "Ревью: ступень \(n)"
-	}
-
-	private static func stage(in note: String?) -> Int? {
-		guard let note, let r = note.range(of: "ступен[ьи]\\s*(\\d)", options: .regularExpression) else { return nil }
-		return Int(note[r].filter(\.isNumber))
-	}
-
-	public static func jobStatus(_ s: JobStatus) -> String {
-		switch s {
-		case .queued: "в очереди"
-		case .running: "работает"
-		case .done: "готово"
-		case .error: "ошибка"
-		case .unknown: "неизвестно"
-		}
-	}
-
 	public static func caseStatus(_ s: CaseStatus) -> String {
 		switch s {
 		case .collecting: "собирается"
@@ -89,21 +68,6 @@ public enum LearningText {
 		}
 	}
 
-	/// Подпись под заданием в очереди: сопоставитель ждёт, пока соберутся кейсы пачки; иначе — пометка задания.
-	public static func queueNote(_ j: JobView, among jobs: [JobView]) -> String? {
-		if let n = j.note, !n.isEmpty { return n }
-		if j.kind == .match, jobs.contains(where: { ($0.kind == .collect || $0.kind == .close) && ($0.status == .queued || $0.status == .running) }) {
-			return "ждёт пачку бэкфилла"
-		}
-		return nil
-	}
-
-	/// «1:05», «1:02:03» — сколько работает задание.
-	public static func elapsed(since start: Date?, now: Date = Date()) -> String? {
-		guard let start else { return nil }
-		return Durations.clock(now.timeIntervalSince(start) * 1000)
-	}
-
 	/// Якорь «n a–b» как в описании сессии.
 	public static func anchor(_ r: ClosedRange<Int>) -> String { r.lowerBound == r.upperBound ? "n \(r.lowerBound)" : "n \(r.lowerBound)–\(r.upperBound)" }
 
@@ -117,27 +81,18 @@ public enum LearningText {
 		return min(nums[0]!, nums.last!!)...max(nums[0]!, nums.last!!)
 	}
 
-	/// «пока вас не было»: одна тихая строка или `nil`, если ничего не произошло.
-	public static func sinceLine(_ v: (cases: Int, rulesActivated: Int, playbooks: Int)) -> String? {
-		var parts: [String] = []
-		if v.cases > 0 { parts.append("\(v.cases) \(Durations.plural(v.cases, "кейс закрыт", "кейса закрыто", "кейсов закрыто"))") }
-		if v.rulesActivated > 0 { parts.append("\(v.rulesActivated) \(Durations.plural(v.rulesActivated, "правило включено", "правила включено", "правил включено"))") }
-		if v.playbooks > 0 { parts.append("\(v.playbooks) \(Durations.plural(v.playbooks, "плейбук создан", "плейбука создано", "плейбуков создано"))") }
-		return parts.isEmpty ? nil : "Пока вас не было: " + parts.joined(separator: ", ")
-	}
 }
 
 /// Разделы окна «Фон» и ссылка `nessy-orch://background/<раздел>[/<id>]`.
 public enum BackgroundSection: String, CaseIterable, Sendable {
-	case work, cases, playbooks, journal, settings
+	case work, cases, playbooks, journal
 
 	public var title: String {
 		switch self {
-		case .work: "Работа"
+		case .work: "В процессе"
 		case .cases: "Кейсы"
 		case .playbooks: "Плейбуки"
 		case .journal: "Журнал"
-		case .settings: "Настройки"
 		}
 	}
 

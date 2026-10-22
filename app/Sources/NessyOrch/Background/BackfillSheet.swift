@@ -40,7 +40,7 @@ struct BackfillSheet: View {
 					ForEach(r.skipped) { s in
 						Text("· \(s.id): \(s.reason)").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
 					}
-					if !r.created.isEmpty { Text("Кейсы собираются в фоне — смотрите раздел «Работа».").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary) }
+					if !r.created.isEmpty { Text("Кейсы собираются в фоне — смотрите раздел «В процессе».").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary) }
 				}
 				.frame(maxWidth: .infinity, alignment: .leading)
 			}

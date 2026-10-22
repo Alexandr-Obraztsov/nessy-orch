@@ -7,16 +7,14 @@ const MODE_INCREMENTAL = 'incremental: update only what the new events change'
 
 /** Подставляет вход в шаблон за один проход: данные не разбираются повторно как плейсхолдеры. */
 export function buildCollectorPrompt(template: string, input: CollectorInput): string {
-	const { portion } = input
 	const values: Record<string, string> = {
 		case_id: input.caseId,
 		summary: input.summary.trim() === '' ? EMPTY_SUMMARY : input.summary,
 		notes: input.notes.trim() === '' ? '(none)' : input.notes,
-		events: portion.text,
-		range: `n ${portion.from}–${portion.until}`,
+		total: String(input.total),
 		mode: input.final ? MODE_FINAL : MODE_INCREMENTAL,
 	}
-	return template.replace(/\{\{(case_id|summary|notes|events|range|mode)\}\}/g, (_m, key: string) => values[key] ?? '')
+	return template.replace(/\{\{(case_id|summary|notes|total|mode)\}\}/g, (_m, key: string) => values[key] ?? '')
 }
 
 function lastBlock(text: string, tag: string): string | null {

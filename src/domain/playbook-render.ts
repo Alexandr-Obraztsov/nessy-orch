@@ -1,4 +1,4 @@
-import type { PlaybookStage, PlaybookView, RuleView } from '../../shared/types'
+import type { PlaybookStage, PlaybookTool, PlaybookView, RuleView } from '../../shared/types'
 import type { PlaybookFiles } from './playbook.types'
 
 /** Имя скилла: kebab-case, до 64 знаков; без латиницы и цифр остаётся `playbook`. */
@@ -46,6 +46,13 @@ function fence(text: string): string {
 	return `${f}\n${text}\n${f}`
 }
 
+/** Раздел «Tools» в `SKILL.md`: пусто, если инструментов нет. */
+function renderTools(tools: PlaybookTool[]): string[] {
+	if (tools.length === 0) return []
+	const items = tools.map(t => `- \`${t.name}\` — ${t.description || 'no description'}. Run: \`bash tools/${t.name}\` (path relative to this skill folder)`)
+	return ['## Tools', ...items, '']
+}
+
 function renderSkill(p: PlaybookView): string {
 	const params = p.params.map(x => `- \`{${x.name}}\` — ${x.description}. Source: ${x.source || 'unknown'}`)
 	const steps = p.stages.map(s => `${s.n}. [${s.title}](${stagePath(s)}) — ${s.produce}${s.gate ? ' (show the user before continuing)' : ''}`)
@@ -75,6 +82,7 @@ function renderSkill(p: PlaybookView): string {
 		'## Rules',
 		'See [rules.md](rules.md).',
 		'',
+		...renderTools(p.tools ?? []),
 		'## Notes',
 		'User notes: [notes.md](notes.md).',
 		'',
@@ -112,7 +120,7 @@ function renderRules(rules: RuleView[]): string {
 	return ['# Rules', '', ...(lines.length > 0 ? lines : ['No active rules yet.']), ''].join('\n')
 }
 
-/** Файлы плейбука-скилла: `SKILL.md`, этапы, правила, заметки, журнал версий. */
+/** Файлы плейбука-скилла: `SKILL.md`, этапы, правила, `tools/*`, заметки, журнал версий. */
 export function renderPlaybook(p: PlaybookView, notes: string, changelog: string): PlaybookFiles {
 	const files: PlaybookFiles = {
 		'SKILL.md': renderSkill(p),
@@ -121,6 +129,7 @@ export function renderPlaybook(p: PlaybookView, notes: string, changelog: string
 		'CHANGELOG.md': changelog || '# Changelog\n',
 	}
 	for (const s of p.stages) files[stagePath(s)] = renderStage(s)
+	for (const t of p.tools ?? []) files[`tools/${t.name}`] = t.content
 	return files
 }
 

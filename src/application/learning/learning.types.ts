@@ -50,7 +50,11 @@ export interface FailedBuild {
 	at: number
 }
 
-export type JobState = JobView & {
+export type JobState = Omit<JobView, 'progress' | 'title'> & {
+	/** название сессии кейса = имя агента-сборщика (нет — null) */
+	title?: string | null
+	/** указатель чтения агента-сборщика: `n` последнего выданного `read` события (null/нет — не читал) */
+	readUntil?: number | null
 	final: boolean
 	retryAt: number | null
 	/** параметры задания (у `match` — `caseIds`, у любого — `after`: кейсы, которых надо дождаться) */
@@ -105,6 +109,8 @@ export interface EnqueueOpts {
 	caseId?: string
 	final?: boolean
 	payload?: Record<string, unknown> | null
+	/** пауза до первого запуска, мс (повтор без горячего цикла) */
+	delayMs?: number
 	/** как свести `payload` уже ждущего задания с новым */
 	merge?: (a: Record<string, unknown> | null, b: Record<string, unknown> | null) => Record<string, unknown> | null
 }

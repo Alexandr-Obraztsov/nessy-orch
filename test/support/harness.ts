@@ -11,6 +11,7 @@ import { buildApp } from '../../src/app'
 import type { AppInstance } from '../../src/app.types'
 import type { Config } from '../../src/infrastructure/config/config.types'
 import { request, SseClient } from './http-client'
+import { drainReads } from './read-blocks'
 import { repoRoot } from './repo-root'
 import type { Harness, HarnessOptions } from './support.types'
 
@@ -85,6 +86,16 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 	process.env['FAKE_NESSY_DELAY_MS'] ??= '10'
 
 	const started = app
+	// фейковый агент-сборщик читать сессию не умеет: за него блоки событий читает стенд (как `nessy-orch case read`)
+	const reader = setInterval(() => {
+		if (opts.autoRead === false) return
+		try {
+			drainReads(started.orch.learning ?? null)
+		} catch {
+			// кейс или задание исчезли между проверкой и чтением
+		}
+	}, 3)
+	reader.unref()
 	let closed = false
 	return {
 		app: started,
@@ -98,6 +109,7 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 		close: async ({ keepFiles = false } = {}) => {
 			if (closed) return
 			closed = true
+			clearInterval(reader)
 			await started.close()
 			if (!keepFiles) fs.rmSync(base, { recursive: true, force: true })
 		},

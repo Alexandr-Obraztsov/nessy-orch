@@ -179,9 +179,12 @@ public struct CaseDetail: Codable, Hashable, Identifiable, Sendable {
 	public var notes: String
 	/// sha1 (hex) текущего `summary.md`: `base` при `PUT …/summary`
 	public var summaryHash: String
+	/// черновик описания, сохранённый агентом-сборщиком по ходу чтения (пусто — нет)
+	public var draft: String
+	public var progress: JobProgress?
 	public var id: String { view.id }
 
-	private enum CodingKeys: String, CodingKey { case summary, notes, summaryHash }
+	private enum CodingKeys: String, CodingKey { case summary, notes, summaryHash, draft, progress }
 
 	public init(from decoder: Decoder) throws {
 		view = try CaseView(from: decoder)
@@ -189,6 +192,8 @@ public struct CaseDetail: Codable, Hashable, Identifiable, Sendable {
 		summary = c.get(.summary, "")
 		notes = c.get(.notes, "")
 		summaryHash = c.get(.summaryHash, "")
+		draft = c.get(.draft, "")
+		progress = c.getOpt(.progress)
 	}
 
 	public func encode(to encoder: Encoder) throws {
@@ -197,6 +202,19 @@ public struct CaseDetail: Codable, Hashable, Identifiable, Sendable {
 		try c.encode(summaryHash, forKey: .summaryHash)
 		try c.encode(summary, forKey: .summary)
 		try c.encode(notes, forKey: .notes)
+	}
+}
+
+/// Прогресс чтения сессии агентом-сборщиком.
+public struct JobProgress: Codable, Hashable, Sendable {
+	public var read: Int
+	public var total: Int
+
+	public init(read: Int, total: Int) { self.read = read; self.total = total }
+	public init(from decoder: Decoder) throws {
+		let c = try decoder.container(keyedBy: CodingKeys.self)
+		read = c.get(.read, 0)
+		total = c.get(.total, 0)
 	}
 }
 
@@ -217,10 +235,16 @@ public struct JobView: Codable, Hashable, Identifiable, Sendable {
 	public var createdAt: String
 	public var startedAt: String?
 	public var finishedAt: String?
+	/// название сессии кейса = имя агента-сборщика (у остальных заданий `nil`)
+	public var title: String?
+	/// идущее `collect`/`close`: прочитано / всего событий
+	public var progress: JobProgress?
 
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		id = try c.decode(String.self, forKey: .id)
+		title = c.getOpt(.title)
+		progress = c.getOpt(.progress)
 		kind = c.get(.kind, .unknown)
 		caseId = c.get(.caseId, "")
 		subject = c.get(.subject, "")
@@ -482,6 +506,22 @@ public struct PlaybookTrial: Codable, Hashable, Sendable {
 	}
 }
 
+/// Скрипт `tools/<name>` плейбука, созданный сборщиком.
+public struct PlaybookTool: Codable, Hashable, Identifiable, Sendable {
+	public var name: String
+	public var description: String
+	public var content: String
+	public var id: String { name }
+
+	public init(name: String, description: String = "", content: String = "") { self.name = name; self.description = description; self.content = content }
+	public init(from decoder: Decoder) throws {
+		let c = try decoder.container(keyedBy: CodingKeys.self)
+		name = c.get(.name, "")
+		description = c.get(.description, "")
+		content = c.get(.content, "")
+	}
+}
+
 public struct PlaybookView: Codable, Hashable, Identifiable, Sendable {
 	public var id: String
 	public var name: String
@@ -498,6 +538,8 @@ public struct PlaybookView: Codable, Hashable, Identifiable, Sendable {
 	public var behavior: [String]
 	public var stages: [PlaybookStage]
 	public var rules: [RuleView]
+	/// скрипты `tools/*`; у старых данных поля нет — `[]`
+	public var tools: [PlaybookTool]
 	public var trial: PlaybookTrial?
 	/// правки, ждущие решения; у плейбуков старого формата поля нет — `[]`
 	public var pendingEdits: [PendingEdit]
@@ -521,6 +563,7 @@ public struct PlaybookView: Codable, Hashable, Identifiable, Sendable {
 		behavior = c.get(.behavior, [])
 		stages = (try? c.decodeIfPresent(LossyArray<PlaybookStage>.self, forKey: .stages))?.items ?? []
 		rules = (try? c.decodeIfPresent(LossyArray<RuleView>.self, forKey: .rules))?.items ?? []
+		tools = (try? c.decodeIfPresent(LossyArray<PlaybookTool>.self, forKey: .tools))?.items ?? []
 		trial = c.getOpt(.trial)
 		pendingEdits = (try? c.decodeIfPresent(LossyArray<PendingEdit>.self, forKey: .pendingEdits))?.items ?? []
 		createdAt = c.get(.createdAt, "")
@@ -585,9 +628,11 @@ public struct PlaybookDetail: Codable, Hashable, Identifiable, Sendable {
 	public var changelog: String
 	public var versions: [Version]
 	public var reviews: [ReviewReport]
+	/// все файлы плейбука (`SKILL.md`, `stages/*`, `rules.md`, `tools/*`…); сервер отдаёт как `fileTexts` (в черновике контракта — `files`)
+	public var files: [String: String]
 	public var id: String { view.id }
 
-	private enum CodingKeys: String, CodingKey { case notes, changelog, versions, reviews }
+	private enum CodingKeys: String, CodingKey { case notes, changelog, versions, reviews, fileTexts, files }
 
 	public init(from decoder: Decoder) throws {
 		view = try PlaybookView(from: decoder)
@@ -596,6 +641,9 @@ public struct PlaybookDetail: Codable, Hashable, Identifiable, Sendable {
 		changelog = c.get(.changelog, "")
 		versions = (try? c.decodeIfPresent(LossyArray<Version>.self, forKey: .versions))?.items ?? []
 		reviews = (try? c.decodeIfPresent(LossyArray<ReviewReport>.self, forKey: .reviews))?.items ?? []
+		let texts: [String: String]? = c.getOpt(.fileTexts)
+		let plain: [String: String]? = c.getOpt(.files)
+		files = texts ?? plain ?? [:]
 	}
 
 	public func encode(to encoder: Encoder) throws {
@@ -605,49 +653,9 @@ public struct PlaybookDetail: Codable, Hashable, Identifiable, Sendable {
 		try c.encode(changelog, forKey: .changelog)
 		try c.encode(versions, forKey: .versions)
 		try c.encode(reviews, forKey: .reviews)
+		try c.encode(files, forKey: .fileTexts)
 	}
 }
-
-/// Правило в теле `PATCH /learning/playbooks/:id`: только изменённое или новое; с `id` заменяет текст и этап, без `id` — новое (кандидат).
-public struct RulePatch: Codable, Hashable, Sendable {
-	public var id: String?
-	public var text: String
-	public var stage: Int?
-
-	public init(id: String? = nil, text: String, stage: Int? = nil) {
-		self.id = id; self.text = text; self.stage = stage
-	}
-
-	public func encode(to encoder: Encoder) throws {
-		var c = encoder.container(keyedBy: CodingKeys.self)
-		try c.encodeIfPresent(id, forKey: .id)
-		try c.encode(text, forKey: .text) // этап `null` передаётся явно: правило без этапа
-		if let stage { try c.encode(stage, forKey: .stage) } else { try c.encodeNil(forKey: .stage) }
-	}
-}
-
-/// Тело `PATCH /learning/playbooks/:id`: заменяет только переданные поля; `baseVersion` — версия, с которой начата правка
-/// (другая на сервере — 409 `stale`). Архивируются только id из `removeRules`.
-public struct PlaybookPatch: Encodable, Hashable, Sendable {
-	public var baseVersion: Int
-	public var title: String?
-	public var description: String?
-	public var params: [PlaybookParam]?
-	public var sources: [String]?
-	public var files: [String]?
-	public var behavior: [String]?
-	public var stages: [PlaybookStage]?
-	public var rules: [RulePatch]?
-	public var removeRules: [String]?
-
-	public init(baseVersion: Int, title: String? = nil, description: String? = nil, params: [PlaybookParam]? = nil, sources: [String]? = nil, files: [String]? = nil, behavior: [String]? = nil, stages: [PlaybookStage]? = nil, rules: [RulePatch]? = nil, removeRules: [String]? = nil) {
-		self.baseVersion = baseVersion; self.removeRules = removeRules
-		self.title = title; self.description = description; self.params = params; self.sources = sources
-		self.files = files; self.behavior = behavior; self.stages = stages; self.rules = rules
-	}
-}
-
-// MARK: журнал и чат
 
 public struct JournalEntry: Codable, Hashable, Identifiable, Sendable {
 	public var id: String

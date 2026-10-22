@@ -9,6 +9,7 @@ import { LearningService } from '../../../src/application/learning/learning.serv
 import type { CaseState, LearningHost } from '../../../src/application/learning/learning.types'
 import { YOU } from '../../../src/domain/constants'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
+import { drainReads } from '../../support/read-blocks'
 import { MemoryPlaybookStore } from '../../support/memory-playbook-store'
 import { samplePlaybook } from '../../support/sample-playbook'
 import type { PlaybookState } from '../../../src/application/learning/learning.types'
@@ -49,6 +50,7 @@ describe('обработчики заданий и onCaseReady', () => {
 	let sessions: SessionView[]
 	let feed: Message[]
 	const clock = { t: T0 + 60_000, now: () => clock.t }
+	let current: LearningService | null = null
 	const host: LearningHost = {
 		sessions: () => sessions,
 		messagesSince: s => feed.filter(m => m.seq > s),
@@ -56,10 +58,14 @@ describe('обработчики заданий и onCaseReady', () => {
 		sessionOfMessage: m => m.session ?? null,
 		isBusy: () => false,
 		cancelAgent: () => Promise.resolve(),
-		runAgent: () => Promise.resolve({ agentId: 'ag', ok: true, text: GOOD }),
+		runAgent: () => {
+			drainReads(current)
+			return Promise.resolve({ agentId: 'ag', ok: true, text: GOOD })
+		},
 	}
 	const make = (withPlaybooks: boolean): LearningService => {
 		const s = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => `id${Math.random().toString(36).slice(2, 8)}` }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: withPlaybooks ? pstore : undefined })
+		current = s
 		s.load()
 		return s
 	}
@@ -74,7 +80,7 @@ describe('обработчики заданий и onCaseReady', () => {
 		clock.t = T0 + 60_000
 	})
 
-	it('задание неизвестного вида падает сразу: error «нет обработчика»', async () => {
+	it('задание неизвестного вида: не error, а повтор с паузой и ошибкой «нет обработчика»', async () => {
 		const svc = make(false)
 		store.jobs = [
 			{ id: 'j1', kind: 'match', caseId: '', subject: 'all', status: 'queued', attempts: 0, agentId: null, error: null, note: null, range: null, createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, retryAt: null, payload: null },
@@ -83,7 +89,7 @@ describe('обработчики заданий и onCaseReady', () => {
 		svc.start()
 		await flush()
 		const j = svc.view().jobs[0]
-		assert.equal(j?.status, 'error')
+		assert.equal(j?.status, 'queued')
 		assert.match(j.error ?? '', /нет обработчика/)
 		await svc.stop()
 	})

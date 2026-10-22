@@ -34,7 +34,7 @@ struct SourceChips: View {
 	var body: some View {
 		if !sources.isEmpty {
 			FlowLayout(spacing: DS.Metrics.s1) {
-				ForEach(Array(sources.enumerated()), id: \.offset) { _, s in LearningChip(s, systemImage: Self.icon(s), mono: true) }
+				ForEach(Array(sources.enumerated()), id: \.offset) { _, s in LearningChip(BackgroundLogic.plain(s), systemImage: Self.icon(s), mono: true) }
 			}
 		}
 	}
@@ -100,7 +100,7 @@ struct AnchorButton: View {
 		.buttonStyle(.plain)
 		.help("Показать события сессии")
 		.popover(isPresented: $open, arrowEdge: .bottom) {
-			RawEventsList(caseId: caseId, range: range).frame(width: 440).frame(maxHeight: 360)
+			RawEventsList(caseId: caseId, range: range).frame(width: 460, height: 340)
 		}
 	}
 }
@@ -229,29 +229,58 @@ struct LearningEmptyState: View {
 	}
 }
 
-/// Объект, который выбран, но его больше нет (удалён). Если у него остались несохранённые правки — предлагает забрать текст.
+/// Объект, который выбран, но его больше нет (удалён).
 struct DeletedObjectView: View {
 	@Environment(AppModel.self) private var model
 	var title: String
-	var id: String
 
 	var body: some View {
-		let text = model.background.draftText(id)
 		VStack(spacing: DS.Metrics.s3) {
-			LearningEmptyState(title, systemImage: "trash", message: text == nil ? "Его больше нет на сервере." : "Его больше нет на сервере, но ваш черновик не сохранён.")
-			HStack(spacing: DS.Metrics.s2) {
-				if let text {
-					Button("Скопировать текст") {
-						NSPasteboard.general.clearContents()
-						NSPasteboard.general.setString(text, forType: .string)
-						model.flash("Текст черновика скопирован")
-					}
-				}
-				Button(text == nil ? "Закрыть" : "Закрыть без сохранения") { model.background.discardDrafts(id); model.background.forceGo(model.background.section) }
-			}
-			.buttonStyle(SettingsButtonStyle())
+			LearningEmptyState(title, systemImage: "trash", message: "Его больше нет на сервере.")
+			Button("Закрыть") { model.background.forceGo(model.background.section) }.buttonStyle(SettingsButtonStyle())
 		}
 		.frame(maxWidth: .infinity)
+	}
+}
+
+// MARK: - Сворачиваемый блок
+
+/// Блок с заголовком-шевроном: сворачивается и разворачивается; `open` — каким он стартует.
+struct Collapsible<Content: View>: View {
+	var title: String
+	var count: Int?
+	@State private var open: Bool
+	@ViewBuilder var content: Content
+
+	init(_ title: String, count: Int? = nil, open: Bool = true, @ViewBuilder content: () -> Content) {
+		self.title = title; self.count = count; self._open = State(initialValue: open); self.content = content()
+	}
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+			DSGroupHeader(title: title, count: count, expanded: $open)
+			if open { content.transition(.opacity) }
+		}
+	}
+}
+
+/// Строка списка слева: выделение и подсветка при наведении; содержимое — снаружи.
+struct ListRowButton<Content: View>: View {
+	var selected: Bool
+	var action: () -> Void
+	@ViewBuilder var content: Content
+	@State private var hover = false
+
+	var body: some View {
+		Button(action: action) {
+			content
+				.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.background(selected ? DS.Palette.selection : (hover ? DS.Palette.hover : .clear), in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))
+				.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.onHover { hover = $0 }
 	}
 }
 

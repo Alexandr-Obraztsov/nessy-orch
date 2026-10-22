@@ -1,4 +1,4 @@
-import type { Evidence, PlaybookView } from '../../shared/types'
+import type { Evidence, PlaybookTool, PlaybookView } from '../../shared/types'
 
 /** Группа кейсов одной задачи — результат сопоставителя. */
 export interface MatchGroup {
@@ -22,6 +22,8 @@ export interface BuildDraft {
 	behavior: string[]
 	stages: PlaybookView['stages']
 	rules: Array<{ text: string; stage: number | null; evidence: Evidence[] }>
+	/** скрипты `tools/*`; нет — `[]` */
+	tools?: PlaybookTool[]
 }
 
 /** Вердикт судьи по правилу в одном кейсе. */

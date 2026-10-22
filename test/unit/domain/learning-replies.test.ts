@@ -87,7 +87,23 @@ describe('parseCaseAnalysis', () => {
 describe('parseBuild', () => {
 	it('разбирает черновик и отбрасывает лишние поля', () => {
 		const r = parseBuild(wrap({ ...build, extra: 1 }))
-		assert.deepEqual(r, build)
+		assert.deepEqual(r, { ...build, tools: [] })
+	})
+	it('tools: верные принимаются, неверные имена, большие, повторы и сверх 8 отбрасываются', () => {
+		const ok = { name: 'export.sh', description: 'dump; bash tools/export.sh', content: 'echo 1' }
+		const tools = [
+			ok,
+			{ name: '../evil', description: 'd', content: 'x' },
+			{ name: 'a/b.sh', description: 'd', content: 'x' },
+			{ name: 'Upper.sh', description: 'd', content: 'x' },
+			{ name: 'big.sh', description: 'd', content: 'x'.repeat(40_001) },
+			{ name: 'export.sh', description: 'dup', content: 'y' },
+			{ name: 'no-content' },
+		]
+		assert.deepEqual(parseBuild(wrap({ ...build, tools }))?.tools, [ok])
+		const many = Array.from({ length: 12 }, (_, i) => ({ name: `t${i}.sh`, description: 'd', content: 'x' }))
+		assert.equal(parseBuild(wrap({ ...build, tools: many }))?.tools?.length, 8)
+		assert.deepEqual(parseBuild(wrap({ ...build, tools: 'nope' }))?.tools, [])
 	})
 	it('без этапов — null', () => {
 		assert.equal(parseBuild(wrap({ ...build, stages: [] })), null)

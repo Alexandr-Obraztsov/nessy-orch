@@ -7,6 +7,7 @@ import { LearningService } from '../../../src/application/learning/learning.serv
 import type { CaseState, LearningHost } from '../../../src/application/learning/learning.types'
 import { YOU } from '../../../src/domain/constants'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
+import { drainReads } from '../../support/read-blocks'
 
 const T0 = Date.parse('2026-10-01T10:00:00.000Z')
 const MIN = 60_000
@@ -46,6 +47,7 @@ describe('LearningService: ревью этапа 1', () => {
 	let reply: () => Promise<Reply>
 	const clock = { t: T0 + MIN, now: () => clock.t }
 
+	let current: LearningService | null = null
 	const host: LearningHost = {
 		sessions: () => sessions,
 		messagesSince: s => {
@@ -57,12 +59,14 @@ describe('LearningService: ревью этапа 1', () => {
 		isBusy: () => false,
 		cancelAgent: () => Promise.resolve(),
 		runAgent: async () => {
+			drainReads(current)
 			calls += 1
 			return { agentId: `ag${calls}`, ...(await reply()) }
 		},
 	}
 	const make = (): LearningService => {
 		const s = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p' })
+		current = s
 		s.load()
 		return s
 	}
@@ -92,7 +96,7 @@ describe('LearningService: ревью этапа 1', () => {
 	beforeEach(() => {
 		seq = 0
 		store = new MemoryLearningStore()
-		store.prompts.set('session-collector', '{{mode}}|{{range}}|{{summary}}')
+		store.prompts.set('session-collector', '{{mode}}|{{total}}|{{summary}}')
 		sessions = [session('s1')]
 		feed = []
 		calls = 0
@@ -101,7 +105,7 @@ describe('LearningService: ревью этапа 1', () => {
 		clock.t = T0 + MIN
 	})
 
-	it('1. постоянная ошибка агента: за час не больше 3 запусков, кейс error, retry возвращает в работу', async () => {
+	it('1. постоянная ошибка агента: повторы идут бесконечно с ростом паузы до 10 мин, кейс остаётся collecting', async () => {
 		reply = () => Promise.resolve({ ok: false, text: '', error: 'сбой' })
 		const svc = make()
 		feed = [msg('s1')]
@@ -110,19 +114,25 @@ describe('LearningService: ревью этапа 1', () => {
 			await flush()
 			clock.t += 30_000
 		}
-		assert.ok(calls <= 3, `запусков ${calls}`)
-		assert.equal(svc.getCase('c-s1').status, 'error')
-		const failed = svc.view().jobs.find(j => j.status === 'error')
-		assert.ok(failed)
+		// за час (120 × 30 с): паузы 30, 60, 90 … с: 14 запусков (сумма арифметической прогрессии), не шторм
+		assert.ok(calls > 3 && calls <= 16, `запусков ${calls}`)
+		assert.equal(svc.getCase('c-s1').status, 'collecting')
+		const job = svc.view().jobs.find(j => j.kind === 'collect')
+		assert.equal(job?.status, 'queued')
+		assert.equal(job.error, 'сбой')
+		assert.equal(svc.view().jobs.some(j => j.status === 'error'), false)
 		const before = calls
 		reply = () => Promise.resolve({ ok: true, text: GOOD })
-		svc.retry(failed.id)
-		await flush()
-		assert.equal(calls, before + 1)
-		assert.notEqual(svc.getCase('c-s1').status, 'error')
+		for (let i = 0; i < 25; i++) {
+			svc.tick()
+			await flush()
+			clock.t += 30_000
+		}
+		assert.equal(calls, before + 1) // первая же попытка после паузы удалась
+		assert.equal(svc.view().jobs.find(j => j.id === job.id)?.status, 'done')
 	})
 
-	it('1. окончательный провал collect переводит кейс в error, ready соблюдает паузу', async () => {
+	it('1. провал collect кейс в error не переводит, ready соблюдает паузу', async () => {
 		reply = () => Promise.resolve({ ok: false, text: '', error: 'сбой' })
 		const svc = make()
 		feed = Array.from({ length: 15 }, () => msg('s1'))
@@ -135,7 +145,7 @@ describe('LearningService: ревью этапа 1', () => {
 			svc.tick()
 		}
 		await flush()
-		assert.equal(svc.getCase('c-s1').status, 'error')
+		assert.equal(svc.getCase('c-s1').status, 'collecting')
 		// ready + новое событие раньше COOLDOWN_MS от lastRunAt не запускает collect
 		store.saveCase(caseState({ id: 'c-r', sessions: ['r'], status: 'ready', events: 1, coveredUntil: 1, lastRunAt: clock.t, feedSeq: 100 }))
 		sessions = [...sessions, session('r')]

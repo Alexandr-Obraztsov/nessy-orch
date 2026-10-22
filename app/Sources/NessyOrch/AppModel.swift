@@ -382,13 +382,14 @@ final class AppModel {
 		do { try await op() } catch { flash("\(title): \(error.localizedDescription)", error: true) }
 	}
 
-	/// Написать агенту (прерывает текущий ход). Ошибка — тостом, черновик возвращается в поле.
-	func send(to a: AgentView, text: String) {
+	/// Написать агенту. `interrupt` — прервать идущий ход сразу (чат фонового агента), иначе сообщение дойдёт в ходе или встанет в очередь.
+	/// Ошибка — тостом, черновик возвращается в поле.
+	func send(to a: AgentView, text: String, interrupt: Bool = false) {
 		let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard !t.isEmpty else { return }
 		drafts[a.id] = ""
 		Task {
-			do { try await self.store.client.sendMessage(to: a.id, text: t) }
+			do { try await self.store.client.sendMessage(to: a.id, text: t, interrupt: interrupt) }
 			catch {
 				if (self.drafts[a.id] ?? "").isEmpty { self.drafts[a.id] = t }
 				self.flash("Сообщение не отправлено: \(error.localizedDescription)", error: true)

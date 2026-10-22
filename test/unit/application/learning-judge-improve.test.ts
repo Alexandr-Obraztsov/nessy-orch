@@ -89,6 +89,8 @@ describe('judge и improve', () => {
 			update: () => undefined,
 			writeSummary: () => true,
 			writeNotes: () => undefined,
+			writeDraft: () => true,
+			sessionTitle: id => id,
 			seal: () => undefined,
 		},
 		playbooks: pb,

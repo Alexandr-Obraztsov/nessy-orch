@@ -35,7 +35,7 @@ export function identify(req: http.IncomingMessage, token: string | undefined): 
 }
 
 /** Маршруты, которые агент может вызвать от своего имени (остальное меняющее — только оператору). */
-const AGENT_ROUTES = new Set(['POST /agents', 'POST /agents/:ref/send', 'POST /agents/:ref/plan', 'DELETE /agents/:ref/plan'])
+const AGENT_ROUTES = new Set(['POST /agents', 'POST /agents/:ref/send', 'POST /agents/:ref/plan', 'DELETE /agents/:ref/plan', 'POST /learning/cases/:id/draft'])
 
 export function assertAllowed(method: string, pattern: string, caller: Caller): void {
 	if (caller.operator || method === 'GET' || AGENT_ROUTES.has(pattern)) return

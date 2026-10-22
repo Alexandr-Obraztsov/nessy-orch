@@ -133,6 +133,19 @@ export class FileLearningStore implements LearningStorePort {
 		})
 	}
 
+	readDraft(id: string): string {
+		return readText(path.join(this.caseDir(id), 'draft.md'))
+	}
+
+	writeDraft(id: string, text: string): boolean {
+		return this.safe('черновик кейса', () => {
+			const dir = this.caseDir(id)
+			if (text === '') return fs.rmSync(path.join(dir, 'draft.md'), { force: true })
+			fs.mkdirSync(dir, { recursive: true })
+			writeAtomic(path.join(dir, 'draft.md'), text)
+		})
+	}
+
 	appendRaw(id: string, events: readonly RawEvent[]): boolean {
 		if (events.length === 0) return true
 		return this.safe('события кейса', () => {

@@ -24,7 +24,8 @@ export interface CollectorInput {
 	caseId: string
 	summary: string
 	notes: string
-	portion: Portion
+	/** событий в кейсе после `coveredUntil` */
+	total: number
 	/** сессия закончилась: дописать все разделы */
 	final: boolean
 }

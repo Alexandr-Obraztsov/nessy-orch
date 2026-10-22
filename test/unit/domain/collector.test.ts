@@ -5,12 +5,12 @@ import { describe, it } from 'node:test'
 import { buildCollectorPrompt, parseCollectorReply } from '../../../src/domain/collector'
 import type { CollectorInput } from '../../../src/domain/learning.types'
 
-const template = 'SESSION COLLECTOR {{case_id}}|{{summary}}|{{notes}}|{{events}}|{{range}}|{{mode}}'
+const template = 'SESSION COLLECTOR {{case_id}}|{{summary}}|{{notes}}|{{total}}|{{mode}}'
 const input: CollectorInput = {
 	caseId: 'c1',
 	summary: '# S',
 	notes: 'ignore X',
-	portion: { text: '[3] hi', from: 3, until: 7 },
+	total: 7,
 	final: false,
 }
 
@@ -31,7 +31,7 @@ function repoRoot(): string {
 describe('buildCollectorPrompt', () => {
 	it('подставляет всё и режим incremental', () => {
 		const p = buildCollectorPrompt(template, input)
-		assert.equal(p, 'SESSION COLLECTOR c1|# S|ignore X|[3] hi|n 3–7|incremental: update only what the new events change')
+		assert.equal(p, 'SESSION COLLECTOR c1|# S|ignore X|7|incremental: update only what the new events change')
 	})
 	it('режим final и пустое описание', () => {
 		const p = buildCollectorPrompt(template, { ...input, summary: '  ', final: true })
@@ -39,15 +39,18 @@ describe('buildCollectorPrompt', () => {
 		assert.match(p, /final: finish every section, the session has ended/)
 	})
 	it('плейсхолдеры внутри данных не подставляются повторно', () => {
-		const p = buildCollectorPrompt(template, { ...input, notes: '{{events}}' })
-		assert.match(p, /\|\{\{events\}\}\|/)
+		const p = buildCollectorPrompt(template, { ...input, notes: '{{total}}' })
+		assert.match(p, /\|\{\{total\}\}\|/)
 	})
 	it('реальный шаблон: маркер в первой строке и все плейсхолдеры', () => {
 		const t = readFileSync(join(repoRoot(), 'learning', 'prompts', 'session-collector.md'), 'utf8')
 		assert.match(t.split('\n').slice(0, 2).join('\n'), /SESSION COLLECTOR/)
-		for (const k of ['case_id', 'summary', 'notes', 'events', 'range', 'mode']) assert.ok(t.includes(`{{${k}}}`), k)
+		for (const k of ['case_id', 'summary', 'notes', 'total', 'mode']) assert.ok(t.includes(`{{${k}}}`), k)
 		assert.match(buildCollectorPrompt(t, input), /SESSION COLLECTOR/)
 		assert.doesNotMatch(buildCollectorPrompt(t, input), /\{\{\w+\}\}/)
+		assert.doesNotMatch(t, /\{\{(events|range)\}\}/)
+		assert.match(t, /nessy-orch case read/)
+		assert.match(t, /nessy-orch case draft/)
 	})
 })
 

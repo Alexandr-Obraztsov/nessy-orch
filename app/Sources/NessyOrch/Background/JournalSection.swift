@@ -1,11 +1,9 @@
 import SwiftUI
 import NessyKit
 
-/// Раздел «Журнал» (спека §5): что фон решил и поменял, по дням; запись раскрывается в отчёт, откатимое откатывается.
+/// Раздел «Журнал»: что фон решил и поменял — плоская лента по дням.
 struct JournalSection: View {
 	@Environment(AppModel.self) private var model
-
-	@State private var cache = JournalReportCache()
 
 	private var learning: LearningStore { model.store.learning }
 
@@ -14,7 +12,7 @@ struct JournalSection: View {
 		ScrollView {
 			LazyVStack(alignment: .leading, spacing: DS.Metrics.s5) {
 				if days.isEmpty {
-					LearningEmptyState("Журнал пуст", systemImage: "list.bullet.rectangle", message: "Сюда попадают сборка плейбуков, ревью, включение правил и откаты.")
+					LearningEmptyState("Журнал пуст", systemImage: "list.bullet.rectangle", message: "Сюда попадают сборка плейбуков, ревью и включение правил.")
 				}
 				ForEach(days) { day in
 					VStack(alignment: .leading, spacing: DS.Metrics.s2) {
@@ -22,7 +20,7 @@ struct JournalSection: View {
 						LazyVStack(spacing: 0) {
 							ForEach(Array(day.entries.enumerated()), id: \.element.id) { i, e in
 								if i > 0 { DSSeparator(leading: DS.Metrics.s4) }
-								JournalRow(entry: e, cache: cache)
+								JournalRow(entry: e)
 							}
 						}
 						.dsGroup()
@@ -37,117 +35,45 @@ struct JournalSection: View {
 	}
 }
 
-/// Строка журнала: время, вид, объект и краткое описание; раскрытая — отчёт и «Откатить».
+/// Строка: время, вид, объект названием (ссылка) и краткое описание.
 private struct JournalRow: View {
 	@Environment(AppModel.self) private var model
 	var entry: JournalEntry
-	var cache: JournalReportCache
-	@State private var open = false
-	@State private var askRevert = false
-	@State private var busy = false
-
-	private var reverted: Bool { JournalLogic.isReverted(entry) }
-	private var report: JournalLogic.Report? { cache.report(entry) }
-	private var hasDetails: Bool { report != nil || JournalLogic.canRevert(entry) }
 
 	var body: some View {
-		VStack(alignment: .leading, spacing: 0) {
-			Button { if hasDetails { withAnimation(dsAnimation(DS.Motion.disclosure)) { open.toggle() } } } label: { header }
-				.buttonStyle(.plain)
-			if open { details.transition(.opacity) }
-		}
-		.opacity(reverted ? 0.55 : 1)
-		.confirmationDialog("Откатить это изменение?", isPresented: $askRevert) {
-			Button("Откатить", role: .destructive) { revert() }
-		} message: { Text("\(LearningText.journalKind(entry.kind)): \(entry.summary)") }
-	}
-
-	private var header: some View {
 		HStack(alignment: .firstTextBaseline, spacing: DS.Metrics.s3) {
 			Text(ISO.parse(entry.ts)?.formatted(date: .omitted, time: .shortened) ?? "—")
 				.font(DS.Typography.timer).foregroundStyle(DS.Palette.textTertiary).frame(width: 44, alignment: .leading)
 			VStack(alignment: .leading, spacing: 2) {
 				HStack(spacing: DS.Metrics.s2) {
 					Text(LearningText.journalKind(entry.kind)).font(DS.Typography.agentName).foregroundStyle(DS.Palette.textPrimary)
-					if reverted { LearningChip("откачено", systemImage: "arrow.uturn.backward") }
 					subject
 				}
 				if !entry.summary.isEmpty {
-					Text(entry.summary).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(open ? nil : 2)
+					Text(entry.summary).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).textSelection(.enabled)
 						.frame(maxWidth: .infinity, alignment: .leading)
 				}
 			}
-			if hasDetails {
-				Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.textTertiary)
-					.rotationEffect(.degrees(open ? 90 : 0))
-			}
 		}
-		.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s3)
+		.padding(DS.Metrics.s3)
 		.frame(maxWidth: .infinity, alignment: .leading)
-		.contentShape(Rectangle())
 	}
 
-	/// Объект записи: чип-ссылка на карточку плейбука или кейса.
+	/// Объект записи: название плейбука или кейса, нажатие открывает его; удалённого нет — подписи нет.
 	@ViewBuilder private var subject: some View {
-		if let t = JournalLogic.target(entry) {
-			Button {
-				switch t {
-				case .playbook(let id): model.background.go(.playbooks, id: id)
-				case .caseView(let id): model.background.go(.cases, id: id)
-				}
-			} label: { LearningChip(title(t), systemImage: { if case .playbook = t { "book.closed" } else { "tray.full" } }(), tint: DS.Palette.accentText) }
-				.buttonStyle(.plain).help("Открыть карточку")
-		}
-	}
-
-	private func title(_ t: JournalLogic.Target) -> String {
 		let l = model.store.learning
-		switch t {
-		case .playbook(let id): return l.playbook(id)?.title ?? id
-		case .caseView(let id): return l.caseView(id).map { model.title(ofCase: $0) } ?? id
-		}
-	}
-
-	private var details: some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s3) {
-			if let r = report {
-				if let p = r.prevStatus { Text("Статус до этого: \(LearningText.prevStatus(p))").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary) }
-				if let rv = r.review { reviewList(rv) }
+		switch JournalLogic.target(entry) {
+		case .playbook(let id)?:
+			if let p = l.playbook(id) {
+				Button { model.background.go(.playbooks, id: id) } label: { LearningChip(p.title, systemImage: "book.closed", tint: DS.Palette.accentText) }
+					.buttonStyle(.plain).help("Открыть плейбук")
 			}
-			if JournalLogic.canRevert(entry) {
-				Button { askRevert = true } label: { Label("Откатить", systemImage: "arrow.uturn.backward") }
-					.buttonStyle(.bordered).controlSize(.small).disabled(busy)
+		case .caseView(let id)?:
+			if let c = l.caseView(id) {
+				Button { model.background.go(.cases, id: id) } label: { LearningChip(model.title(ofCase: c), systemImage: "tray.full", tint: DS.Palette.accentText) }
+					.buttonStyle(.plain).help("Открыть кейс")
 			}
-		}
-		.padding(.horizontal, DS.Metrics.s3).padding(.bottom, DS.Metrics.s3).padding(.leading, 44 + DS.Metrics.s3)
-		.frame(maxWidth: .infinity, alignment: .leading)
-	}
-
-	/// Отчёт ревью простым списком: ступень, вердикт, замечания.
-	private func reviewList(_ rv: ReviewReport) -> some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s2) {
-			Text("Ревью версии \(rv.version): \(rv.passed ? "пройдено" : "не пройдено")").font(DS.Typography.secondary.weight(.semibold))
-			ForEach(rv.stages) { s in
-				VStack(alignment: .leading, spacing: 2) {
-					HStack(spacing: DS.Metrics.s2) {
-						Image(systemName: s.verdict == .pass ? "checkmark.circle" : s.verdict == .fail ? "xmark.circle" : "minus.circle")
-							.foregroundStyle(s.verdict == .fail ? DS.Palette.danger : DS.Palette.textSecondary)
-						Text("\(PlaybookEditing.reviewStage(s.stage)) — \(JournalLogic.verdict(s.verdict))").font(DS.Typography.secondary)
-					}
-					ForEach(Array((s.critical + s.notes).enumerated()), id: \.offset) { _, n in
-						Text("· \(n)").font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).padding(.leading, DS.Metrics.s5)
-					}
-				}
-			}
-		}
-	}
-
-	private func revert() {
-		busy = true
-		Task {
-			await model.run("Откат не удался") { _ = try await model.store.client.revertJournal(entry.id) }
-			busy = false
-			await model.store.learning.refresh()
+		case nil: EmptyView()
 		}
 	}
 }

@@ -28,6 +28,10 @@ export interface JobContext {
 		writeSummary(id: string, text: string): boolean
 		/** заметки пользователя кейса целиком */
 		writeNotes(id: string, text: string): void
+		/** черновик описания (`draft.md`); пустой текст удаляет */
+		writeDraft(id: string, text: string): boolean
+		/** название сессии кейса (= имя и заголовок агента-сборщика) */
+		sessionTitle(id: string): string
 		/** итоговое описание готово: кейс `ready` (пустой удаляется), ставит последующие задания */
 		seal(id: string): void
 	}

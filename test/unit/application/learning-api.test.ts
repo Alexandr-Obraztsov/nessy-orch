@@ -7,6 +7,7 @@ import { LearningService } from '../../../src/application/learning/learning.serv
 import type { LearningHost } from '../../../src/application/learning/learning.types'
 import { YOU } from '../../../src/domain/constants'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
+import { drainReads } from '../../support/read-blocks'
 
 const T0 = Date.parse('2026-10-01T10:00:00.000Z')
 
@@ -50,6 +51,7 @@ describe('LearningService: API', () => {
 	let feed: Message[]
 	let hold: Promise<void> | null
 	const clock = { t: T0 + 60_000, now: () => clock.t }
+	let current: LearningService | null = null
 	const host: LearningHost = {
 		sessions: () => sessions,
 		messagesSince: s => feed.filter(m => m.seq > s),
@@ -58,12 +60,14 @@ describe('LearningService: API', () => {
 		isBusy: () => false,
 		cancelAgent: () => Promise.resolve(),
 		runAgent: async () => {
+			drainReads(current)
 			if (hold) await hold
 			return { agentId: 'ag1', ok: true, text: GOOD }
 		},
 	}
 	const make = (): LearningService => {
 		const s = new LearningService({ store, host, hub, clock, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p' })
+		current = s
 		s.load()
 		return s
 	}

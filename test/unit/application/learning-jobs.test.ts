@@ -8,6 +8,7 @@ import type { CaseState, JobState, LearningHost } from '../../../src/application
 import { YOU } from '../../../src/domain/constants'
 import { PORTION_CHARS } from '../../../src/domain/learning-settings'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
+import { drainReads } from '../../support/read-blocks'
 
 const T0 = Date.parse('2026-10-01T10:00:00.000Z')
 
@@ -54,6 +55,9 @@ describe('LearningService: задания', () => {
 	let script: Array<Reply | (() => Promise<Reply>)>
 	const clock = { t: T0 + 60_000, now: () => clock.t }
 
+	let current: LearningService | null = null
+	/** false — агент сам читает ровно сколько нужно (сценарий в `script`) */
+	let drain = true
 	const host: LearningHost = {
 		sessions: () => sessions,
 		messagesSince: s => feed.filter(m => m.seq > s),
@@ -62,6 +66,7 @@ describe('LearningService: задания', () => {
 		isBusy: () => false,
 		cancelAgent: () => Promise.resolve(),
 		runAgent: async req => {
+			if (drain) drainReads(current)
 			calls.push(req)
 			const step = script.shift() ?? { ok: true, text: GOOD() }
 			const r = typeof step === 'function' ? await step() : step
@@ -71,6 +76,7 @@ describe('LearningService: задания', () => {
 
 	const make = (tickMs = 0): LearningService => {
 		const s = new LearningService({ store, host, hub, clock, ids: { next: () => `id${Math.random().toString(36).slice(2, 8)}` }, defaultOn: true, tickMs, claudeProjectsDir: '/p' })
+		current = s
 		s.load()
 		return s
 	}
@@ -91,7 +97,7 @@ describe('LearningService: задания', () => {
 	beforeEach(() => {
 		seq = 0
 		store = new MemoryLearningStore()
-		store.prompts.set('session-collector', '{{mode}}|{{range}}|{{summary}}')
+		store.prompts.set('session-collector', '{{mode}}|{{total}}|{{summary}}')
 		hub = new Hub()
 		events = []
 		hub.subscribe(e => events.push(e))
@@ -99,6 +105,7 @@ describe('LearningService: задания', () => {
 		feed = []
 		calls = []
 		script = []
+		drain = true
 		clock.t = T0 + 60_000
 	})
 
@@ -115,8 +122,8 @@ describe('LearningService: задания', () => {
 		assert.deepEqual(jobs(svc)[0]?.range, [1, 15])
 		await flush()
 		assert.equal(calls.length, 1)
-		assert.equal(calls[0]?.name, 'collector-c-s1')
-		assert.equal(calls[0].title, 'Описание сессии: c-s1')
+		assert.equal(calls[0]?.name, 'session-s1')
+		assert.equal(calls[0].title, 's1')
 		assert.equal(store.summaries.get('c-s1'), '# T')
 		const c = svc.getCase('c-s1')
 		assert.equal(c.coveredUntil, 15)
@@ -131,14 +138,14 @@ describe('LearningService: задания', () => {
 		assert.equal(store.cases.get('c-s1')?.coveredUntil, 15)
 	})
 
-	it('ответ без <summary>: summary и coveredUntil не тронуты, повторы через 30 и 60 с, третий провал — error, retry ставит заново', async () => {
+	it('ответ без <summary>: summary и coveredUntil не тронуты, повторы бесконечные с паузой 30, 60, 90 с, кейс не в error', async () => {
 		const svc = make()
 		store.summaries.set('c-s1', 'старое')
 		feed = [msg('s1')]
 		svc.tick()
 		const bad: Reply = { ok: true, text: 'нет блока' }
 		script = [bad, bad, bad, { ok: true, text: GOOD('Новый') }]
-		const r = svc.runNow('c-s1')
+		svc.runNow('c-s1')
 		await flush()
 		assert.equal(calls.length, 1)
 		assert.equal(jobs(svc)[0]?.status, 'queued')
@@ -162,11 +169,17 @@ describe('LearningService: задания', () => {
 		svc.tick()
 		await flush()
 		assert.equal(calls.length, 3)
-		assert.equal(jobs(svc)[0]?.status, 'error')
+		assert.equal(jobs(svc)[0]?.status, 'queued') // третий провал — не error, пауза 90 с
+		assert.equal(jobs(svc)[0]?.attempts, 3)
 		assert.match(jobs(svc)[0]?.error ?? '', /summary/)
+		assert.notEqual(svc.getCase('c-s1').status, 'error')
 		assert.equal(store.summaries.get('c-s1'), 'старое')
-		svc.retry(r.id)
-		assert.equal(jobs(svc)[0]?.status, 'running')
+		clock.t += 89_000
+		svc.tick()
+		await flush()
+		assert.equal(calls.length, 3)
+		clock.t += 1_000
+		svc.tick()
 		await flush()
 		assert.equal(calls.length, 4)
 		assert.equal(jobs(svc)[0]?.status, 'done')
@@ -213,28 +226,134 @@ describe('LearningService: задания', () => {
 		assert.equal(svc.getCase('c-s1').coveredUntil, 3)
 		feed.push(msg('s1'))
 		svc.onSessionClosed('s1')
-		assert.match(calls[2]?.prompt ?? '', /^final:.*\|n 4–4\|# Два$/) // только новые события, прежнее описание ушло в промпт
+		assert.match(calls[2]?.prompt ?? '', /^final:.*\|1\|# Два$/) // только новые события, прежнее описание ушло в промпт
 		await flush()
 		assert.equal(svc.getCase('c-s1').status, 'ready')
 	})
 
-	it('порция больше PORTION_CHARS: два задания подряд, курсор доходит до конца', async () => {
+	it('агент читает по блоку: два задания подряд, курсор доходит до конца', async () => {
 		const svc = make()
 		const total = Math.ceil((PORTION_CHARS / 2000) * 1.5)
 		feed = Array.from({ length: total }, () => msg('s1', 'x'.repeat(2500)))
 		svc.tick()
+		drain = false
+		const untils: number[] = []
+		const readOnce = (): Promise<Reply> => {
+			untils.push(svc.caseRead('c-s1', PORTION_CHARS).until)
+			return Promise.resolve({ ok: true, text: GOOD() })
+		}
+		script = [readOnce, readOnce]
 		svc.onSessionClosed('s1')
 		await flush()
 		assert.equal(calls.length, 2)
 		assert.equal(jobs(svc).filter(j => j.status === 'done').length, 2)
-		const first = jobs(svc)[0]?.range
-		const second = jobs(svc)[1]?.range
-		assert.equal(second?.[0], (first?.[1] ?? 0) + 1)
-		assert.equal(second[1], total)
+		assert.ok((untils[0] ?? 0) < total)
+		assert.equal(untils[1], total)
 		const c = svc.getCase('c-s1')
 		assert.equal(c.coveredUntil, total)
-		assert.equal(c.status, 'ready') // final и всё покрыто — только после последней порции
+		assert.equal(c.status, 'ready') // final и всё покрыто — только после последнего блока
 		assert.ok(jobs(svc).every(j => j.kind === 'close'))
+	})
+
+	it('агент не читал ни разу: ответ принят, coveredUntil не двигается, следующее задание с паузой 30 с', async () => {
+		const svc = make()
+		feed = [msg('s1'), msg('s1')]
+		svc.tick()
+		drain = false
+		svc.runNow('c-s1')
+		await flush()
+		assert.equal(calls.length, 1)
+		assert.equal(store.summaries.get('c-s1'), '# T')
+		assert.equal(svc.getCase('c-s1').coveredUntil, 0)
+		assert.equal(jobs(svc).filter(j => j.status === 'queued').length, 1)
+		clock.t += 29_000
+		svc.tick()
+		await flush()
+		assert.equal(calls.length, 1)
+		clock.t += 1_000
+		svc.tick()
+		await flush()
+		assert.equal(calls.length, 2)
+	})
+
+	it('прочитал не всё: coveredUntil — до прочитанного, остальное в следующем задании', async () => {
+		const svc = make()
+		feed = Array.from({ length: 3 }, () => msg('s1', 'y'.repeat(100)))
+		svc.tick()
+		drain = false
+		script = [
+			() => {
+				const b = svc.caseRead('c-s1', 1)
+				assert.equal(b.until, 1)
+				assert.equal(b.done, false)
+				return Promise.resolve({ ok: true, text: GOOD() })
+			},
+		]
+		svc.runNow('c-s1')
+		await flush()
+		assert.equal(svc.getCase('c-s1').coveredUntil, 1)
+		assert.equal(jobs(svc).filter(j => j.status === 'queued').length, 1)
+	})
+
+	it('после успеха draft.md удалён, при старте задания тоже; read/draft публикуют learning_job с progress', async () => {
+		const svc = make()
+		feed = Array.from({ length: 4 }, () => msg('s1', 'z'.repeat(50)))
+		svc.tick()
+		store.drafts.set('c-s1', 'старый черновик')
+		drain = false
+		const seen: Array<{ read: number; total: number } | null> = []
+		script = [
+			() => {
+				assert.equal(store.drafts.has('c-s1'), false) // старый черновик убран при старте
+				events.length = 0
+				svc.caseRead('c-s1', 1)
+				svc.setCaseDraft('c-s1', '# draft')
+				for (const e of events) if (e.t === 'learning_job') seen.push(e.job.progress)
+				assert.equal(svc.getCaseDetail('c-s1').draft, '# draft')
+				assert.deepEqual(svc.getCaseDetail('c-s1').progress, { read: 1, total: 4 })
+				drainReads(svc)
+				return Promise.resolve({ ok: true, text: GOOD() })
+			},
+		]
+		svc.runNow('c-s1')
+		await flush()
+		assert.deepEqual(seen, [{ read: 1, total: 4 }, { read: 1, total: 4 }])
+		assert.equal(store.drafts.has('c-s1'), false)
+		assert.equal(svc.getCaseDetail('c-s1').draft, '')
+		assert.equal(svc.getCaseDetail('c-s1').progress, null)
+		assert.equal(svc.getCase('c-s1').coveredUntil, 4)
+	})
+
+	it('caseRead: блоки по порядку, done и пустой text в конце; без идущего задания — 409 no_job', async () => {
+		const svc = make()
+		feed = Array.from({ length: 3 }, (_, i) => msg('s1', `событие ${i}`))
+		svc.tick()
+		assert.throws(() => svc.caseRead('c-s1'), { status: 409, code: 'no_job' })
+		drain = false
+		let blocks: Array<ReturnType<typeof svc.caseRead>> = []
+		script = [
+			() => {
+				blocks = [svc.caseRead('c-s1', 1), svc.caseRead('c-s1', 1), svc.caseRead('c-s1'), svc.caseRead('c-s1')]
+				return Promise.resolve({ ok: true, text: GOOD() })
+			},
+		]
+		svc.runNow('c-s1')
+		await flush()
+		assert.deepEqual(blocks.map(b => [b.from, b.until, b.remaining, b.done]), [[1, 1, 2, false], [2, 2, 1, false], [3, 3, 0, true], [0, 3, 0, true]])
+		assert.equal(blocks[3]?.text, '')
+		assert.match(blocks[0]?.text ?? '', /^\[1\] /)
+		assert.equal(blocks[0]?.total, 3)
+	})
+
+	it('название агента и заголовок — название последней сессии цепочки; нет сессии — заголовок кейса', async () => {
+		sessions = [session('s1', { title: 'Релиз пакета 2' })]
+		const svc = make()
+		feed = [msg('s1')]
+		svc.tick()
+		svc.runNow('c-s1')
+		await flush()
+		assert.equal(calls[0]?.name, 'session-reliz-paketa-2')
+		assert.equal(calls[0].title, 'Релиз пакета 2')
 	})
 
 	it('maxAgents: 2, три кейса — третий ждёт queued, пока не освободится место', async () => {
@@ -286,7 +405,7 @@ describe('LearningService: задания', () => {
 			payload: null,
 		}
 		store.jobs = [running]
-		store.prompts.set('session-collector', '{{range}}|{{events}}')
+		store.prompts.set('session-collector', '{{mode}}|{{total}}|{{summary}}')
 		const svc = make()
 		assert.equal(jobs(svc)[0]?.status, 'queued')
 		assert.equal(jobs(svc)[0]?.note, 'прервано перезапуском')
@@ -295,8 +414,7 @@ describe('LearningService: задания', () => {
 		svc.start()
 		await flush()
 		assert.equal(calls.length, 1)
-		assert.match(calls[0]?.prompt ?? '', /^n 4–5\|/)
-		assert.ok(!(calls[0]?.prompt ?? '').includes('[3]'))
+		assert.match(calls[0]?.prompt ?? '', /^final: .*\|2\|/) // всего событий после coveredUntil
 		assert.equal(svc.getCase('c-s1').status, 'ready')
 		await svc.stop()
 	})
@@ -358,26 +476,24 @@ describe('LearningService: задания', () => {
 		assert.equal(svc.isProtected('s1'), false) // ready
 	})
 
-	it('close упал окончательно: кейс error (не защищает сессию), retry переводит в closing', async () => {
+	it('close падает: задание остаётся в очереди с растущей паузой, кейс closing (не error), сессия защищена', async () => {
 		const svc = make()
 		feed = [msg('s1')]
 		svc.tick()
 		const bad: Reply = { ok: false, text: '', error: 'сбой' }
-		script = [bad, bad, bad]
+		script = [bad, bad, bad, bad]
 		svc.onSessionClosed('s1')
-		for (let i = 0; i < 2; i++) {
+		for (let i = 0; i < 3; i++) {
 			await flush()
-			clock.t += 61_000
+			clock.t += 91_000
 			svc.tick()
 		}
 		await flush()
-		assert.equal(jobs(svc)[0]?.status, 'error')
-		assert.equal(svc.getCase('c-s1').status, 'error')
-		assert.equal(svc.isProtected('s1'), false) // события уже в raw/
-		const id = jobs(svc)[0]?.id ?? ''
-		script = [gate().step]
-		svc.retry(id)
+		assert.equal(jobs(svc)[0]?.status, 'queued')
+		assert.ok((jobs(svc)[0]?.attempts ?? 0) >= 3)
+		assert.equal(jobs(svc)[0]?.error, 'сбой')
 		assert.equal(svc.getCase('c-s1').status, 'closing')
+		assert.equal(svc.isProtected('s1'), true) // описание ещё не готово
 	})
 
 	it('кейс в error + новое событие: событие собрано, но заданий нет; runNow возвращает в работу', async () => {

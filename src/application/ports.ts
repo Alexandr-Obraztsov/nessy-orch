@@ -128,6 +128,9 @@ export interface LearningStorePort {
 	writeSummary(id: string, text: string): boolean
 	readNotes(id: string): string
 	writeNotes(id: string, text: string): void
+	/** Черновик описания (`draft.md`) от агента-сборщика; пустой текст удаляет файл. false — запись не удалась. */
+	writeDraft(id: string, text: string): boolean
+	readDraft(id: string): string
 	/** false — запись не удалась */
 	appendRaw(id: string, events: readonly RawEvent[]): boolean
 	/** События с `n` в диапазоне; при повторе `n` (обрыв сбора) берётся последняя запись. */

@@ -47,7 +47,7 @@ describe('JobQueue', () => {
 		assert.deepEqual(q.list().map(j => j.id), [a.id, b.id, other.id])
 	})
 
-	it('повторы через 30 и 60 с, на третьем провале — error', () => {
+	it('повторы бесконечные: пауза 30 с × попытка, не больше 10 мин, error — последняя ошибка, статус не error', () => {
 		const { q, clock } = make()
 		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false })
 		q.start(a.id, null)
@@ -59,15 +59,32 @@ describe('JobQueue', () => {
 		assert.equal(q.next(clock.t + 30_000)?.id, a.id)
 		q.start(a.id, null)
 		j = q.fail(a.id, 'e2')
-		assert.equal(j.status, 'queued')
 		assert.equal(j.retryAt, clock.t + 60_000)
 		q.start(a.id, null)
 		j = q.fail(a.id, 'e3')
-		assert.equal(j.status, 'error')
+		assert.equal(j.status, 'queued')
 		assert.equal(j.attempts, 3)
 		assert.equal(j.error, 'e3')
-		assert.ok(j.finishedAt)
-		assert.equal(q.hasJob('c1'), false)
+		assert.equal(j.retryAt, clock.t + 90_000)
+		assert.equal(j.finishedAt, null)
+		assert.equal(q.hasJob('c1'), true)
+		for (let i = 0; i < 40; i++) {
+			q.start(a.id, null)
+			j = q.fail(a.id, `e${i}`)
+		}
+		assert.equal(j.status, 'queued')
+		assert.equal(j.attempts, 43)
+		assert.equal(j.retryAt, clock.t + 600_000)
+	})
+
+	it('delayMs откладывает первый запуск; start сбрасывает указатель чтения', () => {
+		const { q, clock } = make()
+		const a = q.enqueue('collect', 'c1', { caseId: 'c1', final: false, delayMs: 30_000 })
+		assert.equal(q.next(clock.t), null)
+		assert.equal(q.next(clock.t + 30_000)?.id, a.id)
+		a.readUntil = 7
+		q.start(a.id, null)
+		assert.equal(a.readUntil, null)
 	})
 
 	it('retry: только из error', () => {
@@ -76,7 +93,8 @@ describe('JobQueue', () => {
 		assert.throws(() => q.retry(a.id), { status: 409, code: 'job_not_failed' })
 		assert.throws(() => q.retry('j-nope'), { status: 404, code: 'no_job' })
 		q.start(a.id, null)
-		q.fail(a.id, 'x', 0)
+		q.fail(a.id, 'x')
+		a.status = 'error' // ошибка только из старого состояния на диске
 		const j = q.retry(a.id)
 		assert.equal(j.status, 'queued')
 		assert.equal(j.attempts, 0)
@@ -115,6 +133,9 @@ describe('JobQueue', () => {
 		const view = q.toView(active)
 		assert.equal('final' in view, false)
 		assert.equal('retryAt' in view, false)
+		assert.equal('readUntil' in view, false)
+		assert.equal(view.title, null)
+		assert.equal(view.progress, null)
 		q.removeCase('active')
 		assert.equal(q.hasJob('active'), false)
 	})

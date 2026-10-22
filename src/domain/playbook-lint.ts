@@ -1,6 +1,7 @@
 // Перенос проверок quick_validate.py из anthropics/skills (Apache-2.0): frontmatter, имя, описание, compatibility;
 // плюс проверки плейбука: «Use when», размер SKILL.md, доказательства правил, этапы.
 import type { PlaybookView } from '../../shared/types'
+import { TOOL_MAX_CHARS, TOOL_NAME, TOOLS_MAX } from './learning-replies'
 import type { LintIssue, PlaybookFiles } from './playbook.types'
 
 const ALLOWED_KEYS = new Set(['name', 'description', 'license', 'allowed-tools', 'metadata', 'compatibility'])
@@ -75,6 +76,15 @@ export function lintPlaybook(p: PlaybookView, files: PlaybookFiles, knownCases: 
 			const compat = fm.compatibility
 			if (compat && compat.length > 500) critical('SKILL.md compatibility', `Compatibility is too long (${compat.length} characters, max 500)`)
 		}
+	}
+
+	const tools = p.tools ?? []
+	if (tools.length > TOOLS_MAX) critical('tools', `Too many tools (${tools.length}, max ${TOOLS_MAX})`)
+	for (const t of tools) {
+		const where = `tool ${t.name}`
+		if (!TOOL_NAME.test(t.name)) critical(where, `Tool name '${t.name}' is not safe (a-z, 0-9, ., _, -; no paths)`)
+		if (t.content.length > TOOL_MAX_CHARS) critical(where, `Tool is longer than ${TOOL_MAX_CHARS} characters`)
+		if (skill !== undefined && !skill.includes(`tools/${t.name}`)) critical(where, `SKILL.md does not mention tools/${t.name}`)
 	}
 
 	if (p.stages.length === 0) critical('stages', 'The playbook has no stages')

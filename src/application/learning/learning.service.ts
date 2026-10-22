@@ -1,10 +1,11 @@
-import type { CaseImpact, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookPatch, PlaybookStatus, PlaybookView } from '../../../shared/types'
+import type { CaseImpact, CaseReadBlock, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookPatch, PlaybookStatus, PlaybookView } from '../../../shared/types'
 import type { BackfillCandidate, BackfillResult, CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message, RawEvent, SessionView } from '../../../shared/types'
 import { createHash } from 'node:crypto'
 import { AppError } from '../../domain/errors'
 import { parseSummaryHeads } from '../../domain/collector'
 import { decide } from '../../domain/learning-schedule'
-import { parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
+import { renderPortion } from '../../domain/case-events'
+import { PORTION_CHARS, parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
 import { onCaseReady } from './case-ready'
 import { buildHandler } from './build.handler'
@@ -184,7 +185,7 @@ export class LearningService {
 
 	view(): LearningView {
 		const cases = [...this.cases.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(toView)
-		return { settings: this.settings, jobs: this.queue.list().map(j => this.queue.toView(j)), cases, playbooks: this.playbooks?.list().map(playbookView) ?? [], journal: this.playbooks?.journal(200) ?? [], rev: this.deps.hub.rev }
+		return { settings: this.settings, jobs: this.queue.list().map(j => this.jobView(j)), cases, playbooks: this.playbooks?.list().map(playbookView) ?? [], journal: this.playbooks?.journal(200) ?? [], rev: this.deps.hub.rev }
 	}
 
 	getCase(id: string): CaseState {
@@ -197,7 +198,7 @@ export class LearningService {
 	jobDetail(id: string): JobDetail {
 		const job = this.queue.list().find(j => j.id === id)
 		if (!job) throw new AppError(404, 'no_job', `нет задания ${id}`)
-		return { job: this.queue.toView(job), runs: this.deps.store.readRuns(job.subject, job.id) }
+		return { job: this.jobView(job), runs: this.deps.store.readRuns(job.subject, job.id) }
 	}
 
 	/** События кейса `from..to` (включительно), не больше `RAW_LIMIT`: якорь «открыть место в сессии». */
@@ -250,7 +251,7 @@ export class LearningService {
 			this.cancelled.add(id)
 			if (job.agentId) void this.deps.host.cancelAgent(job.agentId).catch(() => undefined)
 		}
-		return this.queue.toView(job)
+		return this.jobView(job)
 	}
 
 	/** Кейс в `closing`, у которого не осталось заданий сборки, возвращается в `collecting`. */
@@ -293,11 +294,71 @@ export class LearningService {
 		return playbookView(ps.saveVersion(next, `Edited by the user: ${fields}`, { kind: 'edit', subject: id, summary: `${id}: правка блоками (${fields})`, report: null, revertible: true, revertedBy: null }))
 	}
 
-	/** Кейс с описанием и заметками. */
+	/** Кейс с описанием, заметками и черновиком. */
 	getCaseDetail(id: string): CaseDetail {
 		const c = this.getCase(id)
 		const summary = this.deps.store.readSummary(id)
-		return { ...toView(c), summary, summaryHash: summaryHash(summary), notes: this.deps.store.readNotes(id) }
+		return { ...toView(c), summary, summaryHash: summaryHash(summary), notes: this.deps.store.readNotes(id), draft: this.deps.store.readDraft(id), progress: this.progressOf(id) }
+	}
+
+	/** Название сессии кейса: у цепочки последняя сессия, иначе заголовок кейса, иначе id. */
+	private sessionTitle(caseId: string): string {
+		const c = this.cases.get(caseId)
+		if (!c) return caseId
+		const last = c.sessions[c.sessions.length - 1]
+		const found = last === undefined ? undefined : this.deps.host.sessions().find(x => x.id === last)
+		return found?.title.trim() || c.title || caseId
+	}
+
+	/** Идущее задание сбора кейса (`collect`/`close`) или undefined. */
+	private collecting(caseId: string): JobState | undefined {
+		return this.queue.running().find(j => j.caseId === caseId && (j.kind === 'collect' || j.kind === 'close'))
+	}
+
+	/** Прогресс чтения: `read` — события от `coveredUntil` до указателя, `total` — все события после `coveredUntil`. */
+	private progressOf(caseId: string): { read: number; total: number } | null {
+		const job = this.collecting(caseId)
+		const c = this.cases.get(caseId)
+		if (!job || !c) return null
+		const events = this.deps.store.readRaw(caseId, c.coveredUntil + 1)
+		const until = job.readUntil ?? null
+		return { read: until === null ? 0 : events.filter(e => e.n <= until).length, total: events.length }
+	}
+
+	private jobView(j: JobState): JobView {
+		return this.queue.toView(j, j.status === 'running' && (j.kind === 'collect' || j.kind === 'close') ? this.progressOf(j.caseId) : null)
+	}
+
+	/**
+	 * Следующий блок событий кейса для агента-сборщика: после указателя чтения идущего задания
+	 * (старт — `coveredUntil + 1`), одно событие берётся всегда; нет идущего задания — 409 `no_job`.
+	 */
+	caseRead(id: string, maxChars: number = PORTION_CHARS): CaseReadBlock {
+		const c = this.getCase(id)
+		const job = this.collecting(id)
+		if (!job) throw new AppError(409, 'no_job', `по кейсу ${id} нет идущего задания сбора`)
+		const all = this.deps.store.readRaw(id, c.coveredUntil + 1)
+		const from = (job.readUntil ?? c.coveredUntil) + 1
+		const rest = all.filter(e => e.n >= from)
+		const portion = rest.length ? renderPortion(rest, maxChars) : null
+		if (portion) job.readUntil = portion.until
+		const remaining = portion ? rest.filter(e => e.n > portion.until).length : 0
+		this.jobsChanged(job)
+		return { text: portion?.text ?? '', from: portion?.from ?? 0, until: portion?.until ?? job.readUntil ?? c.coveredUntil, total: all.length, remaining, done: remaining === 0 }
+	}
+
+	/** Агент — сборщик идущего задания кейса; иначе 403 `not_collector`. */
+	assertCollector(caseId: string, agentId: string): void {
+		this.getCase(caseId)
+		if (this.collecting(caseId)?.agentId !== agentId) throw new AppError(403, 'not_collector', `агент ${agentId} не собирает кейс ${caseId}`)
+	}
+
+	/** Черновик описания от агента-сборщика (`draft.md`); публикуется `learning_job` с прогрессом. */
+	setCaseDraft(id: string, text: string): void {
+		this.getCase(id)
+		if (!this.deps.store.writeDraft(id, text)) throw new AppError(500, 'write_failed', 'не удалось записать draft.md')
+		const job = this.collecting(id)
+		if (job) this.jobsChanged(job)
 	}
 
 	// ---------- плейбуки, журнал, заметки и чат (API) ----------
@@ -318,7 +379,7 @@ export class LearningService {
 	/** Ручной запуск ревью. */
 	requestReview(id: string): JobView {
 		this.pb().need(id)
-		return this.queue.toView(this.enqueue('review', id))
+		return this.jobView(this.enqueue('review', id))
 	}
 
 	/** Ручное одобрение: `trial`, `before` — среднее число поправок на кейс до плейбука. */
@@ -535,13 +596,13 @@ export class LearningService {
 		this.assertIdle(id)
 		this.deps.store.writeSummary(id, '')
 		this.update({ ...c, coveredUntil: 0, updatedAt: new Date(this.deps.clock.now()).toISOString() })
-		return this.queue.toView(this.request('close', id, true))
+		return this.jobView(this.request('close', id, true))
 	}
 
 	/** Все незакрытые кейсы (сбор или ошибка) — на итоговый сбор. */
 	runAll(): JobView[] {
 		const open = [...this.cases.values()].filter(c => c.status === 'collecting' || c.status === 'error')
-		return open.map(c => this.queue.toView(this.request('close', this.reopen(c).id, true)))
+		return open.map(c => this.jobView(this.request('close', this.reopen(c).id, true)))
 	}
 
 	private assertIdle(caseId: string): void {
@@ -866,7 +927,7 @@ export class LearningService {
 		const found = this.findCase(sessionOrCaseId, true)
 		if (!found) throw new AppError(404, 'no_case', `нет кейса или сессии ${sessionOrCaseId}`)
 		const c = this.reopen(found)
-		return this.queue.toView(this.request('close', c.id, true))
+		return this.jobView(this.request('close', c.id, true))
 	}
 
 	/** Вкладку закрыли: сразу собираем итоговое описание. Выключено (в целом или для сессии) — молчим. */
@@ -887,7 +948,7 @@ export class LearningService {
 		if (c && c.status === 'error') this.update({ ...c, status: job.kind === 'close' ? 'closing' : 'collecting', closedAt: null, updatedAt: new Date(this.deps.clock.now()).toISOString() })
 		this.jobsChanged(job)
 		this.pump()
-		return this.queue.toView(job)
+		return this.jobView(job)
 	}
 
 	/** Сессию нельзя удалять, пока её кейс не `ready` (если обучение для неё включено); `error` не защищает: события уже в `raw/`. */
@@ -925,7 +986,7 @@ export class LearningService {
 
 	private jobsChanged(job: JobState): void {
 		this.deps.store.saveJobs(this.queue.list())
-		this.deps.hub.publish({ t: 'learning_job', job: this.queue.toView(job) })
+		this.deps.hub.publish({ t: 'learning_job', job: this.jobView(job) })
 	}
 
 	/**
@@ -979,7 +1040,7 @@ export class LearningService {
 	/** Исполнение задания обработчиком своего вида; исключение — провал, нет обработчика — окончательный провал без повторов. */
 	private async execute(job: JobState): Promise<void> {
 		const handler = this.handlers.get(job.kind)
-		if (!handler) return this.fail(job, `нет обработчика задания ${job.kind}`, true)
+		if (!handler) return this.fail(job, `нет обработчика задания ${job.kind}`)
 		try {
 			await handler.run(this.context(job))
 		} catch (e) {
@@ -1018,6 +1079,7 @@ export class LearningService {
 			settings: () => this.settings,
 			runAgent: async (name, title, prompt) => {
 				if (this.cancelled.has(job.id)) throw new Error(CANCELLED)
+				job.title = title
 				const res = await host.runAgent({
 					name,
 					title,
@@ -1049,6 +1111,8 @@ export class LearningService {
 				update: c => this.update(c),
 				writeSummary: (id, text) => store.writeSummary(id, text),
 				writeNotes: (id, text) => store.writeNotes(id, text),
+				writeDraft: (id, text) => store.writeDraft(id, text),
+				sessionTitle: id => this.sessionTitle(id),
 				seal: id => this.seal(id),
 			},
 			failedBuilds: () => this.recentFailedBuilds(),
@@ -1061,16 +1125,11 @@ export class LearningService {
 		}
 	}
 
-	/** Провал: повтор или `error`; окончательный провал задания (collect или close) переводит кейс в `error`. */
-	private fail(job: JobState, error: string, terminal = false): void {
+	/** Провал: задание снова в очереди с растущей паузой (до 10 мин), кейс в `error` не переходит. */
+	private fail(job: JobState, error: string): void {
 		if (this.interrupted.has(job.id)) return
 		if (this.cancelled.has(job.id)) return this.finishCancelled(job)
-		const j = this.queue.fail(job.id, error, terminal ? 0 : 2)
-		if (j.status === 'error' && (j.kind === 'collect' || j.kind === 'close')) {
-			const c = this.cases.get(j.caseId)
-			// пауза до следующей автоматической попытки считается от провала
-			if (c) this.update({ ...c, status: 'error', lastRunAt: this.deps.clock.now(), updatedAt: new Date(this.deps.clock.now()).toISOString() })
-		}
+		const j = this.queue.fail(job.id, error)
 		// провал любой попытки сборки: пока она повторяется или окончательно упала, `match` не ставит ту же группу заново
 		if (j.kind === 'build') this.rememberFailedBuild(j)
 		this.jobsChanged(j)

@@ -27,4 +27,6 @@ export interface HarnessOptions {
 	config?: Partial<Config>
 	/** переиспользовать каталог предыдущего стенда (рестарт) */
 	base?: string
+	/** false — стенд не читает блоки событий за фейкового агента-сборщика (по умолчанию читает) */
+	autoRead?: boolean
 }

@@ -12,6 +12,7 @@ export class MemoryLearningStore implements LearningStorePort {
 	raw = new Map<string, RawEvent[]>()
 	summaries = new Map<string, string>()
 	notes = new Map<string, string>()
+	drafts = new Map<string, string>()
 	/** содержимое «файлов» транскриптов по пути */
 	files = new Map<string, string>()
 	copies = new Map<string, string>()
@@ -71,6 +72,15 @@ export class MemoryLearningStore implements LearningStorePort {
 	}
 	writeNotes(id: string, text: string): void {
 		this.notes.set(id, text)
+	}
+	readDraft(id: string): string {
+		return this.drafts.get(id) ?? ''
+	}
+	writeDraft(id: string, text: string): boolean {
+		if (this.failWrites) return false
+		if (text === '') this.drafts.delete(id)
+		else this.drafts.set(id, text)
+		return true
 	}
 	appendRaw(id: string, events: readonly RawEvent[]): boolean {
 		if (this.failWrites) return false

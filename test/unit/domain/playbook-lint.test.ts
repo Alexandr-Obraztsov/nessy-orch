@@ -94,6 +94,15 @@ describe('playbook-lint', () => {
 		assert.equal(loose.filter(i => i.level === 'note' && i.where === 'rule r1').length, 2)
 	})
 
+	it('tools: небезопасное имя и SKILL.md без ссылки — critical', () => {
+		const good = { ...samplePlaybook(), tools: [{ name: 'run.sh', description: 'd', content: 'x' }] }
+		assert.deepEqual(lint(good).filter(i => i.level === 'critical'), [])
+		const noLink = lint(good, f => { f['SKILL.md'] = (f['SKILL.md'] ?? '').replace(/tools\/run\.sh/g, 'x') })
+		assert.deepEqual(noLink.filter(i => i.level === 'critical').map(i => i.where), ['tool run.sh'])
+		const bad = { ...samplePlaybook(), tools: [{ name: '../x', description: 'd', content: 'x' }] }
+		assert.ok(lint(bad).some(i => i.level === 'critical' && i.where === 'tool ../x'))
+	})
+
 	it('validDescription', () => {
 		assert.equal(validDescription('Use when fixing a bug'), null)
 		assert.match(validDescription('Fixes bugs') ?? '', /Use when/)

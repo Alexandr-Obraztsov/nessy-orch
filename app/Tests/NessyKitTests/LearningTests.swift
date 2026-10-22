@@ -110,15 +110,6 @@ struct LearningDecodingTests {
 		#expect(br.created.count == 1 && br.skipped.first?.reason == "кейс уже есть")
 	}
 
-	@Test func patchEncoding() throws {
-		let patch = PlaybookPatch(baseVersion: 3, title: "Новое", rules: [RulePatch(id: "r-1", text: "а", stage: 2), RulePatch(text: "б")])
-		let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(patch)) as! [String: Any]
-		#expect(Set(json.keys) == ["baseVersion", "title", "rules"], "непереданные поля не уходят")
-		let rules = json["rules"] as! [[String: Any]]
-		#expect(rules[0]["stage"] as? Int == 2 && rules[0]["id"] as? String == "r-1")
-		#expect(rules[1]["id"] == nil && rules[1]["stage"] is NSNull, "правило без этапа — явный null, без id — новое")
-	}
-
 	@Test func apiErrorFlags() {
 		#expect(APIError(status: 503, code: "learning_unavailable", message: "").isUnavailable)
 		#expect(APIError(status: 404, code: "not_found", message: "").isUnavailable)
@@ -167,30 +158,6 @@ struct LearningStoreTests {
 		// повторная запись (откат) заменяет, а не дублирует
 		s.apply(frame(#"{"t":"learning_journal","entry":\#(journalJSON(id: "e-249", kind: "reverted"))}"#))
 		#expect(s.journal.count == 200 && s.journal.last?.kind == .reverted)
-		s.apply(frame(#"{"t":"learning_chat","subject":"p-1","message":{"id":"m-1","ts":"t","from":"agent","text":"a","changes":[]}}"#))
-		s.apply(frame(#"{"t":"learning_chat","subject":"p-1","message":{"id":"m-1","ts":"t","from":"agent","text":"a","changes":[]}}"#))
-		#expect(s.chats["p-1"]?.count == 1)
-	}
-
-	@Test func badgeCountsErrorsReviewAndPendingEdits() throws {
-		let s = store()
-		#expect(s.badge == 0, "штатная работа значка не даёт")
-		s.apply(frame(#"{"t":"learning_job","job":\#(jobJSON(id: "j-run"))}"#))
-		s.apply(frame(#"{"t":"learning_job","job":\#(jobJSON(id: "j-q", status: "queued"))}"#))
-		#expect(s.badge == 0 && s.running.count == 1 && s.queued.count == 1)
-		s.apply(frame(#"{"t":"learning_job","job":\#(jobJSON(id: "j-err", status: "error"))}"#))
-		s.apply(frame(#"{"t":"learning_playbook","playbook":\#(playbookJSON(id: "p-r", status: "review"))}"#))
-		s.apply(frame(#"{"t":"learning_playbook","playbook":\#(playbookJSON(id: "p-a", extra: #","pendingEdits":[{"hash":"h1","file":"f","before":"","after":"","anchor":"","caseId":"","createdAt":""},{"hash":"h2","file":"f","before":"","after":"","anchor":"","caseId":"","createdAt":""}]"#))}"#))
-		#expect(s.failed.count == 1 && s.needsHuman == 3 && s.badge == 4)
-	}
-
-	@Test func doneTodayCountsOnlyTodaysFinished() {
-		let s = store()
-		let now = Date(), old = now.addingTimeInterval(-3 * 86400)
-		func ts(_ d: Date) -> String { "\"" + ISO8601DateFormatter().string(from: d) + "\"" }
-		s.apply(frame(#"{"t":"learning_job","job":\#(jobJSON(id: "a", status: "done", finishedAt: ts(now)))}"#))
-		s.apply(frame(#"{"t":"learning_job","job":\#(jobJSON(id: "b", status: "done", finishedAt: ts(old)))}"#))
-		#expect(s.doneToday(now: now).map(\.id) == ["a"])
 	}
 
 	@Test func snapshotTriggersRefresh() async throws {
@@ -227,38 +194,6 @@ struct LearningStoreTests {
 		#expect(s2.cases.count == 1)
 	}
 
-	@Test func caseAndPlaybookOfSession() throws {
-		let s = store()
-		s.apply(frame(#"{"t":"learning_case","case":\#(caseJSON(id: "c-old", sessions: #"["s1","s2"]"#, playbook: "null", updatedAt: "2026-10-19T10:00:00.000Z"))}"#))
-		s.apply(frame(#"{"t":"learning_case","case":\#(caseJSON(id: "c-new", sessions: #"["s1"]"#, playbook: "\"p-1@3\""))}"#))
-		s.apply(frame(#"{"t":"learning_playbook","playbook":\#(playbookJSON())}"#))
-		#expect(s.caseOf(session: "s1")?.id == "c-new", "из нескольких — самый свежий")
-		#expect(s.caseOf(session: "s2")?.id == "c-old" && s.caseOf(session: "none") == nil)
-		#expect(s.playbookOf(session: "s1")?.id == "p-1" && s.playbookOf(session: "s2") == nil)
-		#expect(s.cases(of: .ready).count == 2 && s.cases(of: .error).isEmpty)
-	}
-
-	@Test func sinceLastVisit() throws {
-		let s = store()
-		let since = ISO.parse("2026-10-20T10:00:00.000Z")!
-		s.apply(frame(#"{"t":"learning_case","case":\#(caseJSON(id: "c-a", closedAt: "\"2026-10-20T11:00:00.000Z\""))}"#))
-		s.apply(frame(#"{"t":"learning_case","case":\#(caseJSON(id: "c-b", closedAt: "\"2026-10-20T09:00:00.000Z\""))}"#))
-		s.apply(frame(#"{"t":"learning_case","case":\#(caseJSON(id: "c-c"))}"#))
-		s.apply(frame(#"{"t":"learning_journal","entry":\#(journalJSON(id: "e-1", kind: "rule_activated", ts: "2026-10-20T12:00:00.000Z"))}"#))
-		s.apply(frame(#"{"t":"learning_journal","entry":\#(journalJSON(id: "e-2", kind: "rule_activated", ts: "2026-10-20T08:00:00.000Z"))}"#))
-		s.apply(frame(#"{"t":"learning_journal","entry":\#(journalJSON(id: "e-3", kind: "playbook_created", ts: "2026-10-20T13:00:00.000Z"))}"#))
-		let r = s.sinceLastVisit(since)
-		#expect(r.cases == 1 && r.rulesActivated == 1 && r.playbooks == 1)
-	}
-
-	@Test func chatLoadAndSend() async throws {
-		let fake = FakeLearning()
-		fake.chat = [try decode(#"{"id":"m-1","ts":"t","from":"agent","text":"привет","changes":[]}"#)]
-		let s = store(fake)
-		await s.loadChat("p-1")
-		let sent = try await s.sendChat("p-1", text: "сделай")
-		#expect(sent.from == .user && s.chats["p-1"]?.map(\.id) == ["m-1", "m-u"])
-	}
 }
 
 // MARK: описание сессии
@@ -333,37 +268,14 @@ struct CaseSummaryTests {
 		#expect(CaseSummary.parse("").unparsed)
 	}
 
-	@Test func editedBlocksRender() {
-		var s = CaseSummary.parse(collectorSample)
-		s.goals[0].actions.remove(at: 0)
-		s.goals[0].sources.append("file: a.txt")
-		let again = CaseSummary.parse(s.render())
-		#expect(again == s && again.goals[0].actions.count == 2)
-	}
 }
 
 @Suite("Обучение: тексты и ссылки")
 struct LearningTextTests {
 	@Test func kindsAndStatuses() throws {
 		#expect(LearningText.kind(.collect) == "Описание сессии" && LearningText.kind(.match) == "Сопоставление" && LearningText.kind(.edit) == "Правка из чата")
-		let review: JobView = try decode(jobJSON(kind: "review"))
-		#expect(LearningText.step(review) == "Ревью")
-		let staged: JobView = try decode(jobJSON(kind: "review").replacingOccurrences(of: #""note":null"#, with: #""note":"ступень 4""#))
-		#expect(LearningText.step(staged) == "Ревью: ступень 4")
 		#expect(LearningText.caseStatus(.collecting) == "собирается" && LearningText.playbookStatus(.review) == "ждёт вас")
 		#expect(LearningText.journalKind(.reviewFailed) == "Ревью не пройдено" && LearningText.rawKind(.reply) == "ответ агента")
-	}
-
-	@Test func queueNoteForMatch() throws {
-		let match: JobView = try decode(jobJSON(id: "j-m", kind: "match", status: "queued"))
-		let collect: JobView = try decode(jobJSON(id: "j-c", kind: "collect", status: "running"))
-		#expect(LearningText.queueNote(match, among: [match, collect]) == "ждёт пачку бэкфилла")
-		#expect(LearningText.queueNote(match, among: [match]) == nil)
-	}
-
-	@Test func sinceLine() {
-		#expect(LearningText.sinceLine((0, 0, 0)) == nil)
-		#expect(LearningText.sinceLine((2, 1, 0)) == "Пока вас не было: 2 кейса закрыто, 1 правило включено")
 	}
 
 	@Test func anchorText() {

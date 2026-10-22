@@ -2,20 +2,21 @@
  * Команды фонового обучения:
  *   learn [status] | on | off [--session S] | run [--session S] | backfill [--all | <id…>]
  *   learn journal [--limit N] [--revert <id>]
- *   case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"
+ *   case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>" | read <id> [--max-chars N] | draft <id> [--file F]
  *   playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason] | revert <id> --version N | rm <id> | note <id> "<текст>"
  *   playbook edits <id> | accept <id> <hash> | reject <id> <hash>   правки улучшателя без авто-ревью (`autoReview: false`)
  */
-import type { BackfillCandidate, BackfillResult, CaseDetail, JobView, JournalEntry, LearningSettings, LearningView, PendingEdit, PlaybookDetail, PlaybookView } from '../../../../shared/types'
+import type { BackfillCandidate, BackfillResult, CaseDetail, CaseReadBlock, JobView, JournalEntry, LearningSettings, LearningView, PendingEdit, PlaybookDetail, PlaybookView } from '../../../../shared/types'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { FlagSpec, Parsed } from '../args.types'
 import { CliError } from '../errors'
 import { bold, candidatesTable, casesTable, dim, green, jobsTable, journalTable, playbooksTable } from '../format'
-import { del, enc, get, json, out, patch, post, put } from '../io'
+import * as fs from 'node:fs'
+import { del, enc, get, info, json, out, patch, post, put } from '../io'
 import type { CommandTable } from './command.types'
 
 export const LEARN_FLAGS: FlagSpec = { bool: ['json', 'help', 'all'], value: ['session', 'revert', 'limit'], short: { a: 'all' } }
-export const CASE_FLAGS: FlagSpec = { bool: ['json', 'help'] }
+export const CASE_FLAGS: FlagSpec = { bool: ['json', 'help'], value: ['max-chars', 'file', 'from', 'key'] }
 export const PLAYBOOK_FLAGS: FlagSpec = { bool: ['json', 'help'], value: ['reason', 'version'] }
 
 const LEARN_USAGE = `использование:
@@ -23,7 +24,9 @@ const LEARN_USAGE = `использование:
   nessy-orch learn backfill [--all | <id…>]
   nessy-orch learn journal [--limit N] [--revert <id записи>]`
 const CASE_USAGE = `использование:
-  nessy-orch case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"`
+  nessy-orch case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"
+  nessy-orch case read <id> [--max-chars N]   следующий блок событий кейса (для агента-сборщика)
+  nessy-orch case draft <id> [--file F] [--from A --key K]   сохранить черновик описания (иначе stdin)`
 const PLAYBOOK_USAGE = `использование:
   nessy-orch playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason R] | revert <id> --version N | rm <id> | note <id> "<текст>"
   nessy-orch playbook edits <id> | accept <id> <hash> | reject <id> <hash>   правки улучшателя, ждущие решения (авто-ревью выключено)`
@@ -131,6 +134,28 @@ async function cmdCase(p: Parsed): Promise<void> {
 		const id = needId(rest[0], 'note')
 		await put(`/learning/cases/${enc(id)}/notes`, { text: rest.slice(1).join(' ') })
 		return asJson ? json({ ok: true }) : out(`${green('✓')} заметки кейса ${id} записаны`)
+	}
+	if (sub === 'read') {
+		const id = needId(rest[0], 'read')
+		const max = flagNum(p, 'max-chars')
+		const b = await get<CaseReadBlock>(`/learning/cases/${enc(id)}/read${max === undefined ? '' : `?maxChars=${max}`}`)
+		if (asJson) return json(b)
+		if (b.text) out(b.text)
+		info(b.done && !b.text ? 'done' : `прочитано ${b.from}–${b.until} из ${b.total}, осталось ${b.remaining}${b.done ? ' (done)' : ''}`)
+		return
+	}
+	if (sub === 'draft') {
+		const id = needId(rest[0], 'draft')
+		const file = flagStr(p, 'file')
+		let text: string
+		try {
+			text = fs.readFileSync(file ?? 0, 'utf8')
+		} catch (e) {
+			throw new CliError(`не удалось прочитать ${file ?? 'stdin'}: ${e instanceof Error ? e.message : String(e)}`, 2)
+		}
+		const from = flagStr(p, 'from')
+		await post(`/learning/cases/${enc(id)}/draft`, from === undefined ? { text } : { text, from })
+		return asJson ? json({ ok: true }) : out(`${green('✓')} черновик кейса ${id} сохранён`)
 	}
 	throw new CliError(`неизвестная подкоманда case ${sub}\n${CASE_USAGE}`, 2)
 }

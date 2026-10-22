@@ -21,6 +21,16 @@ describe('playbook-render', () => {
 		assert.equal(f['notes.md'], 'my notes')
 	})
 
+	it('tools: файлы tools/<name> и раздел Tools в SKILL.md; без инструментов раздела нет', () => {
+		assert.ok(!(renderPlaybook(samplePlaybook(), '', '')['SKILL.md'] ?? '').includes('## Tools'))
+		const p = { ...samplePlaybook(), tools: [{ name: 'export.sh', description: 'Exports tickets', content: 'echo hi\n' }] }
+		const f = renderPlaybook(p, '', '')
+		assert.equal(f['tools/export.sh'], 'echo hi\n')
+		const s = f['SKILL.md'] ?? ''
+		assert.ok(s.includes('## Tools'))
+		assert.ok(s.includes('`export.sh` — Exports tickets. Run: `bash tools/export.sh`'))
+	})
+
 	it('гейт и шаблон в этапе; забор длиннее внутреннего', () => {
 		const f = renderPlaybook(samplePlaybook(), '', '')
 		assert.ok(!(f['stages/01-research.md'] ?? '').includes('Show the user before continuing'))

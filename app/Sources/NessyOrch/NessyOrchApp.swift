@@ -33,7 +33,7 @@ struct NessyOrchApp: App {
 		Window("Фон", id: "background") {
 			BackgroundWindow().environment(model).tint(DS.Palette.accent)
 		}
-		.defaultSize(width: 1000, height: 700)
+		.defaultSize(width: 1100, height: 720)
 
 		MenuBarExtra {
 			MenuBarPanel().environment(model).tint(DS.Palette.accent)

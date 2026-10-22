@@ -1,4 +1,4 @@
-import type { Evidence, PlaybookStage } from '../../shared/types'
+import type { Evidence, PlaybookStage, PlaybookTool } from '../../shared/types'
 import type { BuildDraft, Improvement, JsonObject as Obj, MatchGroup, PlaybookFiles, RuleVerdict } from './playbook.types'
 
 const PLACEHOLDER = /\{\{([A-Za-z_][\w-]*)\}\}/g
@@ -140,6 +140,25 @@ function listOf<T>(v: unknown, item: (x: unknown) => T | null): T[] | null {
 	return out
 }
 
+export const TOOL_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/
+export const TOOL_MAX_CHARS = 40_000
+export const TOOLS_MAX = 8
+
+/** Инструменты из ответа сборщика: неверные (имя, содержимое, повтор, сверх лимита) отбрасываются, разбор не падает. */
+function toolsOf(v: unknown): PlaybookTool[] {
+	if (!Array.isArray(v)) return []
+	const out: PlaybookTool[] = []
+	for (const x of v) {
+		const o = obj(x)
+		const name = str(o?.name)
+		const content = str(o?.content)
+		if (name === null || content === null || !TOOL_NAME.test(name) || content.trim() === '' || content.length > TOOL_MAX_CHARS) continue
+		if (out.some(t => t.name === name) || out.length >= TOOLS_MAX) continue
+		out.push({ name, description: str(o?.description)?.trim() ?? '', content })
+	}
+	return out
+}
+
 /** Сборщик плейбука: `BuildDraft`. Нет этапов, нет описания или поле не той формы — null; лишние поля отбрасываются. */
 export function parseBuild(text: string): BuildDraft | null {
 	const o = obj(parseResult(text))
@@ -182,6 +201,7 @@ export function parseBuild(text: string): BuildDraft | null {
 		behavior,
 		stages,
 		rules,
+		tools: toolsOf(o.tools),
 	}
 }
 

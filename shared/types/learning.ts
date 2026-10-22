@@ -53,6 +53,10 @@ export interface JobView {
 	note: string | null
 	/** диапазон событий `n` порции */
 	range: [number, number] | null
+	/** название сессии кейса = имя и заголовок агента-сборщика (у остальных заданий — null) */
+	title: string | null
+	/** идущее `collect`/`close`: прочитано / всего событий кейса после `coveredUntil` */
+	progress: { read: number; total: number } | null
 	createdAt: string
 	startedAt: string | null
 	finishedAt: string | null
@@ -111,6 +115,22 @@ export interface CaseDetail extends CaseView {
 	/** sha1 (hex) текущего `summary.md`: `base` для `PUT /learning/cases/:id/summary` */
 	summaryHash: string
 	notes: string
+	/** черновик описания, который агент-сборщик сохранил по ходу чтения (пусто — нет) */
+	draft: string
+	/** прогресс чтения идущего задания сбора или null */
+	progress: { read: number; total: number } | null
+}
+
+/** Блок событий кейса для агента-сборщика (`GET /learning/cases/:id/read`). */
+export interface CaseReadBlock {
+	text: string
+	from: number
+	until: number
+	/** события кейса после `coveredUntil` */
+	total: number
+	/** сколько событий ещё не прочитано */
+	remaining: number
+	done: boolean
 }
 
 /** Итог запуска разбора: заведённые кейсы и пропущенные кандидаты (кейс уже есть, нет транскрипта). */
@@ -170,6 +190,15 @@ export interface PendingEdit {
 	createdAt: string
 }
 
+/** Инструмент плейбука: скрипт `tools/<name>` рядом со скиллом; создаётся сборщиком, патчем не меняется. */
+export interface PlaybookTool {
+	/** имя файла: `^[a-z0-9][a-z0-9._-]{0,63}$` */
+	name: string
+	/** что делает и как вызывать */
+	description: string
+	content: string
+}
+
 export interface PlaybookView {
 	id: string
 	name: string
@@ -186,6 +215,8 @@ export interface PlaybookView {
 	behavior: string[]
 	stages: PlaybookStage[]
 	rules: RuleView[]
+	/** скрипты `tools/*` (сервер всегда отдаёт массив; у старых данных поля нет — это `[]`) */
+	tools?: PlaybookTool[]
 	trial: { before: number; cases: string[]; corrections: number[] } | null
 	/** правки, ждущие решения (`autoReview: false`); у плейбуков старого формата поля нет — это `[]` */
 	pendingEdits?: PendingEdit[]
@@ -213,6 +244,8 @@ export interface ReviewReport {
 
 /** Плейбук с файлами-заметками и историей (`GET /learning/playbooks/:id`). */
 export interface PlaybookDetail extends PlaybookView {
+	/** все файлы плейбука из хранилища: `SKILL.md`, `stages/*`, `rules.md`, `tools/*`, `notes.md`, `CHANGELOG.md` (не `files`: так уже называется список ключевых файлов в `PlaybookView`) */
+	fileTexts: Record<string, string>
 	notes: string
 	changelog: string
 	versions: Array<{ version: number; ts: string; message: string }>

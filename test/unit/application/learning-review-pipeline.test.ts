@@ -117,6 +117,8 @@ describe('авто-ревью, шесть ступеней', () => {
 				summary: id => summaries[id] ?? '',
 				notes: () => '',
 				writeNotes: () => undefined,
+				writeDraft: () => true,
+				sessionTitle: id => id,
 				raw: (id, from, to) => (raws[id] ?? []).filter(e => e.n >= from && (to === undefined || e.n <= to)),
 				update: () => undefined,
 				writeSummary: () => true,

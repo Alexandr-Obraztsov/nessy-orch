@@ -126,13 +126,13 @@ extension AppModel {
 	func runDebugLaunch() {
 		let d = UserDefaults.standard
 		Task { @MainActor in
-			// `-debug.openBackground work|cases|playbooks|journal|settings` — окно «Фон» на разделе (без ожидания снимка)
+			// `-debug.openBackground work|cases|playbooks|journal` — окно «Фон» на разделе (без ожидания снимка)
 			if let s = d.string(forKey: "debug.openBackground") { openBackground(BackgroundSection(rawValue: s) ?? .work) }
 			// ждём первый снимок оркестратора
 			for _ in 0..<40 where store.sessions.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
 			if let dir = d.string(forKey: "debug.terminalDir") { openTerminal(dir: dir) }
 			if let s = d.string(forKey: "debug.openSession") { show(session: s) }
-			// `-debug.openBackground work|cases|playbooks|journal|settings` — окно «Фон» на разделе
+			// `-debug.openBackground work|cases|playbooks|journal` — окно «Фон» на разделе
 		}
 	}
 }

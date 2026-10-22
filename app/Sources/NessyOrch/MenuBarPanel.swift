@@ -11,7 +11,6 @@ struct MenuBarLabel: View {
 		HStack(spacing: DS.Metrics.s1) {
 			Image(systemName: symbol)
 			if n > 0 { Text("\(n)").monospacedDigit() }
-			else if store.learning.badge > 0 { Image(systemName: "circle.fill").font(.system(size: 5)) }
 		}
 		.help(n > 0 ? "nessy — ждут вас: \(n)" : store.workingCount > 0 ? "nessy — работают: \(store.workingCount)" : "nessy — всё спокойно")
 	}
@@ -82,15 +81,14 @@ struct MenuBarPanel: View {
 				}
 			}
 
-			// фоновое обучение: одна строка с числом заданий в работе; значок — если что-то ждёт вас
+			// фоновое обучение: одна строка с числом заданий в процессе
 			let learning = model.store.learning
-			if learning.available, learning.settings?.enabled == true || learning.badge > 0 {
+			if learning.available, learning.settings?.enabled == true {
 				Button { model.openBackground(); NSApp.activate() } label: {
 					HStack(spacing: DS.Metrics.s2) {
 						Image(systemName: "graduationcap").foregroundStyle(DS.Palette.textSecondary)
-						Text(learning.running.isEmpty ? "Фон: ничего не в работе" : "Фон: \(learning.running.count) в работе")
+						Text(learning.running.isEmpty ? "Фон: ничего не в процессе" : "Фон: \(learning.running.count) в процессе")
 						Spacer(minLength: DS.Metrics.s2)
-						if learning.badge > 0 { DSCount(value: learning.badge).foregroundStyle(DS.Palette.attention) }
 						Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.textTertiary)
 					}
 					.font(DS.Typography.secondary)

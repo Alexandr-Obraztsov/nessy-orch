@@ -8,6 +8,7 @@ import { Hub } from '../../../src/application/hub'
 import { LearningService } from '../../../src/application/learning/learning.service'
 import type { CaseState, JobState, LearningHost, PlaybookState } from '../../../src/application/learning/learning.types'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
+import { drainReads } from '../../support/read-blocks'
 import { MemoryPlaybookStore } from '../../support/memory-playbook-store'
 import { samplePlaybook } from '../../support/sample-playbook'
 
@@ -32,6 +33,7 @@ describe('LearningService: просмотр и правка блоками', () 
 	let events: HubEvent[]
 	let hold: Promise<void> | null
 	let cancelled: string[]
+	let current: LearningService | null = null
 	const host: LearningHost = {
 		sessions: () => [], messagesSince: () => [], lastSeq: () => 0, sessionOfMessage: () => null, isBusy: () => false,
 		cancelAgent: id => {
@@ -39,6 +41,7 @@ describe('LearningService: просмотр и правка блоками', () 
 			return Promise.resolve()
 		},
 		runAgent: async req => {
+			drainReads(current)
 			req.onSpawn?.('ag-live')
 			if (hold) await hold
 			return { agentId: 'ag-live', ok: true, text: GOOD }
@@ -48,6 +51,7 @@ describe('LearningService: просмотр и правка блоками', () 
 		const hub = new Hub()
 		hub.subscribe(e => events.push(e))
 		const svc = new LearningService({ store, host, hub, clock: { now: () => T0 + 3_600_000 }, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore })
+		current = svc
 		svc.load()
 		svc.start()
 		return svc

@@ -51,6 +51,19 @@ describe('PlaybookService', () => {
 		svc = new PlaybookService({ store, hub, clock, ids: { next: () => `i${n++}` } })
 	})
 
+	it('tools: create кладёт их в состояние и файлы; detail отдаёт fileTexts; старые данные получают []', () => {
+		const d = { ...draft(), tools: [{ name: 'run.sh', description: 'Runs it', content: 'echo 1' }] }
+		const p = svc.create(d, group, null)
+		assert.deepEqual(p.tools, d.tools)
+		assert.equal(store.readFiles(p.id)['tools/run.sh'], 'echo 1')
+		assert.ok(store.readFiles(p.id)['SKILL.md']?.includes('bash tools/run.sh'))
+		const det = svc.detail(p.id)
+		assert.equal(det.fileTexts['tools/run.sh'], 'echo 1')
+		assert.ok(det.fileTexts['SKILL.md'] && det.fileTexts['rules.md'] && 'CHANGELOG.md' in det.fileTexts)
+		assert.deepEqual(det.tools, d.tools)
+		assert.deepEqual(svc.create(draft(), group, null).tools, [])
+	})
+
 	it('create: draft, id p-…, имя = id, правила active/candidate, журнал, файлы и события', () => {
 		const p = svc.create(draft(), group, 'c3')
 		assert.equal(p.status, 'draft')

@@ -10,6 +10,7 @@ import { PORTION_CHARS } from '../../../src/domain/learning-settings'
 import type { RawEvent } from '../../../src/domain/learning.types'
 import { renderPlaybook } from '../../../src/domain/playbook-render'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
+import { drainReads } from '../../support/read-blocks'
 import { MemoryPlaybookStore } from '../../support/memory-playbook-store'
 import { samplePlaybook } from '../../support/sample-playbook'
 
@@ -55,6 +56,7 @@ describe('шторм агентов', () => {
 	let running: number
 	let maxRun: number
 	let now: number
+	let current: LearningService | null = null
 	const host: LearningHost = {
 		sessions: () => [],
 		messagesSince: () => [],
@@ -63,6 +65,7 @@ describe('шторм агентов', () => {
 		isBusy: () => false,
 		cancelAgent: () => Promise.resolve(),
 		runAgent: async req => {
+			drainReads(current)
 			const marker = req.prompt.split('\n')[0]?.replace(/^#\s*/, '') ?? ''
 			calls.push({ marker, name: req.name, prompt: req.prompt })
 			running++
@@ -73,7 +76,7 @@ describe('шторм агентов', () => {
 			return { agentId: `ag${calls.length}`, ok: true, text: f ? f(req.prompt) : 'без результата' }
 		},
 	}
-	const service = (): LearningService => new LearningService({ store, host, hub: new Hub(), clock: { now: () => now }, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore })
+	const service = (): LearningService => (current = new LearningService({ store, host, hub: new Hub(), clock: { now: () => now }, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore }))
 	const addCase = (id: string, i: number, over: Partial<CaseState> = {}, corr = '- none', pad = '', text = 'event'): void => {
 		store.cases.set(id, baseCase(id, i, over))
 		store.summaries.set(id, SUMMARY(corr, pad))
@@ -120,7 +123,8 @@ describe('шторм агентов', () => {
 			for (const [i, id] of ['c1', 'c2', 'c3'].entries()) addCase(id, i)
 			reply['PLAYBOOK BUILDER'] = () => 'мусор'
 			const svc = await start([buildJob(['c1', 'c2', 'c3'])])
-			assert.equal(svc.view().jobs[0]?.status, 'error')
+			assert.equal(svc.view().jobs[0]?.status, 'queued') // ошибок нет: повтор с паузой
+			assert.equal(svc.view().jobs[0]?.attempts, 3)
 			assert.deepEqual(savedMeta()?.failedBuilds, [{ hash: 'abc12345', cases: ['c1', 'c2', 'c3'], at: now }])
 		})
 

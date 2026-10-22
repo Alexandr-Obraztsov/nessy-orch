@@ -1,6 +1,6 @@
 import Foundation
 
-/// Логика раздела «Журнал», настроек и меню сессии окна «Фон»: без UI, чтобы проверять тестами.
+/// Логика раздела «Журнал» и разбора прошлых сессий окна «Фон»: без UI, чтобы проверять тестами.
 public enum JournalLogic {
 	/// Записи одного дня.
 	public struct Day: Identifiable, Hashable, Sendable {
@@ -35,76 +35,12 @@ public enum JournalLogic {
 		return f.string(from: day)
 	}
 
-	/// Откатить можно запись с `revertible`, которую ещё не откатили.
-	public static func canRevert(_ e: JournalEntry) -> Bool { e.revertible && e.revertedBy == nil }
-	public static func isReverted(_ e: JournalEntry) -> Bool { e.revertedBy != nil }
-
 	/// Куда ведёт объект записи: плейбук (`p-…`), кейс (`c-…`) или никуда.
 	public enum Target: Hashable, Sendable { case playbook(String), caseView(String) }
 	public static func target(_ e: JournalEntry) -> Target? {
 		if e.subject.hasPrefix("p-") { return .playbook(e.subject) }
 		if e.subject.hasPrefix("c-") { return .caseView(e.subject) }
 		return nil
-	}
-
-	/// Разобранный `report` записи: `{prevStatus?, review?}`.
-	public struct Report: Hashable, Sendable {
-		public var prevStatus: String?
-		public var review: ReviewReport?
-		public var isEmpty: Bool { prevStatus == nil && review == nil }
-	}
-
-	/// Отчёт записи; нет отчёта, битый JSON или пустой объект — `nil`.
-	public static func report(_ e: JournalEntry) -> Report? {
-		guard let text = e.report, let data = text.data(using: .utf8),
-			  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-		var r = Report()
-		r.prevStatus = obj["prevStatus"] as? String
-		if obj["review"] is [String: Any], let sub = try? JSONSerialization.data(withJSONObject: obj["review"]!) {
-			r.review = try? JSONDecoder().decode(ReviewReport.self, from: sub)
-		}
-		return r.isEmpty ? nil : r
-	}
-
-	/// Название ступени ревью и вердикт для списка ступеней.
-	public static func verdict(_ v: StageVerdict) -> String {
-		switch v {
-		case .pass: "пройдена"
-		case .fail: "не пройдена"
-		case .skip: "пропущена"
-		case .unknown: "—"
-		}
-	}
-
-	// MARK: меню сессии
-
-	/// Какие пункты меню «⋯» сессии доступны (спека §5).
-	public struct SessionMenu: Equatable, Sendable {
-		public var learnsHere: Bool
-		/// «Собрать кейс сейчас»: обучение включено и для этой сессии
-		public var canRun: Bool
-		public var hasCase: Bool
-		public var canRebuild: Bool
-		public var canStop: Bool
-		public var canDelete: Bool
-		public var canOpen: Bool
-
-		public init(settings: LearningSettings?, caseView c: CaseView?, session: String) {
-			learnsHere = !(settings?.disabledSessions.contains(session) ?? false)
-			canRun = (settings?.enabled ?? false) && learnsHere
-			hasCase = c != nil
-			canRebuild = c.map { $0.status == .ready || $0.status == .error } ?? false
-			canStop = c?.status == .collecting
-			canDelete = c != nil
-			canOpen = c != nil
-		}
-	}
-
-	/// Список `disabledSessions` после включения/выключения обучения сессии (без дублей, порядок сохраняется).
-	public static func toggled(_ disabled: [String], session: String, learn: Bool) -> [String] {
-		var l = disabled.filter { $0 != session }
-		if !learn { l.append(session) }
-		return l
 	}
 
 	/// «12 сообщений» / «340 КБ» у кандидата разбора.

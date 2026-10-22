@@ -14,7 +14,7 @@ const RULE_STATUSES: readonly RuleStatus[] = ['candidate', 'active', 'archived']
 /** Видимая часть плейбука (без вердиктов и служебных счётчиков). */
 export function playbookView(p: PlaybookState): PlaybookView {
 	const { verdicts: _v, rejectedEdits: _r, reviewAttempts: _a, ...view } = p
-	return view
+	return { ...view, tools: view.tools ?? [] }
 }
 
 /**
@@ -28,7 +28,7 @@ export function restoreContent(current: PlaybookState, old: PlaybookState): Play
 		const c = now.get(r.id)
 		return c ? { ...r, status: c.status, up: c.up, down: c.down, evidence: c.evidence, against: c.against, lastAppliedAt: c.lastAppliedAt } : r
 	})
-	return { ...current, title: old.title, description: old.description, taskType: old.taskType, params: old.params, sources: old.sources, files: old.files, behavior: old.behavior, stages: old.stages, rules }
+	return { ...current, title: old.title, description: old.description, taskType: old.taskType, params: old.params, sources: old.sources, files: old.files, behavior: old.behavior, stages: old.stages, rules, tools: old.tools ?? [] }
 }
 
 /** Разбор `report` записи журнала; не JSON — пустой объект. */
@@ -57,7 +57,7 @@ export class PlaybookService {
 
 	load(): void {
 		this.map.clear()
-		for (const p of this.deps.store.loadPlaybooks()) this.map.set(p.id, { ...p, pendingEdits: p.pendingEdits ?? [] })
+		for (const p of this.deps.store.loadPlaybooks()) this.map.set(p.id, { ...p, pendingEdits: p.pendingEdits ?? [], tools: p.tools ?? [] })
 		// плагин должен совпадать с диском и после рестарта
 		try {
 			this.publishActive()
@@ -84,7 +84,8 @@ export class PlaybookService {
 	detail(id: string): PlaybookDetail {
 		const p = this.need(id)
 		const { store } = this.deps
-		return { ...playbookView(p), notes: store.readNotes(id), changelog: store.readFiles(id)['CHANGELOG.md'] ?? '', versions: store.versions(id), reviews: store.loadReviews(id) }
+		const fileTexts = store.readFiles(id)
+		return { ...playbookView(p), fileTexts: { ...fileTexts, 'notes.md': store.readNotes(id) || fileTexts['notes.md'] || '' }, notes: store.readNotes(id), changelog: fileTexts['CHANGELOG.md'] ?? '', versions: store.versions(id), reviews: store.loadReviews(id) }
 	}
 
 	/** Последние записи журнала, старые первыми. */
@@ -134,6 +135,7 @@ export class PlaybookService {
 			behavior: draft.behavior,
 			stages: draft.stages,
 			rules,
+			tools: draft.tools ?? [],
 			trial: null,
 			createdAt: iso,
 			updatedAt: iso,

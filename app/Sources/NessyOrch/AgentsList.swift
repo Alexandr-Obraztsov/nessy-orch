@@ -61,7 +61,6 @@ struct AgentsListView: View {
 			Text("Агенты").font(DS.Typography.panelTitle)
 			if !agents.isEmpty { Text("·").foregroundStyle(DS.Palette.textTertiary); DSCount(value: agents.count).foregroundStyle(DS.Palette.textSecondary) }
 			Spacer(minLength: 0)
-			if let id = win?.currentSessionId { SessionLearningControls(session: id) }
 		}
 		.foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
 		.padding(.leading, DS.Metrics.s4).padding(.trailing, 96)
