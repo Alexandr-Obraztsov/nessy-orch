@@ -205,6 +205,7 @@ struct PanelHeader<Actions: View>: View {
 						Button("Удалить…", role: .destructive, action: onDelete)
 					} label: { Image(systemName: "ellipsis").foregroundStyle(DS.Palette.textSecondary) }
 						.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+						.tint(DS.Palette.textSecondary)
 						.help("Ещё")
 				}
 			}
@@ -378,8 +379,10 @@ struct BackgroundSplit<Cards: View, Panel: View>: View {
 			let nav = model.background
 			let width = min(nav.panelWidth, max(DS.Metrics.sidePanelWidth.min, geo.size.width - minCards))
 			let shape = RoundedRectangle(cornerRadius: DS.Metrics.panelRadius, style: .continuous)
-			HStack(spacing: 0) {
+			// блок — на всю высоту окна, вплоть до верхнего края (под зону заголовка); карточки уступают ему место справа
+			ZStack(alignment: .trailing) {
 				cards.frame(maxWidth: .infinity, maxHeight: .infinity)
+					.padding(.trailing, open ? width + DS.Metrics.s2 * 2 : 0)
 				if open {
 					panel
 						.frame(width: width).frame(maxHeight: .infinity)
@@ -399,6 +402,7 @@ struct BackgroundSplit<Cards: View, Panel: View>: View {
 								.help("Потяните, чтобы изменить ширину")
 						}
 						.padding(.trailing, DS.Metrics.s2).padding(.vertical, DS.Metrics.s2)
+						.ignoresSafeArea(.container, edges: .top)
 						.transition(.move(edge: .trailing).combined(with: .opacity))
 				}
 			}
@@ -460,5 +464,28 @@ extension Date {
 		if cal.isDateInToday(self) { return "сегодня \(time)" }
 		if cal.isDateInYesterday(self) { return "вчера \(time)" }
 		return formatted(.dateTime.day().month(.abbreviated)) + ", " + time
+	}
+}
+
+
+/// Поле поиска: заметная поверхность с рамкой и лупой (на тёмном фоне стандартное поле почти не видно).
+struct SearchField: View {
+	@Binding var text: String
+	@FocusState private var focused: Bool
+
+	var body: some View {
+		HStack(spacing: DS.Metrics.s2) {
+			Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .medium)).foregroundStyle(DS.Palette.textSecondary)
+			TextField("Поиск", text: $text).textFieldStyle(.plain).font(DS.Typography.secondary).focused($focused)
+			if !text.isEmpty {
+				Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(DS.Palette.textTertiary) }
+					.buttonStyle(.plain).accessibilityLabel("Очистить поиск")
+			}
+		}
+		.padding(.horizontal, DS.Metrics.s3).frame(height: DS.Metrics.button)
+		.background(DS.Palette.surface, in: Capsule())
+		.overlay(Capsule().strokeBorder(focused ? DS.Palette.textTertiary : DS.Palette.border, lineWidth: DS.Metrics.hairline))
+		.contentShape(Capsule())
+		.onTapGesture { focused = true }
 	}
 }

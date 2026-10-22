@@ -21,7 +21,7 @@ struct PlaybooksSection: View {
 		} else {
 			let g = BackgroundLogic.playbooks(learning.playbooks, jobs: learning.jobs, query: query)
 			VStack(spacing: 0) {
-				TextField("Поиск", text: $query).textFieldStyle(.roundedBorder)
+				SearchField(text: $query)
 					.padding(.horizontal, DS.Metrics.s4).padding(.vertical, DS.Metrics.s3)
 				if g.ready.isEmpty && g.inProgress.isEmpty {
 					LearningEmptyState("Ничего не найдено").frame(maxHeight: .infinity)

@@ -24,7 +24,7 @@ struct CasesSection: View {
 			LearningEmptyState("Нет кейсов").frame(maxHeight: .infinity)
 		} else {
 			VStack(spacing: 0) {
-				TextField("Поиск", text: $query).textFieldStyle(.roundedBorder)
+				SearchField(text: $query)
 					.padding(.horizontal, DS.Metrics.s4).padding(.vertical, DS.Metrics.s3)
 				let items = shown
 				if items.isEmpty {

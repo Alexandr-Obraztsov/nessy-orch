@@ -85,6 +85,8 @@ struct BackgroundWindow: View {
 			}
 		}
 		.navigationTitle("Фон · \(nav.section.title)")
+		// пока справа открыт блок (он идёт до верха окна), подложка заголовка его не закрывает
+		.toolbarBackgroundVisibility(nav.objectId == nil ? .automatic : .hidden, for: .windowToolbar)
 		.frame(minWidth: 900, minHeight: 520)
 		.overlay(alignment: .top) { ToastView().padding(.top, DS.Metrics.s2) }
 		.onAppear { Task { await learning.refresh() } }
