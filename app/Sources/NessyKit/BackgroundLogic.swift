@@ -35,10 +35,20 @@ public enum BackgroundLogic {
 
 	// MARK: кейсы
 
+	/// Текст черновика без служебных тегов `<summary>`/`<meta>`, которые агент мог сохранить вместе с описанием.
+	public static func draftText(_ s: String) -> String {
+		var t = s
+		for tag in ["<summary>", "</summary>"] { t = t.replacingOccurrences(of: tag, with: "") }
+		if let r = t.range(of: "<meta>") { t = String(t[..<r.lowerBound]) }
+		return t.trimmingCharacters(in: .whitespacesAndNewlines)
+	}
+
 	/// Кейсы по поиску (заголовок, названия и типы целей, названия сессий), самые свежие сверху.
 	public static func cases(_ cases: [CaseView], query: String, titleOf: (CaseView) -> String, sessionTitlesOf: (CaseView) -> [String]) -> [CaseView] {
 		let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 		return cases
+			// кейс — только обработанная сессия; идущие и ждущие живут в «В процессе»
+			.filter { $0.status == .ready }
 			.filter { c in
 				guard !q.isEmpty else { return true }
 				let hay = [titleOf(c)] + c.goals.flatMap { [$0.title, $0.type] } + sessionTitlesOf(c)

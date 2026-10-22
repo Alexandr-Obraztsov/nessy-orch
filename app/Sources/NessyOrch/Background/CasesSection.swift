@@ -10,7 +10,7 @@ struct CasesSection: View {
 
 	var body: some View {
 		// кейсов нет совсем — одно пустое состояние на всё окно, без второго «Выберите кейс»
-		if learning.cases.isEmpty && model.background.objectId == nil {
+		if !learning.cases.contains(where: { $0.status == .ready }) && model.background.objectId == nil {
 			LearningEmptyState("Кейсов пока нет", systemImage: "tray.full", message: "Кейс появляется, когда фон описал сессию.")
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 		} else {

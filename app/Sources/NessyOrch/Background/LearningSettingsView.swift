@@ -21,9 +21,6 @@ struct LearningSettingsView: View {
 		Form {
 			Section {
 				Toggle("Фоновое обучение", isOn: flag(\.enabled, "enabled"))
-				Toggle("Авто-ревью", isOn: flag(\.autoReview, "autoReview"))
-			} footer: {
-				Text("Без авто-ревью плейбуки и правки ждут вас во вкладке «Ревью».").foregroundStyle(DS.Palette.textSecondary)
 			}
 			Section {
 				Stepper(value: $interval, in: 1...120) { LabeledContent("Интервал описания сессии", value: "\(interval) мин") }

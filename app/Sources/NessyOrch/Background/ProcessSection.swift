@@ -109,6 +109,8 @@ private struct ProcessCard: View {
 			case .result: ProcessResult(job: job)
 			}
 		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity)
+		.clipped()
 	}
 }
 
@@ -121,20 +123,25 @@ private struct ProcessChat: View {
 	private var agent: AgentView? { job.agentId.flatMap { model.store.agents[$0] } }
 
 	var body: some View {
-		Group {
-			if let a = agent {
-				ChatContent(agent: a, chat: chat, goal: model.store.goal(of: a))
-					.frame(maxWidth: .infinity, maxHeight: .infinity)
-					.safeAreaBar(edge: .bottom, spacing: 0) {
-						VStack(spacing: DS.Metrics.s2) {
-							ProgressStrip(progress: job.progress).padding(.horizontal, DS.Metrics.s3)
-							AgentComposer(agent: a, interrupt: true)
+		// размер берём у контейнера (как панель агента): иначе длинная лента чата растягивает окно за экран
+		GeometryReader { geo in
+			Group {
+				if let a = agent {
+					ChatContent(agent: a, chat: chat, goal: model.store.goal(of: a))
+						.frame(maxWidth: .infinity, maxHeight: .infinity)
+						.safeAreaBar(edge: .bottom, spacing: 0) {
+							VStack(spacing: DS.Metrics.s2) {
+								ProgressStrip(progress: job.progress).padding(.horizontal, DS.Metrics.s3)
+								AgentComposer(agent: a, interrupt: true)
+							}
+							.fixedSize(horizontal: false, vertical: true)
 						}
-						.fixedSize(horizontal: false, vertical: true)
-					}
-			} else {
-				LearningEmptyState("Агент запускается", systemImage: "hourglass")
+				} else {
+					LearningEmptyState("Агент запускается", systemImage: "hourglass")
+				}
 			}
+			.frame(width: geo.size.width, height: geo.size.height)
+			.clipped()
 		}
 		.task(id: job.agentId) {
 			chat?.stop()
@@ -181,8 +188,8 @@ private struct ProcessResult: View {
 	var body: some View {
 		ScrollView {
 			Group {
-				if let d = draft, !d.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-					MarkdownView(text: d)
+				if let d = draft, !BackgroundLogic.draftText(d).isEmpty {
+					MarkdownView(text: BackgroundLogic.draftText(d))
 				} else {
 					Text("Агент ещё ничего не сохранил").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
 				}
