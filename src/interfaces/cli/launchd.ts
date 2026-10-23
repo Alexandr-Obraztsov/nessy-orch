@@ -107,7 +107,9 @@ export function install(opts: { print: boolean; ensure?: boolean }): Promise<voi
 		/* сервис ещё не был загружен */
 	}
 	execFileSync('launchctl', ['bootstrap', domain(), plistPath()], { stdio: 'inherit' })
-	process.stdout.write(`✓ сервис ${LABEL} установлен и запущен из ${plan.root} (через ${loginShell()} -lic — окружение как в терминале)\n  перезапуск: launchctl kickstart -k ${domain()}/${LABEL}\n  логи: ~/.nessy-orch/logs/orch.{out,err}.log\n`)
+	process.stdout.write(
+		`✓ сервис ${LABEL} установлен и запущен из ${plan.root} (через ${loginShell()} -lic — окружение как в терминале)\n  перезапуск: launchctl kickstart -k ${domain()}/${LABEL}\n  логи: ~/.nessy-orch/logs/orch.{out,err}.log\n`,
+	)
 	return Promise.resolve()
 }
 

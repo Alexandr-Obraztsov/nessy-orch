@@ -25,7 +25,8 @@ export class Registry {
 		if (hits.length > 1) throw new AppError(409, 'ambiguous_agent', `имя «${ref}» неоднозначно: ${hits.map(a => a.id).join(', ')}`)
 		const byTitle = [...this.agents.values()].filter(a => a.title !== null && a.title.toLowerCase() === key)
 		if (byTitle.length === 1) return byTitle[0] as Agent
-		if (byTitle.length > 1) throw new AppError(409, 'ambiguous_agent', `заголовок «${ref}» у нескольких агентов: ${byTitle.map(a => a.name).join(', ')} — обратитесь по имени`)
+		if (byTitle.length > 1)
+			throw new AppError(409, 'ambiguous_agent', `заголовок «${ref}» у нескольких агентов: ${byTitle.map(a => a.name).join(', ')} — обратитесь по имени`)
 		throw new AppError(404, 'no_agent', `агент «${ref}» не найден`)
 	}
 

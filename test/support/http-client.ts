@@ -4,13 +4,7 @@ import { SseParser } from '../../src/infrastructure/sse/sse-parser'
 import type { ApiResult } from './support.types'
 import { until } from './wait'
 
-export function request<T = unknown>(
-	port: number,
-	method: string,
-	path: string,
-	body?: unknown,
-	headers: Record<string, string> = {},
-): Promise<ApiResult<T>> {
+export function request<T = unknown>(port: number, method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<ApiResult<T>> {
 	return new Promise((resolve, reject) => {
 		const payload = body === undefined ? null : JSON.stringify(body)
 		const req = http.request(

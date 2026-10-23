@@ -56,7 +56,10 @@ describe('сессии: сервис', () => {
 		const b = ctx.orch.createSession({ title: 'Починить CI' })
 		assert.equal(b.id, 'pochinit-ci-0001', 'повторный суффикс 0000 пропущен')
 		assert.equal(ctx.orch.createSession({ title: 'x', id: 'mine' }).id, 'mine')
-		assert.equal(code(() => ctx.orch.createSession({ title: 'y', id: 'mine' })), '409 session_exists')
+		assert.equal(
+			code(() => ctx.orch.createSession({ title: 'y', id: 'mine' })),
+			'409 session_exists',
+		)
 		assert.deepEqual(ctx.store.sessions.map(t => t.id).sort(), ['mine', 'pochinit-ci-0000', 'pochinit-ci-0001'])
 		assert.equal(ctx.hub.filter(e => e.t === 'session').length, 3)
 	})
@@ -70,7 +73,10 @@ describe('сессии: сервис', () => {
 		assert.equal(ctx.orch.listSessions('done')[0]?.id, t.id)
 		const again = ctx.orch.updateSession(t.id, { status: 'active' })
 		assert.equal(again.summary, '**готово**', 'итог сохраняется, пока его не сбросят')
-		assert.equal(code(() => ctx.orch.updateSession('nope', { title: 'x' })), '404 no_session')
+		assert.equal(
+			code(() => ctx.orch.updateSession('nope', { title: 'x' })),
+			'404 no_session',
+		)
 		const last = ctx.hub.filter((e): e is Extract<HubEvent, { t: 'session' }> => e.t === 'session').at(-1)
 		assert.equal(last?.session.status, 'active')
 	})
@@ -84,7 +90,13 @@ describe('сессии: сервис', () => {
 		assert.equal(child.session, t.id, 'наследуется от родителя')
 		const loose = (await ctx.orch.spawn({ space: 'main', name: 'loose' })).agent
 		assert.equal(loose.session, null)
-		assert.deepEqual(ctx.orch.listAgents(t.id).map(a => a.name).sort(), ['helper', 'lead'])
+		assert.deepEqual(
+			ctx.orch
+				.listAgents(t.id)
+				.map(a => a.name)
+				.sort(),
+			['helper', 'lead'],
+		)
 		assert.equal(ctx.orch.graph().sessions.length, 1)
 		assert.equal(ctx.orch.snapshot().sessions[0]?.id, t.id)
 	})
@@ -99,11 +111,17 @@ describe('сессии: сервис', () => {
 		const a = (await ctx.orch.spawn({ space: 'main', name: 'w', session: t.id })).agent
 		const agent = ctx.orch.resolveAgent(a.id)
 		agent.queue.push({ seq: 0, id: 'm-x', ts: 0, from: 'you', to: a.id, kind: 'msg', text: 'ждёт', hops: 0 })
-		assert.equal(code(() => ctx.orch.removeSession(t.id)), '409 session_busy')
+		assert.equal(
+			code(() => ctx.orch.removeSession(t.id)),
+			'409 session_busy',
+		)
 		agent.queue.length = 0
 		ctx.orch.removeSession(t.id)
 		assert.equal(ctx.orch.getAgent(a.id).session, null)
-		assert.equal(code(() => ctx.orch.getSession(t.id)), '404 no_session')
+		assert.equal(
+			code(() => ctx.orch.getSession(t.id)),
+			'404 no_session',
+		)
 		assert.ok(ctx.hub.some(e => e.t === 'session_removed' && e.id === t.id))
 		assert.ok(ctx.hub.some(e => e.t === 'agent' && e.agent.id === a.id && e.agent.session === null))
 	})
@@ -163,7 +181,7 @@ describe('сессии: сервис', () => {
 		await new Promise(r => setTimeout(r, 20))
 		const r = await ctx.orch.sessionClosed(s.id)
 		assert.equal(r.cancelled, 1)
-				assert.equal(ctx.orch.getAgent(agent).session, s.id, 'агент и сессия не удалены')
+		assert.equal(ctx.orch.getAgent(agent).session, s.id, 'агент и сессия не удалены')
 		await assert.rejects(() => ctx.orch.sessionClosed('нет-такой'), /не найдена/)
 	})
 
@@ -187,7 +205,10 @@ describe('сессии: сервис', () => {
 		delete legacy.session
 		ctx.store.state.agents.push(legacy)
 		const next = setup(ctx.store)
-		assert.deepEqual(next.orch.listSessions().map((x: SessionView) => x.id), [t.id])
+		assert.deepEqual(
+			next.orch.listSessions().map((x: SessionView) => x.id),
+			[t.id],
+		)
 		assert.equal(next.orch.getAgent('keeper').session, t.id)
 		assert.equal(next.orch.getAgent('old').session, null)
 		await next.orch.shutdown()

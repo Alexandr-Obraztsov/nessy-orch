@@ -45,7 +45,10 @@ describe('архив и прерывание', () => {
 		assert.equal(a.status, 'idle')
 		assert.equal(a.archived, true)
 		const g = await h.api<GraphView>('GET', '/graph')
-		assert.ok(g.body.agents.some(x => x.name === 'done' && x.archived), 'архивные агенты остаются в графе')
+		assert.ok(
+			g.body.agents.some(x => x.name === 'done' && x.archived),
+			'архивные агенты остаются в графе',
+		)
 	})
 
 	it('сообщение агенту в архиве будит его в той же сессии nessy', T, async () => {

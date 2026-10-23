@@ -105,7 +105,8 @@ function copyDir(from: string, to: string, budget: { files: number; bytes: numbe
 		} else if (st.isFile()) {
 			budget.files++
 			budget.bytes += st.size
-			if (budget.files > MAX_FILES || budget.bytes > MAX_BYTES) throw new AppError(400, 'package_too_big', `пакет роли больше лимита (${MAX_FILES} файлов, ${MAX_BYTES >> 20} МБ)`)
+			if (budget.files > MAX_FILES || budget.bytes > MAX_BYTES)
+				throw new AppError(400, 'package_too_big', `пакет роли больше лимита (${MAX_FILES} файлов, ${MAX_BYTES >> 20} МБ)`)
 			fs.copyFileSync(a, b)
 			fs.chmodSync(b, st.mode & 0o755) // исполняемость сохраняем, права на запись для остальных не даём
 		}

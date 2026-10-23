@@ -18,8 +18,20 @@ describe('domain/sessions', () => {
 		assert.equal(isSessionId('a'.repeat(49)), false)
 	})
 	it('validateSessionRequest: заголовок обязателен, пробелы схлопываются, id проверяется', () => {
-		assert.deepEqual(validateSessionRequest({ title: '  два   слова ', owner: ' claude ' }), { id: null, title: 'два слова', owner: 'claude', cwd: null, chatId: null })
-		assert.deepEqual(validateSessionRequest({ title: 'x', owner: '  ', id: 'my-session' }), { id: 'my-session', title: 'x', owner: null, cwd: null, chatId: null })
+		assert.deepEqual(validateSessionRequest({ title: '  два   слова ', owner: ' claude ' }), {
+			id: null,
+			title: 'два слова',
+			owner: 'claude',
+			cwd: null,
+			chatId: null,
+		})
+		assert.deepEqual(validateSessionRequest({ title: 'x', owner: '  ', id: 'my-session' }), {
+			id: 'my-session',
+			title: 'x',
+			owner: null,
+			cwd: null,
+			chatId: null,
+		})
 		assert.throws(() => validateSessionRequest({ title: '   ' }), /title обязателен/)
 		assert.deepEqual(validateSessionRequest({ cwd: '/a/proj/' }), { id: null, title: 'proj', owner: null, cwd: '/a/proj/', chatId: null })
 		assert.throws(() => validateSessionRequest({ cwd: 'rel' }), /абсолютный/)

@@ -83,7 +83,9 @@ async function cmdSession(p: Parsed): Promise<void> {
 	if (sub === 'new') {
 		const title = rest.join(' ').trim()
 		if (!title) throw new CliError('использование: nessy-orch session new "<заголовок>" [--owner X] [--id slug]', 2)
-		const body: SessionRequest = { title, owner: flagStr(p, 'owner'), id: flagStr(p, 'id') }
+		const owner = flagStr(p, 'owner')
+		const id = flagStr(p, 'id')
+		const body: SessionRequest = { title, ...(owner !== undefined ? { owner } : {}), ...(id !== undefined ? { id } : {}) }
 		const t = await post<SessionView>('/sessions', body)
 		if (asJson) return json({ ...t, url: sessionUrl(ep, t.id) })
 		out(t.id)
@@ -106,7 +108,8 @@ async function cmdSession(p: Parsed): Promise<void> {
 		const list = await get<SourceView[]>(`/sessions/${enc(id)}/sources`)
 		if (asJson) return json(list)
 		if (!list.length) return out(dim('источников пока нет'))
-		for (const x of list) out(`${x.kind === 'url' ? (x.href ?? x.label) : x.label}  ${dim(`${x.agentName} · ${x.origin === 'reply' ? 'ответ' : 'инструмент'}`)}`)
+		for (const x of list)
+			out(`${x.kind === 'url' ? (x.href ?? x.label) : x.label}  ${dim(`${x.agentName} · ${x.origin === 'reply' ? 'ответ' : 'инструмент'}`)}`)
 		return
 	}
 	if (sub === 'done' || sub === 'reopen') {

@@ -3,7 +3,15 @@ import type * as http from 'node:http'
 import { describe, it } from 'node:test'
 import { AppError } from '../../../src/domain/errors'
 import { assertLocalClient } from '../../../src/interfaces/http/guard'
-import { parseApprove, parseRoleRequest, parseSendRequest, parseSpaceRequest, parseSpawnRequest, parseSessionPatch, parseSessionRequest } from '../../../src/interfaces/http/parsers'
+import {
+	parseApprove,
+	parseRoleRequest,
+	parseSendRequest,
+	parseSpaceRequest,
+	parseSpawnRequest,
+	parseSessionPatch,
+	parseSessionRequest,
+} from '../../../src/interfaces/http/parsers'
 import { queryNum } from '../../../src/interfaces/http/respond'
 import { Router } from '../../../src/interfaces/http/router'
 import { buildRouter } from '../../../src/interfaces/http/server'
@@ -69,18 +77,36 @@ describe('HTTP: маршрутизатор', () => {
 describe('HTTP: проверка Host/Origin', () => {
 	const req = (headers: Record<string, string>): http.IncomingMessage => ({ headers }) as unknown as http.IncomingMessage
 	it('разрешает только свой loopback', () => {
-		assert.equal(errCode(() => assertLocalClient(req({ host: '127.0.0.1:4337' }), 4337)), 'ok')
-		assert.equal(errCode(() => assertLocalClient(req({ host: 'LOCALHOST:4337', origin: 'http://localhost:4337' }), 4337)), 'ok')
-		assert.equal(errCode(() => assertLocalClient(req({ host: 'evil.example' }), 4337)), '403:bad_host')
-		assert.equal(errCode(() => assertLocalClient(req({ host: '127.0.0.1:9999' }), 4337)), '403:bad_host')
-		assert.equal(errCode(() => assertLocalClient(req({ host: '127.0.0.1:4337', origin: 'http://evil.example' }), 4337)), '403:bad_origin')
+		assert.equal(
+			errCode(() => assertLocalClient(req({ host: '127.0.0.1:4337' }), 4337)),
+			'ok',
+		)
+		assert.equal(
+			errCode(() => assertLocalClient(req({ host: 'LOCALHOST:4337', origin: 'http://localhost:4337' }), 4337)),
+			'ok',
+		)
+		assert.equal(
+			errCode(() => assertLocalClient(req({ host: 'evil.example' }), 4337)),
+			'403:bad_host',
+		)
+		assert.equal(
+			errCode(() => assertLocalClient(req({ host: '127.0.0.1:9999' }), 4337)),
+			'403:bad_host',
+		)
+		assert.equal(
+			errCode(() => assertLocalClient(req({ host: '127.0.0.1:4337', origin: 'http://evil.example' }), 4337)),
+			'403:bad_origin',
+		)
 	})
 })
 
 describe('HTTP: разбор тел запросов', () => {
 	it('spaces', () => {
 		assert.deepEqual(parseSpaceRequest({ path: '/x', name: '', url: 'http://u' }), { path: '/x', name: undefined, url: 'http://u' })
-		assert.equal(errCode(() => parseSpaceRequest({})), '400:bad_request')
+		assert.equal(
+			errCode(() => parseSpaceRequest({})),
+			'400:bad_request',
+		)
 	})
 	it('spawn', () => {
 		assert.deepEqual(parseSpawnRequest({ space: 's', prompt: 'p', role: 'rev', session: 't-1', wait: true, waitTimeoutSec: 5, junk: 1 }), {
@@ -97,13 +123,19 @@ describe('HTTP: разбор тел запросов', () => {
 			waitTimeoutSec: 5,
 		})
 		assert.equal(parseSpawnRequest({ wait: 'yes' }).wait, false)
-		assert.equal(errCode(() => parseSpawnRequest([])), '400:bad_request')
+		assert.equal(
+			errCode(() => parseSpawnRequest([])),
+			'400:bad_request',
+		)
 	})
 	it('send и permission', () => {
 		assert.deepEqual(parseSendRequest({ text: 'hi', from: 'a-1' }), { text: 'hi', from: 'a-1', interrupt: undefined, wait: false, waitTimeoutSec: undefined })
 		assert.equal(parseSendRequest({ text: 'hi', interrupt: false }).interrupt, false)
 		assert.equal(parseSendRequest({ text: 'hi', interrupt: 'no' }).interrupt, undefined)
-		assert.equal(errCode(() => parseSendRequest({ text: 1 })), '400:bad_request')
+		assert.equal(
+			errCode(() => parseSendRequest({ text: 1 })),
+			'400:bad_request',
+		)
 		assert.equal(parseApprove({}), true)
 		assert.equal(parseApprove({ approve: false }), false)
 		assert.equal(parseApprove(null), true)
@@ -111,14 +143,29 @@ describe('HTTP: разбор тел запросов', () => {
 	it('сессии', () => {
 		assert.deepEqual(parseSessionRequest({ title: 'T', owner: 'claude', junk: 1 }), { title: 'T', owner: 'claude' })
 		assert.deepEqual(parseSessionRequest({ title: 'T', owner: null, id: 'x' }), { title: 'T', id: 'x' })
-		assert.equal(errCode(() => parseSessionRequest({})), '400:bad_request')
+		assert.equal(
+			errCode(() => parseSessionRequest({})),
+			'400:bad_request',
+		)
 		assert.deepEqual(parseSessionRequest({ cwd: '/p', chatId: 'abcdefgh' }), { cwd: '/p', chatId: 'abcdefgh' })
-		assert.equal(errCode(() => parseSessionRequest({ title: 'T', id: 1 })), '400:bad_request')
+		assert.equal(
+			errCode(() => parseSessionRequest({ title: 'T', id: 1 })),
+			'400:bad_request',
+		)
 		assert.deepEqual(parseSessionPatch({ status: 'done', summary: null, junk: 1 }), { status: 'done', summary: null })
 		assert.deepEqual(parseSessionPatch({}), {})
-		assert.equal(errCode(() => parseSessionPatch({ status: 'closed' })), '400:bad_request')
-		assert.equal(errCode(() => parseSessionPatch({ summary: 1 })), '400:bad_request')
-		assert.equal(errCode(() => parseSessionPatch(null)), '400:bad_request')
+		assert.equal(
+			errCode(() => parseSessionPatch({ status: 'closed' })),
+			'400:bad_request',
+		)
+		assert.equal(
+			errCode(() => parseSessionPatch({ summary: 1 })),
+			'400:bad_request',
+		)
+		assert.equal(
+			errCode(() => parseSessionPatch(null)),
+			'400:bad_request',
+		)
 	})
 	it('роли', () => {
 		assert.deepEqual(parseRoleRequest({ name: 'R', instructions: 'i', color: 10, junk: 1 }), {
@@ -129,9 +176,18 @@ describe('HTTP: разбор тел запросов', () => {
 			icon: undefined,
 			id: undefined,
 		})
-		assert.equal(errCode(() => parseRoleRequest({ name: 'R' })), '400:bad_request')
-		assert.equal(errCode(() => parseRoleRequest({ name: 'R', instructions: 'i', color: '1' })), '400:bad_request')
-		assert.equal(errCode(() => parseRoleRequest({ name: 'R', instructions: 'i', id: 5 })), '400:bad_request')
+		assert.equal(
+			errCode(() => parseRoleRequest({ name: 'R' })),
+			'400:bad_request',
+		)
+		assert.equal(
+			errCode(() => parseRoleRequest({ name: 'R', instructions: 'i', color: '1' })),
+			'400:bad_request',
+		)
+		assert.equal(
+			errCode(() => parseRoleRequest({ name: 'R', instructions: 'i', id: 5 })),
+			'400:bad_request',
+		)
 	})
 	it('числа из query', () => {
 		assert.equal(queryNum('5', 1), 5)

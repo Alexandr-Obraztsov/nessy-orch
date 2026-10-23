@@ -62,7 +62,13 @@ describe('план агента', () => {
 
 	it('setPlan от самого агента: план в AgentView и в событии agent шины', async () => {
 		const id = await spawn(ctx)
-		const v = ctx.orch.setPlan(id, { from: id, entries: [{ content: ' a ', status: 'completed' }, { content: 'b', status: 'in_progress' }] })
+		const v = ctx.orch.setPlan(id, {
+			from: id,
+			entries: [
+				{ content: ' a ', status: 'completed' },
+				{ content: 'b', status: 'in_progress' },
+			],
+		})
 		assert.deepEqual(v.plan?.entries, [
 			{ content: 'a', status: 'completed' },
 			{ content: 'b', status: 'in_progress' },
@@ -102,22 +108,48 @@ describe('план агента', () => {
 	it('чужой from → 403 forbidden; неверные записи → 400 bad_plan; неизвестный агент → 404', async () => {
 		const id = await spawn(ctx)
 		const other = (await ctx.orch.spawn({ space: 'main', name: 'beta' })).agent.id
-		assert.throws(() => ctx.orch.setPlan(id, { from: other, entries: entries('pending') }), (e: unknown) => e instanceof AppError && e.status === 403 && e.code === 'forbidden')
-		assert.throws(() => ctx.orch.setPlan(id, { from: 'you', entries: entries('pending') }), (e: unknown) => e instanceof AppError && e.status === 403)
-		assert.throws(() => ctx.orch.setPlan(id, { from: id, entries: [] }), (e: unknown) => e instanceof AppError && e.status === 400)
-		assert.throws(() => ctx.orch.setPlan('nope', { entries: entries('pending') }), (e: unknown) => e instanceof AppError && e.status === 404)
+		assert.throws(
+			() => ctx.orch.setPlan(id, { from: other, entries: entries('pending') }),
+			(e: unknown) => e instanceof AppError && e.status === 403 && e.code === 'forbidden',
+		)
+		assert.throws(
+			() => ctx.orch.setPlan(id, { from: 'you', entries: entries('pending') }),
+			(e: unknown) => e instanceof AppError && e.status === 403,
+		)
+		assert.throws(
+			() => ctx.orch.setPlan(id, { from: id, entries: [] }),
+			(e: unknown) => e instanceof AppError && e.status === 400,
+		)
+		assert.throws(
+			() => ctx.orch.setPlan('nope', { entries: entries('pending') }),
+			(e: unknown) => e instanceof AppError && e.status === 404,
+		)
 		assert.equal(ctx.orch.getAgent(id).plan, null)
 	})
 
 	it('ACP plan в ходе → план с source acp (мягкая нормализация); вне хода — игнор', async () => {
 		const id = await spawn(ctx)
-		ctx.gw.emit({ kind: 'plan', entries: [{ content: 'Прочитать', status: 'completed' }, { content: ' ', status: 'pending' }, { content: 'Исправить', status: 'in_progress' }] })
+		ctx.gw.emit({
+			kind: 'plan',
+			entries: [
+				{ content: 'Прочитать', status: 'completed' },
+				{ content: ' ', status: 'pending' },
+				{ content: 'Исправить', status: 'in_progress' },
+			],
+		})
 		const p = ctx.orch.getAgent(id).plan
 		assert.equal(p?.source, 'acp')
-		assert.deepEqual(p.entries.map(e => e.content), ['Прочитать', 'Исправить'])
+		assert.deepEqual(
+			p.entries.map(e => e.content),
+			['Прочитать', 'Исправить'],
+		)
 		done(ctx, 1)
 		ctx.gw.emit({ kind: 'plan', entries: entries('pending') })
-		assert.deepEqual(ctx.orch.getAgent(id).plan?.entries.map(e => e.content), ['Прочитать', 'Исправить'], 'реплей вне хода не меняет план')
+		assert.deepEqual(
+			ctx.orch.getAgent(id).plan?.entries.map(e => e.content),
+			['Прочитать', 'Исправить'],
+			'реплей вне хода не меняет план',
+		)
 		ctx.gw.emit({ kind: 'plan', entries: [] })
 		assert.notEqual(ctx.orch.getAgent(id).plan, null)
 	})

@@ -10,15 +10,71 @@ type Respond = (text: string) => SDKMessage[] | 'hang'
 
 const sdkMsg = (m: unknown): SDKMessage => m as SDKMessage
 const initMsg = (model = 'm'): SDKMessage =>
-	sdkMsg({ type: 'system', subtype: 'init', uuid: 'u', session_id: 's', model, cwd: '/ws', tools: [], mcp_servers: [], permission_mode: 'default', nessy_cli_version: '0.8.6' })
+	sdkMsg({
+		type: 'system',
+		subtype: 'init',
+		uuid: 'u',
+		session_id: 's',
+		model,
+		cwd: '/ws',
+		tools: [],
+		mcp_servers: [],
+		permission_mode: 'default',
+		nessy_cli_version: '0.8.6',
+	})
 const deltaMsg = (text: string): SDKMessage =>
-	sdkMsg({ type: 'stream_event', uuid: 'u', session_id: 's', parent_tool_use_id: null, event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } })
+	sdkMsg({
+		type: 'stream_event',
+		uuid: 'u',
+		session_id: 's',
+		parent_tool_use_id: null,
+		event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
+	})
 const assistantMsg = (text: string): SDKMessage =>
-	sdkMsg({ type: 'assistant', uuid: 'u', session_id: 's', parent_tool_use_id: null, message: { id: 'm1', type: 'message', role: 'assistant', model: 'm', content: [{ type: 'text', text }], stop_reason: 'end_turn', usage: { input_tokens: 2, output_tokens: 3 } } })
+	sdkMsg({
+		type: 'assistant',
+		uuid: 'u',
+		session_id: 's',
+		parent_tool_use_id: null,
+		message: {
+			id: 'm1',
+			type: 'message',
+			role: 'assistant',
+			model: 'm',
+			content: [{ type: 'text', text }],
+			stop_reason: 'end_turn',
+			usage: { input_tokens: 2, output_tokens: 3 },
+		},
+	})
 const resultSuccess = (text = 'ok'): SDKMessage =>
-	sdkMsg({ type: 'result', subtype: 'success', uuid: 'u', session_id: 's', is_error: false, duration_ms: 10, duration_api_ms: 9, num_turns: 1, result: text, usage: { input_tokens: 2, output_tokens: 3, total_tokens: 5 }, permission_denials: [] })
+	sdkMsg({
+		type: 'result',
+		subtype: 'success',
+		uuid: 'u',
+		session_id: 's',
+		is_error: false,
+		duration_ms: 10,
+		duration_api_ms: 9,
+		num_turns: 1,
+		result: text,
+		usage: { input_tokens: 2, output_tokens: 3, total_tokens: 5 },
+		permission_denials: [],
+	})
 const resultError = (): SDKMessage =>
-	sdkMsg({ type: 'result', subtype: 'error_during_execution', uuid: 'u', session_id: 's', is_error: true, duration_ms: 10, duration_api_ms: 9, num_turns: 1, result: '', usage: {}, permission_denials: [], error: { type: 'execution', message: 'стек' } })
+	sdkMsg({
+		type: 'result',
+		subtype: 'error_during_execution',
+		uuid: 'u',
+		session_id: 's',
+		is_error: true,
+		duration_ms: 10,
+		duration_api_ms: 9,
+		num_turns: 1,
+		result: '',
+		usage: {},
+		permission_denials: [],
+		error: { type: 'execution', message: 'стек' },
+	})
 
 class FakeQuery {
 	calls: string[] = []
@@ -88,8 +144,8 @@ function makePort(respond: Respond, model?: string): { port: NessySdkAgentPort; 
 		last = q
 		return q as unknown as Query
 	}
-	const port = new NessySdkAgentPort({ cwd: '/ws', model, clock: { now: () => 123 }, makeQuery })
-	return { port, lastQuery: () => last! }
+	const port = new NessySdkAgentPort({ cwd: '/ws', ...(model !== undefined ? { model } : {}), clock: { now: () => 123 }, makeQuery })
+	return { port, lastQuery: () => last as FakeQuery }
 }
 
 const defaultRespond: Respond = text => {
@@ -151,7 +207,7 @@ describe('NessySdkAgentPort', () => {
 		const events: { type: string; data?: unknown }[] = []
 		port.subscribe(id, { onEvent: e => events.push({ type: e.type, data: e.data }) })
 		await waitFor(events, 'model.switch_failed')
-		const ev = events.find(e => e.type === 'model.switch_failed')!.data as { expected: string; actual: string }
+		const ev = (events.find(e => e.type === 'model.switch_failed') as { type: string; data?: unknown }).data as { expected: string; actual: string }
 		assert.equal(ev.expected, 'expected/model')
 		assert.equal(ev.actual, 'm')
 	})
@@ -221,11 +277,11 @@ describe('NessySdkAgentPort', () => {
 		const id = (await port.sessionCreate()).sessionId
 		const types: string[] = []
 		const seqs: number[] = []
-		port.subscribe(id, { onEvent: e => (types.push(e.type), seqs.push(e.seq!)) })
+		port.subscribe(id, { onEvent: e => (types.push(e.type), seqs.push(e.seq as number)) })
 		await port.promptSend(id, 'валидность')
 		await waitFor(types, 'turn.completed')
 		assert.ok(seqs.length >= 3)
-		for (let i = 1; i < seqs.length; i++) assert.ok(seqs[i]! > seqs[i - 1]!, `seq не монотонен: ${seqs.join(', ')}`)
+		for (let i = 1; i < seqs.length; i++) assert.ok((seqs[i] as number) > (seqs[i - 1] as number), `seq не монотонен: ${seqs.join(', ')}`)
 	})
 })
 

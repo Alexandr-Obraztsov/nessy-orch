@@ -17,7 +17,8 @@ describe('имена и заголовки агентов', () => {
 		orch.addSpace({ path: os.tmpdir(), name: 'main' })
 		orch.createRole({ name: 'Ревьюер', instructions: 'x', id: 'reviewer' })
 		const names: string[] = []
-		for (const role of ['reviewer', 'reviewer', undefined, undefined, 'reviewer']) names.push((await orch.spawn({ space: 'main', ...(role ? { role } : {}) })).agent.name)
+		for (const role of ['reviewer', 'reviewer', undefined, undefined, 'reviewer'])
+			names.push((await orch.spawn({ space: 'main', ...(role ? { role } : {}) })).agent.name)
 		assert.deepEqual(names, ['reviewer', 'reviewer-2', 'agent', 'agent-2', 'reviewer-3'])
 		const r = await orch.spawn({ space: 'main', title: '  Проверка   MR !512 \n', role: 'reviewer' })
 		assert.equal(r.agent.title, 'Проверка MR !512')

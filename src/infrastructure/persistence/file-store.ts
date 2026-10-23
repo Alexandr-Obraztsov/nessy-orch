@@ -49,7 +49,9 @@ export class FileStore implements StorePort {
 		return {
 			spaces: arr(raw['spaces']) as PersistedSpace[],
 			// состояния до переименования «задачи → сессии» хранили поле task
-			agents: (arr(raw['agents']) as Array<PersistedAgent & { task?: string | null }>).map(a => (a.session === undefined && a.task !== undefined ? { ...a, session: a.task } : a)),
+			agents: (arr(raw['agents']) as Array<PersistedAgent & { task?: string | null }>).map(a =>
+				a.session === undefined && a.task !== undefined ? { ...a, session: a.task } : a,
+			),
 			msgSeq: typeof raw['msgSeq'] === 'number' ? raw['msgSeq'] : 0,
 		}
 	}
@@ -102,10 +104,16 @@ export class FileStore implements StorePort {
 		}
 		// до переименования файл назывался tasks.json (ключ tasks)
 		const legacy = path.join(this.home, 'tasks.json')
-		const path_ = !fs.existsSync(this.sessionsPath) && fs.existsSync(legacy) ? legacy : this.sessionsPath
-		const raw = parseJson(readText(path_))
+		const targetPath = !fs.existsSync(this.sessionsPath) && fs.existsSync(legacy) ? legacy : this.sessionsPath
+		const raw = parseJson(readText(targetPath))
 		const list = isObject(raw) ? arr(raw['sessions'] ?? raw['tasks']) : arr(raw)
-		return list.filter(isSessionView).map(x => ({ ...x, sources: typeof x.sources === 'number' ? x.sources : 0, lead: null, chatId: typeof x.chatId === 'string' ? x.chatId : legacyChatId(x), cwd: typeof x.cwd === 'string' ? x.cwd : null }))
+		return list.filter(isSessionView).map(x => ({
+			...x,
+			sources: typeof x.sources === 'number' ? x.sources : 0,
+			lead: null,
+			chatId: typeof x.chatId === 'string' ? x.chatId : legacyChatId(x),
+			cwd: typeof x.cwd === 'string' ? x.cwd : null,
+		}))
 	}
 
 	saveSessions(sessions: readonly SessionView[]): void {

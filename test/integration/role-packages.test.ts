@@ -16,7 +16,10 @@ function makePackage(base: string): string {
 	fs.mkdirSync(path.join(dir, 'scripts'), { recursive: true })
 	fs.mkdirSync(path.join(dir, 'assets'), { recursive: true })
 	fs.mkdirSync(path.join(dir, '.git'), { recursive: true })
-	fs.writeFileSync(path.join(dir, 'role.md'), '---\nid: pkg\nname: Пакетная роль\n---\nЗапусти {{role_dir}}/scripts/run.sh и прочитай {{role_dir}}/assets/a.txt\n')
+	fs.writeFileSync(
+		path.join(dir, 'role.md'),
+		'---\nid: pkg\nname: Пакетная роль\n---\nЗапусти {{role_dir}}/scripts/run.sh и прочитай {{role_dir}}/assets/a.txt\n',
+	)
 	fs.writeFileSync(path.join(dir, 'scripts', 'run.sh'), '#!/bin/sh\necho ok\n', { mode: 0o755 })
 	fs.writeFileSync(path.join(dir, 'assets', 'a.txt'), 'шаблон\n')
 	fs.writeFileSync(path.join(dir, '.git', 'config'), 'служебное')
@@ -34,7 +37,10 @@ describe('роли-пакеты', () => {
 
 	it('читатель пресетов находит папки с role.md и отдаёт packageDir', () => {
 		const files = readRolePresetFiles(makePackage(base))
-		assert.deepEqual(files.map(f => [f.source, path.basename(f.packageDir ?? '')]), [['pkg/role.md', 'pkg']])
+		assert.deepEqual(
+			files.map(f => [f.source, path.basename(f.packageDir ?? '')]),
+			[['pkg/role.md', 'pkg']],
+		)
 	})
 
 	it('первый старт: пакет скопирован (без .git и ссылок, исполняемость сохранена), путь подставлен во вводную агента', T, async () => {

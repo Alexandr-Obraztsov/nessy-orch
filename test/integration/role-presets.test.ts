@@ -50,7 +50,11 @@ describe('пресеты ролей: заливка при первом запу
 
 		const h2 = await startHarness({ base, config: { seedRoles: true, rolesDir } })
 		open.push(h2)
-		assert.deepEqual((await roles(h2)).map(r => r.id), ['alpha'], 'beta не вернулась после рестарта')
+		assert.deepEqual(
+			(await roles(h2)).map(r => r.id),
+			['alpha'],
+			'beta не вернулась после рестарта',
+		)
 	})
 
 	it('при существующем (даже пустом) roles.json не заливается', T, async () => {
@@ -71,14 +75,34 @@ describe('пресеты ролей: заливка при первом запу
 		fs.writeFileSync(path.join(rolesDir, 'html-writer.md'), preset('html-writer', 'HTML-писатель'))
 		fs.mkdirSync(path.join(base, 'home'), { recursive: true })
 		// roles.json уже есть (установка до учёта «виденных»): в нём одна своя роль
-		fs.writeFileSync(path.join(base, 'home', 'roles.json'), JSON.stringify({ roles: [{ id: 'mine', name: 'Моя', description: '', instructions: 'x', color: 1, icon: null, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }] }))
+		fs.writeFileSync(
+			path.join(base, 'home', 'roles.json'),
+			JSON.stringify({
+				roles: [
+					{
+						id: 'mine',
+						name: 'Моя',
+						description: '',
+						instructions: 'x',
+						color: 1,
+						icon: null,
+						createdAt: '2026-01-01T00:00:00Z',
+						updatedAt: '2026-01-01T00:00:00Z',
+					},
+				],
+			}),
+		)
 		const h1 = await startHarness({ base, config: { seedRoles: true, rolesDir } })
 		assert.deepEqual((await roles(h1)).map(r => r.id).sort(), ['html-writer', 'mine'], 'alpha и beta считаются виденными, html-writer — новая')
 		await h1.api('DELETE', '/roles/html-writer')
 		await h1.close({ keepFiles: true })
 		const h2 = await startHarness({ base, config: { seedRoles: true, rolesDir } })
 		open.push(h2)
-		assert.deepEqual((await roles(h2)).map(r => r.id), ['mine'], 'удалённая роль не вернулась')
+		assert.deepEqual(
+			(await roles(h2)).map(r => r.id),
+			['mine'],
+			'удалённая роль не вернулась',
+		)
 		// в поставку добавили ещё одну роль — она приходит
 		fs.writeFileSync(path.join(rolesDir, 'gamma.md'), preset('gamma', 'Гамма'))
 		await h2.close({ keepFiles: true })
@@ -126,14 +150,24 @@ describe('пресеты ролей: импорт и экспорт', () => {
 			},
 		}
 		const files = readRolePresetFiles(presetsDir(base))
-		assert.deepEqual(files.map(f => f.source), ['alpha.md', 'beta.md', 'broken.md'], 'README пропущен')
+		assert.deepEqual(
+			files.map(f => f.source),
+			['alpha.md', 'beta.md', 'broken.md'],
+			'README пропущен',
+		)
 
 		const dry = await importRolePresets(files, api, { force: false, dryRun: true })
-		assert.deepEqual(dry.map(r => r.outcome), ['created', 'created', 'invalid'])
+		assert.deepEqual(
+			dry.map(r => r.outcome),
+			['created', 'created', 'invalid'],
+		)
 		assert.equal((await api.list()).length, 0, 'dry-run ничего не создаёт')
 
 		const first = await importRolePresets(files, api, { force: false, dryRun: false })
-		assert.deepEqual(first.map(r => r.action), ['создана', 'создана', first[2]?.action])
+		assert.deepEqual(
+			first.map(r => r.action),
+			['создана', 'создана', first[2]?.action],
+		)
 		assert.match(first[2]?.action ?? '', /^пропущена: /)
 		assert.equal((await api.list()).length, 2)
 

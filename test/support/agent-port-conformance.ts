@@ -37,7 +37,7 @@ class Collector {
 	push(e: Envelope): void {
 		this.events.push(e)
 		for (let i = 0; i < this.waiters.length; i++) {
-			const w = this.waiters[i]!
+			const w = this.waiters[i] as (typeof this.waiters)[number]
 			if (w.pred(e)) {
 				clearTimeout(w.timer)
 				this.waiters.splice(i, 1)
@@ -52,7 +52,10 @@ class Collector {
 		const hit = this.events.find(pred)
 		if (hit) return Promise.resolve(hit)
 		return new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error(`[conformance] не дождались «${label}» за ${ms} мс; получено: ${this.events.map(e => e.type).join(', ') || 'ничего'}`)), ms)
+			const timer = setTimeout(
+				() => reject(new Error(`[conformance] не дождались «${label}» за ${ms} мс; получено: ${this.events.map(e => e.type).join(', ') || 'ничего'}`)),
+				ms,
+			)
 			timer.unref()
 			this.waiters.push({ pred, resolve, timer })
 		})

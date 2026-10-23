@@ -74,7 +74,10 @@ describe('план агента: HTTP, CLI, ACP, рестарт', () => {
 		assert.ok(!h.orch.agentHistory(a).some(e => e.kind === 'system' && e.text === 'агент не опубликовал план'), 'план есть — без предупреждения')
 		const v = h.orch.getAgent(a)
 		assert.equal(v.plan?.source, 'acp')
-		assert.deepEqual(v.plan.entries.map(e => e.status), ['completed', 'completed', 'completed'])
+		assert.deepEqual(
+			v.plan.entries.map(e => e.status),
+			['completed', 'completed', 'completed'],
+		)
 		assert.equal(v.turnSteps, 3)
 		assert.ok(v.lastTurnMs !== null && v.lastTurnMs > 0)
 		assert.equal(v.lastReply?.msgId, r.body.reply?.id)

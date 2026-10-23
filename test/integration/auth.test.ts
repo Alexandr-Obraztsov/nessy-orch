@@ -71,7 +71,12 @@ describe('доступ: токен оператора и ключи агенто
 		assert.equal(spawned.status, 201)
 		assert.equal(h.orch.getAgent('child').parent, a, 'parent задаёт сервер: это вызвавший агент')
 		assert.equal((await h.api('POST', '/agents', { space: 'main', name: 'sneaky' })).status, 403)
-		const plan = await h.api<AgentView>('POST', `/agents/${a}/plan`, { from: a, entries: [{ content: 'шаг', status: 'in_progress' }] }, { 'X-Agent-Key': key(a) })
+		const plan = await h.api<AgentView>(
+			'POST',
+			`/agents/${a}/plan`,
+			{ from: a, entries: [{ content: 'шаг', status: 'in_progress' }] },
+			{ 'X-Agent-Key': key(a) },
+		)
 		assert.equal(plan.status, 200)
 		assert.equal((await h.api('POST', `/agents/${a}/plan`, { from: b, entries: [] }, { 'X-Agent-Key': key(b) })).status, 403, 'чужой план — только сам агент')
 	})

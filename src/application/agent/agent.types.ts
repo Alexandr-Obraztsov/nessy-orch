@@ -1,8 +1,10 @@
 /** Типы агента и его окружения (интерфейсы вместо циклических зависимостей). */
-import type { AgentEvent, AgentStatus, Message } from '../../../shared/types'
+import type { AgentEvent, AgentPlan, AgentStats, AgentStatus, Message, PlanEntry, ReplyBrief, ToolBrief } from '../../../shared/types'
 import type { AgentIdentity, PermissionOption, TurnOutcome } from '../../domain/types'
 import type { Hub } from '../hub'
 import type { Clock, SpaceRuntime, StorePort } from '../ports'
+import type { AgentJournal } from './agent-journal'
+import type { Envelope, PortSubscription } from '../agent-port'
 
 /** Что агент требует от оркестратора — узкий интерфейс колбэков (без цикла agent → host → agent). */
 export interface AgentCallbacks {
@@ -101,4 +103,75 @@ export interface PendingPermission {
 	requestId: string
 	title: string
 	options: PermissionOption[]
+}
+
+/**
+ * Внутреннее состояние агента + низкоуровневые мутаторы, которыми пользуются подсистемы (подключение, ход, события).
+ * Agent реализует его фактически (поля/методы приватные — подсистемы получают состояние параметром и мутируют напрямую),
+ * чтобы логику можно было разносить по файлам без циклических импортов (см. agent-connection/turn/events).
+ */
+export interface AgentState {
+	readonly id: string
+	readonly name: string
+	readonly space: string
+	readonly parent: string
+	readonly deps: AgentDeps
+	session: string | null
+	readonly role: string | null
+	readonly key: string
+	createdAt: string
+	nessyId: string | null
+	displayName: string | null
+	title: string | null
+	lastEventId: number | null
+	introduced: boolean
+	status: AgentStatus
+	error: string | null
+	queue: Message[]
+	lastActivityAt: string
+	lastReply: string
+	plan: AgentPlan | null
+	turnSteps: number
+	lastTurnMs: number | null
+	replyBrief: ReplyBrief | null
+	archived: boolean
+	parked: boolean
+	stats: AgentStats
+	journal: AgentJournal
+	current: CurrentTurn | null
+	lastTool: ToolBrief | null
+	pending: Map<string, PendingPermission>
+	sub: PortSubscription | null
+	attaching: Promise<void> | null
+	pumping: boolean
+	resume: boolean
+	urgent: number
+	cancelTimer: NodeJS.Timeout | null
+	idleTimer: NodeJS.Timeout | null
+	removed: boolean
+	closing: Promise<void> | null
+	staleEvents: boolean
+	lostTurn: Message | null
+	ctxUsed: number
+	ctxSize: number
+	donePrompts: string[]
+	retryState: { id: string; n: number; error: string } | null
+	holdPump: boolean
+	/** занят ли агент ходом (есть открытый ход) */
+	isBusy: boolean
+	/** вход событий порта (Envelope → SessionEvent → обработка); ставится при подписке на сессию */
+	handlePortEvent: (envelope: Envelope) => void
+	// ---------- низкоуровневые мутаторы (якорь в Agent) ----------
+	touch(): void
+	setStatus(status: AgentStatus, error?: string | null): void
+	setSession(session: string | null): void
+	publishNode(): void
+	addSystem(text: string, level?: 'info' | 'error'): void
+	setPlan(entries: readonly PlanEntry[] | null, source: AgentPlan['source']): void
+	clearIdleTimer(): void
+	clearCancelTimer(): void
+	rememberDone(promptId: string): void
+	isDonePrompt(promptId: string | null): boolean
+	contextMetric(): Pick<AgentStats, 'contextTokens' | 'contextPct'>
+	noteReply(reply: Message | null): boolean
 }

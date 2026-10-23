@@ -40,7 +40,7 @@ export function registerAgentRoutes(r: Router): void {
 	r.add('DELETE', '/agents/:ref/plan', ({ res, orch, params, query, caller }) => {
 		const from = query.get('from') ?? undefined
 		orch.authorizeSender(from, caller)
-		sendJson(res, 200, orch.setPlan(params['ref'] ?? '', { from, entries: null }))
+		sendJson(res, 200, orch.setPlan(params['ref'] ?? '', { ...(from !== undefined ? { from } : {}), entries: null }))
 	})
 	r.add('POST', '/agents/:ref/permission/:requestId', async ({ req, res, orch, params }) => {
 		const body = await readBody(req)

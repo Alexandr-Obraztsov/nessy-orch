@@ -91,8 +91,4 @@ export type HubInput =
 	| { t: 'chunk'; agentId: string; chunk: ChunkEvent }
 
 /** Событие потока одного агента `/agents/:id/stream`. */
-export type AgentStreamEvent =
-	| { t: 'event'; event: AgentEvent }
-	| { t: 'chunk'; chunk: ChunkEvent }
-	| { t: 'agent'; agent: AgentView }
-	| { t: 'replay_done' }
+export type AgentStreamEvent = { t: 'event'; event: AgentEvent } | { t: 'chunk'; chunk: ChunkEvent } | { t: 'agent'; agent: AgentView } | { t: 'replay_done' }

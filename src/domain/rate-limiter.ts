@@ -16,8 +16,7 @@ export class RateLimiter {
 		const key = `${from}>${to}`
 		const t = this.now()
 		const list = (this.hits.get(key) ?? []).filter(x => t - x < WINDOW_MS)
-		if (list.length >= this.perMinute)
-			throw new AppError(429, 'rate_limit', `слишком много сообщений ${from} → ${to} (лимит ${this.perMinute}/мин)`)
+		if (list.length >= this.perMinute) throw new AppError(429, 'rate_limit', `слишком много сообщений ${from} → ${to} (лимит ${this.perMinute}/мин)`)
 		list.push(t)
 		this.hits.set(key, list)
 	}

@@ -23,7 +23,8 @@ function colorOption(p: Parsed): number | undefined {
 	const v = flagStr(p, 'color')
 	if (v === undefined) return undefined
 	const c = parseColor(v)
-	if (c === null) throw new CliError(`--color: число 0..360 или название цвета (red, orange, yellow, green, teal, blue, indigo, purple, pink, gray), получено «${v}»`, 2)
+	if (c === null)
+		throw new CliError(`--color: число 0..360 или название цвета (red, orange, yellow, green, teal, blue, indigo, purple, pink, gray), получено «${v}»`, 2)
 	return c
 }
 
@@ -65,7 +66,12 @@ async function cmdImport(target: string | undefined, p: Parsed, asJson: boolean)
 	if (asJson) json(rows)
 	else {
 		const paint = { created: green, updated: green, skipped: dim, invalid: yellow, failed: red }
-		out(table(rows.map(r => [bold(r.id), r.name, paint[r.outcome](r.action)]), ['ID', 'ИМЯ', 'ДЕЙСТВИЕ']))
+		out(
+			table(
+				rows.map(r => [bold(r.id), r.name, paint[r.outcome](r.action)]),
+				['ID', 'ИМЯ', 'ДЕЙСТВИЕ'],
+			),
+		)
 		if (dryRun) info(dim('--dry-run: ничего не изменено'))
 	}
 	if (rows.some(r => r.outcome === 'failed')) throw new CliError('часть ролей не импортирована', 1)
@@ -81,13 +87,17 @@ async function cmdRole(p: Parsed): Promise<void> {
 	if (sub === 'add') {
 		const name = rest.join(' ').trim()
 		if (!name) throw new CliError(ADD_USAGE, 2)
+		const description = flagStr(p, 'description')
+		const id = flagStr(p, 'id')
+		const color = colorOption(p)
+		const icon = flagStr(p, 'icon')
 		const body: RoleRequest = {
 			name,
 			instructions: readInstructions(p),
-			description: flagStr(p, 'description'),
-			id: flagStr(p, 'id'),
-			color: colorOption(p),
-			icon: flagStr(p, 'icon'),
+			...(description !== undefined ? { description } : {}),
+			...(id !== undefined ? { id } : {}),
+			...(color !== undefined ? { color } : {}),
+			...(icon !== undefined ? { icon } : {}),
 		}
 		const r = await post<RoleView>('/roles', body)
 		return asJson ? json(r) : out(`${green('✓')} роль ${bold(r.id)} (${r.name}). Агент с ролью: nessy-orch spawn --role ${r.id} "поручение"`)
@@ -95,15 +105,17 @@ async function cmdRole(p: Parsed): Promise<void> {
 	if (sub === 'set') {
 		// частичная правка: что не указано — остаётся прежним
 		const id = rest[0]
-		if (!id) throw new CliError('использование: nessy-orch role set <id> [--name N] [--description D] [--instructions "…" | --file путь] [--color …] [--icon …]', 2)
+		if (!id)
+			throw new CliError('использование: nessy-orch role set <id> [--name N] [--description D] [--instructions "…" | --file путь] [--color …] [--icon …]', 2)
 		const cur = await get<RoleView>(`/roles/${enc(id)}`)
 		const hasText = flagStr(p, 'instructions') !== undefined || flagStr(p, 'file') !== undefined
+		const icon = flagStr(p, 'icon') ?? cur.icon
 		const body: RoleRequest = {
 			name: flagStr(p, 'name') ?? cur.name,
 			instructions: hasText ? readInstructions(p) : cur.instructions,
 			description: flagStr(p, 'description') ?? cur.description,
 			color: colorOption(p) ?? cur.color,
-			icon: flagStr(p, 'icon') ?? cur.icon ?? undefined,
+			...(typeof icon === 'string' ? { icon } : {}),
 		}
 		const r = await put<RoleView>(`/roles/${enc(cur.id)}`, body)
 		return asJson ? json(r) : out(`${green('✓')} роль ${bold(r.id)} обновлена`)
@@ -137,5 +149,8 @@ async function cmdRole(p: Parsed): Promise<void> {
 }
 
 export const roleCommands: CommandTable = {
-	role: { run: cmdRole, spec: { bool: ['json', 'help', 'force', 'dry-run'], value: ['instructions', 'file', 'description', 'id', 'color', 'icon', 'name', 'out'] } },
+	role: {
+		run: cmdRole,
+		spec: { bool: ['json', 'help', 'force', 'dry-run'], value: ['instructions', 'file', 'description', 'id', 'color', 'icon', 'name', 'out'] },
+	},
 }

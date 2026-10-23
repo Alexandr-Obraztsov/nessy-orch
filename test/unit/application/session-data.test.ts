@@ -53,8 +53,24 @@ describe('источники сессии', () => {
 	it('собираются из итогового ответа и из вызовов инструментов, без дублей', async () => {
 		const s = ctx.orch.createSession({ title: 'Разбор CI' })
 		await startTurn(ctx, s.id)
-		ctx.gw.emit({ kind: 'tool', toolId: 't1', name: 'web_fetch', title: 'Fetch', input: { url: 'https://docs.example.com/retry' }, status: 'completed', output: '' })
-		ctx.gw.emit({ kind: 'tool', toolId: 't2', name: 'web_fetch', title: 'Fetch', input: { url: 'https://docs.example.com/retry/' }, status: 'completed', output: '' })
+		ctx.gw.emit({
+			kind: 'tool',
+			toolId: 't1',
+			name: 'web_fetch',
+			title: 'Fetch',
+			input: { url: 'https://docs.example.com/retry' },
+			status: 'completed',
+			output: '',
+		})
+		ctx.gw.emit({
+			kind: 'tool',
+			toolId: 't2',
+			name: 'web_fetch',
+			title: 'Fetch',
+			input: { url: 'https://docs.example.com/retry/' },
+			status: 'completed',
+			output: '',
+		})
 		ctx.gw.emit({ kind: 'text', text: REPLY, messageId: 'm' })
 		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
 

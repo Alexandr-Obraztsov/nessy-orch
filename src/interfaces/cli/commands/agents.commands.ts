@@ -40,7 +40,10 @@ function printSendResult(p: Parsed, agent: AgentView | null, r: SendResponse): v
 		if (r.reply.failed) info(red(`агент ответил с ошибкой: ${r.reply.failed}`))
 		out(r.reply.text)
 	} else if (r.timedOut) {
-		throw new CliError(`ответ не получен за отведённое время; агент продолжает работу. Дождаться снова (в фоне): nessy-orch wait ${agent?.id ?? r.message.to}`, 3)
+		throw new CliError(
+			`ответ не получен за отведённое время; агент продолжает работу. Дождаться снова (в фоне): nessy-orch wait ${agent?.id ?? r.message.to}`,
+			3,
+		)
 	} else {
 		if (r.started && !agent) info(dim('агент был свободен — сообщение запустило его в работу'))
 		else if (r.interrupted) info(dim('агент работал — его ход прерван этим сообщением (--interrupt)'))
@@ -80,10 +83,14 @@ async function cmdSpawn(p: Parsed): Promise<void> {
 	})
 	if (!wait) return printSendResult(p, r.agent, r)
 	const a = r.agent
-	if (!flagBool(p, 'json')) info(`${green('✓')} агент ${bold(a.name)}${a.title ? ` «${a.title}»` : ''} (id ${a.id}) в «${a.space}»: работает; написать ему: nessy-orch send ${a.name} "…"`)
+	if (!flagBool(p, 'json'))
+		info(
+			`${green('✓')} агент ${bold(a.name)}${a.title ? ` «${a.title}»` : ''} (id ${a.id}) в «${a.space}»: работает; написать ему: nessy-orch send ${a.name} "…"`,
+		)
 	const w = await get<WaitResponse>(`/agents/${enc(a.id)}/wait?timeout=${timeout}`)
 	if (flagBool(p, 'json')) return json({ agent: w.agent, ...(w.reply ? { reply: w.reply } : {}), ...(w.done ? {} : { timedOut: true }) })
-	if (!w.done) throw new CliError(`ответ не получен за отведённое время; агент ${a.name} продолжает работу. Дождаться снова (в фоне): nessy-orch wait ${a.name}`, 3)
+	if (!w.done)
+		throw new CliError(`ответ не получен за отведённое время; агент ${a.name} продолжает работу. Дождаться снова (в фоне): nessy-orch wait ${a.name}`, 3)
 	if (w.reply?.failed) info(red(`агент ответил с ошибкой: ${w.reply.failed}`))
 	out(w.reply?.text ?? '(агент ничего не ответил)')
 }
@@ -132,13 +139,12 @@ async function cmdWait(p: Parsed): Promise<void> {
 async function cmdShow(p: Parsed): Promise<void> {
 	const ref = p.positionals[0]
 	if (!ref) throw new CliError('использование: nessy-orch show <агент>', 2)
-	const [a, ev] = await Promise.all([
-		get<AgentView>(`/agents/${enc(ref)}`),
-		get<AgentEvent[]>(`/agents/${enc(ref)}/history?limit=${flagNum(p, 'n') ?? 40}`),
-	])
+	const [a, ev] = await Promise.all([get<AgentView>(`/agents/${enc(ref)}`), get<AgentEvent[]>(`/agents/${enc(ref)}/history?limit=${flagNum(p, 'n') ?? 40}`)])
 	if (flagBool(p, 'json')) return json({ agent: a, events: ev })
 	const tags = [a.session ? `сессия ${a.session}` : '', a.role ? `роль ${a.role}` : '', a.archived ? 'в архиве' : ''].filter(Boolean).join(', ')
-	out(`${bold(a.id)} ${a.name !== a.id ? `(${a.name}) ` : ''}${status(a.status)}${tags ? dim(` [${tags}]`) : ''}  ${a.space}${a.displayName ? `  «${a.displayName}»` : ''}`)
+	out(
+		`${bold(a.id)} ${a.name !== a.id ? `(${a.name}) ` : ''}${status(a.status)}${tags ? dim(` [${tags}]`) : ''}  ${a.space}${a.displayName ? `  «${a.displayName}»` : ''}`,
+	)
 	for (const e of ev) out(renderEvent(e))
 }
 

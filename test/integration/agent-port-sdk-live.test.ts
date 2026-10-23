@@ -34,7 +34,7 @@ class Collector {
 	push(e: Envelope): void {
 		this.events.push(e)
 		for (let i = 0; i < this.waiters.length; i++) {
-			const w = this.waiters[i]!
+			const w = this.waiters[i] as (typeof this.waiters)[number]
 			if (w.pred(e)) {
 				clearTimeout(w.timer)
 				this.waiters.splice(i, 1)
@@ -48,7 +48,10 @@ class Collector {
 		const hit = this.events.find(pred)
 		if (hit) return Promise.resolve(hit)
 		return new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error(`не дождались «${label}» за ${ms} мс; получено: ${this.events.map(e => e.type).join(', ') || 'ничего'}`)), ms)
+			const timer = setTimeout(
+				() => reject(new Error(`не дождались «${label}» за ${ms} мс; получено: ${this.events.map(e => e.type).join(', ') || 'ничего'}`)),
+				ms,
+			)
 			timer.unref()
 			this.waiters.push({ pred, resolve, timer })
 		})
@@ -60,7 +63,7 @@ class Collector {
 }
 
 function livePort(cwd: string, opts: { model?: string } = {}): NessySdkAgentPort {
-	return new NessySdkAgentPort({ cwd, model: opts.model, permissionMode: 'default' })
+	return new NessySdkAgentPort({ cwd, ...(opts.model !== undefined ? { model: opts.model } : {}), permissionMode: 'default' })
 }
 
 async function waitDone(c: Collector, label: string): Promise<Envelope> {
@@ -87,7 +90,7 @@ it('agent-port-sdk live: полный ход, мета, модель из system
 	// seq строго монотонен и уникален по всей сессии
 	const seqs = c.all().map(e => e.seq as number)
 	assert.ok(seqs.length >= 3, `мало событий: ${seqs.length}`)
-	for (let i = 1; i < seqs.length; i++) assert.ok(seqs[i]! > seqs[i - 1]!, `seq не монотонен: ${seqs.join(', ')}`)
+	for (let i = 1; i < seqs.length; i++) assert.ok((seqs[i] as number) > (seqs[i - 1] as number), `seq не монотонен: ${seqs.join(', ')}`)
 
 	await port.sessionClose(sessionId)
 })

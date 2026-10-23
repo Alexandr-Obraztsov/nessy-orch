@@ -31,9 +31,18 @@ describe('CLI parseArgs', () => {
 			return 0
 		}
 		assert.throws(() => parseArgs(['--nope'], spec), /неизвестный флаг/)
-		assert.equal(exit(() => parseArgs(['--nope'], spec)), 2)
-		assert.equal(exit(() => parseArgs(['--space'], spec)), 2)
-		assert.equal(exit(() => flagNum(parseArgs(['--timeout', 'abc'], spec), 'timeout')), 2)
+		assert.equal(
+			exit(() => parseArgs(['--nope'], spec)),
+			2,
+		)
+		assert.equal(
+			exit(() => parseArgs(['--space'], spec)),
+			2,
+		)
+		assert.equal(
+			exit(() => flagNum(parseArgs(['--timeout', 'abc'], spec), 'timeout')),
+			2,
+		)
 	})
 	it('endpoint из ORCH_PORT', () => {
 		assert.deepEqual(endpoint({ ORCH_PORT: '5000' }), { host: '127.0.0.1', port: 5000 })

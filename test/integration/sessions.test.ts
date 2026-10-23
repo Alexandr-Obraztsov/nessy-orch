@@ -93,7 +93,10 @@ describe('сессии (HTTP)', () => {
 		const base = h.base
 		await h.close({ keepFiles: true })
 		h = await startHarness({ base })
-		assert.deepEqual(h.orch.listSessions().map(t => t.id), [t1.id])
+		assert.deepEqual(
+			h.orch.listSessions().map(t => t.id),
+			[t1.id],
+		)
 		assert.equal(h.orch.getAgent('lead-1').session, t1.id)
 		assert.equal(h.orch.getAgent('sub-1').session, t1.id)
 	})
@@ -107,7 +110,9 @@ describe('чат Claude ↔ сессия: attach и хук SessionStart', () => 
 
 	const hook = (port: number, session: string, stdin: object, extra: NodeJS.ProcessEnv = {}): Promise<number | null> =>
 		new Promise(resolve => {
-			const p = spawn(process.execPath, [CLI_MAIN, 'hook', 'start'], { env: { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', NESSY_ORCH_SESSION: session, ...extra } })
+			const p = spawn(process.execPath, [CLI_MAIN, 'hook', 'start'], {
+				env: { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', NESSY_ORCH_SESSION: session, ...extra },
+			})
 			p.on('close', code => resolve(code))
 			p.stdin.end(JSON.stringify(stdin))
 		})
@@ -159,7 +164,10 @@ describe('CLI: spawn и send ждут результат сами, wait, --no-wa
 
 	const cli = (port: number, args: string[], env: NodeJS.ProcessEnv = {}): Promise<{ code: number | null; stdout: string; stderr: string }> =>
 		new Promise(resolve => {
-			const p = spawn(process.execPath, [CLI_MAIN, ...args], { env: { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', NESSY_ORCH_SESSION: '', ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+			const p = spawn(process.execPath, [CLI_MAIN, ...args], {
+				env: { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', NESSY_ORCH_SESSION: '', ...env },
+				stdio: ['ignore', 'pipe', 'pipe'],
+			})
 			let stdout = ''
 			let stderr = ''
 			p.stdout.on('data', (d: Buffer) => (stdout += d.toString()))

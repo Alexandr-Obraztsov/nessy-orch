@@ -2,15 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import type { AgentPlan, PlanEntry } from '../../../shared/types'
 import { AppError } from '../../../src/domain/errors'
-import {
-	coercePlanEntries,
-	formatPlanLine,
-	isPlanDone,
-	parsePlanArgs,
-	parsePlanLine,
-	planOnTurnStart,
-	validatePlanEntries,
-} from '../../../src/domain/plan'
+import { coercePlanEntries, formatPlanLine, isPlanDone, parsePlanArgs, parsePlanLine, planOnTurnStart, validatePlanEntries } from '../../../src/domain/plan'
 import { plainText } from '../../../src/lib/text'
 
 const isBadPlan = (e: unknown): boolean => e instanceof AppError && e.status === 400 && e.code === 'bad_plan'
@@ -43,10 +35,7 @@ describe('план: разбор чек-листа', () => {
 		assert.throws(() => parsePlanArgs(['- [x] ']), isBadPlan)
 	})
 	it('formatPlanLine — обратно в чек-лист', () => {
-		assert.deepEqual(
-			plan('completed', 'in_progress', 'pending').entries.map(formatPlanLine),
-			['[x] шаг 1', '[~] шаг 2', '[ ] шаг 3'],
-		)
+		assert.deepEqual(plan('completed', 'in_progress', 'pending').entries.map(formatPlanLine), ['[x] шаг 1', '[~] шаг 2', '[ ] шаг 3'])
 	})
 })
 

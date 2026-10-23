@@ -34,7 +34,6 @@ export class WaitGraph {
 
 	/** A ждёт B; если B (транзитивно) уже ждёт A — оба зависнут навсегда. */
 	assertNoDeadlock(from: string, to: string): void {
-		if (this.wouldDeadlock(from, to))
-			throw new AppError(409, 'deadlock', `взаимное ожидание ${from} ↔ ${to}: используйте send без --wait`)
+		if (this.wouldDeadlock(from, to)) throw new AppError(409, 'deadlock', `взаимное ожидание ${from} ↔ ${to}: используйте send без --wait`)
 	}
 }

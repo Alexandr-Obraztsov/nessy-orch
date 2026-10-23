@@ -12,7 +12,17 @@ function setup(extra: Partial<OrchSettings> = {}) {
 	const gw = new FakeAgentPort({ autoRespond: false })
 	const store = new MemoryStore()
 	const orch = new Orchestrator({
-		settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0, turnRetries: 2, turnRetryBaseMs: 10, ...extra },
+		settings: {
+			home: os.tmpdir(),
+			autoApprove: true,
+			maxHops: 8,
+			rateLimitPerMinute: 30,
+			cliPath: 'nessy-orch',
+			idleCloseMs: 0,
+			turnRetries: 2,
+			turnRetryBaseMs: 10,
+			...extra,
+		},
 		store,
 		spaceFactory: init => new FakeSpace(init.name, init.path, gw),
 	})

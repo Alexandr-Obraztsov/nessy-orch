@@ -30,7 +30,7 @@ export class SessionsService {
 	/** Сессии: сначала активные, внутри — по свежести (updatedAt). */
 	list(status?: SessionStatus): SessionView[] {
 		return [...this.sessions.values()]
-			
+
 			.filter(t => status === undefined || t.status === status)
 			.sort((a, b) => (a.status === b.status ? b.updatedAt.localeCompare(a.updatedAt) : a.status === 'active' ? -1 : 1))
 	}
@@ -82,7 +82,8 @@ export class SessionsService {
 		const prev = req.from ? this.sessions.get(req.from.trim().toLowerCase()) : undefined
 		const found = [...this.sessions.values()].find(s => s.chatId === chat)
 		const cwd = req.cwd?.startsWith('/') ? req.cwd : (prev?.cwd ?? undefined)
-		let target = found ?? this.create({ title: prev?.title ?? (cwd ? undefined : 'Чат Claude'), ...(cwd ? { cwd } : {}), chatId: chat })
+		const title = prev?.title ?? (cwd ? undefined : 'Чат Claude')
+		let target = found ?? this.create({ ...(title !== undefined ? { title } : {}), ...(cwd ? { cwd } : {}), chatId: chat })
 		if (prev && prev.id !== target.id) {
 			// вкладка переходит к целевой сессии; у целевой своего преемника быть не должно (она теперь последняя в цепочке)
 			if (target.successor) {

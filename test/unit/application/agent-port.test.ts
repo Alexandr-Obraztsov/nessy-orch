@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import {
-	CORE_EVENT_TYPES,
-	EXT_EVENT_TYPES,
-	portEventToSessionEvent,
-	sessionEventToPortEvent,
-} from '../../../src/application/agent-port'
+import { CORE_EVENT_TYPES, EXT_EVENT_TYPES, portEventToSessionEvent, sessionEventToPortEvent } from '../../../src/application/agent-port'
 import type { SessionEvent } from '../../../src/application/ports'
 
 describe('agent-port: маппинг SessionEvent → PortEvent', () => {
@@ -25,7 +20,10 @@ describe('agent-port: маппинг SessionEvent → PortEvent', () => {
 		const inProgress: SessionEvent = { kind: 'tool', toolId: 't1', name: 'grep', title: 'Grep', input: { q: 1 }, status: 'in_progress', output: '' }
 		assert.deepEqual(sessionEventToPortEvent(inProgress), { type: 'tool_call.started', data: { toolId: 't1', name: 'grep', title: 'Grep', input: { q: 1 } } })
 		const done: SessionEvent = { kind: 'tool', toolId: 't1', name: 'grep', title: 'Grep', input: {}, status: 'completed', output: 'ok' }
-		assert.deepEqual(sessionEventToPortEvent(done), { type: 'tool_call.completed', data: { toolId: 't1', name: 'grep', title: 'Grep', status: 'completed', output: 'ok' } })
+		assert.deepEqual(sessionEventToPortEvent(done), {
+			type: 'tool_call.completed',
+			data: { toolId: 't1', name: 'grep', title: 'Grep', status: 'completed', output: 'ok' },
+		})
 	})
 	it('turn_complete → turn.completed, turn_error → turn.failed, cancelled → turn.cancelled', () => {
 		assert.deepEqual(sessionEventToPortEvent({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p' }), {

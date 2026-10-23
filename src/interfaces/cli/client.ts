@@ -109,7 +109,6 @@ export function sse(ep: Endpoint, path: string, onData: (data: unknown) => void)
 }
 
 // Узкие type guards для кадров потоков (данные приходят как unknown).
-export const asStreamEvent = (v: unknown): StreamEvent | null =>
-	isObject(v) && typeof v['t'] === 'string' ? (v as unknown as StreamEvent) : null
+export const asStreamEvent = (v: unknown): StreamEvent | null => (isObject(v) && typeof v['t'] === 'string' ? (v as unknown as StreamEvent) : null)
 export const asAgentStreamEvent = (v: unknown): AgentStreamEvent | null =>
 	isObject(v) && typeof v['t'] === 'string' ? (v as unknown as AgentStreamEvent) : null

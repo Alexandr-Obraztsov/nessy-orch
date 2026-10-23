@@ -28,9 +28,18 @@ describe('правила маршрутизации', () => {
 	})
 	it('hops: лимит только для агентов', () => {
 		const limits = { maxHops: 2, rateLimitPerMinute: 1 }
-		assert.equal(code(() => assertHops(limits, { from: 'a', to: 'b', kind: 'msg', text: '', hops: 3 })), '429:hop_limit')
-		assert.equal(code(() => assertHops(limits, { from: 'a', to: 'b', kind: 'msg', text: '', hops: 2 })), 'ok')
-		assert.equal(code(() => assertHops(limits, { from: 'you', to: 'b', kind: 'msg', text: '', hops: 99 })), 'ok')
+		assert.equal(
+			code(() => assertHops(limits, { from: 'a', to: 'b', kind: 'msg', text: '', hops: 3 })),
+			'429:hop_limit',
+		)
+		assert.equal(
+			code(() => assertHops(limits, { from: 'a', to: 'b', kind: 'msg', text: '', hops: 2 })),
+			'ok',
+		)
+		assert.equal(
+			code(() => assertHops(limits, { from: 'you', to: 'b', kind: 'msg', text: '', hops: 99 })),
+			'ok',
+		)
 	})
 	it('nextHops', () => {
 		assert.equal(nextHops(null, false), 0)
@@ -66,15 +75,27 @@ describe('защиты', () => {
 		const rl = new RateLimiter(2, () => now)
 		rl.check('a', 'b')
 		rl.check('a', 'b')
-		assert.equal(code(() => rl.check('a', 'b')), '429:rate_limit')
-		assert.equal(code(() => rl.check('a', 'c')), 'ok')
+		assert.equal(
+			code(() => rl.check('a', 'b')),
+			'429:rate_limit',
+		)
+		assert.equal(
+			code(() => rl.check('a', 'c')),
+			'ok',
+		)
 		now = 60_001
-		assert.equal(code(() => rl.check('a', 'b')), 'ok')
+		assert.equal(
+			code(() => rl.check('a', 'b')),
+			'ok',
+		)
 	})
 	it('WaitGraph: прямой и транзитивный дедлок', () => {
 		const g = new WaitGraph()
 		g.add('a', 'b')
-		assert.equal(code(() => g.assertNoDeadlock('b', 'a')), '409:deadlock')
+		assert.equal(
+			code(() => g.assertNoDeadlock('b', 'a')),
+			'409:deadlock',
+		)
 		g.add('b', 'c')
 		assert.equal(g.wouldDeadlock('c', 'a'), true)
 		assert.equal(g.wouldDeadlock('a', 'c'), false)
@@ -115,7 +136,16 @@ describe('агент: статусы, разрешения, вводная', () 
 		]
 		assert.equal(pickPermissionOption(opts, true), 'allow_once')
 		assert.equal(pickPermissionOption(opts, false), 'reject_once')
-		assert.equal(pickPermissionOption([{ optionId: 'proceed_once', kind: 'allow_once', name: '' }, { optionId: 'cancel', kind: 'reject_once', name: '' }], false), 'cancel')
+		assert.equal(
+			pickPermissionOption(
+				[
+					{ optionId: 'proceed_once', kind: 'allow_once', name: '' },
+					{ optionId: 'cancel', kind: 'reject_once', name: '' },
+				],
+				false,
+			),
+			'cancel',
+		)
 		assert.equal(pickPermissionOption([], true), null)
 		assert.equal(pickPermissionOption([{ optionId: 'go', kind: '', name: '' }], true), 'go')
 	})
@@ -143,7 +173,13 @@ describe('агент: статусы, разрешения, вводная', () 
 		assert.equal(defaultSpaceName('/tmp/proj'), 'proj')
 		assert.equal(defaultSpaceName('/'), 'root')
 		const taken = new Set(['ws', 'ws-2'])
-		assert.equal(uniqueName('ws', n => taken.has(n)), 'ws-3')
-		assert.equal(uniqueName('new', n => taken.has(n)), 'new')
+		assert.equal(
+			uniqueName('ws', n => taken.has(n)),
+			'ws-3',
+		)
+		assert.equal(
+			uniqueName('new', n => taken.has(n)),
+			'new',
+		)
 	})
 })

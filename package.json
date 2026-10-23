@@ -16,8 +16,10 @@
     "build:server": "npm run clean && tsc -p tsconfig.json && node scripts/postbuild.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.ts\" \"shared/**/*.ts\" \"test/**/*.ts\"",
+    "lint:format": "prettier --check \"src/**/*.ts\" \"shared/**/*.ts\" \"test/**/*.ts\"",
     "test": "npm run build:server && node --test --test-force-exit \"dist/test/**/*.test.js\"",
-    "check": "npm run typecheck && npm run lint && npm test",
+    "check": "npm run typecheck && npm run lint && npm run lint:format && npm test",
     "start": "npm run build && node dist/src/main.js",
     "demo": "npm run build && export NESSY_ORCH_HOME=${TMPDIR:-/tmp}/nessy-orch-demo ORCH_AUTO_APPROVE=0 NESSY_BIN=$PWD/dist/test/support/fake-nessy.js && (node scripts/demo-seed.mjs &) && node dist/src/main.js",
     "demo:seed": "NESSY_ORCH_HOME=${TMPDIR:-/tmp}/nessy-orch-demo node scripts/demo-seed.mjs"
@@ -26,6 +28,8 @@
     "@eslint/js": "^9.0.0",
     "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
+    "eslint-plugin-boundaries": "^7.2.0",
+    "prettier": "^3.9.9",
     "typescript": "^5.6.0",
     "typescript-eslint": "^8.0.0"
   },

@@ -22,7 +22,16 @@ import { isPathArg } from './launch'
 import { info, out } from './io'
 
 const COMMANDS: CommandTable = { ...agentCommands, ...feedCommands, ...hookCommands, ...spaceCommands, ...roleCommands, ...sessionCommands, ...serviceCommands }
-const ALIASES: Record<string, string> = { list: 'ls', agents: 'ls', rm: 'kill', log: 'feed', messages: 'feed', spaces: 'space', roles: 'role', sessions: 'session' }
+const ALIASES: Record<string, string> = {
+	list: 'ls',
+	agents: 'ls',
+	rm: 'kill',
+	log: 'feed',
+	messages: 'feed',
+	spaces: 'space',
+	roles: 'role',
+	sessions: 'session',
+}
 
 async function main(argv: string[]): Promise<void> {
 	if (isPathArg(argv[0])) argv = ['app', ...argv]

@@ -122,7 +122,10 @@ describe('ядро: удаление, откат и потерянные про�
 		const { orch, session } = setup({ maxHops: 0 })
 		const parent = (await orch.spawn({ space: 'main', name: 'parent', session: session.id })).agent.id
 		assert.equal(await code(() => orch.spawn({ space: 'main', name: 'child', session: session.id, from: parent, prompt: 'сделай' })), '429 hop_limit')
-		assert.equal(orch.listAgents().some(a => a.name === 'child'), false)
+		assert.equal(
+			orch.listAgents().some(a => a.name === 'child'),
+			false,
+		)
 	})
 
 	it('рестарт: агент, чьё пространство пропало из состояния, не теряется — остаётся с ошибкой и причиной', async () => {

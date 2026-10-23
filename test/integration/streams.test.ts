@@ -55,7 +55,11 @@ describe('SSE-потоки', () => {
 			assert.ok(replay.slice(0, done).some(e => e.t === 'event' && e.event.kind === 'user'))
 			assert.equal(replay[done - 1]?.t, 'agent')
 			await h.api('POST', '/agents/streamer/send', { text: 'живой' })
-			await s.waitFor((e): e is AgentStreamEvent => isAgentStream(e) && e.t === 'event' && e.event.kind === 'text' && e.event.text === 'ответ: живой', 8000, 'текст')
+			await s.waitFor(
+				(e): e is AgentStreamEvent => isAgentStream(e) && e.t === 'event' && e.event.kind === 'text' && e.event.text === 'ответ: живой',
+				8000,
+				'текст',
+			)
 			const live = s.events.filter(isAgentStream).slice(done + 1)
 			assert.ok(live.some(e => e.t === 'chunk' && e.chunk.kind === 'text'))
 			assert.ok(live.some(e => e.t === 'chunk' && e.chunk.kind === 'thought'))
@@ -67,7 +71,7 @@ describe('SSE-потоки', () => {
 	it('подключение посреди хода: незавершённый блок приходит одним chunk до replay_done и не дублируется', T, async () => {
 		await h.api('POST', '/agents/streamer/send', { text: '#long' })
 		const agent = h.orch.resolveAgent('streamer')
-		await until(() => (agent.liveRun()?.kind === 'text' && (agent.liveRun()?.text.length ?? 0) > 40), 8000, 'текст стримится')
+		await until(() => agent.liveRun()?.kind === 'text' && (agent.liveRun()?.text.length ?? 0) > 40, 8000, 'текст стримится')
 		const s = await h.sse('/agents/streamer/stream')
 		try {
 			await s.waitFor((e): e is AgentStreamEvent => isAgentStream(e) && e.t === 'replay_done')
@@ -83,7 +87,11 @@ describe('SSE-потоки', () => {
 			const replayEvents = events.slice(0, done).filter((e): e is { t: 'event'; event: AgentEvent } => e.t === 'event')
 			assert.ok(!replayEvents.some(e => e.event.seq === first.seq), 'живой блок не дублируется в истории')
 			// дальше чанки того же блока продолжают его: len растёт от delta реплея
-			await s.waitFor((e): e is AgentStreamEvent => isAgentStream(e) && e.t === 'event' && e.event.kind === 'text' && e.event.seq === first.seq, 10000, 'блок закрыт')
+			await s.waitFor(
+				(e): e is AgentStreamEvent => isAgentStream(e) && e.t === 'event' && e.event.kind === 'text' && e.event.seq === first.seq,
+				10000,
+				'блок закрыт',
+			)
 			const tail = events.length
 			const all = s.events.filter(isAgentStream)
 			const cont = all.slice(done + 1).filter((e): e is { t: 'chunk'; chunk: ChunkEvent } => e.t === 'chunk' && e.chunk.seq === first.seq)

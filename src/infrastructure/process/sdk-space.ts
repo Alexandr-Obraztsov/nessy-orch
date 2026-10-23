@@ -38,7 +38,11 @@ export class NessySdkSpace implements SpaceRuntime {
 	}
 
 	ensureReady(): Promise<AgentPort> {
-		this.client ??= new NessySdkAgentPort({ cwd: this.path, model: this.opts.model, permissionMode: this.opts.permissionMode })
+		this.client ??= new NessySdkAgentPort({
+			cwd: this.path,
+			...(this.opts.model !== undefined ? { model: this.opts.model } : {}),
+			...(this.opts.permissionMode !== undefined ? { permissionMode: this.opts.permissionMode } : {}),
+		})
 		return Promise.resolve(this.client)
 	}
 

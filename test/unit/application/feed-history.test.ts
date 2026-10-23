@@ -23,7 +23,11 @@ describe('лента: история за окном памяти', () => {
 			onChange: () => undefined,
 		})
 		feed.load(5400)
-		assert.deepEqual(feed.list({ involving: 'old' }).map(m => m.seq), [1, 2], 'в памяти этих сообщений уже нет, они с диска')
+		assert.deepEqual(
+			feed.list({ involving: 'old' }).map(m => m.seq),
+			[1, 2],
+			'в памяти этих сообщений уже нет, они с диска',
+		)
 		assert.equal(feed.list({ involving: 'busy', limit: 10 }).length, 10, 'свежие читаются из памяти как раньше')
 	})
 

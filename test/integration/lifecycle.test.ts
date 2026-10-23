@@ -24,7 +24,10 @@ describe('ход агента (автоподтверждение)', () => {
 		const r = await h.api<SendResponse>('POST', '/agents/worker/send', { text: '#tools', wait: true, waitTimeoutSec: 15 })
 		assert.equal(r.body.reply?.text, 'Готово: README прочитан, найдено 2 TODO, тесты зелёные.', 'результат — только финальное сообщение')
 		const texts = h.orch.agentHistory('worker').flatMap(e => (e.kind === 'text' ? [e.text] : []))
-		assert.ok(['Читаю README.', 'README прочитан, ищу TODO.', 'Запускаю тесты.'].every(t => texts.includes(t)), 'промежуточный текст остался в истории')
+		assert.ok(
+			['Читаю README.', 'README прочитан, ищу TODO.', 'Запускаю тесты.'].every(t => texts.includes(t)),
+			'промежуточный текст остался в истории',
+		)
 		assert.ok(h.orch.agentHistory('worker').some(e => e.kind === 'system' && e.text === 'агент не опубликовал план'))
 		const list = tools(h.orch.agentHistory('worker'))
 		assert.deepEqual(
@@ -112,7 +115,10 @@ describe('ход агента (автоподтверждение)', () => {
 		assert.ok(h.orch.agentHistory('doomed').some(e => e.kind === 'system' && e.text === 'сессия nessy пересоздана, контекст сброшен'))
 		assert.equal(h.orch.getAgent('doomed').status, 'idle')
 		assert.equal(h.orch.getAgent('doomed').error, null)
-		const first = h.orch.agentHistory('doomed').filter((e): e is UserEvent => e.kind === 'user').at(-1)
+		const first = h.orch
+			.agentHistory('doomed')
+			.filter((e): e is UserEvent => e.kind === 'user')
+			.at(-1)
 		assert.equal(first?.text, 'ещё')
 	})
 
@@ -157,7 +163,10 @@ describe('ручное подтверждение прав (ORCH_AUTO_APPROVE=0)
 		const id = h.orch.getAgent('careful').pendingPermissions[0]?.requestId ?? ''
 		await h.api('POST', `/agents/careful/permission/${id}`, { approve: false })
 		await until(() => h.orch.getAgent('careful').status === 'idle', 8000, 'ход завершён')
-		const last = h.orch.listMessages({ agent: 'careful' }).filter(m => m.kind === 'reply').pop()
+		const last = h.orch
+			.listMessages({ agent: 'careful' })
+			.filter(m => m.kind === 'reply')
+			.pop()
 		assert.equal(last?.text, 'пользователь отклонил команду')
 		assert.ok(h.orch.agentHistory('careful').some(e => e.kind === 'permission' && e.resolved && e.approved === false))
 	})

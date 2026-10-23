@@ -13,14 +13,7 @@ import type { SessionEvent } from './ports'
 // ---------- операции ----------
 /** Операции AgentPort над сессией агента. */
 export type AgentPortOperation =
-	| 'session.create'
-	| 'session.resume'
-	| 'prompt.send'
-	| 'prompt.cancel'
-	| 'permission.vote'
-	| 'model.set'
-	| 'mid_turn.send'
-	| 'session.close'
+	'session.create' | 'session.resume' | 'prompt.send' | 'prompt.cancel' | 'permission.vote' | 'model.set' | 'mid_turn.send' | 'session.close'
 
 // ---------- конверт ----------
 /** Конверт события/операции. `v` — версия контракта (ломaющий SPOF-контракт, §12); `seq`/`ts` — сквозные счётчик/время. */
@@ -273,9 +266,25 @@ export function portEventToSessionEvent(ev: PortEvent): SessionEvent | null {
 		case 'thought.delta':
 			return { kind: 'thought', text: ev.data.text, messageId: ev.data.messageId }
 		case 'tool_call.started':
-			return { kind: 'tool', toolId: ev.data.toolId, name: ev.data.name, title: ev.data.title ?? ev.data.name, input: ev.data.input, status: 'in_progress', output: '' }
+			return {
+				kind: 'tool',
+				toolId: ev.data.toolId,
+				name: ev.data.name,
+				title: ev.data.title ?? ev.data.name,
+				input: ev.data.input,
+				status: 'in_progress',
+				output: '',
+			}
 		case 'tool_call.completed':
-			return { kind: 'tool', toolId: ev.data.toolId, name: ev.data.name, title: ev.data.title ?? ev.data.name, input: ev.data.input ?? {}, status: ev.data.status as 'completed' | 'failed', output: ev.data.output }
+			return {
+				kind: 'tool',
+				toolId: ev.data.toolId,
+				name: ev.data.name,
+				title: ev.data.title ?? ev.data.name,
+				input: ev.data.input ?? {},
+				status: ev.data.status as 'completed' | 'failed',
+				output: ev.data.output,
+			}
 		case 'turn.completed':
 			return { kind: 'turn_complete', stopReason: ev.data.stopReason, promptId: ev.data.promptId }
 		case 'turn.failed':

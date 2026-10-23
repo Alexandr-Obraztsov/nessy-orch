@@ -3,7 +3,10 @@ import type { AgentPlan, AgentView, Message, RoleView, SpaceView, SessionView } 
 import { formatPlanLine } from '../../domain/plan'
 
 const tty = process.stdout.isTTY && !process.env['NO_COLOR']
-const c = (code: string) => (s: string): string => (tty ? `\x1b[${code}m${s}\x1b[0m` : s)
+const c =
+	(code: string) =>
+	(s: string): string =>
+		tty ? `\x1b[${code}m${s}\x1b[0m` : s
 export const dim = c('90')
 export const red = c('31')
 export const green = c('32')
@@ -32,11 +35,15 @@ export function table(rows: string[][], header?: string[]): string {
 	const all = header ? [header, ...rows] : rows
 	const widths: number[] = []
 	for (const r of all) r.forEach((cell, i) => (widths[i] = Math.max(widths[i] ?? 0, stripAnsi(cell).length)))
-	const line = (r: string[]): string => r.map((cell, i) => cell + ' '.repeat((widths[i] ?? 0) - stripAnsi(cell).length)).join('  ').trimEnd()
+	const line = (r: string[]): string =>
+		r
+			.map((cell, i) => cell + ' '.repeat((widths[i] ?? 0) - stripAnsi(cell).length))
+			.join('  ')
+			.trimEnd()
 	return [...(header ? [dim(line(header))] : []), ...rows.map(line)].join('\n')
 }
 
-// eslint-disable-next-line no-control-regex
+// eslint-disable-next-line no-control-regex -- \x1b (ESC) — служебный ANSI-код, без него stripAnsi не отрежет управляющие последовательности
 const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '')
 
 export function agentLabel(id: string, agents: ReadonlyMap<string, AgentView>): string {
@@ -92,7 +99,13 @@ export function agentsTable(agents: readonly AgentView[], spaces: readonly Space
 export function rolesTable(roles: readonly RoleView[]): string {
 	if (!roles.length) return dim('ролей нет. Добавьте: nessy-orch role add <имя> --instructions "…"')
 	return table(
-		roles.map(r => [bold(r.id), r.name, dim(`${r.color}°${r.icon ? ` ${r.icon}` : ''}`), dim(r.description.slice(0, 60)), dim(`${r.instructions.length} симв.`)]),
+		roles.map(r => [
+			bold(r.id),
+			r.name,
+			dim(`${r.color}°${r.icon ? ` ${r.icon}` : ''}`),
+			dim(r.description.slice(0, 60)),
+			dim(`${r.instructions.length} симв.`),
+		]),
 		['ID', 'ИМЯ', 'ЦВЕТ', 'ОПИСАНИЕ', 'ИНСТРУКЦИИ'],
 	)
 }
@@ -109,7 +122,10 @@ export function spacesTable(spaces: readonly SpaceView[]): string {
 export function planText(plan: AgentPlan): string {
 	const done = plan.entries.filter(e => e.status === 'completed').length
 	const head = dim(`план ${done}/${plan.entries.length} · ${plan.source} · ${plan.updatedAt}`)
-	return [head, ...plan.entries.map(e => (e.status === 'in_progress' ? yellow(formatPlanLine(e)) : e.status === 'completed' ? dim(formatPlanLine(e)) : formatPlanLine(e)))].join('\n')
+	return [
+		head,
+		...plan.entries.map(e => (e.status === 'in_progress' ? yellow(formatPlanLine(e)) : e.status === 'completed' ? dim(formatPlanLine(e)) : formatPlanLine(e))),
+	].join('\n')
 }
 
 /** Прогресс плана `x/y` (пусто, если плана нет). */

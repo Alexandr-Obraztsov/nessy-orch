@@ -24,7 +24,17 @@ export function buildApp(config: Config, version: string, overrides: { spaceFact
 		settings: config,
 		store,
 		rolePackages: new FileRolePackages(path.join(config.home, 'role-packages')),
-		spaceFactory: overrides.spaceFactory ?? ((init, listener) => new NessySdkSpace(init, { model: config.sdkModel, permissionMode: config.sdkPermissionMode }, listener)),
+		spaceFactory:
+			overrides.spaceFactory ??
+			((init, listener) =>
+				new NessySdkSpace(
+					init,
+					{
+						...(config.sdkModel !== undefined ? { model: config.sdkModel } : {}),
+						...(config.sdkPermissionMode !== undefined ? { permissionMode: config.sdkPermissionMode } : {}),
+					},
+					listener,
+				)),
 	})
 	// готовые роли из <root>/roles: при первом запуске все, потом только новые (уже виденные и удалённые пользователем не возвращаются)
 	const firstStart = !orch.hasStoredRoles
@@ -77,7 +87,7 @@ function seedRoles(orch: Orchestrator, source: RolePresetSource, seenPath: strin
 	const existing = new Set(orch.listRoles().map(r => r.id))
 	// учёта нет, а роли уже были (установка до учёта): всё, что в поставке, кроме недавних, считаем виденным
 	if (!seen) seen = new Set(firstStart ? [] : [...existing, ...[...ids.values()].filter(id => id && !ADDED_BEFORE_TRACKING.includes(id))])
-	const fresh = files.filter(f => firstStart || !seen.has(ids.get(f) ?? '') ? !existing.has(ids.get(f) ?? '') : false)
+	const fresh = files.filter(f => (firstStart || !seen.has(ids.get(f) ?? '') ? !existing.has(ids.get(f) ?? '') : false))
 	const { added, invalid } = orch.seedRoles(fresh)
 	for (const id of ids.values()) if (id) seen.add(id)
 	try {

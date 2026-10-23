@@ -28,7 +28,14 @@ describe('уборка сессий', () => {
 		clock.t += 3_600_000
 		const c = orch.createSession({ title: 'Новая' })
 		await orch.pruneSessions(c.id)
-		assert.deepEqual(orch.listSessions().map(s => s.id).sort(), [b.id, c.id].sort(), 'старая удалена')
+		assert.deepEqual(
+			orch
+				.listSessions()
+				.map(s => s.id)
+				.sort(),
+			[b.id, c.id].sort(),
+			'старая удалена',
+		)
 		assert.ok(!orch.listAgents().some(x => x.name === 'old-agent'), 'её простаивающий агент тоже')
 	})
 

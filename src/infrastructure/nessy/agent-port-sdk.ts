@@ -23,9 +23,10 @@
  */
 import { randomUUID } from 'node:crypto'
 import { query, type PermissionResult, type Query, type QueryOptions, type SDKMessage, type SDKUserMessage } from '@nestor/nessy-cli-sdk'
-import type { AgentPort, Capabilities, Envelope, PortEvent, PortEventListener, PortSubscription, PortSubscribeOptions } from '../../application/agent-port'
+import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, PortSubscribeOptions } from '../../application/agent-port'
 import { AppError } from '../../domain/errors'
 import { errMsg } from '../../lib/json'
+import { isExit130, PromptQueue, type SessionState } from './agent-port-sdk-session'
 
 /** Фабрика Query — отделяется для тестов (инжектится мок; живой вызов — по умолчанию SDK.query). */
 export type MakeQuery = (args: { prompt: string | AsyncIterable<SDKUserMessage>; options?: QueryOptions }) => Query
@@ -43,70 +44,6 @@ export interface NessySdkAgentPortOptions {
 	originatorClientId?: string | null
 	/** фабрика Query (по умолчанию SDK.query) — для тестов и расширения. */
 	makeQuery?: MakeQuery
-}
-
-/** Состояние сессии: query-хэндл, очередь промптов, счётчик seq, открытый ход, текущий подписчик. */
-interface SessionState {
-	id: string
-	query: Query
-	queue: PromptQueue
-	/** монотонный per-session счётчик для Envelope.seq */
-	seq: number
-	/** подписчик событий (один на сессию). */
-	subscriber: PortEventListener | null
-	/** открыт ли ход (turn.started эмичен, терминала ещё не было). */
-	turnOpen: boolean
-	/** id идущего хода (для turn.completed/turn.failed/turn.cancelled). */
-	promptId: string | null
-	/** накопленный текст текущего хода (для message.completed). */
-	text: string
-	/** синтез готовности: session.ready ещё не эмичен. */
-	ready: boolean
-	/** запросы разрешений: requestId → резолвер canUseTool. */
-	permissions: Map<string, (r: PermissionResult) => void>
-	/** модель, сообщённая в system/init. */
-	actualModel: string | null
-	/** закрыт ли хэндл (query больше не использовать). */
-	closed: boolean
-	/** отправлен ли первый промпт: по нему синтезируется session.meta (displayName), как у serve-пути. */
-	named: boolean
-}
-
-/** Очередь промптов: async-итератор, который блокируется, пока нет промпта (модель «персистентная сессия»). */
-class PromptQueue implements AsyncIterable<SDKUserMessage> {
-	private readonly items: SDKUserMessage[] = []
-	private readonly waiters: Array<(r: IteratorResult<SDKUserMessage>) => void> = []
-	private ended = false
-
-	push(msg: SDKUserMessage): void {
-		const w = this.waiters.shift()
-		if (w) w({ value: msg, done: false })
-		else this.items.push(msg)
-	}
-
-	/** Закрыть очередь: SDK завершит ввод и, дождавшись result, закроет процесс. */
-	end(): void {
-		if (this.ended) return
-		this.ended = true
-		for (const w of this.waiters.splice(0)) w({ value: undefined, done: true })
-	}
-
-	[Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
-		return {
-			next: (): Promise<IteratorResult<SDKUserMessage>> => {
-				const item = this.items.shift()
-				if (item) return Promise.resolve({ value: item, done: false })
-				if (this.ended) return Promise.resolve({ value: undefined, done: true })
-				return new Promise<IteratorResult<SDKUserMessage>>(resolve => this.waiters.push(resolve))
-			},
-		}
-	}
-}
-
-/** Признак грязного выхода CLI по interrupt(): код 130 (SIGINT). */
-function isExit130(e: unknown): boolean {
-	const s = errMsg(e)
-	return /code 130|exit code 130|SIGINT/.test(s)
 }
 
 export class NessySdkAgentPort implements AgentPort {
@@ -276,7 +213,7 @@ export class NessySdkAgentPort implements AgentPort {
 		return {
 			cwd: this.cwd,
 			sessionId,
-			model: this.expectedModel,
+			...(this.expectedModel !== undefined ? { model: this.expectedModel } : {}),
 			includePartialMessages: true,
 			permissionMode: this.permissionMode,
 			canUseTool: (toolName, input) => this.onCanUseTool(sessionId, toolName, input),
@@ -331,7 +268,10 @@ export class NessySdkAgentPort implements AgentPort {
 						this.emit(state, { type: 'session.ready', data: { sessionId: state.id } })
 					}
 					if (this.expectedModel && msg.model && msg.model !== this.expectedModel) {
-						this.emit(state, { type: 'model.switch_failed', data: { expected: this.expectedModel, actual: msg.model, message: `модель nessy ${msg.model} не совпадает с ожидаемой ${this.expectedModel}` } })
+						this.emit(state, {
+							type: 'model.switch_failed',
+							data: { expected: this.expectedModel, actual: msg.model, message: `модель nessy ${msg.model} не совпадает с ожидаемой ${this.expectedModel}` },
+						})
 					}
 				}
 				return
@@ -347,13 +287,19 @@ export class NessySdkAgentPort implements AgentPort {
 			}
 			case 'assistant': {
 				const blocks = msg.message.content
-				const texts = blocks.filter((b): b is { type: 'text'; text: string } => b.type === 'text').map(b => b.text).join('')
+				const texts = blocks
+					.filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+					.map(b => b.text)
+					.join('')
 				if (texts) this.emit(state, { type: 'message.completed', data: { messageId: null, text: texts } })
 				return
 			}
 			case 'result': {
 				if (msg.is_error) {
-					this.terminate(state, { type: 'turn.failed', data: { message: msg.error?.message ?? 'ошибка хода', retryable: msg.subtype === 'error_during_execution', code: null } })
+					this.terminate(state, {
+						type: 'turn.failed',
+						data: { message: msg.error?.message ?? 'ошибка хода', retryable: msg.subtype === 'error_during_execution', code: null },
+					})
 				} else {
 					this.emit(state, { type: 'turn.completed', data: { stopReason: msg.subtype, promptId: state.promptId } })
 					this.emit(state, { type: 'context.usage', data: this.usageOf(msg) })

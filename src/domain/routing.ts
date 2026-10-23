@@ -20,11 +20,7 @@ export function isAgentSender(from: string): boolean {
 export function assertHops(limits: RoutingLimits, draft: MessageDraft): void {
 	if (!isAgentSender(draft.from)) return
 	if ((draft.hops ?? 0) > limits.maxHops)
-		throw new AppError(
-			429,
-			'hop_limit',
-			`цепочка сообщений длиннее ${limits.maxHops} — вероятно, зацикливание; сообщение отклонено`,
-		)
+		throw new AppError(429, 'hop_limit', `цепочка сообщений длиннее ${limits.maxHops} — вероятно, зацикливание; сообщение отклонено`)
 }
 
 /** hops нового сообщения: от оператора — 0, от агента — на 1 больше, чем у сообщения, которое он обрабатывает. */
@@ -67,7 +63,5 @@ export function replyDraft(agentId: string, msg: Message, text: string, outcome:
 /** Оформить входящее сообщение как текст промпта (с указанием отправителя-агента). */
 export function framePrompt(msg: Message, senderLabel: string): string {
 	if (msg.from === YOU || msg.from === USER) return msg.text
-	return msg.kind === 'reply'
-		? `[ответ агента ${senderLabel} на твоё сообщение]\n${msg.text}`
-		: `[сообщение от агента ${senderLabel}]\n${msg.text}`
+	return msg.kind === 'reply' ? `[ответ агента ${senderLabel} на твоё сообщение]\n${msg.text}` : `[сообщение от агента ${senderLabel}]\n${msg.text}`
 }

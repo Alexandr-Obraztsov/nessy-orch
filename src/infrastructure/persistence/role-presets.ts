@@ -33,7 +33,8 @@ export function readRolePresetFiles(target: string): RolePresetFile[] {
 		const dir = path.join(target, name)
 		const md = path.join(dir, 'role.md')
 		try {
-			if (fs.statSync(dir).isDirectory() && fs.statSync(md).isFile()) files.push({ source: `${name}/role.md`, text: fs.readFileSync(md, 'utf8'), packageDir: dir })
+			if (fs.statSync(dir).isDirectory() && fs.statSync(md).isFile())
+				files.push({ source: `${name}/role.md`, text: fs.readFileSync(md, 'utf8'), packageDir: dir })
 		} catch {
 			/* не пакет — пропускаем */
 		}

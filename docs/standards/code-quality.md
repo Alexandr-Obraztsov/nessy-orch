@@ -82,17 +82,16 @@ ESLint — пресет `strictTypeChecked` (`typescript-eslint`), включа�
 
 ## 8. Порядок введения
 
-Стандарт вводится без «глушилок»: правила не отключаются под существующий код. Уже превышающие лимиты файлы
-(`agent.ts` — 972 строки, `orchestrator.ts` — 487 строк) разбиваются на этапах P2/P3, а не помечаются исключениями.
+Стандарт вводится без «глушилок»: правила не отключаются под существующий код. Превышающие лимиты файлы
+(`agent.ts`, `orchestrator.ts`) разбиты на модули по единой ответственности, а не помечены исключениями.
 Новые изменения соответствуют стандарту сразу.
 
-## Текущее состояние (на момент введения)
+## Текущее состояние
 
-Ниже — расхождения фактической конфигурации с целями выше; каждое закрывается отдельной задачей, до этого `check`
-по соответствующему пункту может не падать:
+Все цели стандарта включены и исполняются `npm run check` (см. §7). Расхождения конфигурации с целями закрыты:
 
-- `tsconfig.json`: `exactOptionalPropertyTypes: false` — включить;
-- `eslint.config.mjs`: `no-non-null-assertion: "warn"` (в `test/**` выключен) — ужесточить до `error`;
-- нет Prettier — добавить конфиг и `prettier --check` в `npm run check`;
-- нет `eslint-plugin-boundaries` — добавить и настроить правила границ слоёв;
-- нет `@typescript-eslint/naming-convention` и `max-lines` — добавить в конфиг.
+- `tsconfig.json`: `exactOptionalPropertyTypes: true` (плюс `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride`,
+  `noFallthroughCasesInSwitch`, `noUnusedLocals`/`noUnusedParameters`, `useUnknownInCatchVariables`);
+- `eslint.config.mjs`: пресет `strictTypeChecked`, `no-non-null-assertion: "error"`, `naming-convention`,
+  `max-lines: 300`, запрет `export default`, `boundaries/dependencies` (границы слоёв §2);
+- Prettier: `.prettierrc`/`.prettierignore`, скрипты `format`/`lint:format`, `prettier --check` входит в `npm run check`.

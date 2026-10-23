@@ -30,7 +30,8 @@ async function working(ctx: Ctx, name = 'alpha'): Promise<string> {
 	await new Promise(res => setTimeout(res, 5))
 	return r.agent.id
 }
-const finish = (ctx: Ctx, n = 1): void => ctx.gw.emit({ kind: 'text', text: 'готово', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: `p-${n}` })
+const finish = (ctx: Ctx, n = 1): void =>
+	ctx.gw.emit({ kind: 'text', text: 'готово', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: `p-${n}` })
 
 describe('агент: закрытие по простою и пробуждение', () => {
 	it('свободный агент паркуется: сессия nessy закрыта, статус не меняется; сообщение поднимает её через /load и подписывается с lastEventId ответа', async () => {
@@ -110,7 +111,9 @@ describe('агент: сообщение работающему не преры�
 		ctx.gw.emit({ kind: 'injected', count: 1 })
 		finish(ctx)
 		await until(() => replies(ctx).filter(m => m.from === id).length === 2, 1000, 'ответ и вставившему')
-		const to = replies(ctx).filter(m => m.from === id).map(m => m.to)
+		const to = replies(ctx)
+			.filter(m => m.from === id)
+			.map(m => m.to)
 		assert.deepEqual(to.sort(), ['you', other].sort())
 	})
 

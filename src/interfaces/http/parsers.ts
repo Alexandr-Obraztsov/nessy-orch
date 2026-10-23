@@ -9,12 +9,13 @@ const optNum = (v: unknown): number | undefined => (typeof v === 'number' && Num
 
 export function parseSpaceRequest(b: unknown): SpaceRequest {
 	if (!isObject(b) || typeof b['path'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле path (строка)')
-	return { path: b['path'], name: optStr(b['name']), url: optStr(b['url']) }
+	const out = { path: b['path'], name: optStr(b['name']), url: optStr(b['url']) }
+	return out as SpaceRequest
 }
 
 export function parseSpawnRequest(b: unknown): SpawnRequest {
 	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
-	return {
+	const out = {
 		space: optStr(b['space']),
 		cwd: optStr(b['cwd']),
 		name: optStr(b['name']),
@@ -27,18 +28,19 @@ export function parseSpawnRequest(b: unknown): SpawnRequest {
 		wait: b['wait'] === true,
 		waitTimeoutSec: optNum(b['waitTimeoutSec']),
 	}
+	return out as SpawnRequest
 }
-
 
 export function parseSendRequest(b: unknown): SendRequest {
 	if (!isObject(b) || typeof b['text'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле text (строка)')
-	return {
+	const out = {
 		text: b['text'],
 		from: optStr(b['from']),
 		interrupt: typeof b['interrupt'] === 'boolean' ? b['interrupt'] : undefined,
 		wait: b['wait'] === true,
 		waitTimeoutSec: optNum(b['waitTimeoutSec']),
 	}
+	return out as SendRequest
 }
 
 /** Тело роли: name и instructions — строки (длины и формат проверяет домен). */
@@ -55,7 +57,16 @@ export function parseRoleRequest(b: unknown): RoleRequest {
 	if (icon !== undefined && typeof icon !== 'string') throw new AppError(400, 'bad_request', 'icon — строка')
 	const packageDir = b['packageDir']
 	if (packageDir !== undefined && typeof packageDir !== 'string') throw new AppError(400, 'bad_request', 'packageDir — строка')
-	return { name: b['name'], instructions: b['instructions'], description, color, icon, id, ...(packageDir ? { packageDir } : {}) }
+	const out = {
+		name: b['name'],
+		instructions: b['instructions'],
+		description,
+		color,
+		icon,
+		id,
+		...(packageDir ? { packageDir } : {}),
+	}
+	return out as RoleRequest
 }
 
 /** Тело плана: entries — массив (записи проверяет домен), from — необязательная строка. */
@@ -63,7 +74,8 @@ export function parsePlanRequest(b: unknown): { from?: string; entries: unknown[
 	if (!isObject(b) || !Array.isArray(b['entries'])) throw new AppError(400, 'bad_plan', 'нужно поле entries (массив {content, status})')
 	const from = b['from']
 	if (from !== undefined && typeof from !== 'string') throw new AppError(400, 'bad_request', 'from — строка')
-	return { from, entries: b['entries'] }
+	const out = { from, entries: b['entries'] }
+	return out as { from?: string; entries: unknown[] }
 }
 
 /** Решение по разрешению: всё, кроме явного `approve: false`, — разрешить. */
@@ -91,7 +103,6 @@ export function parseSessionRequest(b: unknown): SessionRequest {
 		...(chatId !== undefined ? { chatId } : {}),
 	}
 }
-
 
 /** Привязка чата Claude к сессии: chatId обязателен, cwd и from — необязательные строки. */
 export function parseAttachRequest(b: unknown): AttachRequest {

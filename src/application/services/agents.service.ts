@@ -58,14 +58,22 @@ export class AgentsService {
 		const agent = new Agent({ id, name, space: space.name, parent, session, role: role?.id ?? null }, this.ctx.agentDeps)
 		agent.title = cleanTitle(req.title)
 		registry.agents.set(id, agent)
-		agent.addSystem(`агент создан в пространстве «${space.name}» (${space.path})${role ? `, роль «${role.name}»` : ''}${session ? `, сессия «${session}»` : ''}`)
+		agent.addSystem(
+			`агент создан в пространстве «${space.name}» (${space.path})${role ? `, роль «${role.name}»` : ''}${session ? `, сессия «${session}»` : ''}`,
+		)
 		agent.publishNode()
 		this.messaging.postEvent(`${registry.labelOf(from)} создал агента ${registry.labelOf(id)}`, id)
 
 		let res: SendResponse | undefined
 		if (req.prompt?.trim()) {
 			try {
-				res = await this.messaging.send(id, { from, text: req.prompt, interrupt: false, wait: req.wait, waitTimeoutSec: req.waitTimeoutSec })
+				res = await this.messaging.send(id, {
+					from,
+					text: req.prompt,
+					interrupt: false,
+					...(req.wait !== undefined ? { wait: req.wait } : {}),
+					...(req.waitTimeoutSec !== undefined ? { waitTimeoutSec: req.waitTimeoutSec } : {}),
+				})
 			} catch (e) {
 				// отправка поручения отклонена (лимит цепочек, частоты, взаимное ожидание): агент без поручения не оставляем — повтор создал бы дубль
 				await this.remove(id).catch(() => undefined)
@@ -100,18 +108,30 @@ export class AgentsService {
 		const s = this.ctx.settings
 		const maxDepth = s.maxDepth ?? 2
 		if (this.depthOf(parent) > maxDepth)
-			throw new AppError(429, 'depth_exceeded', `агент не может порождать агентов глубже ${maxDepth} уровней: выполни поручение сам или верни результат запустившему`)
+			throw new AppError(
+				429,
+				'depth_exceeded',
+				`агент не может порождать агентов глубже ${maxDepth} уровней: выполни поручение сам или верни результат запустившему`,
+			)
 		if (session) {
 			const mine = [...this.ctx.registry.agents.values()].filter(a => a.session === session)
 			const active = mine.filter(a => a.isBusy || a.queue.length > 0 || a.status === 'starting').length
 			const maxActive = s.maxActivePerSession ?? 12
 			if (active >= maxActive)
-				throw new AppError(429, 'too_many_active', `в сессии уже работают ${active} агентов (лимит ${maxActive}): дождись ответов (wait) или останови лишних (cancel)`)
+				throw new AppError(
+					429,
+					'too_many_active',
+					`в сессии уже работают ${active} агентов (лимит ${maxActive}): дождись ответов (wait) или останови лишних (cancel)`,
+				)
 		}
 		const maxAll = s.maxAgents ?? 20
 		await this.evictIdle(maxAll - 1, parent)
 		if (this.ctx.registry.agents.size >= maxAll)
-			throw new AppError(429, 'too_many_agents', `уже ${this.ctx.registry.agents.size} агентов (лимит ${maxAll}) и все работают: дождись ответов (wait) или останови лишних (cancel)`)
+			throw new AppError(
+				429,
+				'too_many_agents',
+				`уже ${this.ctx.registry.agents.size} агентов (лимит ${maxAll}) и все работают: дождись ответов (wait) или останови лишних (cancel)`,
+			)
 	}
 
 	/** Удалить простаивающих агентов, пока их больше `keep`: самые давние по активности первыми; `except` не трогаем. */
@@ -163,7 +183,6 @@ export class AgentsService {
 		for (const a of old) await this.remove(a.id).catch(() => undefined)
 		return old.length
 	}
-
 
 	async remove(ref: string): Promise<void> {
 		const { registry } = this.ctx

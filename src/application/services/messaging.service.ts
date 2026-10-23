@@ -62,7 +62,13 @@ export class MessagingService {
 		// что произойдёт с адресатом: свободного сообщение запускает в работу, работающего прерывает или ставит в очередь
 		const target = to === YOU ? undefined : registry.agents.get(to)
 		const wasBusy = !!target && (target.isBusy || target.queue.length > 0)
-		const state: Pick<SendResponse, 'started' | 'interrupted' | 'queued'> = target ? (wasBusy ? (interrupt ? { interrupted: true } : { queued: true }) : { started: true }) : {}
+		const state: Pick<SendResponse, 'started' | 'interrupted' | 'queued'> = target
+			? wasBusy
+				? interrupt
+					? { interrupted: true }
+					: { queued: true }
+				: { started: true }
+			: {}
 		const message = this.post({ from, to, kind: 'msg', text, hops, wait }, interrupt)
 		if (!wait) return { message, ...state }
 		return { ...(await this.waitReply(message, from, to, req.waitTimeoutSec)), ...state }

@@ -30,7 +30,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		home: env['NESSY_ORCH_HOME'] ?? path.join(os.homedir(), '.nessy-orch'),
 		runtime: 'nessy-sdk',
 		...(env['ORCH_SDK_MODEL'] ? { sdkModel: env['ORCH_SDK_MODEL'] } : {}),
-		...(env['ORCH_SDK_PERMISSION_MODE'] === 'plan' || env['ORCH_SDK_PERMISSION_MODE'] === 'auto-edit' || env['ORCH_SDK_PERMISSION_MODE'] === 'auto' || env['ORCH_SDK_PERMISSION_MODE'] === 'default'
+		...(env['ORCH_SDK_PERMISSION_MODE'] === 'plan' ||
+		env['ORCH_SDK_PERMISSION_MODE'] === 'auto-edit' ||
+		env['ORCH_SDK_PERMISSION_MODE'] === 'auto' ||
+		env['ORCH_SDK_PERMISSION_MODE'] === 'default'
 			? { sdkPermissionMode: env['ORCH_SDK_PERMISSION_MODE'] }
 			: {}),
 		maxDepth: Math.max(0, int(env['ORCH_MAX_DEPTH'], 2)),

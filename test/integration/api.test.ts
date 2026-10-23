@@ -50,10 +50,13 @@ describe('API: служебное и защита', () => {
 		const bad = await new Promise<number>((resolve, reject) => {
 			import('node:http')
 				.then(http => {
-					const req = http.request({ host: '127.0.0.1', port: h.port, method: 'POST', path: '/spaces', headers: { 'Content-Type': 'application/json' } }, res => {
-						res.resume()
-						resolve(res.statusCode ?? 0)
-					})
+					const req = http.request(
+						{ host: '127.0.0.1', port: h.port, method: 'POST', path: '/spaces', headers: { 'Content-Type': 'application/json' } },
+						res => {
+							res.resume()
+							resolve(res.statusCode ?? 0)
+						},
+					)
 					req.on('error', reject)
 					req.end('{не json')
 				})
