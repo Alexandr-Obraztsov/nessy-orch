@@ -2,6 +2,8 @@
  * Хуки Claude Code плагина nessy, только в терминале приложения (задан `NESSY_ORCH_SESSION`).
  * `hook agent` (PreToolUse на Agent) — напоминание поручать работу агентам nessy, см. `runAgent`.
  * `hook prompt` (UserPromptSubmit) — подсказка плейбука обучения (`POST /learning/hint`), бюджет 1500 мс, при любой проблеме молчит.
+ * `hook stop` (Stop, конец хода) и `hook end` (SessionEnd) — сигналы фонового обучения (`POST /learning/signal`: `activity` / `end`),
+ * `hook prompt` тоже шлёт `activity`; бюджет 1500 мс, ничего не печатают, любая ошибка — код 0, выход сразу после записи.
  * `hook start` (SessionStart). Сессия оркестратора привязана к чату Claude:
  * при запуске, `/clear` и `/resume` хук сообщает серверу id чата (`session_id`) и получает сессию этого чата (новую после `/clear`),
  * а её id записывает в `CLAUDE_ENV_FILE`, чтобы команды Claude (`nessy-orch …` в Bash) работали с новой сессией. Вкладка приложения идёт за ней
@@ -22,6 +24,20 @@ const HOOK_BUDGET_MS = 4000
 
 /** Бюджет запроса подсказки на каждый ход пользователя (мс): дольше — хук молчит. */
 const HINT_BUDGET_MS = 1500
+
+/** Сигнал обучения из события хука (`session_id`, `transcript_path`); не бросает, ждёт не дольше `HINT_BUDGET_MS`. */
+function signal(session: string, event: 'activity' | 'end', input: Record<string, unknown>): Promise<void> {
+	const chatId = str(input['session_id'])
+	const transcriptPath = str(input['transcript_path'])
+	const send = post('/learning/signal', { event, session, ...(chatId ? { chatId } : {}), ...(transcriptPath ? { transcriptPath } : {}) }).then(() => undefined, () => undefined)
+	return Promise.race([send, new Promise<void>(resolve => setTimeout(resolve, HINT_BUDGET_MS).unref())])
+}
+
+/** Stop / SessionEnd: только сигнал, ничего не печатает; процесс выходит сразу, не дожидаясь повторов подключения. */
+async function runSignal(session: string, event: 'activity' | 'end', input: Record<string, unknown>): Promise<void> {
+	await signal(session, event, input)
+	process.exit(0)
+}
 
 /** JSON события из stdin (если он не терминал); пустой объект при любой проблеме. */
 function readInput(): Record<string, unknown> {
@@ -79,6 +95,8 @@ function runAgent(input: Record<string, unknown>): void {
 async function runPrompt(session: string, input: Record<string, unknown>): Promise<void> {
 	const prompt = str(input['prompt'])
 	let out = ''
+	// активность сессии — параллельно подсказке, подсказку не задерживает
+	const active = signal(session, 'activity', input)
 	if (prompt) {
 		try {
 			const r = await Promise.race([
@@ -90,6 +108,7 @@ async function runPrompt(session: string, input: Record<string, unknown>): Promi
 			/* хук не должен ломать Claude: оркестратор недоступен — без подсказки */
 		}
 	}
+	await active
 	// незавершённые повторы подключения не должны держать процесс до таймаута хука
 	if (out) process.stdout.write(out, () => process.exit(0))
 	else process.exit(0)
@@ -101,6 +120,8 @@ async function cmdHook(p: { positionals: string[] }): Promise<void> {
 	if (!session) return
 	if (p.positionals[0] === 'agent') return runAgent(input)
 	if (p.positionals[0] === 'prompt') return runPrompt(session, input)
+	if (p.positionals[0] === 'stop') return runSignal(session, 'activity', input)
+	if (p.positionals[0] === 'end') return runSignal(session, 'end', input)
 	if (p.positionals[0] !== 'start') return
 	let id = session
 	try {

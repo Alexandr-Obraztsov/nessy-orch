@@ -227,30 +227,25 @@ describe('плейбуки (сквозной)', () => {
 		assert.deepEqual(impact.body.rules.map(r => [r.playbookId, r.text, r.evidenceLeft]), [[pb.id, 'Run lint before review', 1]])
 		assert.equal((await hh.api<ApiError>('GET', '/learning/cases/c-nope/impact')).status, 404)
 
-		// PATCH: lint, успех (удалён шаг, новое правило), 404
-		const bad = await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, { baseVersion: pb.version, description: 'Reviews merge requests' })
+		// PUT markdown: lint, stale, успех (правка описания и нового правила), 404
+		const doc = (await hh.api<PlaybookDetail>('GET', `/learning/playbooks/${pb.id}`)).body
+		assert.ok(doc.markdown.includes('## Steps'))
+		const bad = await hh.api<ApiError>('PUT', `/learning/playbooks/${pb.id}/markdown`, { baseVersion: pb.version, text: doc.markdown.replace(/^description: .*$/m, 'description: ""') })
 		assert.equal(bad.status, 400)
 		assert.equal(bad.body.code, 'lint')
-		assert.match(bad.body.error, /Use when/)
-		assert.equal((await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, { baseVersion: pb.version })).status, 400)
-		assert.equal((await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, { title: 'x' })).status, 400)
-		const oldVer = await hh.api<ApiError>('PATCH', `/learning/playbooks/${pb.id}`, { baseVersion: pb.version + 5, title: 'x' })
+		assert.equal((await hh.api<ApiError>('PUT', `/learning/playbooks/${pb.id}/markdown`, { baseVersion: pb.version })).status, 400)
+		const oldVer = await hh.api<ApiError>('PUT', `/learning/playbooks/${pb.id}/markdown`, { baseVersion: pb.version + 5, text: doc.markdown })
 		assert.deepEqual([oldVer.status, oldVer.body.code, oldVer.body.version], [409, 'stale', pb.version])
-		const patched = await hh.api<PlaybookView>('PATCH', `/learning/playbooks/${pb.id}`, {
+		const edited = await hh.api<PlaybookDetail>('PUT', `/learning/playbooks/${pb.id}/markdown`, {
 			baseVersion: pb.version,
-			stages: [{ ...DRAFT.stages[0], slug: 'post', title: 'Post comments' }],
-			rules: [{ text: 'Check tests first', stage: 1 }],
-			removeRules: pb.rules.map(r => r.id),
+			text: doc.markdown.replace('## Behavior', '- Check tests first\n\n## Behavior'),
 		})
-		assert.equal(patched.status, 200)
-		assert.equal(patched.body.version, pb.version + 1)
-		assert.deepEqual(patched.body.stages.map(s => [s.n, s.slug]), [[1, 'post']])
-		assert.deepEqual(patched.body.rules.map(r => r.status).sort(), ['archived', 'candidate'])
-		const files = fs.readdirSync(path.join(hh.home, 'playbooks', pb.id, 'files', 'stages'))
-		assert.deepEqual(files, ['01-post.md'])
+		assert.equal(edited.status, 200)
+		assert.equal(edited.body.version, pb.version + 1)
+		assert.ok(edited.body.rules.some(r => r.text === 'Check tests first'))
 		const journal = (await hh.api<JournalEntry[]>('GET', '/learning/journal')).body
-		assert.equal(journal.at(-1)?.kind, 'edit')
-		assert.equal((await hh.api<ApiError>('PATCH', '/learning/playbooks/p-nope', { baseVersion: 1, title: 'x' })).status, 404)
+		assert.ok(journal.some(e => e.kind === 'edit'))
+		assert.equal((await hh.api<ApiError>('PUT', '/learning/playbooks/p-nope/markdown', { baseVersion: 1, text: 'x' })).status, 404)
 
 		// остановка сборщика: заданий нет — не ошибка, кейс остаётся
 		assert.equal((await hh.api('POST', `/learning/cases/${c2}/collector/stop`, {})).status, 200)
@@ -275,7 +270,7 @@ describe('плейбуки (сквозной)', () => {
 			['PUT', '/learning/cases/c-x/notes'],
 			['PUT', '/learning/cases/c-x/summary'],
 			['POST', '/learning/cases/c-x/collector/stop'],
-			['PATCH', '/learning/playbooks/p-x'],
+			['PUT', '/learning/playbooks/p-x/markdown'],
 			['POST', '/learning/jobs/j-x/cancel'],
 			['POST', '/learning/journal/jr-x/revert'],
 			['POST', '/learning/chat/p-x'],

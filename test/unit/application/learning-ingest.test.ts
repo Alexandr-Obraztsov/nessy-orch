@@ -84,54 +84,69 @@ describe('LearningService: сбор событий', () => {
 		feed = []
 		busy = false
 		clock.t = T0 + 60_000
-		svc = new LearningService({ store, host, hub, clock, ids: { next: () => 'id' }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p' })
+		svc = new LearningService({ store, host, hub, clock, ids: { next: () => 'id' }, defaultOn: true, claudeProjectsDir: '/p' })
 		svc.load()
 	})
 
-	it('лента и транскрипт: кейс c-s1, события 1…4 по времени, курсоры сдвинуты', () => {
+	const act = (id = 's1', extra: { chatId?: string; transcriptPath?: string } = {}): void => svc.signal({ event: 'activity', session: id, ...extra })
+	const end = (id = 's1'): void => svc.signal({ event: 'end', session: id })
+
+	it('activity заводит пустой кейс (collecting, без событий и заданий), события не читаются', () => {
+		feed = [msg({ session: 's1' })]
+		act()
+		const c = svc.getCase('c-s1')
+		assert.equal(c.status, 'collecting')
+		assert.equal(c.events, 0)
+		assert.equal(c.lastActivityAt, clock.t)
+		assert.deepEqual(jobs(), [])
+	})
+
+	it('end: лента и транскрипт в raw (1…4 по времени), курсоры сдвинуты, задание close в очереди', () => {
 		feed = [msg({ session: 's1', ts: T0 + 2000 }), msg({ session: 's1', ts: T0 + 4000, from: 'a1', to: YOU, kind: 'reply' })]
 		store.files.set('/p/s1.jsonl', line('u1', 'user', 'привет', 1) + line('u2', 'assistant', 'ответ', 3))
-		svc.tick()
+		act()
+		end()
 		const c = svc.getCase('c-s1')
 		assert.equal(c.events, 4)
 		assert.deepEqual(store.readRaw('c-s1', 1).map(e => [e.n, e.kind]), [[1, 'user'], [2, 'task'], [3, 'claude'], [4, 'reply']])
 		assert.equal(c.feedSeq, 2)
 		assert.equal(c.transcripts['chat-s1']?.offset, Buffer.byteLength(store.files.get('/p/s1.jsonl') ?? ''))
-		assert.equal(c.status, 'collecting')
+		assert.equal(c.status, 'closing')
 		assert.ok(events.some(e => e.t === 'learning_case'))
-		assert.equal(svc.view().cases.length, 1)
-		assert.deepEqual(svc.view().jobs, [])
+		assert.deepEqual(jobs(), [['close', 'c-s1', 'running']])
+		assert.match(prompts[0] ?? '', /final: finish/)
 	})
 
-	it('повторный tick без данных событий не добавляет', () => {
+	it('повторный end при идущем задании ничего не добавляет', () => {
 		feed = [msg({ session: 's1' })]
-		svc.tick()
-		const published = events.length
-		svc.tick()
+		end()
+		end()
 		assert.equal(svc.getCase('c-s1').events, 1)
 		assert.equal(store.readRaw('c-s1', 1).length, 1)
-		assert.equal(events.length, published)
+		assert.equal(jobs().length, 1)
 	})
 
 	it('преемник /clear: событие второй сессии попадает в тот же кейс', () => {
 		feed = [msg({ session: 's1' })]
-		svc.tick()
+		act()
 		sessions = [session('s1', { successor: 's2' }), session('s2')]
 		feed.push(msg({ session: 's2' }))
-		svc.tick()
+		end('s2')
 		const c = svc.getCase('c-s1')
 		assert.deepEqual(c.sessions, ['s1', 's2'])
 		assert.equal(c.events, 2)
 		assert.equal(svc.view().cases.length, 1)
 	})
 
-	it('служебная сессия и агент→агент в кейс не попадают', () => {
+	it('служебная сессия и агент→агент в кейс не попадают; кейс без событий при end удаляется', () => {
 		sessions = [session('s1')]
 		feed = [msg({ session: SERVICE_SESSION }), msg({ session: 's1', from: 'a1', to: 'a2' }), msg({ session: 's1', from: 'system', kind: 'event' })]
-		svc.tick()
+		act()
+		end()
 		assert.equal(svc.view().cases.length, 0)
+		assert.deepEqual(jobs(), [])
 		feed.push(msg({ session: 's1', from: USER }))
-		svc.tick()
+		end()
 		assert.equal(svc.getCase('c-s1').events, 1)
 		assert.equal(svc.getCase('c-s1').feedSeq, 4)
 	})
@@ -140,71 +155,51 @@ describe('LearningService: сбор событий', () => {
 		feed = [msg({ session: 's1' })]
 		store.settingsRaw = { disabledSessions: ['s1'] }
 		store.mtimeMs = 1
-		svc.tick()
+		act()
+		end()
 		assert.equal(svc.view().cases.length, 0)
 		store.settingsRaw = { enabled: false }
 		store.mtimeMs = 2
-		svc.tick()
+		act()
 		assert.equal(svc.view().cases.length, 0)
 		assert.equal(svc.getSettings().enabled, false)
 	})
 
 	it('нет файла настроек: enabled = defaultOn', () => {
-		const off = new LearningService({ store, host, hub, clock, ids: { next: () => 'id' }, defaultOn: false, tickMs: 0, claudeProjectsDir: '/p' })
+		const off = new LearningService({ store, host, hub, clock, ids: { next: () => 'id' }, defaultOn: false, claudeProjectsDir: '/p' })
 		off.load()
 		feed = [msg({ session: 's1' })]
-		off.tick()
+		off.signal({ event: 'end', session: 's1' })
 		assert.equal(off.view().cases.length, 0)
 	})
 
-	it('события запускают сбор после паузы 20 с: порога событий нет, хватает одного', () => {
+	it('onSessionClosed (вкладка закрыта) = end', () => {
 		feed = [msg({ session: 's1' })]
-		svc.tick()
-		assert.deepEqual(jobs(), []) // пауза 20 с после заведения кейса
-		clock.t += 19_000
-		svc.tick()
-		assert.deepEqual(jobs(), [])
-		clock.t += 1_000
-		svc.tick()
-		assert.deepEqual(jobs(), [['collect', 'c-s1', 'running']])
-		assert.match(prompts[0] ?? '', /incremental/)
-		svc.tick()
-		assert.equal(jobs().length, 1) // по кейсу задание уже идёт
-	})
-
-	it('простой закрывает кейс', () => {
-		feed = [msg({ session: 's1' })]
-		svc.tick()
-		clock.t += 31 * 60_000
-		svc.tick()
+		act()
+		svc.onSessionClosed('s1')
 		assert.deepEqual(jobs(), [['close', 'c-s1', 'running']])
-		assert.match(prompts[0] ?? '', /final: finish/)
-		assert.equal(svc.getCase('c-s1').status, 'closing')
 	})
 
-	it('занятость блокирует close (остаётся только сбор по событиям)', () => {
-		feed = [msg({ session: 's1' })]
-		svc.tick()
-		clock.t += 31 * 60_000
-		busy = true
-		svc.tick()
-		assert.deepEqual(jobs(), [['collect', 'c-s1', 'running']])
-		assert.match(prompts[0] ?? '', /incremental/)
+	it('путь транскрипта из сигнала запоминается и читается, если у сессии его нет', () => {
+		sessions = [session('s1')]
+		store.files.set('/p/x.jsonl', line('u1', 'user', 'привет', 1))
+		act('s1', { chatId: 'chat-x', transcriptPath: '/p/x.jsonl' })
+		assert.equal(svc.getCase('c-s1').transcripts['chat-x']?.path, '/p/x.jsonl')
+		end()
+		assert.equal(svc.getCase('c-s1').events, 1)
 	})
 
-	it('ready + новое событие → collecting и collect', () => {
+	it('ready + активность → collecting; end снова ставит close', () => {
 		feed = [msg({ session: 's1' })]
-		svc.tick()
+		act()
 		const c = svc.getCase('c-s1')
-		store.saveCase({ ...c, status: 'ready', coveredUntil: 1, closedAt: new Date(T0).toISOString() })
-		const svc2 = new LearningService({ store, host, hub, clock, ids: { next: () => 'id' }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p' })
+		store.saveCase({ ...c, status: 'ready', coveredUntil: 0, closedAt: new Date(T0).toISOString() })
+		const svc2 = new LearningService({ store, host, hub, clock, ids: { next: () => 'id' }, defaultOn: true, claudeProjectsDir: '/p' })
 		svc2.load()
-		feed.push(msg({ session: 's1' }))
-		clock.t += 61_000 // пауза между запусками
-		svc2.tick()
+		svc2.signal({ event: 'activity', session: 's1' })
 		assert.equal(svc2.getCase('c-s1').status, 'collecting')
 		assert.equal(svc2.getCase('c-s1').closedAt, null)
-		assert.deepEqual(svc2.view().jobs.map(j => [j.kind, j.caseId, j.status]), [['collect', 'c-s1', 'running']])
-		assert.match(prompts[0] ?? '', /incremental/)
+		svc2.signal({ event: 'end', session: 's1' })
+		assert.deepEqual(svc2.view().jobs.map(j => [j.kind, j.caseId, j.status]), [['close', 'c-s1', 'running']])
 	})
 })

@@ -50,7 +50,7 @@ describe('уборка сессий', () => {
 		const clock = { t: Date.now() }
 		const home = fs.mkdtempSync(path.join(os.tmpdir(), 'prune-learn-'))
 		const orch = new Orchestrator({
-			settings: { home, autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0, maxSessions: 1, learningTickMs: 0 },
+			settings: { home, autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0, maxSessions: 1 },
 			store: new MemoryStore(),
 			clock: { now: () => clock.t },
 			spaceFactory: init => new FakeSpace(init.name, init.path, new FakeGateway()),

@@ -64,8 +64,9 @@ describe('buildCollectorPrompt', () => {
 		assert.match(t, /### Skipped/)
 		assert.match(t, /DONE_WITH_CONCERNS/)
 		assert.doesNotMatch(t, /<summary>|<meta>/)
-		const built = buildCollectorPrompt(t, input)
+		const built = buildCollectorPrompt(t, { ...input, blockEvents: 25 })
 		assert.match(built, /at most 25 events/)
+		assert.match(buildCollectorPrompt(t, input), /at most 80 events/) // умолчание настройки blockEvents
 		assert.match(built, /attempt N\/3/)
 	})
 })

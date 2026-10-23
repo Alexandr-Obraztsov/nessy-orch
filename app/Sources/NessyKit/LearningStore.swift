@@ -108,7 +108,7 @@ public final class LearningStore {
 		case .learningPlaybook(let p): upsert(&playbooks, p)
 		case .learningPlaybookRemoved(let id): playbooks.removeAll { $0.id == id }
 		case .learningJournal(let j):
-			journal = JournalLogic.merge(journal, [j], limit: Self.journalLimit)
+			journal = JournalLogic.append(journal, j, limit: Self.journalLimit)
 		default: return
 		}
 		if record && refreshing { buffered.append((e, rev)) }

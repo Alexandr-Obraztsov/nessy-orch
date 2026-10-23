@@ -48,7 +48,7 @@ const events = (n: number, size = 20): RawEvent[] =>
 
 const queuedJob = (kind: 'match' | 'build', subject: string, payload: Record<string, unknown>): JobState => ({
 	id: `j-${subject}`, kind, caseId: '', subject, status: 'queued', attempts: 0, agentId: null, error: null, note: null, range: null,
-	createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, retryAt: null, payload,
+	createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, payload,
 })
 
 const DRAFT = {
@@ -88,7 +88,7 @@ describe('сопоставитель и сборщик плейбука', () => 
 	const group = (ids: string[]): Array<{ caseId: string; anchor: string }> => ids.map(caseId => ({ caseId, anchor: 'n 2–6' }))
 	const run = async (jobs: JobState[]): Promise<LearningService> => {
 		store.jobs = jobs
-		const svc = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore })
+		const svc = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, claudeProjectsDir: '/p', playbookStore: pstore })
 		svc.load()
 		svc.registerHandler(matchHandler)
 		svc.registerHandler(buildHandler)
@@ -153,7 +153,7 @@ describe('сопоставитель и сборщик плейбука', () => 
 		const svc = await run([matchJob(['c1', 'c2', 'c3'])])
 		assert.equal(svc.playbooks?.list().length, 1)
 		const before = calls.length
-		const again = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore })
+		const again = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, claudeProjectsDir: '/p', playbookStore: pstore })
 		store.jobs = [matchJob(['c1', 'c2', 'c3'])]
 		again.load()
 		again.registerHandler(matchHandler)
@@ -214,12 +214,12 @@ describe('сопоставитель и сборщик плейбука', () => 
 		assert.deepEqual(kinds(svc), ['match:done'])
 	})
 
-	it('ответ сопоставителя без <result>: задание с повтором, плейбуков нет', async () => {
+	it('ответ сопоставителя без <result>: задание остаётся running до повтора, плейбуков нет', async () => {
 		for (const [i, id] of ['c1', 'c2', 'c3'].entries()) addCase(id, i)
 		delete reply['PLAYBOOK MATCHER']
 		const svc = await run([matchJob(['c1', 'c2', 'c3'])])
 		const j = svc.view().jobs[0]
-		assert.equal(j?.status, 'queued')
+		assert.equal(j?.status, 'running')
 		assert.equal(j.attempts, 1)
 		assert.equal(svc.playbooks?.list().length, 0)
 	})

@@ -104,23 +104,33 @@ public enum RawKind: String, Codable, Sendable {
 
 public struct LearningSettings: Codable, Hashable, Sendable {
 	public var enabled: Bool
-	public var autoReview: Bool
-	/// как часто сборщик дописывает описание сессии, мин
-	public var intervalMin: Int
-	/// сколько простоя закрывает кейс, мин
-	public var idleMin: Int
-	/// сколько фоновых агентов работает одновременно
+	/// сколько фоновых агентов работает одновременно, 1–6
 	public var maxAgents: Int
+	/// сколько минут без работы заканчивают сессию, 5–10080
+	public var idleMin: Int
+	/// пауза перед повтором после ошибки, с, 5–3600
+	public var retrySec: Int
+	/// сколько минут без событий агента снимают задание, 0 — не снимать
+	public var stallMin: Int
+	/// событий в блоке чтения, 10–400
+	public var blockEvents: Int
+	/// знаков в блоке чтения, 4000–200000
+	public var blockChars: Int
+	/// сколько дней хранить архив событий, 0 — не хранить
+	public var archiveDays: Int
 	/// сессии, для которых обучение выключено
 	public var disabledSessions: [String]
 
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		enabled = c.get(.enabled, false)
-		autoReview = c.get(.autoReview, true)
-		intervalMin = c.get(.intervalMin, 10)
-		idleMin = c.get(.idleMin, 60)
 		maxAgents = c.get(.maxAgents, 2)
+		idleMin = c.get(.idleMin, 120)
+		retrySec = c.get(.retrySec, 60)
+		stallMin = c.get(.stallMin, 20)
+		blockEvents = c.get(.blockEvents, 80)
+		blockChars = c.get(.blockChars, 40000)
+		archiveDays = c.get(.archiveDays, 30)
 		disabledSessions = c.get(.disabledSessions, [])
 	}
 }
@@ -151,10 +161,13 @@ public struct CaseView: Codable, Hashable, Identifiable, Sendable {
 	/// `id@версия` плейбука, собранного по кейсу
 	public var playbook: String?
 	public var source: CaseSource
+	/// сколько целей уже влито в плейбуки
+	public var foldedGoals: Int
 
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		id = try c.decode(String.self, forKey: .id)
+		foldedGoals = c.get(.foldedGoals, 0)
 		title = c.getOpt(.title)
 		sessions = c.get(.sessions, [])
 		status = c.get(.status, .unknown)
@@ -243,16 +256,10 @@ public struct JobView: Codable, Hashable, Identifiable, Sendable {
 	public var title: String?
 	/// идущее `collect`/`close`: прочитано / всего событий
 	public var progress: JobProgress?
-	/// чего ждёт задание в очереди: `retry` — паузы после провала, `lock` — другого задания по тому же объекту; `nil` — только свободного слота
-	public var waiting: String?
-	/// когда повторится задание, ждущее повтор (ISO)
-	public var retryAt: String?
 
 	public init(from decoder: Decoder) throws {
 		let c = try decoder.container(keyedBy: CodingKeys.self)
 		id = try c.decode(String.self, forKey: .id)
-		waiting = c.getOpt(.waiting)
-		retryAt = c.getOpt(.retryAt)
 		title = c.getOpt(.title)
 		progress = c.getOpt(.progress)
 		kind = c.get(.kind, .unknown)
@@ -491,6 +498,20 @@ public struct PlaybookTool: Codable, Hashable, Identifiable, Sendable {
 	}
 }
 
+/// Сессия, на которой основан плейбук.
+public struct PlaybookSource: Codable, Hashable, Sendable {
+	public var session: String
+	public var date: String
+
+	public init(session: String, date: String = "") { self.session = session; self.date = date }
+	public init(from decoder: Decoder) throws {
+		if let one = try? decoder.singleValueContainer().decode(String.self) { session = one; date = ""; return }
+		let c = try decoder.container(keyedBy: CodingKeys.self)
+		session = c.get(.session, "")
+		date = c.get(.date, "")
+	}
+}
+
 public struct PlaybookView: Codable, Hashable, Identifiable, Sendable {
 	public var id: String
 	public var name: String
@@ -502,7 +523,8 @@ public struct PlaybookView: Codable, Hashable, Identifiable, Sendable {
 	public var cases: [String]
 	public var heldOut: String?
 	public var params: [PlaybookParam]
-	public var sources: [String]
+	/// «основан на сессии»: название и дата; сервер может прислать и просто строки
+	public var sources: [PlaybookSource]
 	public var files: [String]
 	public var behavior: [String]
 	public var stages: [PlaybookStage]
@@ -527,7 +549,7 @@ public struct PlaybookView: Codable, Hashable, Identifiable, Sendable {
 		cases = c.get(.cases, [])
 		heldOut = c.getOpt(.heldOut)
 		params = (try? c.decodeIfPresent(LossyArray<PlaybookParam>.self, forKey: .params))?.items ?? []
-		sources = c.get(.sources, [])
+		sources = (try? c.decodeIfPresent(LossyArray<PlaybookSource>.self, forKey: .sources))?.items ?? []
 		files = c.get(.files, [])
 		behavior = c.get(.behavior, [])
 		stages = (try? c.decodeIfPresent(LossyArray<PlaybookStage>.self, forKey: .stages))?.items ?? []
@@ -599,9 +621,11 @@ public struct PlaybookDetail: Codable, Hashable, Identifiable, Sendable {
 	public var reviews: [ReviewReport]
 	/// все файлы плейбука (`SKILL.md`, `stages/*`, `rules.md`, `tools/*`…); сервер отдаёт как `fileTexts` (в черновике контракта — `files`)
 	public var files: [String: String]
+	/// весь плейбук одним markdown-документом (правила с маркерами `<!-- r-3 -->`); у старого сервера — пусто
+	public var markdown: String
 	public var id: String { view.id }
 
-	private enum CodingKeys: String, CodingKey { case notes, changelog, versions, reviews, fileTexts, files }
+	private enum CodingKeys: String, CodingKey { case notes, changelog, versions, reviews, fileTexts, files, markdown }
 
 	public init(from decoder: Decoder) throws {
 		view = try PlaybookView(from: decoder)
@@ -613,6 +637,7 @@ public struct PlaybookDetail: Codable, Hashable, Identifiable, Sendable {
 		let texts: [String: String]? = c.getOpt(.fileTexts)
 		let plain: [String: String]? = c.getOpt(.files)
 		files = texts ?? plain ?? [:]
+		markdown = c.get(.markdown, "")
 	}
 
 	public func encode(to encoder: Encoder) throws {
@@ -623,6 +648,7 @@ public struct PlaybookDetail: Codable, Hashable, Identifiable, Sendable {
 		try c.encode(versions, forKey: .versions)
 		try c.encode(reviews, forKey: .reviews)
 		try c.encode(files, forKey: .fileTexts)
+		try c.encode(markdown, forKey: .markdown)
 	}
 }
 

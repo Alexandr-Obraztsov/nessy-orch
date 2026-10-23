@@ -1,7 +1,7 @@
 import SwiftUI
 import NessyKit
 
-/// Раздел «В процессе»: карточки сессий «Обрабатываются» и «Ждут обработки»; клик по обрабатываемой открывает справа её агента
+/// Раздел «В процессе»: карточки сессий «В работе» и «В очереди»; клик по обрабатываемой открывает справа её агента
 /// (чат и промежуточный результат).
 struct ProcessSection: View {
 	@Environment(AppModel.self) private var model
@@ -26,10 +26,10 @@ struct ProcessSection: View {
 			} else {
 				ScrollView {
 					VStack(alignment: .leading, spacing: DS.Metrics.s5) {
-						CardGroup(title: "Обрабатываются", items: processing) { j in
+						CardGroup(title: "В работе", items: processing) { j in
 							JobTile(job: j, title: title(j), selected: model.background.objectId == j.id) { model.background.toggle(.work, id: j.id) }
 						}
-						CardGroup(title: "Ждут обработки", items: waiting) { j in JobTile(job: j, title: title(j), selected: false, action: nil) }
+						CardGroup(title: "В очереди", items: waiting) { j in JobTile(job: j, title: title(j), selected: false, action: nil) }
 					}
 					.padding(DS.Metrics.s4)
 				}
@@ -55,7 +55,7 @@ private struct JobTile: View {
 				Text(BackgroundLogic.progressLine(job.progress)).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).monospacedDigit()
 				ProgressBar(progress: job.progress)
 			} else {
-				LearningChip(job.waiting == "retry" ? "повтор скоро" : "в очереди")
+				LearningChip("в очереди")
 			}
 		}
 		if let action { CardButton(selected: selected, action: action) { content } }

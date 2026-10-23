@@ -3,14 +3,35 @@
 export interface LearningSettings {
 	enabled: boolean
 	autoReview: boolean
-	/** как часто сборщик дописывает описание сессии, мин */
+	/** не используется (совместимость файла и клиентов) */
 	intervalMin: number
-	/** сколько простоя закрывает кейс, мин */
+	/** сколько мин без работы в сессии (`Stop`/`UserPromptSubmit`) делает её законченной, 5–10080 (по умолчанию 120) */
 	idleMin: number
-	/** сколько фоновых агентов работает одновременно */
+	/** сколько фоновых агентов работает одновременно, 1–6 */
 	maxAgents: number
+	/** пауза до повтора после ошибки задания, с: 5–3600 (по умолчанию 60) */
+	retrySec: number
+	/** сколько мин агент без событий считается зависшим (задание снимается и повторяется); 0 — не снимать, 0–720 (по умолчанию 20) */
+	stallMin: number
+	/** блок чтения сборщика: событий, 10–400 (по умолчанию 80) */
+	blockEvents: number
+	/** блок чтения сборщика: знаков, 4000–200000 (по умолчанию 40000) */
+	blockChars: number
+	/** сколько дней хранить архив сырых событий влитых целей, 0 — не хранить, 0–365 (по умолчанию 30) */
+	archiveDays: number
 	/** сессии, для которых обучение выключено */
 	disabledSessions: string[]
+}
+
+/** Тело `POST /learning/signal`: хуки `Stop`/`UserPromptSubmit` шлют `activity`, `SessionEnd` — `end`. */
+export interface LearningSignal {
+	event: 'activity' | 'end'
+	/** сессия оркестратора (`NESSY_ORCH_SESSION`) */
+	session: string
+	/** id чата Claude Code (`session_id` хука) */
+	chatId?: string
+	/** файл транскрипта чата (`transcript_path` хука) */
+	transcriptPath?: string
 }
 
 export type CaseStatus = 'collecting' | 'closing' | 'ready' | 'error'
@@ -38,6 +59,7 @@ export interface CaseView {
 }
 
 export type JobKind = 'collect' | 'close' | 'match' | 'build' | 'review' | 'judge' | 'improve' | 'edit'
+/** В работе только `queued` и `running`; `done` — завершено или снято, `error` остался для старых файлов. */
 export type JobStatus = 'queued' | 'running' | 'done' | 'error'
 
 export interface JobView {
@@ -63,10 +85,6 @@ export interface JobView {
 	createdAt: string
 	startedAt: string | null
 	finishedAt: string | null
-	/** `queued`: когда закончится пауза повтора (ISO); нет паузы — null */
-	retryAt: string | null
-	/** `queued`: чего ждёт кроме слота — `retry` (пауза повтора), `lock` (замок: правка или идущее задание того же объекта); готовое к запуску — null */
-	waiting: 'retry' | 'lock' | null
 }
 
 /** Задание и ответы его агентов из `runs/` по порядку вызова (`GET /learning/jobs/:id`). */
@@ -168,6 +186,8 @@ export interface RuleView {
 	against: Evidence[]
 	lastAppliedAt: string | null
 	createdAt: string
+	/** кто добавил правило; `user` — вручную в документе плейбука; нет — собрано обучением */
+	author?: string
 }
 
 export interface PlaybookParam {
@@ -220,6 +240,8 @@ export interface PlaybookView {
 	heldOut: string | null
 	params: PlaybookParam[]
 	sources: string[]
+	/** «основан на сессии»: название сессии и дата (раздел `## Based on` документа) */
+	basedOn?: Array<{ session: string; date: string }>
 	files: string[]
 	behavior: string[]
 	stages: PlaybookStage[]
@@ -256,6 +278,8 @@ export interface PlaybookDetail extends PlaybookView {
 	/** все файлы плейбука из хранилища: `SKILL.md`, `stages/*`, `rules.md`, `tools/*`, `notes.md`, `CHANGELOG.md` (не `files`: так уже называется список ключевых файлов в `PlaybookView`) */
 	fileTexts: Record<string, string>
 	notes: string
+	/** документ плейбука целиком (markdown): правится и сохраняется через `PUT /learning/playbooks/:id/markdown` */
+	markdown: string
 	changelog: string
 	versions: Array<{ version: number; ts: string; message: string }>
 	reviews: ReviewReport[]
@@ -282,28 +306,4 @@ export interface ChatMessage {
 	from: 'user' | 'agent'
 	text: string
 	changes: string[]
-}
-
-/** Правило в правке блоками: без `id` — новое (`candidate`). */
-export interface RuleInput {
-	id?: string
-	text: string
-	stage: number | null
-}
-
-/** Тело `PATCH /learning/playbooks/:id`: переданные поля содержания заменяются целиком. */
-export interface PlaybookPatch {
-	/** версия плейбука, на которой правили; не совпала с текущей — 409 `stale` */
-	baseVersion: number
-	title?: string
-	description?: string
-	params?: PlaybookParam[]
-	sources?: string[]
-	files?: string[]
-	behavior?: string[]
-	stages?: PlaybookStage[]
-	/** только изменённые (с `id`) и новые (без `id`) правила */
-	rules?: RuleInput[]
-	/** id правил, которые архивируются; остальные не трогаются */
-	removeRules?: string[]
 }

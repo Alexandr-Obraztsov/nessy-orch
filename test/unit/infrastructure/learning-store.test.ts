@@ -8,7 +8,7 @@ import type { CaseState, JobState } from '../../../src/application/learning/lear
 import type { RawEvent } from '../../../src/domain/learning.types'
 import { FileLearningStore } from '../../../src/infrastructure/persistence/learning-store'
 
-const SETTINGS: LearningSettings = { enabled: true, autoReview: false, intervalMin: 10, idleMin: 30, maxAgents: 2, disabledSessions: [] }
+const SETTINGS: LearningSettings = { enabled: true, autoReview: false, intervalMin: 10, idleMin: 30, maxAgents: 2, retrySec: 60, stallMin: 20, blockEvents: 80, blockChars: 40000, archiveDays: 30, disabledSessions: [] }
 
 function mkCase(id: string, over: Partial<CaseState> = {}): CaseState {
 	return {
@@ -149,7 +149,7 @@ describe('FileLearningStore', () => {
 
 	it('очередь: saveJobs / loadJobs', () => {
 		assert.deepEqual(store.loadJobs(), [])
-		const j: JobState = { id: 'j1', kind: 'collect', caseId: 'c1', subject: 'c1', status: 'queued', attempts: 0, agentId: null, error: null, note: null, range: [1, 5], createdAt: 'x', startedAt: null, finishedAt: null, final: false, retryAt: null, payload: null }
+		const j: JobState = { id: 'j1', kind: 'collect', caseId: 'c1', subject: 'c1', status: 'queued', attempts: 0, agentId: null, error: null, note: null, range: [1, 5], createdAt: 'x', startedAt: null, finishedAt: null, final: false, payload: null }
 		store.saveJobs([j])
 		assert.deepEqual(store.loadJobs(), [j])
 	})

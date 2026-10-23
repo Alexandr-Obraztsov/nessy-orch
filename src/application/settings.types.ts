@@ -33,8 +33,6 @@ export interface OrchSettings {
 	agentTtlMs?: number
 	/** фоновое обучение включено, пока нет learning.json (по умолчанию true) */
 	learningDefaultOn?: boolean
-	/** период опроса обучения, мс (по умолчанию 30000; 0 — без таймера, тесты вызывают tick сами) */
-	learningTickMs?: number
 	/** каталог плагина nessy-playbooks (по умолчанию ~/.claude/skills/nessy-playbooks) */
 	playbooksPluginDir?: string
 	/** каталог транскриптов Claude Code (по умолчанию ~/.claude/projects) */

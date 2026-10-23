@@ -76,7 +76,7 @@ describe('шторм агентов', () => {
 			return { agentId: `ag${calls.length}`, ok: true, text: f ? f(req.prompt) : 'без результата' }
 		},
 	}
-	const service = (): LearningService => (current = new LearningService({ store, host, hub: new Hub(), clock: { now: () => now }, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore }))
+	const service = (): LearningService => (current = new LearningService({ store, host, hub: new Hub(), clock: { now: () => now }, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, claudeProjectsDir: '/p', playbookStore: pstore }))
 	const addCase = (id: string, i: number, over: Partial<CaseState> = {}, corr = '- none', pad = '', text = 'event'): void => {
 		store.cases.set(id, baseCase(id, i, over))
 		store.summaries.set(id, SUMMARY(corr, pad))
@@ -87,7 +87,7 @@ describe('шторм агентов', () => {
 	}
 	const matchJob = (ids: string[]): JobState => ({
 		id: 'j-match', kind: 'match', caseId: '', subject: 'all', status: 'queued', attempts: 0, agentId: null, error: null, note: null, range: null,
-		createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, retryAt: null, payload: { caseIds: ids },
+		createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, payload: { caseIds: ids },
 	})
 	const group = (ids: string[]): Array<{ caseId: string; anchor: string }> => ids.map(caseId => ({ caseId, anchor: 'n 2–6' }))
 	const start = async (jobs: JobState[] = []): Promise<LearningService> => {
@@ -116,14 +116,14 @@ describe('шторм агентов', () => {
 	describe('B2-7a память о провале сборки', () => {
 		const buildJob = (ids: string[]): JobState => ({
 			id: 'j-build', kind: 'build', caseId: '', subject: 'g-abc12345', status: 'queued', attempts: 2, agentId: null, error: null, note: null, range: null,
-			createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, retryAt: null, payload: { task: 't', taskType: 'review-mr', playbookId: null, cases: group(ids) },
+			createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, payload: { task: 't', taskType: 'review-mr', playbookId: null, cases: group(ids) },
 		})
 
 		it('провал сборки пишет { hash, cases, at } в meta.json', async () => {
 			for (const [i, id] of ['c1', 'c2', 'c3'].entries()) addCase(id, i)
 			reply['PLAYBOOK BUILDER'] = () => 'мусор'
 			const svc = await start([buildJob(['c1', 'c2', 'c3'])])
-			assert.equal(svc.view().jobs[0]?.status, 'queued') // ошибок нет: повтор с паузой
+			assert.equal(svc.view().jobs[0]?.status, 'running') // провал: задание держит слот до повтора
 			assert.equal(svc.view().jobs[0]?.attempts, 3)
 			assert.deepEqual(savedMeta()?.failedBuilds, [{ hash: 'abc12345', cases: ['c1', 'c2', 'c3'], at: now }])
 		})
@@ -205,7 +205,7 @@ describe('шторм агентов', () => {
 		it('старое правило уходит в архив: версия и запись rule_archived; повтор в те же сутки молчит', async () => {
 			savePb(pbState('p-x', { status: 'active', rules: [old('r1')] }))
 			const svc = await start()
-			svc.tick()
+			svc.signal({ event: 'activity', session: 'x' })
 			const p = svc.playbooks?.get('p-x')
 			assert.equal(p?.rules[0]?.status, 'archived')
 			assert.equal(p.version, 2)
@@ -215,11 +215,11 @@ describe('шторм агентов', () => {
 			savePb(pbState('p-y', { status: 'active', rules: [old('r1')], version: 1 }))
 			svc.load()
 			now += 2 * HOUR
-			svc.tick()
+			svc.signal({ event: 'activity', session: 'x' })
 			assert.equal(statusOf(svc, 'p-y'), 'active')
 			// через сутки — снова
 			now += 24 * HOUR
-			svc.tick()
+			svc.signal({ event: 'activity', session: 'x' })
 			assert.equal(statusOf(svc, 'p-y'), 'archived')
 		})
 	})

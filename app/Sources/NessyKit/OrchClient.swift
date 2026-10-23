@@ -120,7 +120,7 @@ public final class OrchClient: @unchecked Sendable {
 	public func deleteSession(_ id: String) async throws { try await raw("DELETE", "/sessions/\(id)") }
 	// MARK: обучение (docs/api.md, «Фоновое обучение»; не-GET — только оператору)
 	public func learning() async throws -> LearningView { try await get("/learning") }
-	/// Изменить настройки: в теле только изменённые поля (`["autoReview": .bool(false)]`).
+	/// Изменить настройки: в теле только изменённые поля (`["maxAgents": .number(3)]`).
 	@discardableResult
 	public func patchLearningSettings(_ changes: [String: JSONValue]) async throws -> LearningSettings { try await send("PATCH", "/learning/settings", body: changes) }
 	/// Собрать кейс сейчас: итоговое задание по сессии (`session`) или по всем незакрытым кейсам.
@@ -144,6 +144,12 @@ public final class OrchClient: @unchecked Sendable {
 	public func playbooks() async throws -> [PlaybookView] { (try await get("/learning/playbooks", as: LossyArray<PlaybookView>.self)).items }
 	public func playbookDetail(_ id: String) async throws -> PlaybookDetail { try await get("/learning/playbooks/\(id)") }
 	@discardableResult
+	/// Сохранить документ плейбука. 409 `stale` — плейбук изменился (`isStale`), 400 `lint` — замечания в `message` (`isLint`),
+	/// `playbook_busy` — с плейбуком работает агент (`isBusy`).
+	public func savePlaybookMarkdown(_ id: String, text: String, baseVersion: Int) async throws -> PlaybookDetail {
+		try await send("PUT", "/learning/playbooks/\(id)/markdown", body: PlaybookMarkdownBody(text: text, baseVersion: baseVersion))
+	}
+
 	public func approvePlaybook(_ id: String) async throws -> PlaybookView { try await send("POST", "/learning/playbooks/\(id)/approve", body: [String: String]()) }
 	@discardableResult
 	public func rejectPlaybook(_ id: String, reason: String? = nil) async throws -> PlaybookView {
@@ -188,3 +194,5 @@ struct AnyEncodable: Encodable {
 	init(_ b: Encodable) { base = b }
 	func encode(to encoder: Encoder) throws { try base.encode(to: encoder) }
 }
+
+struct PlaybookMarkdownBody: Encodable { var text: String; var baseVersion: Int }

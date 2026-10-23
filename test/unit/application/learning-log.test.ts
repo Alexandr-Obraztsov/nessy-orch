@@ -6,6 +6,7 @@ import { Hub } from '../../../src/application/hub'
 import { LearningService } from '../../../src/application/learning/learning.service'
 import type { LearningHost } from '../../../src/application/learning/learning.types'
 import { YOU } from '../../../src/domain/constants'
+import { observe } from '../../support/signals'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
 import { MemoryPlaybookStore } from '../../support/memory-playbook-store'
 import { drainReads } from '../../support/read-blocks'
@@ -60,7 +61,7 @@ describe('LearningService: журнал событий обучения', () => 
 		},
 	}
 	const make = (withPlaybooks = true): LearningService => {
-		const s = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: withPlaybooks ? pstore : undefined })
+		const s = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, claudeProjectsDir: '/p', playbookStore: withPlaybooks ? pstore : undefined })
 		current = s
 		s.load()
 		return s
@@ -84,8 +85,8 @@ describe('LearningService: журнал событий обучения', () => 
 	it('кейс заведён, задание стартовало и готово, блоки выданы и приняты, кейс готов — всё человеческим текстом с названием сессии', async () => {
 		const svc = make()
 		feed = [msg('s1'), msg('s1'), msg('s1')]
-		svc.tick()
-		assert.match(texts()[0] ?? '', /^Новая сессия «Починить вход»: начат сбор$/)
+		observe(svc, 's1')
+		assert.match(texts()[0] ?? '', /^Новая сессия «Починить вход»$/)
 		assert.equal(logs()[0]?.subject, 'c-s1')
 		assert.equal(logs()[0]?.level, 'info')
 		assert.equal(logs()[0]?.revertible, false)
@@ -103,10 +104,10 @@ describe('LearningService: журнал событий обучения', () => 
 		assert.ok(!texts().some(t => /c-s1|j-/.test(t)))
 	})
 
-	it('провал задания: warn с причиной и паузой повтора; сторож: warn «нет активности»', async () => {
+	it('провал задания: warn с причиной и паузой повтора, слот остаётся за заданием', async () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		drain = false
 		script = [{ ok: false, text: '', error: 'таймаут' }]
 		svc.runNow('c-s1')
@@ -114,24 +115,15 @@ describe('LearningService: журнал событий обучения', () => 
 		const fail = has(/не удалось: таймаут/)
 		assert.ok(fail)
 		assert.equal(fail.level, 'warn')
-		assert.match(fail.summary, /^Итоговое описание «Починить вход»: не удалось: таймаут; повтор через 5 с$/)
-		// зависший агент: ответа нет, срок сторожа проходит
-		script = [() => new Promise<Reply>(() => undefined)]
-		clock.t += 10_000
-		svc.tick()
-		await flush()
-		clock.t += 11 * 60_000
-		svc.tick()
-		const stall = has(/нет активности 10 мин: агент снят/)
-		assert.ok(stall)
-		assert.equal(stall.level, 'warn')
-		assert.match(stall.summary, /^Итоговое описание «Починить вход»: нет активности 10 мин: агент снят; повтор через /)
+		assert.match(fail.summary, /^Итоговое описание «Починить вход»: не удалось: таймаут; повтор через 1 мин$/)
+		assert.deepEqual(svc.view().jobs.map(j => j.status), ['running'])
+		await svc.stop()
 	})
 
 	it('блок отклонён: warn с кодом правила; остановка пользователем и удаление кейса с надгробием', async () => {
 		const svc = make()
 		feed = [msg('s1'), msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		let release = (): void => undefined
 		drain = false
 		script = [() => new Promise<Reply>(r => (release = () => r({ ok: true, text: '' })))]
@@ -166,7 +158,7 @@ describe('LearningService: журнал событий обучения', () => 
 		await svc.stop()
 		assert.ok(has(/^Фоновое обучение остановлено$/))
 		// прерванное перезапуском задание
-		store.jobs = [{ id: 'j-x', kind: 'close', caseId: '', subject: 'c-s1', status: 'running', attempts: 0, agentId: null, error: null, note: null, range: null, title: null, createdAt: new Date(T0).toISOString(), startedAt: new Date(T0).toISOString(), finishedAt: null, final: true, retryAt: null, payload: null }]
+		store.jobs = [{ id: 'j-x', kind: 'close', caseId: '', subject: 'c-s1', status: 'running', attempts: 0, agentId: null, error: null, note: null, range: null, title: null, createdAt: new Date(T0).toISOString(), startedAt: new Date(T0).toISOString(), finishedAt: null, final: true, payload: null }]
 		pstore.journal.length = 0
 		make()
 		assert.match(texts()[0] ?? '', /: прервано перезапуском, продолжаю$/)
@@ -176,7 +168,7 @@ describe('LearningService: журнал событий обучения', () => 
 	it('без хранилища плейбуков журнал молча пропускается', async () => {
 		const svc = make(false)
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		svc.runNow('c-s1')
 		await flush()
 		svc.log('error', '', 'что-то')

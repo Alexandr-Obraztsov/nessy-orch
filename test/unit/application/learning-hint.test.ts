@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { DEFAULT_LEARNING } from '../../../src/domain/learning-settings'
 import { describe, it } from 'node:test'
 import { collectHandler } from '../../../src/application/learning/collect.handler'
 import type { HintHost, JobContext } from '../../../src/application/learning/handlers.types'
@@ -113,6 +114,7 @@ describe('сборщик: подсказка при новой цели', () => 
 		const ctx = {
 			job,
 			now: () => 1,
+			settings: () => DEFAULT_LEARNING,
 			prompt: () => '{{summary}}',
 			cases: {
 				get: () => store,

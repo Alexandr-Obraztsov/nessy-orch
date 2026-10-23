@@ -71,3 +71,30 @@ export interface Range {
 	from: number
 	to: number
 }
+
+/** Результат разбора markdown-документа плейбука: поля содержания и сверка правил с прежним состоянием. */
+export interface ParsedDocument {
+	title: string
+	description: string
+	taskType: string
+	params: PlaybookView['params']
+	sources: string[]
+	files: string[]
+	behavior: string[]
+	stages: PlaybookView['stages']
+	/** правила прежнего состояния с учётом документа: правка текста/этапа/раздела, новые архивные; порядок прежний */
+	rules: PlaybookView['rules']
+	/** новые правила (строки без маркера), без id */
+	added: Array<{ text: string; stage: number | null; status: 'active' | 'candidate' }>
+	/** id правил, которые архивированы этим документом (маркер пропал) */
+	archived: string[]
+	/** `## Notes` вместе с незнакомыми разделами */
+	notes: string
+}
+
+/** `issues` — ошибки (документ не применяется), `notices` — замечания, которые применению не мешают. */
+export interface ParseResult {
+	draft: ParsedDocument
+	issues: string[]
+	notices: string[]
+}

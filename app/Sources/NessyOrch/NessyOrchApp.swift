@@ -30,6 +30,11 @@ struct NessyOrchApp: App {
 		}
 		.defaultSize(width: 920, height: 680)
 
+		WindowGroup("Плейбук", id: "playbook", for: String.self) { $id in
+			PlaybookWindow(id: id).environment(model).tint(DS.Palette.accent)
+		}
+		.defaultSize(width: 920, height: 680)
+
 		Window("Фон", id: "background") {
 			BackgroundWindow().environment(model).tint(DS.Palette.accent)
 		}

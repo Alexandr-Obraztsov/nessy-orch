@@ -1,11 +1,12 @@
 /** Дефекты ревью этапа 1: шторм агентов, точка отсчёта, чтение ленты, надгробия, целостность записи. */
 import assert from 'node:assert/strict'
-import { beforeEach, describe, it } from 'node:test'
+import { afterEach, beforeEach, describe, it, mock } from 'node:test'
 import type { Message, SessionView } from '../../../shared/types'
 import { Hub } from '../../../src/application/hub'
 import { LearningService } from '../../../src/application/learning/learning.service'
 import type { CaseState, LearningHost } from '../../../src/application/learning/learning.types'
 import { YOU } from '../../../src/domain/constants'
+import { finish, observe } from '../../support/signals'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
 import { drainReads } from '../../support/read-blocks'
 
@@ -67,7 +68,8 @@ describe('LearningService: ревью этапа 1', () => {
 		},
 	}
 	const make = (): LearningService => {
-		const s = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p' })
+		store.settingsRaw = { stallMin: 0, ...(typeof store.settingsRaw === 'object' && store.settingsRaw !== null ? store.settingsRaw : {}) }
+		const s = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 8) }, defaultOn: true, claudeProjectsDir: '/p' })
 		current = s
 		s.load()
 		return s
@@ -95,7 +97,12 @@ describe('LearningService: ревью этапа 1', () => {
 		...over,
 	})
 
+	afterEach(() => {
+		mock.timers.reset()
+	})
+
 	beforeEach(() => {
+		mock.timers.enable({ apis: ['setTimeout'] })
 		seq = 0
 		store = new MemoryLearningStore()
 		store.prompts.set('session-collector', '{{mode}}|{{total}}|{{summary}}')
@@ -108,57 +115,34 @@ describe('LearningService: ревью этапа 1', () => {
 		clock.t = T0 + MIN
 	})
 
-	it('1. постоянная ошибка агента: повторы идут бесконечно с ростом паузы до 2 мин, кейс остаётся collecting', async () => {
+	it('1. постоянная ошибка агента: повторы идут по retrySec без конца и без шторма, слот за заданием, кейс closing', async () => {
 		reply = () => Promise.resolve({ ok: false, text: '', error: 'сбой' })
 		drain = false
 		const svc = make()
 		feed = [msg('s1')]
+		finish(svc, 's1')
 		for (let i = 0; i < 120; i++) {
-			svc.tick()
 			await flush()
-			clock.t += 30_000
+			mock.timers.tick(30_000)
 		}
-		// за час (120 × 30 с): паузы 5, 10, 20, 40, 80, 120, 120 … с (тик раз в 30 с): ~35 запусков, не шторм
-		assert.ok(calls > 20 && calls <= 40, `запусков ${calls}`)
-		assert.equal(svc.getCase('c-s1').status, 'collecting')
-		const job = svc.view().jobs.find(j => j.kind === 'collect')
-		assert.equal(job?.status, 'queued')
+		// за час раз в 60 с: ~60 запусков, не шторм
+		assert.ok(calls > 50 && calls <= 62, `запусков ${calls}`)
+		assert.equal(svc.getCase('c-s1').status, 'closing')
+		const job = svc.view().jobs.find(j => j.kind === 'close')
+		assert.equal(job?.status, 'running')
 		assert.equal(job.error, 'сбой')
 		assert.equal(svc.view().jobs.some(j => j.status === 'error'), false)
 		const before = calls
 		reply = () => Promise.resolve({ ok: true, text: GOOD })
 		drain = true
-		for (let i = 0; i < 25; i++) {
-			svc.tick()
+		for (let i = 0; i < 4; i++) {
 			await flush()
-			clock.t += 30_000
-		}
-		assert.equal(calls, before + 1) // первая же попытка после паузы удалась
-		assert.equal(svc.view().jobs.find(j => j.id === job.id)?.status, 'done')
-	})
-
-	it('1. провал collect кейс в error не переводит, ready соблюдает паузу', async () => {
-		reply = () => Promise.resolve({ ok: false, text: '', error: 'сбой' })
-		const svc = make()
-		feed = Array.from({ length: 15 }, () => msg('s1'))
-		svc.tick()
-		clock.t += 61_000
-		svc.tick()
-		for (let i = 0; i < 3; i++) {
-			await flush()
-			clock.t += 61_000
-			svc.tick()
+			mock.timers.tick(30_000)
 		}
 		await flush()
-		assert.equal(svc.getCase('c-s1').status, 'collecting')
-		// ready + новое событие раньше COOLDOWN_MS от lastRunAt не запускает collect
-		store.saveCase(caseState({ id: 'c-r', sessions: ['r'], status: 'ready', events: 1, coveredUntil: 1, lastRunAt: clock.t, feedSeq: 100 }))
-		sessions = [...sessions, session('r')]
-		const svc2 = make()
-		feed.push(msg('r', { seq: 101 }))
-		svc2.tick()
-		assert.equal(svc2.view().jobs.filter(j => j.caseId === 'c-r').length, 0)
-		assert.equal(svc2.getCase('c-r').status, 'ready')
+		assert.equal(calls, before + 1) // первая же попытка после паузы удалась
+		assert.equal(svc.view().jobs.find(j => j.id === job.id)?.status, 'done')
+		assert.equal(svc.getCase('c-s1').status, 'ready')
 	})
 
 	it('2. первый запуск: старые сессии кейсов не заводят, новая — заводит, бэкфилл старой работает', async () => {
@@ -167,19 +151,18 @@ describe('LearningService: ревью этапа 1', () => {
 		feed = old.flatMap(s => [msg(s.id), msg(s.id)])
 		const svc = make()
 		assert.deepEqual(store.meta, { startedAt: clock.t, startSeq: 100, removed: [] })
-		svc.tick()
-		clock.t += 61_000
-		svc.tick()
+		observe(svc, 'old0')
+		finish(svc, 'old0')
 		assert.equal(svc.view().cases.length, 0)
 		assert.equal(calls, 0)
 		// новое сообщение в старой сессии тоже не заводит кейс
 		feed.push(msg('old0'))
-		svc.tick()
+		observe(svc, 'old0')
 		assert.equal(svc.view().cases.length, 0)
 		// новая сессия
 		sessions = [...old, session('fresh', { createdAt: new Date(clock.t).toISOString() })]
 		feed.push(msg('fresh'))
-		svc.tick()
+		observe(svc, 'fresh')
 		assert.deepEqual(svc.view().cases.map(c => c.id), ['c-fresh'])
 		// ручной запуск по старой сессии заводит кейс (явное желание пользователя)
 		svc.runNow('old1')
@@ -195,42 +178,34 @@ describe('LearningService: ревью этапа 1', () => {
 		sessions = [session('s1', { createdAt: new Date(clock.t + 1).toISOString() })]
 		feed.push(msg('s1'))
 		clock.t += 10
-		make().tick()
+		finish(make(), 's1')
 		const c = store.cases.get('c-s1')
 		assert.equal(c?.events, 1, 'сообщения до точки отсчёта не берутся')
 		assert.equal(store.meta.startSeq, 2)
 	})
 
-	it('3. лента читается один раз за тик, просмотренное не перечитывается; onAttach не синхронный', async () => {
+	it('3. activity ленту не читает; end читает один раз с курсора кейса (точка отсчёта), просмотренное не перечитывается', () => {
 		const old = Array.from({ length: 20 }, (_, i) => session(`o${i}`, { createdAt: new Date(T0 - MIN).toISOString() }))
 		sessions = [...old, session('s1')]
 		feed = old.map(s => msg(s.id))
 		const svc = make()
-		feed.push(msg('s1', { from: 'a1', to: 'a2', kind: 'msg' })) // агент→агент: события нет, кейса нет
+		feed.push(msg('s1', { from: 'a1', to: 'a2', kind: 'msg' })) // агент→агент: события нет
 		feed.push(msg('s1', { from: 'a1', to: 'a2', kind: 'msg' }))
 		reads = []
-		svc.tick()
-		svc.tick()
-		assert.deepEqual(reads, [20, 22], 'один вызов за тик, со второго тика — с просмотренного seq')
+		observe(svc, 's1')
+		observe(svc, 's1')
+		assert.deepEqual(reads, [], 'хук активности ленту не трогает')
 		feed.push(msg('s1'))
-		reads = []
-		svc.tick()
-		assert.equal(reads.length, 1)
+		finish(svc, 's1')
+		assert.deepEqual(reads, [20])
+		assert.equal(svc.getCase('c-s1').events, 1)
 		assert.equal(svc.view().cases.length, 1)
-		// onAttach
-		feed.push(msg('s1'))
-		reads = []
-		svc.onAttach('s1')
-		assert.equal(reads.length, 0)
-		await flush()
-		assert.equal(reads.length, 1)
-		assert.equal(svc.getCase('c-s1').events, 2)
 	})
 
 	it('4. ответ агента сохраняется в runs', async () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		const j = svc.runNow('c-s1')
 		await flush()
 		assert.equal(store.runs.get(`c-s1/${j.id}-1`), GOOD)
@@ -240,7 +215,7 @@ describe('LearningService: ревью этапа 1', () => {
 	it('5. удалённый кейс не воскресает; rebuild надгробия не ставит; возврат сессии в обучение снимает надгробие', async () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		svc.runNow('c-s1')
 		await flush()
 		svc.rebuild('c-s1')
@@ -250,61 +225,71 @@ describe('LearningService: ревью этапа 1', () => {
 		svc.removeCase('c-s1')
 		assert.deepEqual(store.meta.removed, ['s1'])
 		feed.push(msg('s1'))
-		clock.t += 61_000
-		svc.tick()
+		observe(svc, 's1')
 		svc.onSessionClosed('s1')
 		assert.equal(svc.view().cases.length, 0)
 		// надгробие переживает рестарт
 		const again = make()
-		again.tick()
+		observe(again, 's1')
 		assert.equal(again.view().cases.length, 0)
 		// off/on для сессии снимает надгробие
 		again.updateSettings({ disabledSessions: ['s1'] })
 		again.updateSettings({ disabledSessions: [] })
 		assert.deepEqual(store.meta.removed, [])
 		feed.push(msg('s1'))
-		again.tick()
+		observe(again, 's1')
 		assert.equal(again.view().cases.length, 1)
 	})
 
-	it('6. summary.md не записался: coveredUntil не сдвигается, задание падает; события не записались: курсор не двигается', async () => {
+	it('6. summary.md не записался: coveredUntil не сдвигается, задание падает (running, повтор); события не записались: курсор не двигается, кейс не удаляется, повтор по retrySec', async () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
-		store.failWrites = true
+		observe(svc, 's1')
+		store.writeSummary = (): boolean => false // диск не принимает только описание
 		svc.runNow('c-s1')
 		await flush()
 		const c = svc.getCase('c-s1')
 		assert.equal(c.coveredUntil, 0)
-		assert.equal(svc.view().jobs[0]?.status, 'queued')
+		assert.equal(svc.view().jobs[0]?.status, 'running')
 		assert.match(svc.view().jobs[0]?.error ?? '', /summary/)
-		// сбор: appendRaw упал
-		feed.push(msg('s1'))
-		svc.tick()
-		assert.equal(svc.getCase('c-s1').events, 1)
-		assert.equal(svc.getCase('c-s1').feedSeq, 1)
+		// сбор события: appendRaw упал
+		Reflect.deleteProperty(store, 'writeSummary')
+		store.failWrites = true
+		const other = (): LearningService => {
+			store.cases.clear()
+			store.jobs = []
+			return make()
+		}
+		const svc2 = other()
+		feed = [msg('s1')]
+		observe(svc2, 's1')
+		finish(svc2, 's1')
+		assert.equal(svc2.getCase('c-s1').events, 0)
+		assert.equal(svc2.getCase('c-s1').feedSeq, 0)
+		assert.equal(svc2.view().jobs.length, 0)
 		store.failWrites = false
-		svc.tick()
-		assert.equal(svc.getCase('c-s1').events, 2)
-		assert.equal(svc.getCase('c-s1').feedSeq, 2)
+		mock.timers.tick(60_000)
+		await flush()
+		assert.equal(svc2.getCase('c-s1').events, 1)
+		assert.equal(svc2.getCase('c-s1').status, 'ready')
 	})
 
 	it('7. корень цепочки удалён: кейс тот же, дубля нет', async () => {
 		sessions = [session('s1', { successor: 's2' }), session('s2')]
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		svc.runNow('c-s1')
 		await flush()
 		assert.equal(svc.getCase('c-s1').status, 'ready')
 		assert.equal(svc.getCase('c-s1').rootId, 's1')
 		sessions = [session('s2')]
 		feed.push(msg('s2'))
-		clock.t += 61_000
-		svc.tick()
+		observe(svc, 's2')
 		assert.deepEqual(svc.view().cases.map(c => c.id), ['c-s1'])
-		assert.equal(svc.getCase('c-s1').events, 2)
 		assert.equal(svc.getCase('c-s1').status, 'collecting')
+		finish(svc, 's2')
+		assert.equal(svc.getCase('c-s1').events, 2)
 	})
 
 	it('7. старый кейс без rootId получает его из sessions', () => {
@@ -319,7 +304,7 @@ describe('LearningService: ревью этапа 1', () => {
 		store.files.set('/p/ok.jsonl', line)
 		const svc = make()
 		sessions = sessions.map(s => ({ ...s, createdAt: new Date(clock.t).toISOString() }))
-		svc.tick()
+		finish(svc, 's1', 's2')
 		assert.equal(svc.view().cases.some(c => c.id === 'c-s1'), false)
 		assert.equal(svc.getCase('c-s2').events, 1)
 	})
@@ -337,22 +322,17 @@ describe('LearningService: ревью этапа 1', () => {
 	it('stop по таймауту: идущее задание возвращается в queued без траты попытки', async () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		reply = () => new Promise<Reply>(() => {})
 		svc.runNow('c-s1')
-		const timers = (await import('node:test')).mock.timers
-		timers.enable({ apis: ['setTimeout'] })
-		try {
-			const p = svc.stop()
-			timers.tick(5000)
-			await p
-		} finally {
-			timers.reset()
-		}
+		const p = svc.stop()
+		mock.timers.tick(5000)
+		await p
 		const j = svc.view().jobs[0]
 		assert.equal(j?.status, 'queued')
 		assert.equal(j.attempts, 0)
 		assert.equal(j.note, 'прервано остановкой')
 		assert.equal(store.jobs[0]?.status, 'queued')
 	})
+
 })

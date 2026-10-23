@@ -53,6 +53,7 @@ export const collectHandler: JobHandler = {
 			notes: ctx.cases.notes(c.id),
 			total: events.length,
 			final: job.final,
+			blockEvents: ctx.settings().blockEvents,
 		})
 		try {
 			await ctx.runAgent(`session-${slugify(title, c.id)}`, title, prompt)
@@ -72,9 +73,10 @@ export const collectHandler: JobHandler = {
 		ctx.cases.update({ ...latest, lastRunAt: ctx.now() })
 		queueHints(ctx, prior, latest.goals)
 		ctx.cases.writeDraft(c.id, '')
+		// не всё принято (агент ушёл раньше `done`): провал попытки, повтор продолжит с принятого
+		const left = ctx.cases.raw(c.id, latest.coveredUntil + 1).length
+		if (left) throw new Error(`the agent ended before all events were accepted (${left} left after n ${latest.coveredUntil}): the accepted blocks are kept`)
 		ctx.finish()
-		// не всё принято (агент ушёл раньше `done`): продолжение сразу, без паузы — это прогресс
-		if (ctx.cases.raw(c.id, latest.coveredUntil + 1).length) ctx.enqueue(job.kind, c.id, { caseId: c.id, final: job.final })
-		else if (job.final) ctx.cases.seal(c.id)
+		if (job.final) ctx.cases.seal(c.id)
 	},
 }

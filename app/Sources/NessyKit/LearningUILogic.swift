@@ -20,6 +20,8 @@ public struct RequestToken: Sendable {
 @MainActor
 public final class SettingsPatchQueue {
 	public var debounce: Duration
+	/// пауза перед отправкой; в тестах подменяется, чтобы не ждать настоящее время
+	public var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 	public var send: ([String: JSONValue]) async throws -> Void = { _ in }
 	public var onError: (Error) -> Void = { _ in }
 	/// очередь опустела (всё отправлено)
@@ -35,9 +37,9 @@ public final class SettingsPatchQueue {
 	public func set(_ changes: [String: JSONValue]) {
 		for (k, v) in changes { pending[k] = v }
 		timer?.cancel()
-		let d = debounce
+		let d = debounce, sleep = sleep
 		timer = Task { [weak self] in
-			try? await Task.sleep(for: d)
+			try? await sleep(d)
 			guard !Task.isCancelled else { return }
 			await self?.drain()
 		}

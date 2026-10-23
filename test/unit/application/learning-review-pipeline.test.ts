@@ -98,7 +98,7 @@ describe('авто-ревью, шесть ступеней', () => {
 	const ctxFor = (payload: Record<string, unknown> | null = null): JobContext => {
 		const job: JobState = {
 			id: 'j1', kind: 'review', caseId: '', subject: 'p-1', status: 'running', attempts: 1, agentId: null, error: null, note: null, range: null,
-			createdAt: '', startedAt: null, finishedAt: null, final: false, retryAt: null, payload,
+			createdAt: '', startedAt: null, finishedAt: null, final: false, payload,
 		}
 		return {
 			job,
@@ -161,7 +161,7 @@ describe('авто-ревью, шесть ступеней', () => {
 		finished = []
 		enqueued = []
 		clockMs = T0
-		settings = { enabled: true, autoReview: true, intervalMin: 5, idleMin: 30, maxAgents: 2, disabledSessions: [] }
+		settings = { enabled: true, autoReview: true, intervalMin: 5, idleMin: 30, maxAgents: 2, retrySec: 60, stallMin: 20, blockEvents: 80, blockChars: 40000, archiveDays: 30, disabledSessions: [] }
 		caseList = [caseState('c1', 'aff', '2026-10-01T01:00:00Z'), caseState('c2', 'aff', '2026-10-01T02:00:00Z'), caseState('c3', 'aff', '2026-10-01T03:00:00Z'), caseState('c4', 'billing', '2026-10-01T04:00:00Z'), caseState('c5', 'billing', '2026-10-01T05:00:00Z')]
 		for (const c of caseList) {
 			raws[c.id] = [ev(1, 'user', `${c.goals[0]?.type === 'aff' ? 'own' : 'other'}-${c.id} first request`), ev(2, 'claude', 'plan'), ev(9, 'user', `late-${c.id}`)]

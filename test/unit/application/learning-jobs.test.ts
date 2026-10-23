@@ -1,11 +1,12 @@
 /** Исполнение заданий обучения: сборщик сессии, повторы, статусы кейса, насос, остановка. */
 import assert from 'node:assert/strict'
-import { beforeEach, describe, it, mock } from 'node:test'
+import { afterEach, beforeEach, describe, it, mock } from 'node:test'
 import type { HubEvent, Message, SessionView } from '../../../shared/types'
 import { Hub } from '../../../src/application/hub'
 import { LearningService } from '../../../src/application/learning/learning.service'
 import type { CaseState, JobState, LearningHost } from '../../../src/application/learning/learning.types'
 import { YOU } from '../../../src/domain/constants'
+import { observe } from '../../support/signals'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
 import { drainReads, submitBlock, summaryFor } from '../../support/read-blocks'
 
@@ -73,8 +74,10 @@ describe('LearningService: задания', () => {
 		},
 	}
 
-	const make = (tickMs = 0): LearningService => {
-		const s = new LearningService({ store, host, hub, clock, ids: { next: () => `id${Math.random().toString(36).slice(2, 8)}` }, defaultOn: true, tickMs, claudeProjectsDir: '/p' })
+	const make = (): LearningService => {
+		// блоки по 25 событий, сторож выключен: тесты ведут время сами
+		store.settingsRaw = { blockEvents: 25, blockChars: 12_000, stallMin: 0, ...(typeof store.settingsRaw === 'object' && store.settingsRaw !== null ? store.settingsRaw : {}) }
+		const s = new LearningService({ store, host, hub, clock, ids: { next: () => `id${Math.random().toString(36).slice(2, 8)}` }, defaultOn: true, claudeProjectsDir: '/p' })
 		current = s
 		s.load()
 		return s
@@ -92,8 +95,18 @@ describe('LearningService: задания', () => {
 		return { step: () => p.then(() => reply), release }
 	}
 	const jobs = (svc: LearningService) => svc.view().jobs
+	/** повтор после ошибки: проходит `retrySec` (60 с), задание делает новую попытку */
+	const retry = async (): Promise<void> => {
+		mock.timers.tick(60_000)
+		await flush()
+	}
+
+	afterEach(() => {
+		mock.timers.reset()
+	})
 
 	beforeEach(() => {
+		mock.timers.enable({ apis: ['setTimeout'] })
 		seq = 0
 		store = new MemoryLearningStore()
 		store.prompts.set('session-collector', '{{mode}}|{{total}}|{{summary}}')
@@ -108,15 +121,15 @@ describe('LearningService: задания', () => {
 		clock.t = T0 + 60_000
 	})
 
-	it('много событий: одно collect, summary записан, coveredUntil = 15, learning_case опубликован', async () => {
+	it('сессия закончена: одно close, summary записан, coveredUntil = 15, ready, learning_case опубликован', async () => {
 		const svc = make()
 		feed = Array.from({ length: 15 }, () => msg('s1'))
-		svc.tick()
-		clock.t += 61_000
+		observe(svc, 's1')
+		assert.equal(jobs(svc).length, 0) // активность заданий не ставит
 		events.length = 0
-		svc.tick()
+		svc.onSessionClosed('s1')
 		assert.equal(jobs(svc).length, 1)
-		assert.equal(jobs(svc)[0]?.kind, 'collect')
+		assert.equal(jobs(svc)[0]?.kind, 'close')
 		assert.equal(jobs(svc)[0]?.status, 'running')
 		assert.deepEqual(jobs(svc)[0]?.range, [1, 15])
 		await flush()
@@ -129,7 +142,7 @@ describe('LearningService: задания', () => {
 		// <meta>.title сборщика игнорируется: название кейса — название сессии
 		assert.equal(c.title, 's1')
 		assert.deepEqual(c.goals, [{ title: 'do the task', type: 'do task' }])
-		assert.equal(c.status, 'collecting')
+		assert.equal(c.status, 'ready')
 		assert.equal(jobs(svc)[0]?.status, 'done')
 		assert.equal(jobs(svc)[0]?.agentId, 'ag1')
 		assert.ok(events.some(e => e.t === 'learning_case' && e.case.coveredUntil === 15))
@@ -141,7 +154,7 @@ describe('LearningService: задания', () => {
 	it('ответ агента без <summary> не мешает: итог — принятые сервером описания', async () => {
 		const svc = make()
 		feed = [msg('s1'), msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		script = [{ ok: true, text: 'нет блока, просто текст' }]
 		svc.runNow('c-s1')
 		await flush()
@@ -151,39 +164,32 @@ describe('LearningService: задания', () => {
 		assert.deepEqual(svc.getCase('c-s1').goals, [{ title: 'do the task', type: 'do task' }])
 	})
 
-	it('агент не принял ни одного блока: провал no progress, повторы с паузой 5, 10, 20 с, summary и coveredUntil не тронуты, кейс не в error', async () => {
+	it('агент не принял ни одного блока: провал no progress, задание остаётся running, повтор через retrySec (постоянная пауза), summary и coveredUntil не тронуты, кейс не в error', async () => {
 		const svc = make()
 		store.summaries.set('c-s1', 'старое')
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		drain = false
 		svc.runNow('c-s1')
 		await flush()
 		assert.equal(calls.length, 1)
-		assert.equal(jobs(svc)[0]?.status, 'queued')
+		assert.equal(jobs(svc)[0]?.status, 'running')
 		assert.equal(jobs(svc)[0]?.attempts, 1)
 		assert.match(jobs(svc)[0]?.error ?? '', /^no progress/)
 		assert.equal(store.summaries.get('c-s1'), 'старое')
 		assert.equal(svc.getCase('c-s1').coveredUntil, 0)
 		assert.notEqual(svc.getCase('c-s1').status, 'error')
-		clock.t += 4_000
-		svc.tick()
+		mock.timers.tick(59_000)
 		await flush()
-		assert.equal(calls.length, 1) // 5 с ещё не прошло
-		clock.t += 1_000
-		svc.tick()
-		await flush()
+		assert.equal(calls.length, 1) // 60 с ещё не прошло
+		await retry()
 		assert.equal(calls.length, 2)
 		assert.equal(jobs(svc)[0]?.attempts, 2)
-		clock.t += 9_000
-		svc.tick()
-		await flush()
-		assert.equal(calls.length, 2) // пауза 10 с
-		drain = true
-		clock.t += 1_000
-		svc.tick()
-		await flush()
+		await retry() // пауза та же, без роста
 		assert.equal(calls.length, 3)
+		drain = true
+		await retry()
+		assert.equal(calls.length, 4)
 		assert.equal(jobs(svc)[0]?.status, 'done')
 		assert.match(store.summaries.get('c-s1') ?? '', /^# T/)
 	})
@@ -191,16 +197,14 @@ describe('LearningService: задания', () => {
 	it('ok: false и исключение — тоже провал с текстом', async () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		drain = false
 		script = [{ ok: false, text: '', error: 'таймаут' }]
 		svc.runNow('c-s1')
 		await flush()
 		assert.equal(jobs(svc)[0]?.error, 'таймаут')
 		script = [() => Promise.reject(new Error('сеть'))]
-		clock.t += 30_000
-		svc.tick()
-		await flush()
+		await retry()
 		assert.equal(jobs(svc)[0]?.error, 'сеть')
 		assert.equal(jobs(svc)[0]?.attempts, 2)
 	})
@@ -208,7 +212,7 @@ describe('LearningService: задания', () => {
 	it('onSessionClosed → close; после ответа ready с closedAt; новое событие → collecting, следующий close дописывает', async () => {
 		const svc = make()
 		feed = [msg('s1'), msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		svc.onSessionClosed('s1')
 		assert.equal(jobs(svc)[0]?.kind, 'close')
 		assert.equal(svc.getCase('c-s1').status, 'closing')
@@ -220,24 +224,21 @@ describe('LearningService: задания', () => {
 		assert.equal(c.coveredUntil, 2)
 		feed.push(msg('s1'))
 		script = [{ ok: true, text: GOOD('Два') }]
-		clock.t += 61_000 // пауза между запусками
-		svc.tick()
+		observe(svc, 's1') // работа возобновилась: ready → collecting, задания нет
 		assert.equal(svc.getCase('c-s1').status, 'collecting')
 		assert.equal(svc.getCase('c-s1').closedAt, null)
-		await flush()
-		assert.match(calls[1]?.prompt ?? '', /^incremental:/)
-		assert.equal(svc.getCase('c-s1').coveredUntil, 3)
-		feed.push(msg('s1'))
+		assert.equal(jobs(svc).filter(j => j.status !== 'done').length, 0)
 		svc.onSessionClosed('s1')
-		assert.match(calls[2]?.prompt ?? '', /^final:[^|]*\|1\|# T\n## Goal/) // только новые события, прежнее описание ушло в промпт
+		assert.match(calls[1]?.prompt ?? '', /^final:[^|]*\|1\|# T\n## Goal/) // только новые события, прежнее описание ушло в промпт
 		await flush()
+		assert.equal(svc.getCase('c-s1').coveredUntil, 3)
 		assert.equal(svc.getCase('c-s1').status, 'ready')
 	})
 
-	it('агент принял один блок из трёх и ушёл: coveredUntil — до принятого, продолжение сразу, без паузы; новый агент начинает с ackedUntil', async () => {
+	it('агент принял один блок из трёх и ушёл: coveredUntil — до принятого, провал попытки, повтор по retrySec; новый агент начинает с ackedUntil', async () => {
 		const svc = make()
 		feed = Array.from({ length: 60 }, () => msg('s1', 'x'))
-		svc.tick()
+		observe(svc, 's1')
 		drain = false
 		const firsts: number[] = []
 		script = [
@@ -253,18 +254,24 @@ describe('LearningService: задания', () => {
 		]
 		svc.onSessionClosed('s1')
 		await flush()
+		assert.deepEqual(firsts, [1])
+		assert.equal(svc.getCase('c-s1').coveredUntil, 25)
+		assert.equal(jobs(svc)[0]?.status, 'running') // слот за заданием до повтора
+		assert.equal(jobs(svc)[0]?.attempts, 1)
+		assert.match(jobs(svc)[0]?.error ?? '', /ended before all events were accepted/)
+		await retry()
 		assert.deepEqual(firsts, [1, 26]) // второй агент не читает принятое заново
 		assert.equal(calls.length, 2)
 		assert.equal(svc.getCase('c-s1').coveredUntil, 60)
 		assert.equal(svc.getCase('c-s1').status, 'ready')
-		assert.equal(jobs(svc).filter(j => j.status === 'done').length, 2)
+		assert.equal(jobs(svc).filter(j => j.status === 'done').length, 1)
 		assert.ok(jobs(svc).every(j => j.kind === 'close'))
 	})
 
 	it('полный проход на три блока (25 + 25 + 10): drain сдаёт блоки и --final, кейс ready', async () => {
 		const svc = make()
 		feed = Array.from({ length: 60 }, () => msg('s1', 'x'))
-		svc.tick()
+		observe(svc, 's1')
 		svc.onSessionClosed('s1')
 		await flush()
 		assert.equal(calls.length, 1)
@@ -278,7 +285,7 @@ describe('LearningService: задания', () => {
 	it('read без принятого описания: 409 summary_required; описание с пропуском события: REJECTED R2; три отказа — провал, чекпоинт сохранён, свежий агент продолжает с принятого', async () => {
 		const svc = make()
 		feed = Array.from({ length: 30 }, () => msg('s1', 'x'))
-		svc.tick()
+		observe(svc, 's1')
 		drain = false
 		const failures: string[] = []
 		script = [
@@ -318,9 +325,7 @@ describe('LearningService: задания', () => {
 		assert.match(jobs(svc)[0]?.error ?? '', /3 rejected drafts/)
 		assert.equal(svc.getCase('c-s1').coveredUntil, 25) // чекпоинт блока 1 сохранён
 		assert.match(store.summaries.get('c-s1') ?? '', /\(n 25\)/)
-		clock.t += 5_000
-		svc.tick()
-		await flush()
+		await retry()
 		assert.equal(calls.length, 2)
 		assert.equal(jobs(svc)[0]?.status, 'done')
 		assert.equal(svc.getCase('c-s1').coveredUntil, 30)
@@ -342,7 +347,7 @@ describe('LearningService: задания', () => {
 	it('лестница смягчения: упрямец проходит блок не более чем за 3 задания; на последней ступени сервер сам описывает блок (auto), счётчик сбрасывается', async () => {
 		const svc = make()
 		feed = [msg('s1', 'a1'), msg('s1', 'b2'), msg('s1', 'c3')]
-		svc.tick()
+		observe(svc, 's1')
 		drain = false
 		const msgs: string[] = []
 		script = [stubborn(svc, msgs), stubborn(svc, msgs), stubborn(svc, msgs)]
@@ -351,9 +356,7 @@ describe('LearningService: задания', () => {
 		assert.equal(svc.getCase('c-s1').blockFails?.fails, 1)
 		assert.equal(svc.getCase('c-s1').coveredUntil, 0)
 		for (let i = 0; i < 2; i++) {
-			clock.t += 130_000
-			svc.tick()
-			await flush()
+			await retry()
 		}
 		assert.equal(calls.length, 3)
 		assert.match(msgs[0] ?? '', /^REJECTED \(attempt 1\/3\)/)
@@ -371,7 +374,7 @@ describe('LearningService: задания', () => {
 	it('лестница: после одного исчерпания R4/R6/R7 — предупреждения (ACCEPTED with warnings), прочие правила жёстки; принятие сбрасывает счётчик', async () => {
 		const svc = make()
 		feed = Array.from({ length: 12 }, () => msg('s1', 'x'))
-		svc.tick()
+		observe(svc, 's1')
 		drain = false
 		const msgs: string[] = []
 		const sparse = (): string => {
@@ -392,9 +395,7 @@ describe('LearningService: задания', () => {
 		svc.runNow('c-s1')
 		await flush()
 		assert.equal(svc.getCase('c-s1').blockFails?.fails, 1)
-		clock.t += 130_000
-		svc.tick()
-		await flush()
+		await retry()
 		assert.match(msgs[3] ?? '', /^ACCEPTED with warnings: R4: density: 1 anchored items/)
 		assert.equal(svc.getCase('c-s1').coveredUntil, 12)
 		assert.equal(svc.getCase('c-s1').blockFails?.fails, 0)
@@ -403,7 +404,7 @@ describe('LearningService: задания', () => {
 	it('ступень ≥ 2: прошёл только каркас (R1, R3, R9) — блок принят, непокрытые события сервер дописывает в ### Skipped', async () => {
 		const svc = make()
 		feed = Array.from({ length: 6 }, () => msg('s1', 'x'))
-		svc.tick()
+		observe(svc, 's1')
 		drain = false
 		const c = svc.getCase('c-s1')
 		store.saveCase({ ...c, blockFails: { from: 1, fails: 2 } })
@@ -426,7 +427,7 @@ describe('LearningService: задания', () => {
 	it('--final только после done; после done обычный draft — 409 no_block; итог сохраняет сервер, задание завершается без ответа агента', async () => {
 		const svc = make()
 		feed = [msg('s1', 'x'), msg('s1', 'y')]
-		svc.tick()
+		observe(svc, 's1')
 		drain = false
 		script = [
 			() => {
@@ -451,7 +452,7 @@ describe('LearningService: задания', () => {
 	it('draft.md очищается при старте и в конце; read/draft публикуют learning_job с progress и phase (reading ↔ summarizing)', async () => {
 		const svc = make()
 		feed = Array.from({ length: 30 }, () => msg('s1', 'z'.repeat(50)))
-		svc.tick()
+		observe(svc, 's1')
 		store.drafts.set('c-s1', 'старый черновик')
 		drain = false
 		const seen: Array<[{ read: number; total: number } | null, string | null | undefined]> = []
@@ -484,7 +485,7 @@ describe('LearningService: задания', () => {
 	it('блок: не больше 25 событий и 12 000 знаков, одно событие берётся всегда; без идущего задания — 409 no_job', async () => {
 		const svc = make()
 		feed = Array.from({ length: 6 }, () => msg('s1', 'ab '.repeat(666).trim()))
-		svc.tick()
+		observe(svc, 's1')
 		assert.throws(() => svc.caseRead('c-s1'), { status: 409, code: 'no_job' })
 		drain = false
 		const got: number[][] = []
@@ -507,7 +508,7 @@ describe('LearningService: задания', () => {
 		sessions = [session('s1', { title: 'Релиз пакета 2' })]
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		svc.runNow('c-s1')
 		await flush()
 		assert.equal(calls[0]?.name, 'session-reliz-paketa-2')
@@ -518,12 +519,12 @@ describe('LearningService: задания', () => {
 		sessions = [session('s1', { title: 'Первое название' })]
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		assert.equal(svc.getCase('c-s1').title, 'Первое название')
 		events.length = 0
 		// Claude переименовал чат (PATCH /sessions/:id {title}): кейс подхватывает без новых событий
 		sessions = [session('s1', { title: 'Новое название' })]
-		svc.tick()
+		observe(svc, 's1')
 		assert.equal(svc.getCase('c-s1').title, 'Новое название')
 		assert.ok(events.some(e => e.t === 'learning_case' && e.case.title === 'Новое название'))
 		// сборщик ответил с title в <meta>: название не меняется
@@ -533,7 +534,7 @@ describe('LearningService: задания', () => {
 		assert.equal(calls[calls.length - 1]?.title, 'Новое название')
 		// пустое название сессии — прежнее остаётся
 		sessions = [session('s1', { title: '  ' })]
-		svc.tick()
+		observe(svc, 's1')
 		assert.equal(svc.getCase('c-s1').title, 'Новое название')
 	})
 
@@ -542,7 +543,7 @@ describe('LearningService: задания', () => {
 		sessions = [session('s1', { title: 'Релиз пакета 2' })]
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		svc.runNow('c-s1')
 		await flush()
 		assert.equal(calls[0]?.prompt, 'T=Релиз пакета 2')
@@ -553,7 +554,7 @@ describe('LearningService: задания', () => {
 		sessions = [session('s1'), session('s2'), session('s3')]
 		const svc = make()
 		feed = [msg('s1'), msg('s2'), msg('s3')]
-		svc.tick()
+		observe(svc, 's1')
 		const gates = [gate(), gate(), gate()]
 		script = gates.map(g => g.step)
 		svc.runNow('s1')
@@ -575,7 +576,7 @@ describe('LearningService: задания', () => {
 	it('рестарт: running → queued с note, исполнение с прежнего coveredUntil', async () => {
 		const first = make()
 		feed = Array.from({ length: 5 }, () => msg('s1'))
-		first.tick()
+		observe(first, 's1')
 		const c = first.getCase('c-s1')
 		store.saveCase({ ...c, coveredUntil: 3 })
 		const running: JobState = {
@@ -593,7 +594,6 @@ describe('LearningService: задания', () => {
 			startedAt: new Date(T0).toISOString(),
 			finishedAt: null,
 			final: true,
-			retryAt: null,
 			payload: null,
 		}
 		store.jobs = [running]
@@ -615,7 +615,7 @@ describe('LearningService: задания', () => {
 		sessions = [session('s1'), session('s2')]
 		const svc = make()
 		feed = [msg('s1'), msg('s2')]
-		svc.tick()
+		observe(svc, 's1')
 		const g = gate()
 		script = [g.step]
 		svc.runNow('s1')
@@ -626,7 +626,7 @@ describe('LearningService: задания', () => {
 		feed.push(msg('s1'))
 		clock.t += 40 * 60_000
 		svc.touchJob('c-s1') // агент жив (читает блоки): сторож задание не снимает
-		svc.tick()
+		observe(svc, 's1')
 		svc.onSessionClosed('s2')
 		assert.equal(jobs(svc).length, 1)
 		g.release()
@@ -635,7 +635,7 @@ describe('LearningService: задания', () => {
 		assert.equal(jobs(svc).length, 1)
 		assert.equal(svc.getCase('c-s1').coveredUntil, 1)
 		// явная команда работает и при выключенном
-		const j = svc.runNow('c-s2')
+		const j = svc.runNow('s2')
 		assert.equal(j.kind, 'close')
 		await flush()
 		assert.equal(svc.getCase('c-s2').status, 'ready')
@@ -647,7 +647,7 @@ describe('LearningService: задания', () => {
 		feed = [msg('s1'), msg('s2')]
 		calls = []
 		clock.t += 40 * 60_000
-		other.tick()
+		observe(other, 's1')
 		other.onSessionClosed('s2')
 		other.onSessionClosed('s1')
 		await flush()
@@ -660,7 +660,7 @@ describe('LearningService: задания', () => {
 		sessions = [session('s1'), session('s2')]
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		assert.equal(svc.isProtected('s1'), true) // collecting
 		assert.equal(svc.isProtected('s2'), false) // кейса нет
 		svc.onSessionClosed('s1')
@@ -669,42 +669,40 @@ describe('LearningService: задания', () => {
 		assert.equal(svc.isProtected('s1'), false) // ready
 	})
 
-	it('close падает: задание остаётся в очереди с растущей паузой, кейс closing (не error), сессия защищена', async () => {
+	it('close падает: задание остаётся running (слот за ним), кейс closing (не error), сессия защищена, повторы по retrySec без предела', async () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		const bad: Reply = { ok: false, text: '', error: 'сбой' }
 		drain = false
 		script = [bad, bad, bad, bad]
 		svc.onSessionClosed('s1')
 		for (let i = 0; i < 3; i++) {
 			await flush()
-			clock.t += 91_000
-			svc.tick()
+			await retry()
 		}
 		await flush()
-		assert.equal(jobs(svc)[0]?.status, 'queued')
+		assert.equal(jobs(svc)[0]?.status, 'running')
 		assert.ok((jobs(svc)[0]?.attempts ?? 0) >= 3)
 		assert.equal(jobs(svc)[0]?.error, 'сбой')
 		assert.equal(svc.getCase('c-s1').status, 'closing')
 		assert.equal(svc.isProtected('s1'), true) // описание ещё не готово
 	})
 
-	it('кейс в error + новое событие: событие собрано, но заданий нет; runNow возвращает в работу', async () => {
+	it('кейс в error + активность и end: события собраны, close ставится; runNow возвращает в работу', async () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		const c = svc.getCase('c-s1')
 		store.saveCase({ ...c, status: 'error' })
 		const svc2 = make()
 		feed.push(msg('s1'))
-		clock.t += 40 * 60_000
-		svc2.tick()
+		observe(svc2, 's1')
 		assert.equal(svc2.getCase('c-s1').status, 'error')
-		assert.equal(svc2.getCase('c-s1').events, 2)
 		assert.equal(svc2.view().jobs.length, 0)
 		svc2.runNow('c-s1')
 		assert.equal(svc2.getCase('c-s1').status, 'closing')
+		assert.equal(svc2.getCase('c-s1').events, 2) // runNow подбирает свежие события
 		await flush()
 		assert.equal(svc2.getCase('c-s1').status, 'ready')
 	})
@@ -752,7 +750,7 @@ describe('LearningService: задания', () => {
 		const svc = make()
 		feed = [msg('s1'), msg('s2')]
 		sessions = [session('s1'), session('s2')]
-		svc.tick()
+		observe(svc, 's1')
 		const g = gate()
 		script = [g.step]
 		svc.start()
@@ -773,11 +771,10 @@ describe('LearningService: задания', () => {
 	})
 
 	it('stop не ждёт дольше 5 с', async () => {
-		mock.timers.enable({ apis: ['setTimeout'] })
-		try {
+		{
 			const svc = make()
 			feed = [msg('s1')]
-			svc.tick()
+			observe(svc, 's1')
 			script = [() => new Promise<Reply>(() => {})]
 			svc.runNow('s1')
 			let stopped = false
@@ -789,26 +786,6 @@ describe('LearningService: задания', () => {
 			mock.timers.tick(5000)
 			await p
 			assert.equal(stopped, true)
-		} finally {
-			mock.timers.reset()
-		}
-	})
-
-	it('start с tickMs > 0 запускает таймер tick, stop его снимает', async () => {
-		mock.timers.enable({ apis: ['setInterval'] })
-		try {
-			const svc = make(1000)
-			feed = [msg('s1')]
-			svc.start()
-			assert.equal(svc.view().cases.length, 0)
-			mock.timers.tick(1000)
-			assert.equal(svc.view().cases.length, 1)
-			await svc.stop()
-			feed.push(msg('s1'))
-			mock.timers.tick(5000)
-			assert.equal(svc.getCase('c-s1').events, 1)
-		} finally {
-			mock.timers.reset()
 		}
 	})
 })

@@ -66,7 +66,6 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 			cliPath: CLI,
 			seedRoles: false,
 			learningDefaultOn: false,
-			learningTickMs: 0,
 			rolesDir: path.join(base, 'roles'),
 			playbooksPluginDir: path.join(base, 'plugin', 'nessy-playbooks'),
 			...opts.config,

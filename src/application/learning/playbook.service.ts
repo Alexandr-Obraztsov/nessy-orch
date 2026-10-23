@@ -1,6 +1,8 @@
 import type { JournalEntry, PendingEdit, PlaybookDetail, PlaybookStatus, PlaybookView, ReviewReport, RuleStatus, RuleView } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
 import { uniqueName } from '../../domain/naming'
+import { parseDocument, renderDocument } from '../../domain/playbook-document'
+import { lintPlaybook } from '../../domain/playbook-lint'
 import { addChangelog, renderPlaybook, skillName } from '../../domain/playbook-render'
 import type { BuildDraft, MatchGroup } from '../../domain/playbook.types'
 import type { NewEntry, PlaybookServiceDeps, PlaybookState } from './learning.types'
@@ -85,7 +87,40 @@ export class PlaybookService {
 		const p = this.need(id)
 		const { store } = this.deps
 		const fileTexts = store.readFiles(id)
-		return { ...playbookView(p), fileTexts: { ...fileTexts, 'notes.md': store.readNotes(id) || fileTexts['notes.md'] || '' }, notes: store.readNotes(id), changelog: fileTexts['CHANGELOG.md'] ?? '', versions: store.versions(id), reviews: store.loadReviews(id) }
+		const view = playbookView(p)
+		return { ...view, fileTexts: { ...fileTexts, 'notes.md': store.readNotes(id) || fileTexts['notes.md'] || '' }, notes: store.readNotes(id), markdown: renderDocument(view, store.readNotes(id)), changelog: fileTexts['CHANGELOG.md'] ?? '', versions: store.versions(id), reviews: store.loadReviews(id) }
+	}
+
+	/**
+	 * Сохраняет правленный документ плейбука новой версией. `baseVersion` не совпала — 409 `stale` (с `version`);
+	 * ошибки разбора и критичные замечания `lintPlaybook` (не строгие к доказательствам) — 400 `lint` (через `\n`).
+	 * Правила сверяются по маркерам: тот же маркер — то же правило, пропал — архив, строка без маркера — новое активное (`author: user`).
+	 */
+	applyDocument(id: string, text: string, baseVersion: number, known: ReadonlySet<string> = new Set()): PlaybookState {
+		const p = this.need(id)
+		if (baseVersion !== p.version) throw new AppError(409, 'stale', `плейбук ${id} изменился: версия ${p.version}, правили ${baseVersion}`, { version: p.version })
+		const { draft, issues, notices } = parseDocument(text, playbookView(p))
+		if (issues.length) throw new AppError(400, 'lint', issues.join('\n'))
+		const iso = this.iso()
+		const used = new Set(p.rules.map(r => r.id))
+		const fresh: RuleView[] = draft.added.map(a => {
+			let rid = `r-${this.deps.ids.next(6)}`
+			while (used.has(rid)) rid = `r-${this.deps.ids.next(6)}`
+			used.add(rid)
+			return { id: rid, text: a.text, stage: a.stage, status: a.status, up: 2, down: 0, evidence: [], against: [], lastAppliedAt: null, createdAt: iso, author: 'user' }
+		})
+		const next: PlaybookState = { ...p, title: draft.title, description: draft.description, taskType: draft.taskType, params: draft.params, sources: draft.sources, files: draft.files, behavior: draft.behavior, stages: draft.stages, rules: [...draft.rules, ...fresh] }
+		const critical = lintPlaybook(next, renderPlaybook(next, draft.notes, ''), known, { strictEvidence: false }).filter(i => i.level === 'critical')
+		if (critical.length) throw new AppError(400, 'lint', critical.map(i => `${i.where}: ${i.text}`).join('\n'))
+		if (draft.notes.trim() !== this.deps.store.readNotes(id).trim()) this.deps.store.writeNotes(id, draft.notes)
+		const extra = notices.length ? ` (${notices.join('; ')})` : ''
+		const saved = this.saveVersion(next, 'Edited by the user: document', { kind: 'edit', subject: id, summary: `${id}: правка документа${extra}`, report: null, revertible: true, revertedBy: null })
+		for (const r of fresh) this.record({ kind: 'rule_activated', subject: id, summary: `${id}: правило «${r.text}» добавлено вручную`, report: null, revertible: false, revertedBy: null })
+		for (const rid of draft.archived) {
+			const r = p.rules.find(x => x.id === rid)
+			if (r) this.record({ kind: 'rule_archived', subject: id, summary: `${id}: правило «${r.text}» убрано из документа`, report: JSON.stringify({ ruleId: rid, prevStatus: r.status }), revertible: true, revertedBy: null })
+		}
+		return saved
 	}
 
 	/** Последние записи журнала, старые первыми; `before` — id записи: страница старее неё. */

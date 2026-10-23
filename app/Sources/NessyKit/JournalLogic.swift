@@ -33,6 +33,17 @@ public enum JournalLogic {
 		return sorted.count > limit ? Array(sorted.suffix(limit)) : sorted
 	}
 
+	/// Одна новая запись в уже упорядоченный журнал. Обычный случай (новый id, не старее последней) — дописать в конец без разбора
+	/// всех времён: событие приходит на каждую запись, а полное слияние парсит все даты. Иначе — полное слияние.
+	public static func append(_ base: [JournalEntry], _ e: JournalEntry, limit: Int) -> [JournalEntry] {
+		guard let last = base.last, let d = ISO.parse(e.ts), let ld = ISO.parse(last.ts), d >= ld, !base.contains(where: { $0.id == e.id }) else {
+			return merge(base, [e], limit: limit)
+		}
+		var out = base
+		out.append(e)
+		return out.count > limit ? Array(out.suffix(limit)) : out
+	}
+
 	/// Записи, прошедшие фильтр важности и поиск по тексту (фраза и вид события, без учёта регистра).
 	public static func filter(_ entries: [JournalEntry], level: LevelFilter, query: String) -> [JournalEntry] {
 		let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

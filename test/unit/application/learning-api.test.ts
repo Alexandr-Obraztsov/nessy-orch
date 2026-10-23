@@ -6,6 +6,7 @@ import { Hub } from '../../../src/application/hub'
 import { LearningService } from '../../../src/application/learning/learning.service'
 import type { LearningHost } from '../../../src/application/learning/learning.types'
 import { YOU } from '../../../src/domain/constants'
+import { observe } from '../../support/signals'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
 import { drainReads } from '../../support/read-blocks'
 
@@ -58,7 +59,7 @@ describe('LearningService: API', () => {
 		},
 	}
 	const make = (): LearningService => {
-		const s = new LearningService({ store, host, hub, clock, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p' })
+		const s = new LearningService({ store, host, hub, clock, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, claudeProjectsDir: '/p' })
 		current = s
 		s.load()
 		return s
@@ -84,7 +85,7 @@ describe('LearningService: API', () => {
 		assert.equal(svc.getSettings().intervalMin, 5)
 		assert.deepEqual(store.settingsRaw, next)
 		assert.ok(events.some(e => e.t === 'learning_settings' && !e.settings.enabled))
-		svc.tick()
+		observe(svc, 's1')
 		assert.equal(svc.getSettings().enabled, false)
 		assert.throws(() => svc.updateSettings({ enabled: 'да' }), { code: 'bad_request', status: 400 })
 	})
@@ -92,7 +93,7 @@ describe('LearningService: API', () => {
 	it('getCaseDetail: summary и notes; нет кейса — 404 no_case', () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		store.summaries.set('c-s1', '# описание')
 		store.notes.set('c-s1', 'заметка')
 		const d = svc.getCaseDetail('c-s1')
@@ -107,7 +108,7 @@ describe('LearningService: API', () => {
 	it('removeCase: во время задания 409 case_busy, потом удаляет кейс, файлы и ждущие задания', async () => {
 		const svc = make()
 		feed = [msg('s1')]
-		svc.tick()
+		observe(svc, 's1')
 		let release = (): void => {}
 		hold = new Promise<void>(r => {
 			release = r
@@ -151,7 +152,7 @@ describe('LearningService: API', () => {
 		const svc = make()
 		sessions = [session('s1'), session('s2')]
 		feed = [msg('s1'), msg('s2')]
-		svc.tick()
+		observe(svc, 's1', 's2')
 		const jobs = svc.runAll()
 		assert.equal(jobs.length, 2)
 		assert.ok(jobs.every(j => j.kind === 'close'))

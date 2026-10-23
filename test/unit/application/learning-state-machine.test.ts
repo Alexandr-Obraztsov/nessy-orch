@@ -1,15 +1,14 @@
 /**
- * Симулятор очереди и состояний обучения: детерминированная (seed) последовательность из 300 операций над 5 сессиями,
- * после каждой — инварианты. Часы и таймеры фейковые (`mock.timers`), агенты управляются тестом.
+ * Симулятор очереди и состояний обучения по событиям: детерминированная (seed) последовательность из 300 операций над 5 сессиями
+ * (активность, конец сессии, простой, ошибки агентов, сторож, рестарты), после каждой — инварианты. Часы и таймеры фейковые (`mock.timers`), агенты управляются тестом.
  */
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it, mock } from 'node:test'
-import type { JobView, Message, SessionView } from '../../../shared/types'
+import type { Message, SessionView } from '../../../shared/types'
 import { Hub } from '../../../src/application/hub'
 import { LearningService } from '../../../src/application/learning/learning.service'
 import type { LearningHost } from '../../../src/application/learning/learning.types'
 import { YOU } from '../../../src/domain/constants'
-import { COOLDOWN_MS } from '../../../src/domain/learning-settings'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
 import { stubCollect } from '../../support/stub-collect'
 
@@ -58,6 +57,7 @@ describe('машина состояний обучения: симулятор',
 			pending.delete(id)
 			return Promise.resolve()
 		},
+		agentAlive: id => pending.has(id),
 		runAgent: req =>
 			new Promise<Reply>(resolve => {
 				agentSeq += 1
@@ -85,7 +85,7 @@ describe('машина состояний обучения: симулятор',
 	})
 
 	const boot = (): LearningService => {
-		const svc = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p' })
+		const svc = new LearningService({ store, host, hub: new Hub(), clock, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, claudeProjectsDir: '/p' })
 		svc.registerHandler(stubCollect)
 		svc.load()
 		svc.start()
@@ -94,15 +94,17 @@ describe('машина состояний обучения: симулятор',
 
 	/** Инварианты; `maxBefore` — число running до операции (понижение maxAgents не убивает идущих). */
 	const check = (svc: LearningService, where: string, prevRunning: number): void => {
-		const now = Date.now()
 		const view = svc.view()
 		const max = svc.getSettings().maxAgents
 		const jobs = view.jobs
 		const running = jobs.filter(j => j.status === 'running')
 		const queued = jobs.filter(j => j.status === 'queued')
-		const fail = (msg: string): never => assert.fail(`${where}: ${msg}\n${JSON.stringify(jobs.filter(j => j.status !== 'done').map(j => [j.id, j.kind, j.subject, j.status, j.waiting, j.retryAt]))}`)
-		// состояния только queued → running → done
-		for (const j of jobs) if (j.status !== 'queued' && j.status !== 'running' && j.status !== 'done') fail(`состояние ${j.status}`)
+		const fail = (msg: string): never => assert.fail(`${where}: ${msg}\n${JSON.stringify(jobs.filter(j => j.status !== 'done').map(j => [j.id, j.kind, j.subject, j.status, j.attempts, j.error]))}`)
+		// состояния только queued → running → done; полей ожидания нет
+		for (const j of jobs) {
+			if (j.status !== 'queued' && j.status !== 'running' && j.status !== 'done') fail(`состояние ${j.status}`)
+			if ('retryAt' in j || 'waiting' in j) fail(`лишние поля у ${j.id}`)
+		}
 		// (а) идущих не больше maxAgents (после понижения настройки — не больше, чем было)
 		if (running.length > max && running.length > prevRunning) fail(`running ${running.length} > maxAgents ${max}`)
 		// (б) на объект не больше одного идущего и одного ждущего задания
@@ -113,31 +115,20 @@ describe('машина состояний обучения: симулятор',
 				seen.add(j.subject)
 			}
 		}
-		// (в) есть свободный слот — среди queued нет готового к запуску
-		const isReady = (j: JobView): boolean => (j.retryAt === null || Date.parse(j.retryAt) <= now) && !running.some(r => r.subject === j.subject)
+		// (в) есть свободный слот — среди queued нет готового к запуску (замок: идущее задание того же объекта)
 		if (running.length < max) {
-			const stuck = queued.filter(isReady)
+			const stuck = queued.filter(j => !running.some(r => r.subject === j.subject))
 			if (stuck.length) fail(`свободный слот (${running.length}/${max}), но готово к запуску: ${stuck.map(j => j.id).join()}`)
 		}
-		// ожидание описано честно: retry — пауза впереди, lock — идущее задание того же объекта, иначе null
-		for (const j of queued) {
-			const want = j.retryAt !== null && Date.parse(j.retryAt) > now ? 'retry' : running.some(r => r.subject === j.subject) ? 'lock' : null
-			if (j.waiting !== want) fail(`waiting ${j.id}: ${j.waiting}, ожидалось ${want}`)
-		}
-		// (г) идущее задание всегда с живым агентом, живой агент — всегда у идущего задания
+		// (г) идущее задание — с живым агентом либо после ошибки (ждёт повтор, слот за ним); живой агент — всегда у идущего задания
 		const agents = new Set(running.map(j => j.agentId))
-		for (const j of running) if (j.agentId === null || !pending.has(j.agentId)) fail(`running ${j.id} без агента (${j.agentId})`)
+		for (const j of running) if ((j.agentId === null || !pending.has(j.agentId)) && j.error === null) fail(`running ${j.id} без агента (${j.agentId}) и без ошибки: после рестарта идущих без агента быть не должно`)
 		for (const id of pending.keys()) if (!agents.has(id)) fail(`агент ${id} без идущего задания`)
 		for (const c of view.cases) {
 			// (е)
 			if (c.coveredUntil > c.events) fail(`coveredUntil ${c.coveredUntil} > events ${c.events} у ${c.id}`)
 			const active = jobs.some(j => j.caseId === c.id && (j.status === 'queued' || j.status === 'running'))
-			// (д) собирающийся кейс с необработанными событиями без задания — только на паузе сбора
-			if (c.status === 'collecting' && c.events > c.coveredUntil && !active) {
-				const st = store.cases.get(c.id)
-				if (!st || now - st.lastRunAt >= COOLDOWN_MS) fail(`кейс ${c.id}: ${c.events - c.coveredUntil} необработанных, задания нет, пауза прошла`)
-			}
-			// closing без задания закрытия — застрявший кейс
+			// кейс без задания не closing
 			if (c.status === 'closing' && !active) fail(`кейс ${c.id} в closing без задания`)
 		}
 	}
@@ -153,10 +144,6 @@ describe('машина состояний обучения: симулятор',
 				} catch (e) {
 					if (!(e instanceof Error) || !/нет кейса|no_case|не найден|no_job/.test(e.message)) throw e
 				}
-				svc.tick()
-				await flush()
-				// конец задания зовёт отложенный tick (`requestTick`); при `tickMs: 0` его заменяет второй вызов
-				svc.tick()
 				await flush()
 				check(svc, `seed ${seed} ${name}`, prevRunning)
 			}
@@ -164,14 +151,16 @@ describe('машина состояний обучения: симулятор',
 				const prev = svc.view().jobs.filter(j => j.status === 'running').length
 				const r = rnd()
 				const s = pick(sessions)
-				if (r < 0.3) {
+				if (r < 0.12) {
+					await step(`#${i} activity ${s.id}`, prev, () => svc.signal({ event: 'activity', session: s.id }))
+				} else if (r < 0.3) {
 					await step(`#${i} event ${s.id}`, prev, () => {
 						seq += 1
 						feed.push({ seq, id: `m${seq}`, ts: Date.now(), from: YOU, to: 'a1', kind: 'msg', text: `t${seq}`, hops: 0, session: s.id })
 						s.updatedAt = new Date(Date.now()).toISOString()
 					})
 				} else if (r < 0.5) {
-					const ms = pick([500, 2_000, 5_000, 21_000, 61_000, 130_000, 11 * 60_000, 31 * 60_000])
+					const ms = pick([500, 2_000, 5_000, 21_000, 61_000, 130_000, 11 * 60_000, 31 * 60_000, 130 * 60_000])
 					await step(`#${i} advance ${ms}`, prev, () => {
 						mock.timers.tick(ms)
 					})
@@ -187,8 +176,10 @@ describe('машина состояний обучения: симулятор',
 						pending.get(id)?.({ agentId: id, ok: false, text: '', error: 'сбой' })
 						pending.delete(id)
 					})
+					const after = svc.view().jobs.filter(j => j.status === 'running').length
+					if (after < prev) assert.fail(`seed ${seed} #${i}: ошибка освободила слот (${prev} → ${after})`)
 				} else if (r < 0.74) {
-					await step(`#${i} close ${s.id}`, prev, () => svc.onSessionClosed(s.id))
+					await step(`#${i} end ${s.id}`, prev, () => svc.signal({ event: 'end', session: s.id }))
 				} else if (r < 0.8) {
 					await step(`#${i} runNow ${s.id}`, prev, () => void svc.runNow(s.id))
 				} else if (r < 0.85) {
@@ -212,6 +203,10 @@ describe('машина состояний обучения: симулятор',
 				}
 			}
 			// живость: отказов больше нет, агенты отвечают — всё доходит до ready, очередь пуста
+			// срок простоя истёк у всех открытых сессий
+			await step('idle', svc.view().jobs.filter(j => j.status === 'running').length, () => {
+				mock.timers.tick(130 * 60_000)
+			})
 			for (let round = 0; round < 80; round++) {
 				const prev = svc.view().jobs.filter(j => j.status === 'running').length
 				await step(`drain ${round}`, prev, () => {
@@ -219,7 +214,7 @@ describe('машина состояний обучения: симулятор',
 						done({ agentId: id, ok: true, text: 'ok' })
 						pending.delete(id)
 					}
-					mock.timers.tick(130_000)
+					mock.timers.tick(61_000)
 				})
 				const v = svc.view()
 				if (v.jobs.every(j => j.status === 'done') && v.cases.every(c => c.status === 'ready')) break

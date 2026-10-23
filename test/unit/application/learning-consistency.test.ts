@@ -191,7 +191,7 @@ describe('замок плейбука в LearningService', () => {
 		store = new MemoryLearningStore()
 		pstore = new MemoryPlaybookStore()
 		let id = 0
-		svc = new LearningService({ store, host, hub: new Hub(), clock: { now: () => now }, ids: { next: () => `i${(++id).toString(36).padStart(6, '0')}` }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore })
+		svc = new LearningService({ store, host, hub: new Hub(), clock: { now: () => now }, ids: { next: () => `i${(++id).toString(36).padStart(6, '0')}` }, defaultOn: true, claudeProjectsDir: '/p', playbookStore: pstore })
 		const p = state({ status: 'active' })
 		pstore.savePlaybook(p, renderPlaybook(p, '', ''), 'seed')
 		store.cases.set('c7', closing('c7'))

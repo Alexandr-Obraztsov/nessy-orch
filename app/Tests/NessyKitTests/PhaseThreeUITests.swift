@@ -23,44 +23,74 @@ struct RequestTokenTests {
 	}
 }
 
+/// Ручные ворота: `wait()` стоит, пока тест не вызовет `open()`; время не участвует.
+private actor Gate {
+	private var waiters: [CheckedContinuation<Void, Never>] = []
+	private var opened = 0
+	func wait() async {
+		if opened > 0 { opened -= 1; return }
+		await withCheckedContinuation { waiters.append($0) }
+	}
+	/// отпустить всех, кто уже ждёт (отменённые таймеры тоже стоят на воротах)
+	func openAll() { let w = waiters; waiters = []; w.forEach { $0.resume() } }
+	func open() { if waiters.isEmpty { opened += 1 } else { waiters.removeFirst().resume() } }
+}
+
+/// Дождаться условия, отдавая управление (без реального времени).
+@MainActor private func until(_ cond: () -> Bool) async {
+	for _ in 0..<100_000 where !cond() { await Task.yield() }
+}
+
 @Suite("Очередь PATCH настроек")
 @MainActor
 struct SettingsQueueTests {
-	@Test("быстрые правки сливаются в один запрос, побеждает последнее значение")
+	@Test("быстрые правки сливаются в один запрос, побеждает последнее значение; отправка — после паузы")
 	func debounced() async throws {
-		let q = SettingsPatchQueue(debounce: .milliseconds(40))
+		let q = SettingsPatchQueue(debounce: .milliseconds(400))
+		let gate = Gate()
+		q.sleep = { _ in await gate.wait() }
 		let sent = Box<[[String: JSONValue]]>([])
 		q.send = { c in sent.mutate { $0.append(c) } }
 		q.set(["intervalMin": .number(1)])
 		q.set(["intervalMin": .number(2), "idleMin": .number(30)])
 		q.set(["intervalMin": .number(3)])
 		#expect(q.isBusy)
-		try await Task.sleep(for: .milliseconds(200))
+		await Task.yield()
+		#expect(sent.value.isEmpty, "пока пауза не вышла, ничего не ушло")
+		await gate.openAll()
+		await until { !q.isBusy }
 		#expect(sent.value.count == 1)
 		#expect(sent.value.first?["intervalMin"] == .number(3))
 		#expect(sent.value.first?["idleMin"] == .number(30))
-		#expect(!q.isBusy)
 	}
 
 	@Test("запросы идут по одному: правка во время отправки уходит после неё")
 	func sequential() async throws {
-		let q = SettingsPatchQueue(debounce: .milliseconds(10))
+		let q = SettingsPatchQueue(debounce: .zero)
+		q.sleep = { _ in }
+		let sendGate = Gate()
 		let log = Box<[String]>([])
 		q.send = { c in
 			log.mutate { $0.append("start \(c.keys.sorted().joined())") }
-			try await Task.sleep(for: .milliseconds(80))
+			await sendGate.wait()
 			log.mutate { $0.append("end \(c.keys.sorted().joined())") }
 		}
 		q.set(["a": .number(1)])
-		try await Task.sleep(for: .milliseconds(40))
+		await until { log.value == ["start a"] }
 		q.set(["b": .number(2)])
-		try await Task.sleep(for: .milliseconds(300))
+		await Task.yield()
+		#expect(log.value == ["start a"], "b ждёт окончания a")
+		await sendGate.open()
+		await until { log.value.count == 3 }
+		await sendGate.open()
+		await until { !q.isBusy }
 		#expect(log.value == ["start a", "end a", "start b", "end b"])
 	}
 
 	@Test("flush отправляет сразу; ошибка не рвёт очередь")
 	func flushAndError() async throws {
 		let q = SettingsPatchQueue(debounce: .seconds(10))
+		q.sleep = { _ in try await Task.sleep(for: .seconds(3600)) }
 		let sent = Box(0), errors = Box(0)
 		q.send = { _ in sent.mutate { $0 += 1 }; if sent.value == 1 { throw APIError(status: 500, code: "x", message: "x") } }
 		q.onError = { _ in errors.mutate { $0 += 1 } }

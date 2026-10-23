@@ -30,6 +30,8 @@ export interface CollectorInput {
 	total: number
 	/** сессия закончилась: дописать все разделы */
 	final: boolean
+	/** событий в блоке чтения (настройка `blockEvents`); нет — умолчание */
+	blockEvents?: number
 }
 
 /** Нарушение проверки описания (`summary-gate`): код правила и что именно не так. */

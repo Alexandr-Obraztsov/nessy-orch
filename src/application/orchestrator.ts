@@ -54,7 +54,7 @@ import { SourcesService } from './services/sources.service'
 const SNAPSHOT_MESSAGES = 300
 /** сколько последних сообщений читаем с диска, когда окна памяти не хватает (как в Feed) */
 const DISK_HISTORY_LIMIT = 100_000
-/** жёсткий предел ожидания фонового агента (сек); зависшего снимает сторож заданий (`JOB_STALL_MS`) */
+/** жёсткий предел ожидания фонового агента (сек); зависшего снимает сторож заданий (`stallMin`) */
 const LEARNING_AGENT_TIMEOUT_SEC = 4 * 3600
 const DEFAULT_CANCEL_GRACE_MS = 3000
 const DEFAULT_IDLE_CLOSE_MS = 120_000
@@ -163,7 +163,6 @@ export class Orchestrator implements AgentHost {
 					clock,
 					ids,
 					defaultOn: deps.settings.learningDefaultOn ?? true,
-					tickMs: deps.settings.learningTickMs ?? 30_000,
 					claudeProjectsDir: deps.settings.claudeProjectsDir ?? path.join(os.homedir(), '.claude', 'projects'),
 				})
 			: null
@@ -186,9 +185,28 @@ export class Orchestrator implements AgentHost {
 			cancelAgent: async agentId => {
 				await this.cancelAgent(agentId).catch(() => undefined)
 			},
-			runAgent: async ({ name, title, prompt, onSpawn }) => {
-				let agentId = ''
+			agentAlive: id => {
+				const a = this.registry.agents.get(id)
+				return !!a && !a.isBusy && a.queue.length === 0 && a.status !== 'error'
+			},
+			noteAgent: (id, text, level) => this.registry.agents.get(id)?.addSystem(text, level),
+			releaseAgent: async id => {
+				await this.removeAgent(id).catch(() => undefined)
+			},
+			agentActivity: id => {
+				const a = this.registry.agents.get(id)
+				return a ? Date.parse(a.lastActivityAt) || null : null
+			},
+			runAgent: async ({ name, title, prompt, agentId: reuse, onSpawn }) => {
+				let agentId = reuse ?? ''
 				try {
+					// продолжение: сообщение живому агенту прошлой попытки, ответ ждём так же, как у нового
+					if (reuse) {
+						const res = await this.send(reuse, { from: 'you', text: prompt, wait: true, waitTimeoutSec: LEARNING_AGENT_TIMEOUT_SEC })
+						const ok = !!res.reply && !res.reply.failed
+						if (ok) await this.removeAgent(reuse).catch(() => undefined)
+						return { agentId: reuse, text: res.reply?.text ?? '', ok, ...(ok ? {} : { error: res.reply?.text || 'агент не ответил' }) }
+					}
 					const casesDir = this.deps.learningStore?.casesDir ?? ''
 					this.deps.learningStore?.ensureCasesDir()
 					this.ensureServiceSession(SERVICE_SESSION, 'Фон', casesDir)
@@ -198,11 +216,10 @@ export class Orchestrator implements AgentHost {
 					})
 					agentId = res.agent.id
 					const ok = !!res.reply && !res.reply.failed
-					// фоновые агенты реестр не засоряют: ответ сервис сохранит сам, агента убираем
-					await this.removeAgent(agentId).catch(() => undefined)
+					// удачного агента убираем (ответ сервис сохранит сам); упавший остаётся: ему пишет повтор задания, убирает сервис
+					if (ok) await this.removeAgent(agentId).catch(() => undefined)
 					return { agentId, text: res.reply?.text ?? '', ok, ...(ok ? {} : { error: res.reply?.text || 'агент не ответил' }) }
 				} catch (e) {
-					if (agentId) await this.removeAgent(agentId).catch(() => undefined)
 					return { agentId, text: '', ok: false, error: e instanceof Error ? e.message : String(e) }
 				}
 			},
@@ -463,7 +480,6 @@ export class Orchestrator implements AgentHost {
 	/** Чат Claude начался или сменился: сессия этого чата (создаётся, если её нет) и переход вкладки к ней. */
 	attachSession(req: AttachRequest): SessionView {
 		const session = this.sessionsSvc.attach(req)
-		this.learning?.onAttach(session.id)
 		return session
 	}
 

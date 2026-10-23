@@ -67,7 +67,7 @@ describe('judge и improve', () => {
 	}
 	const job = (kind: JobKind): JobState => ({
 		id: 'j1', kind, caseId: 'c1', subject: kind === 'judge' ? 'judge:c1' : 'improve:c1', status: 'running', attempts: 0, agentId: null, error: null, note: null, range: null,
-		createdAt: CREATED, startedAt: CREATED, finishedAt: null, final: false, retryAt: null, payload: null,
+		createdAt: CREATED, startedAt: CREATED, finishedAt: null, final: false, payload: null,
 	})
 	const ctxFor = (kind: JobKind): JobContext => ({
 		job: job(kind),

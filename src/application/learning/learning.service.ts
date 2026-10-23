@@ -1,10 +1,9 @@
-import type { CaseDraftResult, CaseImpact, CaseReadBlock, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookPatch, PlaybookStatus, PlaybookView } from '../../../shared/types'
-import type { CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningView, Message, RawEvent, SessionView } from '../../../shared/types'
+import type { CaseDraftResult, CaseImpact, CaseReadBlock, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookStatus, PlaybookView } from '../../../shared/types'
+import type { CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningSignal, LearningView, RawEvent, SessionView } from '../../../shared/types'
 import { createHash } from 'node:crypto'
 import { AppError } from '../../domain/errors'
 import { parseSummaryHeads } from '../../domain/collector'
-import { decide } from '../../domain/learning-schedule'
-import { COOLDOWN_MS, JOB_STALL_MS, TICK_DEBOUNCE_MS, parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
+import { parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
 import { onCaseReady } from './case-ready'
 import { buildHandler } from './build.handler'
@@ -13,9 +12,6 @@ import { editHandler, mergeEditPayload } from './edit.handler'
 import { improveHandler } from './improve.handler'
 import { judgeHandler } from './judge.handler'
 import { matchHandler } from './match.handler'
-import { applyPatch } from './playbook-edits'
-import { lintPlaybook } from '../../domain/playbook-lint'
-import { renderPlaybook } from '../../domain/playbook-render'
 import { approvePlaybook, meanCorrections, rejectPlaybook, reviewHandler } from './review.handler'
 import type { HintHost, JobContext, JobHandler } from './handlers.types'
 import { JobQueue } from './job-queue'
@@ -68,10 +64,7 @@ const toView = (c: CaseState): CaseView => ({
 	source: 'live',
 })
 
-/** Фоновое обучение: события сессий (с учётом цепочки `/clear`) собираются в кейсы, кейсам назначаются задания. */
-/** Сколько задание может молчать: сборщик сессии (читает блоками и сдаёт саммари) — `JOB_STALL_MS`; сборка плейбука, ревью и прочие долгие работы одним ходом — втрое дольше. */
-const stallMs = (j: { kind: string }): number => (j.kind === 'collect' || j.kind === 'close' ? JOB_STALL_MS : JOB_STALL_MS * 3)
-
+/** Фоновое обучение: сессии, законченные хуком `SessionEnd`, закрытием вкладки или простоем `idleMin`, собираются в кейсы; кейсам назначаются задания (очередь `queued`/`running`, без опроса). */
 export class LearningService {
 	private readonly cases = new Map<string, CaseState>()
 	private settings: LearningSettings
@@ -82,13 +75,18 @@ export class LearningService {
 	private readProtocol: ReadProtocol | null = null
 	private stopped = false
 	private pumping = false
-	private ticker: NodeJS.Timeout | null = null
-	private wake: NodeJS.Timeout | null = null
-	/** отложенный `tick` по событию шины (окно `TICK_DEBOUNCE_MS`) */
-	private tickSoon: NodeJS.Timeout | null = null
-	/** `tick` к моменту, когда у кейса с необработанными событиями кончится пауза `COOLDOWN_MS` */
-	private tickDue: { at: number; timer: NodeJS.Timeout } | null = null
-	private unsubscribe: (() => void) | null = null
+	/** единственный таймер срока простоя: ближайший `lastActivityAt + idleMin` среди открытых кейсов */
+	private idleTimer: NodeJS.Timeout | null = null
+	/** сторожевой таймер: ближайший срок молчания агента (только при `stallMin > 0`) */
+	private stallTimer: NodeJS.Timeout | null = null
+	/** повторы заданий после ошибки: одноразовый таймер на задание */
+	private readonly retryTimers = new Map<string, NodeJS.Timeout>()
+	/** задания `running`, у которых попытка провалилась и ждёт повтора (слот за ними) */
+	private readonly failed = new Set<string>()
+	/** повтор сбора событий законченной сессии, когда диск не принял запись: кейс → таймер */
+	private readonly ingestRetry = new Map<string, NodeJS.Timeout>()
+	/** сколько агентов вызвано в задании (имена файлов `runs/`) */
+	private readonly runCalls = new Map<string, number>()
 	/** поколение запуска задания: сторож или остановка меняют его, и поздние итоги прежнего запуска игнорируются */
 	private readonly runGen = new Map<string, number>()
 	private genSeq = 0
@@ -99,8 +97,6 @@ export class LearningService {
 	/** задания, остановленные пользователем: обработчик получает отмену, итог игнорируется */
 	private readonly cancelled = new Set<string>()
 	private meta: LearningMeta = { startedAt: 0, startSeq: 0, removed: [] }
-	/** до какого `seq` ленты просмотрена цепочка без кейса (корень → seq), только в памяти */
-	private readonly scanned = new Map<string, number>()
 	/** обработчики заданий по виду */
 	private readonly handlers = new Map<JobKind, JobHandler>()
 	/** плейбуки; null без `deps.playbookStore` — тогда сервис работает как на этапе 1 */
@@ -150,7 +146,9 @@ export class LearningService {
 		for (const c of this.deps.store.loadCases()) {
 			// событий за `nextN` быть не может: хвост оборванного сбора отрезается
 			this.deps.store.truncateRaw(c.id, c.nextN)
-			this.cases.set(c.id, c.rootId === undefined ? { ...c, rootId: c.sessions[0] ?? c.id } : c)
+			// миграция: нет `lastActivityAt` — последняя работа сессии = последнее событие или обновление кейса
+			const withRoot = c.rootId === undefined ? { ...c, rootId: c.sessions[0] ?? c.id } : c
+			this.cases.set(c.id, withRoot.lastActivityAt === undefined ? { ...withRoot, lastActivityAt: Math.max(withRoot.lastEventAt, Date.parse(withRoot.updatedAt) || 0) } : withRoot)
 		}
 		// точка отсчёта: сессии, созданные до первого запуска, живых кейсов не заводят (только разбор прошлого)
 		const meta = this.deps.store.loadMeta()
@@ -161,51 +159,58 @@ export class LearningService {
 		}
 		const jobs = this.deps.store.loadJobs()
 		this.queue.load(jobs)
-		for (const j of jobs) if (j.status === 'running') this.log('warn', j.subject, `${this.jobLabel(j)}: прервано перезапуском, продолжаю`)
+		for (const j of jobs) {
+			if (j.status !== 'running') continue
+			this.log('warn', j.subject, `${this.jobLabel(j)}: прервано перезапуском, продолжаю`)
+			// агент прежнего запуска не нужен: задание начнёт со свежим
+			if (j.agentId) void this.deps.host.releaseAgent?.(j.agentId).catch(() => undefined)
+		}
 		// после рестарта `running` вернулись в очередь: фиксируем это на диске
 		if (jobs.some(j => j.status === 'running')) this.deps.store.saveJobs(this.queue.list())
 		this.readSettings()
 		this.loaded = true
 	}
 
-	/** Запуск: насос сразу (задания после рестарта) и таймер `tick` раз в `tickMs` (0 — без таймера). */
+	/**
+	 * Запуск: один проход восстановления (кейс `closing` без задания — обратно в сбор, события открытых кейсов по курсорам в `raw/`),
+	 * таймер срока простоя и насос. Периодических проверок нет.
+	 */
 	start(): void {
 		this.stopped = false
 		const pending = this.queue.list().filter(j => j.status === 'queued' || j.status === 'running').length
 		this.log('info', '', `Фоновое обучение запущено: кейсов ${this.cases.size}, заданий в работе и очереди ${pending}`)
+		for (const c of [...this.cases.values()]) {
+			if (c.status === 'closing' && !this.hasJob(c.id)) this.reopenClosing(c.id)
+			const open = this.cases.get(c.id)
+			if (open?.status === 'collecting') this.ingestCase(open)
+		}
+		this.decay()
+		this.armIdle()
+		this.armStall()
 		this.pump()
-		// новое сообщение или сессия — `tick` через `TICK_DEBOUNCE_MS`, не дожидаясь опроса (он остался подстраховкой)
-		if (this.deps.tickMs > 0 && !this.unsubscribe) {
-			this.unsubscribe = this.deps.hub.subscribe(e => {
-				if (e.t === 'session' || (e.t === 'message' && this.deps.host.sessionOfMessage(e.message) !== null)) this.requestTick()
-			})
-		}
-		if (this.deps.tickMs > 0 && !this.ticker) {
-			this.ticker = setInterval(() => {
-				try {
-					this.tick()
-				} catch {
-					/* сбой одного тика не должен ронять сервер */
-				}
-			}, this.deps.tickMs)
-			this.ticker.unref()
-		}
 	}
 
 	/** Останавливает таймеры и приём заданий; идущих сборщиков ждёт не дольше 5 с (остальные вернутся в очередь при рестарте). */
 	async stop(): Promise<void> {
 		this.stopped = true
 		this.log('info', '', 'Фоновое обучение остановлено')
-		if (this.ticker) clearInterval(this.ticker)
-		if (this.wake) clearTimeout(this.wake)
-		if (this.tickSoon) clearTimeout(this.tickSoon)
-		if (this.tickDue) clearTimeout(this.tickDue.timer)
-		this.unsubscribe?.()
-		this.ticker = null
-		this.wake = null
-		this.tickSoon = null
-		this.tickDue = null
-		this.unsubscribe = null
+		if (this.idleTimer) clearTimeout(this.idleTimer)
+		if (this.stallTimer) clearTimeout(this.stallTimer)
+		for (const t of this.retryTimers.values()) clearTimeout(t)
+		for (const t of this.ingestRetry.values()) clearTimeout(t)
+		this.ingestRetry.clear()
+		this.idleTimer = null
+		this.stallTimer = null
+		this.retryTimers.clear()
+		const waiting = [...this.failed]
+		this.failed.clear()
+		// задания, ждавшие повтора: исполнителя нет, сразу в очередь
+		for (const id of waiting) {
+			const j = this.queue.running().find(x => x.id === id)
+			if (!j) continue
+			this.releaseAgentOf(j)
+			this.jobsChanged(this.queue.requeue(j.id, 'прервано остановкой'))
+		}
 		if (!this.inflight.size) return
 		let timer: NodeJS.Timeout | undefined
 		const limit = new Promise<void>(resolve => {
@@ -219,6 +224,7 @@ export class LearningService {
 		for (const j of cut) {
 			this.interrupted.add(j.id)
 			this.log('warn', j.subject, `${this.jobLabel(j)}: прервано остановкой, вернётся в очередь`)
+			this.releaseAgentOf(j)
 			this.jobsChanged(this.queue.requeue(j.id, 'прервано остановкой'))
 		}
 	}
@@ -296,6 +302,11 @@ export class LearningService {
 			this.cancelled.add(id)
 			this.log('info', job.subject, `${this.jobLabel(job)}: остановка по просьбе пользователя`)
 			if (job.agentId) void this.deps.host.cancelAgent(job.agentId).catch(() => undefined)
+			// попытки в ходу нет (ждёт повтора): снимаем сразу, некому вернуться из обработчика
+			if (this.failed.has(id)) {
+				this.finishCancelled(job)
+				this.pump()
+			}
 		}
 		return this.jobView(job)
 	}
@@ -323,21 +334,15 @@ export class LearningService {
 	}
 
 	/**
-	 * Правка плейбука блоками: новая версия и запись журнала `edit`. Замок плейбука — 409 `playbook_busy`;
-	 * `baseVersion` не совпала с текущей — 409 `stale` с `version`;
-	 * критичные замечания `lintPlaybook` (не строгие к доказательствам) — 400 `lint`.
+	 * Сохранение документа плейбука (`PUT /learning/playbooks/:id/markdown`): замок плейбука — 409 `playbook_busy`,
+	 * `baseVersion` не совпала — 409 `stale`, ошибки разбора и lint — 400 `lint`.
 	 */
-	patchPlaybook(id: string, patch: PlaybookPatch): PlaybookView {
+	putPlaybookMarkdown(id: string, text: string, baseVersion: number): PlaybookDetail {
 		const ps = this.pb()
-		const p = ps.need(id)
+		ps.need(id)
 		this.assertPlaybookIdle(id)
-		if (patch.baseVersion !== p.version) throw new AppError(409, 'stale', `плейбук ${id} изменился: версия ${p.version}, правили ${patch.baseVersion}`, { version: p.version })
-		const next = applyPatch(p, patch, new Date(this.deps.clock.now()).toISOString())
-		const known = new Set(this.cases.keys())
-		const critical = lintPlaybook(next, renderPlaybook(next, ps.notes(id), ''), known, { strictEvidence: false }).filter(i => i.level === 'critical')
-		if (critical.length) throw new AppError(400, 'lint', critical.map(i => `${i.where}: ${i.text}`).join('\n'))
-		const fields = Object.keys(patch).filter(k => k !== 'baseVersion').join(', ')
-		return playbookView(ps.saveVersion(next, `Edited by the user: ${fields}`, { kind: 'edit', subject: id, summary: `${id}: правка блоками (${fields})`, report: null, revertible: true, revertedBy: null }))
+		ps.applyDocument(id, text, baseVersion, new Set(this.cases.keys()))
+		return ps.detail(id)
 	}
 
 	/** Кейс с описанием, заметками и черновиком. */
@@ -411,18 +416,10 @@ export class LearningService {
 
 	private jobView(j: JobState): JobView {
 		const collect = j.status === 'running' && (j.kind === 'collect' || j.kind === 'close')
-		const view: JobView & { protocol?: unknown } = { ...this.queue.toView(j, collect ? protocolProgress(j) : null, this.waitingOf(j)), phase: protocolPhase(j) }
+		const view: JobView & { protocol?: unknown } = { ...this.queue.toView(j, collect ? protocolProgress(j) : null), phase: protocolPhase(j) }
 		// служебное состояние протокола наружу не отдаётся
 		delete view.protocol
 		return view
-	}
-
-	/** Чего ждёт `queued` кроме слота: паузу повтора (`retry`) или замок (`lock`); готовое к запуску — null. */
-	private waitingOf(j: JobState): JobView['waiting'] {
-		if (j.status !== 'queued') return null
-		if (j.retryAt !== null && j.retryAt > this.deps.clock.now()) return 'retry'
-		if (this.isWaiting(j) || this.queue.running().some(r => r.subject === j.subject)) return 'lock'
-		return null
 	}
 
 	/**
@@ -451,6 +448,7 @@ export class LearningService {
 			update: c => this.update(c),
 			changed: job => this.jobsChanged(job),
 			touch: id => this.touchJob(id),
+			blockLimits: () => ({ events: this.settings.blockEvents, chars: this.settings.blockChars }),
 			cancelAgent: agentId => void this.deps.host.cancelAgent(agentId).catch(() => undefined),
 			now: () => this.deps.clock.now(),
 			title: id => this.sessionTitle(id),
@@ -625,7 +623,7 @@ export class LearningService {
 		// свою запись заново не читаем
 		this.settingsMtime = this.deps.store.settingsMtime()
 		this.deps.hub.publish({ t: 'learning_settings', settings: next })
-		this.pump()
+		this.settingsChanged()
 		return next
 	}
 
@@ -709,148 +707,80 @@ export class LearningService {
 	rebuild(id: string): JobView {
 		const c = this.reopen(this.getCase(id))
 		this.assertIdle(id)
+		const fresh = this.ingestCase(c) ?? c
 		this.deps.store.writeSummary(id, '')
-		this.update({ ...c, coveredUntil: 0, updatedAt: new Date(this.deps.clock.now()).toISOString() })
-		return this.jobView(this.request('close', id, true))
+		this.update({ ...fresh, coveredUntil: 0, updatedAt: new Date(this.deps.clock.now()).toISOString() })
+		return this.jobView(this.enqueueClose(id))
 	}
 
 	/** Все незакрытые кейсы (сбор или ошибка) — на итоговый сбор. */
 	runAll(): JobView[] {
 		const open = [...this.cases.values()].filter(c => c.status === 'collecting' || c.status === 'error')
-		return open.map(c => this.jobView(this.request('close', this.reopen(c).id, true)))
+		return open.map(c => this.jobView(this.enqueueClose((this.ingestCase(this.reopen(c)) ?? c).id)))
 	}
 
 	private assertIdle(caseId: string): void {
 		if (this.queue.running().some(j => j.caseId === caseId)) throw new AppError(409, 'case_busy', `по кейсу ${caseId} идёт задание, дождитесь его окончания`)
 	}
 
-	/** Сессию подключили к вкладке (в том числе после `/resume`): подбираем события вне запроса хука. */
-	onAttach(_sessionId: string): void {
-		if (!this.loaded) return
-		setImmediate(() => {
-			if (this.stopped) return
-			try {
-				this.tick()
-			} catch {
-				/* сбой не должен ронять сервер */
-			}
-		}).unref()
-	}
+	// ---------- сигналы хуков, законченные сессии, срок простоя ----------
 
-	/** Синхронно: собирает события всех цепочек, затем принимает решения. Ленту читает один раз за тик. */
-	tick(): void {
-		this.readSettings()
-		this.checkStalls()
-		// уже поставленные задания (повторы, ручные) идут и при выключенном обучении
-		this.pump()
+	/**
+	 * Сигнал хука (`POST /learning/signal`), синхронно и быстро: кейс цепочки сессии (создаётся, если нет), путь транскрипта,
+	 * `lastActivityAt`. `end` — сессия закончена: ingest и задание `close`. Событий и работы агентов здесь нет.
+	 * Выключено обучение, отключённая сессия или надгробие — молчим.
+	 */
+	signal(sig: LearningSignal): void {
+		if (this.refreshSettings()) this.settingsChanged()
 		if (!this.settings.enabled) return
+		// затухание счётчиков плейбуков: раз в сутки, проверка дешёвая и без таймера
 		this.decay()
-		this.scheduleTickAt(this.scan())
+		const c = this.ensureCase(sig.session, false)
+		if (!c) return
+		const now = this.deps.clock.now()
+		const key = sig.chatId || sig.session
+		const prev = c.transcripts[key]
+		const allowed = sig.transcriptPath !== undefined && sig.transcriptPath !== '' && this.deps.store.isAllowedTranscript(sig.transcriptPath, this.deps.claudeProjectsDir)
+		const transcripts = allowed && sig.transcriptPath !== undefined && prev?.path !== sig.transcriptPath ? { ...c.transcripts, [key]: { path: sig.transcriptPath, offset: 0 } } : c.transcripts
+		// у законченного (`ready`) кейса новая работа открывает сессию снова
+		const reopened = c.status === 'ready' ? { status: 'collecting' as const, closedAt: null } : {}
+		// название кейса — название последней сессии цепочки; Claude переименовывает чат в любой момент
+		const all = this.deps.host.sessions()
+		const last = all.some(x => x.id === c.sessions[0]) ? chainOf(all, c.sessions[0] ?? '').at(-1) : c.sessions.at(-1)
+		const named = all.find(x => x.id === last)?.title.trim() ?? ''
+		const title = named !== '' ? named : c.title
+		const next: CaseState = { ...c, ...reopened, transcripts, title, lastActivityAt: now, ...(title !== c.title ? { updatedAt: new Date(now).toISOString() } : {}) }
+		this.update(next)
+		if (sig.event === 'end') this.finishSession(next.id)
+		else this.armIdle()
+		this.pump()
 	}
 
 	/**
-	 * Отложенный `tick` (окно `TICK_DEBOUNCE_MS`): события шины и конец задания не плодят тиков.
-	 * Без опроса (`tickMs` 0) не работает: тесты и вызывающий ведут `tick` сами.
+	 * Кейс цепочки сессии. Нет — создаётся (пустой, без событий): для живой — только свежая цепочка (после точки отсчёта),
+	 * для ручного запуска (`manual`) любая, надгробие снимается. Отключённая сессия или надгробие — null.
 	 */
-	private requestTick(): void {
-		if (this.stopped || this.deps.tickMs <= 0 || this.tickSoon) return
-		this.tickSoon = setTimeout(() => {
-			this.tickSoon = null
-			if (this.stopped) return
-			try {
-				this.tick()
-			} catch {
-				/* сбой не должен ронять сервер */
-			}
-		}, TICK_DEBOUNCE_MS)
-		this.tickSoon.unref()
-	}
-
-	/** `tick` в момент `at` (конец паузы сбора); раньше уже назначенного не откладывает. */
-	private scheduleTickAt(at: number | null): void {
-		if (this.stopped || this.deps.tickMs <= 0) return
-		if (this.tickDue && (at === null || this.tickDue.at <= at)) return
-		if (this.tickDue) clearTimeout(this.tickDue.timer)
-		this.tickDue = null
-		if (at === null) return
-		const timer = setTimeout(() => {
-			this.tickDue = null
-			if (this.stopped) return
-			try {
-				this.tick()
-			} catch {
-				/* сбой не должен ронять сервер */
-			}
-		}, Math.max(0, at - this.deps.clock.now()))
-		timer.unref()
-		this.tickDue = { at, timer }
-	}
-
-	/** Просмотр цепочек и решения по кейсам; возвращает ближайший момент, когда кончится пауза сбора (или null). */
-	private scan(): number | null {
-		let due: number | null = null
-		const { host, clock } = this.deps
-		const sessions = host.sessions()
+	private ensureCase(sessionOrCase: string, manual: boolean): CaseState | null {
+		const direct = this.cases.get(sessionOrCase)
+		if (direct) return direct
+		const sessions = this.deps.host.sessions()
+		if (!sessions.some(s => s.id === sessionOrCase)) return [...this.cases.values()].find(c => c.sessions.includes(sessionOrCase)) ?? null
+		const chain = chainOf(sessions, sessionOrCase)
+		const root = chain[0]
+		if (root === undefined) return null
+		if (manual) this.untomb(chain)
+		else if (chain.some(id => this.settings.disabledSessions.includes(id) || this.meta.removed.includes(id))) return null
+		const have = this.caseForChain(chain)
+		if (have) return this.settings.disabledSessions.some(id => have.sessions.includes(id)) && !manual ? null : have
 		const byId = new Map(sessions.map(s => [s.id, s]))
-		const idx = this.caseIndex()
-		const chains = new Map<string, string[]>()
-		for (const s of sessions) {
-			const chain = chainOf(sessions, s.id)
-			const root = chain[0]
-			if (root !== undefined && !chains.has(root)) chains.set(root, chain)
-		}
-		// собираются цепочки с кейсом и свежие (созданные после точки отсчёта); остальные не читаются вовсе
-		const items: Array<{ root: string; chain: string[]; from: number }> = []
-		for (const [root, chain] of chains) {
-			if (chain.some(id => this.settings.disabledSessions.includes(id) || this.meta.removed.includes(id))) continue
-			const c = this.caseForChain(chain, idx)
-			if (c) items.push({ root, chain, from: c.feedSeq })
-			else if (this.isFresh(chain, byId)) items.push({ root, chain, from: Math.max(this.scanned.get(root) ?? 0, this.meta.startSeq) })
-		}
-		if (!items.length) return null
-		const messages = host.messagesSince(Math.min(...items.map(i => i.from)))
-		const top = messages.reduce((max, m) => Math.max(max, m.seq), 0)
-		const now = clock.now()
-		for (const { root, chain, from } of items) {
-			const c = this.collect(root, chain, messages, from, idx)
-			if (!c) {
-				// кейса нет: просмотренное повторно не читаем
-				this.scanned.set(root, Math.max(from, top))
-				continue
-			}
-			// `error` сам ничего не запускает (иначе шторм агентов при постоянной ошибке): только retry / run / rebuild
-			if (c.status === 'error') continue
-			const pending = c.events - c.coveredUntil
-			const action = decide({ status: c.status, pending, lastRunAt: c.lastRunAt, lastEventAt: c.lastEventAt, busy: host.isBusy(chain), hasJob: this.hasJob(c.id) }, now, this.settings)
-			if (action === 'none' && pending > 0 && !this.hasJob(c.id) && now - c.lastRunAt < COOLDOWN_MS) {
-				const at = c.lastRunAt + COOLDOWN_MS
-				due = due === null ? at : Math.min(due, at)
-			}
-			if (action === 'collect') {
-				// закрытый кейс получил события: сессия вернулась
-				if (c.status === 'ready') this.update({ ...c, status: 'collecting', closedAt: null, updatedAt: new Date(now).toISOString() })
-				this.request('collect', c.id, false)
-			} else if (action === 'close') {
-				this.request('close', c.id, true)
-			} else if (c.status === 'closing' && !this.hasJob(c.id)) {
-				// `closing` без задания закрытия (потеряно при отмене или сбое) — самолечение: обратно в сбор
-				this.reopenClosing(c.id)
-			}
-		}
-		return due
-	}
-
-	/** Новые события одной цепочки: лента (только сообщения сессий цепочки) и транскрипты. Возвращает кейс цепочки (если есть). */
-	private collect(root: string, chain: string[], messages: readonly Message[], fromSeq: number, idx?: ReadonlyMap<string, string>): CaseState | null {
-		const { host, store, clock } = this.deps
-		const existing = this.caseForChain(chain, idx)
-		const id = existing?.id ?? caseIdOf(root)
-		const now = clock.now()
+		if (!manual && !this.isFresh(chain, byId)) return null
+		const now = this.deps.clock.now()
 		const iso = new Date(now).toISOString()
-		const base: CaseState = existing ?? {
-			id,
-			title: null,
-			sessions: [],
+		const sessionTitle = byId.get(chain[chain.length - 1] ?? '')?.title.trim() ?? ''
+		const created: CaseState = {
+			id: caseIdOf(root),
+			title: sessionTitle !== '' ? sessionTitle : null,
+			sessions: chain,
 			status: 'collecting',
 			goals: [],
 			events: 0,
@@ -860,39 +790,59 @@ export class LearningService {
 			closedAt: null,
 			playbook: null,
 			source: 'live',
-			feedSeq: fromSeq,
+			feedSeq: manual ? 0 : this.meta.startSeq,
 			transcripts: {},
 			nextN: 1,
 			lastEventAt: 0,
+			lastActivityAt: now,
 			rootId: root,
-			// начало кейса — точка отсчёта паузы `COOLDOWN_MS`: всплеск первых событий уходит в один первый сбор
 			lastRunAt: now,
 			nessyCalls: false,
 			hinted: [],
 		}
+		this.update(created)
+		this.log('info', created.id, `Новая сессия «${this.sessionTitle(created.id)}»`)
+		return created
+	}
+
+	/** Событий цепочки, которые ещё не в `raw/`: лента после `feedSeq` и транскрипты после смещения. Возвращает обновлённый кейс; не записалось на диск — null (курсоры не сдвинуты). */
+	private ingestCase(existing: CaseState): CaseState | null {
+		const { host, store, clock } = this.deps
+		const sessions = host.sessions()
+		const byId = new Map(sessions.map(s => [s.id, s]))
+		const first = existing.sessions[0] ?? existing.rootId ?? ''
+		const chain = byId.has(first) ? chainOf(sessions, first) : existing.sessions
+		const base = existing
+		const id = base.id
+		const iso = new Date(clock.now()).toISOString()
 		const inChain = new Set(chain)
-		const unseen = messages.filter(m => m.seq > base.feedSeq)
+		const unseen = host.messagesSince(base.feedSeq)
 		const mine = unseen.filter(m => {
 			const s = host.sessionOfMessage(m)
 			return s !== null && inChain.has(s)
 		})
-		const byId = new Map(host.sessions().map(s => [s.id, s]))
 		const transcripts: Array<{ chatId: string; text: string; next: TranscriptCursor }> = []
-		for (const sid of chain) {
-			const s = byId.get(sid)
+		const done = new Set<string>()
+		const take = (key: string, file: string): void => {
+			if (done.has(key)) return
+			done.add(key)
 			// чужие файлы (не из каталога проектов Claude Code, не .jsonl) не читаем
-			if (!s?.transcriptPath || !store.isAllowedTranscript(s.transcriptPath, this.deps.claudeProjectsDir)) continue
-			const key = s.chatId ?? sid
+			if (!store.isAllowedTranscript(file, this.deps.claudeProjectsDir)) return
 			const prev = base.transcripts[key]
-			const cur: TranscriptCursor = prev && prev.path === s.transcriptPath ? prev : { path: s.transcriptPath, offset: 0 }
+			const cur: TranscriptCursor = prev && prev.path === file ? prev : { path: file, offset: 0 }
 			const r = store.copyTranscript(id, key, cur)
 			if (r.text || r.next.offset !== cur.offset || r.next.path !== prev?.path) transcripts.push({ chatId: key, text: r.text, next: r.next })
 		}
+		for (const sid of chain) {
+			const s = byId.get(sid)
+			if (s?.transcriptPath) take(s.chatId ?? sid, s.transcriptPath)
+		}
+		// путь из сигнала хука, которого нет у сессии
+		for (const [key, cur] of Object.entries(base.transcripts)) take(key, cur.path)
 		const { events, state } = ingest(base, { messages: mine, transcripts, playbookVersion: this.playbookVersion })
-		if (!events.length && !existing) return null
 		const maxSeen = unseen.reduce((max, m) => Math.max(max, m.seq), state.feedSeq)
 		const touched = chain.reduce((max, sid) => Math.max(max, Date.parse(byId.get(sid)?.updatedAt ?? '') || 0), state.lastEventAt)
-		// название кейса — название сессии (последней в цепочке); Claude меняет его позже, поэтому обновляется на каждом тике
+		// название кейса — название сессии (последней в цепочке); Claude меняет его позже
 		const sessionTitle = byId.get(chain[chain.length - 1] ?? '')?.title.trim() ?? ''
 		const title = sessionTitle !== '' ? sessionTitle : state.title
 		const next: CaseState = {
@@ -900,18 +850,113 @@ export class LearningService {
 			title,
 			feedSeq: maxSeen,
 			sessions: chain,
-			rootId: base.rootId ?? root,
+			rootId: base.rootId ?? chain[0],
 			lastEventAt: touched,
 			updatedAt: events.length || chain.join() !== base.sessions.join() || title !== base.title ? iso : base.updatedAt,
 		}
-		// не записалось — курсоры ленты и транскриптов не двигаем: следующий тик повторит
+		// не записалось — курсоры ленты и транскриптов не двигаем: в следующий раз повторим
 		if (events.length && !store.appendRaw(id, events)) {
-			this.log('error', id, `«${next.title ?? id}»: не удалось записать события на диск, повторю на следующем тике`)
-			return existing
+			this.log('error', id, `«${next.title ?? id}»: не удалось записать события на диск, повторю через ${fmtDuration(this.settings.retrySec * 1000)}`)
+			return null
 		}
 		this.update(next)
-		if (!existing) this.log('info', id, `Новая сессия «${this.sessionTitle(id)}»: начат сбор`)
 		return next
+	}
+
+	/**
+	 * Сессия закончена (`SessionEnd`, закрытая вкладка или простой `idleMin`): ingest, затем итоговое задание `close`.
+	 * Событий нет вовсе — кейс удаляется. Задание по кейсу уже есть — ничего не делает.
+	 */
+	private finishSession(caseId: string): void {
+		const c0 = this.cases.get(caseId)
+		if (!c0 || this.hasJob(caseId)) return
+		const c = this.ingestCase(c0)
+		if (!c) {
+			// диск не принял события: курсоры стоят, одноразовый повтор через `retrySec`
+			if (!this.ingestRetry.has(caseId)) {
+				const t = setTimeout(() => {
+					this.ingestRetry.delete(caseId)
+					if (!this.stopped) this.finishSession(caseId)
+				}, this.settings.retrySec * 1000)
+				t.unref()
+				this.ingestRetry.set(caseId, t)
+			}
+			return
+		}
+		if (c.events === 0) {
+			this.removeEmpty(c.id)
+			this.armIdle()
+			return
+		}
+		if (c.events - c.coveredUntil > 0) {
+			this.enqueueClose(c.id)
+			this.armIdle()
+			return
+		}
+		// всё уже учтено в описании: кейс остаётся готовым
+		if (c.status !== 'ready') this.seal(c.id)
+		this.armIdle()
+	}
+
+	/** Кейс без событий убирается вместе с `raw/` и заданиями. */
+	private removeEmpty(caseId: string): void {
+		this.log('info', caseId, `Сессия «${this.sessionTitle(caseId)}»: событий нет, кейс убран`)
+		this.cases.delete(caseId)
+		this.queue.removeCase(caseId)
+		this.deps.store.removeCase(caseId)
+		this.deps.store.saveJobs(this.queue.list())
+		this.deps.hub.publish({ t: 'learning_case_removed', id: caseId })
+	}
+
+	/** Итоговое задание кейса: кейс `closing`, задание в очередь. */
+	private enqueueClose(caseId: string): JobState {
+		const c = this.cases.get(caseId)
+		if (c && c.status !== 'closing') this.update({ ...c, status: 'closing', updatedAt: new Date(this.deps.clock.now()).toISOString() })
+		return this.request('close', caseId, true)
+	}
+
+	/**
+	 * Единственный таймер простоя: на ближайший срок `lastActivityAt + idleMin` среди открытых кейсов без задания.
+	 * Пересчитывается на каждом сигнале, смене настроек и старте; на срабатывании законченные по простою сессии уходят в очередь.
+	 */
+	private armIdle(): void {
+		if (this.idleTimer) clearTimeout(this.idleTimer)
+		this.idleTimer = null
+		if (this.stopped || !this.settings.enabled) return
+		const span = this.settings.idleMin * 60_000
+		let due: number | null = null
+		for (const c of this.cases.values()) {
+			if (c.status !== 'collecting' || this.hasJob(c.id)) continue
+			const at = (c.lastActivityAt ?? c.lastEventAt) + span
+			due = due === null ? at : Math.min(due, at)
+		}
+		if (due === null) return
+		this.idleTimer = setTimeout(() => {
+			this.idleTimer = null
+			if (this.stopped) return
+			this.onIdle()
+		}, Math.max(0, due - this.deps.clock.now()))
+		this.idleTimer.unref()
+	}
+
+	private onIdle(): void {
+		if (this.refreshSettings()) this.settingsChanged()
+		if (this.settings.enabled) {
+			const now = this.deps.clock.now()
+			const span = this.settings.idleMin * 60_000
+			for (const c of [...this.cases.values()]) {
+				if (c.status === 'collecting' && !this.hasJob(c.id) && now - (c.lastActivityAt ?? c.lastEventAt) >= span) this.finishSession(c.id)
+			}
+		}
+		this.armIdle()
+		this.pump()
+	}
+
+	/** Настройки поменялись (файл или API): таймеры пересчитываются, насос запускается. */
+	private settingsChanged(): void {
+		this.armIdle()
+		this.armStall()
+		this.pump()
 	}
 
 	/** Сохраняет и публикует кейс, если что-то изменилось. */
@@ -923,14 +968,20 @@ export class LearningService {
 		if (!prev || JSON.stringify(toView(prev)) !== JSON.stringify(toView(next))) this.deps.hub.publish({ t: 'learning_case', case: toView(next) })
 	}
 
-	private readSettings(): void {
+	/** Перечитывает `learning.json`, если файл изменился (горячая перезагрузка); true — настройки поменялись. */
+	private refreshSettings(): boolean {
 		const mtime = this.deps.store.settingsMtime()
-		if (mtime === this.settingsMtime) return
+		if (mtime === this.settingsMtime) return false
 		const { raw, mtimeMs } = this.deps.store.loadSettings()
 		const was = this.settings.enabled
 		this.settings = raw === undefined ? parseLearningSettings({ enabled: this.deps.defaultOn }) : parseLearningSettings(raw)
 		this.settingsMtime = mtimeMs
 		if (this.loaded && this.settings.enabled !== was) this.log('info', '', this.settings.enabled ? 'Фоновое обучение включено (настройки изменены в файле)' : 'Фоновое обучение выключено (настройки изменены в файле)')
+		return true
+	}
+
+	private readSettings(): void {
+		this.refreshSettings()
 	}
 
 	private request(kind: JobKind, caseId: string, final: boolean): JobState {
@@ -987,21 +1038,16 @@ export class LearningService {
 
 	/** Ручной «Собрать кейс сейчас»: задание `close` по кейсу или по сессии; работает и при выключенном обучении. */
 	runNow(sessionOrCaseId: string): JobView {
-		const found = this.findCase(sessionOrCaseId, true)
+		const found = this.ensureCase(sessionOrCaseId, true)
 		if (!found) throw new AppError(404, 'no_case', `нет кейса или сессии ${sessionOrCaseId}`)
-		const c = this.reopen(found)
-		return this.jobView(this.request('close', c.id, true))
+		const reopened = this.reopen(found)
+		const c = this.ingestCase(reopened) ?? reopened
+		return this.jobView(this.enqueueClose(c.id))
 	}
 
-	/** Вкладку закрыли: сразу собираем итоговое описание. Выключено (в целом или для сессии) — молчим. */
+	/** Вкладку закрыли: сессия закончена — сразу в очередь. Выключено (в целом или для сессии) — молчим. */
 	onSessionClosed(sessionId: string): void {
-		this.readSettings()
-		if (!this.settings.enabled) return
-		// отключённой сессии (и всей её цепочки) кейс не заводим
-		if (chainOf(this.deps.host.sessions(), sessionId).some(id => this.settings.disabledSessions.includes(id) || this.meta.removed.includes(id))) return
-		const c = this.findCase(sessionId, false)
-		if (!c || c.sessions.some(id => this.settings.disabledSessions.includes(id))) return
-		this.request('close', c.id, true)
+		this.signal({ event: 'end', session: sessionId })
 	}
 
 	/** Ручной повтор упавшего задания. */
@@ -1021,32 +1067,6 @@ export class LearningService {
 		return false
 	}
 
-	/**
-	 * Кейс по id или по сессии; для живой сессии сначала подбирает свежие события (кейс может ещё не существовать).
-	 * `manual` — ручной запуск: кейс заводится и для старой сессии (лента с начала), надгробие снимается;
-	 * иначе кейс заводится только для свежей (после точки отсчёта) цепочки, ленту читаем с точки отсчёта.
-	 */
-	private findCase(idOrSession: string, manual: boolean): CaseState | null {
-		const direct = this.cases.get(idOrSession)
-		if (direct) return direct
-		const { host } = this.deps
-		const sessions = host.sessions()
-		if (sessions.some(s => s.id === idOrSession)) {
-			const chain = chainOf(sessions, idOrSession)
-			const root = chain[0]
-			if (root !== undefined) {
-				const have = this.caseForChain(chain)
-				if (!have && manual) this.untomb(chain)
-				if (have || manual || this.isFresh(chain, new Map(sessions.map(s => [s.id, s])))) {
-					const from = have ? have.feedSeq : manual ? 0 : Math.max(this.scanned.get(root) ?? 0, this.meta.startSeq)
-					const c = this.collect(root, chain, host.messagesSince(from), from)
-					if (c) return c
-				}
-			}
-		}
-		return [...this.cases.values()].find(c => c.sessions.includes(idOrSession)) ?? null
-	}
-
 	private jobsChanged(job: JobState): void {
 		this.deps.store.saveJobs(this.queue.list())
 		this.deps.hub.publish({ t: 'learning_job', job: this.jobView(job) })
@@ -1054,70 +1074,83 @@ export class LearningService {
 	}
 
 	/**
-	 * Насос: пока есть место (`maxAgents`) и готовое задание — запускает, синхронно и сразу (из `enqueue`, конца задания, смены настроек).
-	 * Повторы с `retryAt` и сторожевые сроки будит таймер на ближайший срок (unref) и каждый `tick`.
+	 * Насос: пока есть место (`maxAgents`) и готовое задание — запускает, синхронно и сразу (FIFO).
+	 * Зовётся на постановке, окончании задания, смене настроек и после сигнала. Замок плейбука/кейса — не состояние:
+	 * заблокированное задание остаётся `queued` и уступает место следующему. Провалившиеся задания держат слот.
 	 */
 	private pump(): void {
 		if (this.stopped || this.pumping) return
 		this.pumping = true
 		try {
+			if (this.refreshSettings()) {
+				this.armIdle()
+				this.armStall()
+			}
 			for (;;) {
 				if (this.queue.running().length >= this.settings.maxAgents) break
-				const job = this.queue.next(this.deps.clock.now(), j => this.isWaiting(j))
+				const job = this.queue.next(j => this.isWaiting(j))
 				if (!job) break
 				this.launch(job)
 			}
 		} finally {
 			this.pumping = false
 		}
-		this.scheduleWake()
+		this.armStall()
 	}
 
-	/** Таймер на ближайший срок: конец паузы повтора или истечение сторожа идущего задания. */
-	private scheduleWake(): void {
-		if (this.wake) clearTimeout(this.wake)
-		this.wake = null
-		if (this.stopped) return
-		const now = this.deps.clock.now()
-		const due = this.queue.list().flatMap(j => {
-			if (j.status === 'queued' && j.retryAt !== null && j.retryAt > now) return [j.retryAt]
-			if (j.status === 'running') return [(j.activityAt ?? now) + stallMs(j)]
-			return []
-		})
-		if (!due.length) return
-		this.wake = setTimeout(() => {
-			this.wake = null
-			this.checkStalls()
-			this.pump()
-		}, Math.max(0, Math.min(...due) - now))
-		this.wake.unref()
+	/** Агент задания больше не нужен (задание кончилось, снято, сменило агента): убирается. */
+	private releaseAgentOf(job: JobState): void {
+		if (job.agentId) void this.deps.host.releaseAgent?.(job.agentId).catch(() => undefined)
+		this.runCalls.delete(job.id)
 	}
 
-	/** Сторож: идущие задания без активности `JOB_STALL_MS` снимаются. */
-	private checkStalls(): void {
-		const now = this.deps.clock.now()
-		for (const j of this.queue.running()) {
-			if (j.activityAt === undefined || j.activityAt === null) j.activityAt = now
-			else if (now - j.activityAt >= stallMs(j)) this.stall(j)
-		}
+	/** Когда агент задания в последний раз подавал признаки жизни, мс (событие агента, иначе активность задания). */
+	private lastLife(j: JobState): number {
+		const agent = j.agentId ? (this.deps.host.agentActivity?.(j.agentId) ?? null) : null
+		return Math.max(agent ?? 0, j.activityAt ?? 0, j.startedAt ? Date.parse(j.startedAt) : 0)
 	}
 
 	/**
-	 * Зависшее задание: агент отменяется, итог прежнего запуска игнорируется, слот свободен;
-	 * задание — провал (попытка++, пауза), а остановленное пользователем — `done`.
+	 * Сторожевой таймер: один одноразовый на ближайший срок молчания агента идущего задания (`stallMin`);
+	 * `stallMin = 0` — сторож выключен, таймера нет вовсе.
 	 */
+	private armStall(): void {
+		if (this.stallTimer) clearTimeout(this.stallTimer)
+		this.stallTimer = null
+		if (this.stopped || this.settings.stallMin <= 0) return
+		const span = this.settings.stallMin * 60_000
+		const live = this.queue.running().filter(j => !this.failed.has(j.id))
+		if (!live.length) return
+		const due = Math.min(...live.map(j => this.lastLife(j) + span))
+		this.stallTimer = setTimeout(() => {
+			this.stallTimer = null
+			if (!this.stopped) this.checkStalls()
+		}, Math.max(0, due - this.deps.clock.now()))
+		this.stallTimer.unref()
+	}
+
+	/** Идущие задания, чей агент молчит `stallMin` минут, — провал попытки (повтор по `retrySec`). */
+	private checkStalls(): void {
+		const span = this.settings.stallMin * 60_000
+		if (span > 0) {
+			const now = this.deps.clock.now()
+			for (const j of this.queue.running()) if (!this.failed.has(j.id) && now - this.lastLife(j) >= span) this.stall(j)
+		}
+		this.armStall()
+		this.pump()
+	}
+
+	/** Зависшее задание: агент отменяется, итог прежнего запуска игнорируется; остановленное пользователем — `done`. */
 	private stall(job: JobState): void {
 		this.runGen.delete(job.id)
 		if (job.agentId) void this.deps.host.cancelAgent(job.agentId).catch(() => undefined)
 		if (this.cancelled.has(job.id)) return this.finishCancelled(job)
-		this.failNow(job, `нет активности ${Math.round(stallMs(job) / 60_000)} мин: агент снят`, true)
+		this.failNow(job, `нет событий агента ${this.settings.stallMin} мин: агент снят`)
 	}
 
 	private launch(queued: JobState): void {
 		const job = this.queue.start(queued.id, null)
 		this.log('info', job.subject, `${this.jobLabel(job)}: агент запущен, попытка ${job.attempts + 1}`)
-		const gen = ++this.genSeq
-		this.runGen.set(job.id, gen)
 		try {
 			const c = this.cases.get(job.caseId)
 			if (c && job.kind === 'close' && c.status !== 'closing') this.update({ ...c, status: 'closing', updatedAt: new Date(this.deps.clock.now()).toISOString() })
@@ -1125,16 +1158,39 @@ export class LearningService {
 		} catch {
 			/* запись на диск не удалась: задание всё равно идёт, иначе слот завис бы в `running` без исполнителя */
 		}
+		this.runAttempt(job)
+	}
+
+	/** Одна попытка исполнения (первая или повтор): новое поколение запуска, поздние итоги прежних игнорируются. */
+	private runAttempt(job: JobState): void {
+		this.failed.delete(job.id)
+		const gen = ++this.genSeq
+		this.runGen.set(job.id, gen)
+		this.queue.touch(job.id)
 		const run = this.execute(job, gen)
 			.catch((e: unknown) => this.fail(job, e instanceof Error ? e.message : String(e), gen))
 			.finally(() => {
 				this.inflight.delete(run)
 				if (this.runGen.get(job.id) === gen) this.runGen.delete(job.id)
 				this.pump()
-				// конец запуска сдвигает `lastRunAt`: события, пришедшие за время работы, не ждут опроса
-				this.requestTick()
 			})
 		this.inflight.add(run)
+	}
+
+	/** Таймер повтора: через `retrySec` задание, оставшееся `running`, делает новую попытку. */
+	private scheduleRetry(job: JobState): void {
+		const old = this.retryTimers.get(job.id)
+		if (old) clearTimeout(old)
+		const t = setTimeout(() => {
+			this.retryTimers.delete(job.id)
+			if (this.stopped || !this.failed.has(job.id)) return
+			const j = this.queue.running().find(x => x.id === job.id)
+			if (!j) return
+			this.log('info', j.subject, `${this.jobLabel(j)}: повтор, попытка ${j.attempts + 1}`)
+			this.runAttempt(j)
+		}, this.settings.retrySec * 1000)
+		t.unref()
+		this.retryTimers.set(job.id, t)
 	}
 
 	private isStale(job: JobState, gen: number): boolean {
@@ -1165,6 +1221,8 @@ export class LearningService {
 	private finishCancelled(job: JobState): void {
 		if (job.status === 'running') {
 			this.log('info', job.subject, `${this.jobLabel(job)}: остановлено пользователем`)
+			this.dropTimers(job.id)
+			this.releaseAgentOf(job)
 			this.jobsChanged(this.queue.cancel(job.id, CANCELLED))
 			this.reopenClosing(job.caseId)
 		}
@@ -1175,14 +1233,24 @@ export class LearningService {
 		if (note !== undefined) job.note = note
 		const took = job.startedAt ? fmtDuration(this.deps.clock.now() - Date.parse(job.startedAt)) : null
 		this.log('info', job.subject, `${this.jobLabel(job)}: готово${took ? ` за ${took}` : ''}${note ? ` (${note})` : ''}`)
+		this.dropTimers(job.id)
+		this.releaseAgentOf(job)
 		this.queue.finish(job.id)
 		this.jobsChanged(job)
 	}
 
+	/** Задание кончилось: таймер повтора и отметка ожидания повтора снимаются. */
+	private dropTimers(id: string): void {
+		const t = this.retryTimers.get(id)
+		if (t) clearTimeout(t)
+		this.retryTimers.delete(id)
+		this.failed.delete(id)
+	}
+
 	private context(job: JobState, gen: number): JobContext {
 		const { store, host, clock } = this.deps
-		// порядковый номер вызова агента в задании: несколько агентов не затирают ответы друг друга
-		let calls = 0
+		// агент провалившейся попытки продолжает только в первом вызове новой
+		let reuse = job.attempts > 0 && job.agentId !== null
 		return {
 			job,
 			now: () => clock.now(),
@@ -1192,10 +1260,20 @@ export class LearningService {
 				// новый вызов агента — активность (сторожевой таймер считается от него)
 				this.queue.touch(job.id)
 				job.title = title
+				let agentId: string | undefined
+				if (reuse && job.agentId) {
+					if (host.agentAlive?.(job.agentId)) agentId = job.agentId
+					else {
+						this.log('info', job.subject, `${this.jobLabel(job)}: агент прошлой попытки недоступен, запускаю нового`)
+						void host.releaseAgent?.(job.agentId).catch(() => undefined)
+					}
+				}
+				reuse = false
 				const res = await host.runAgent({
 					name,
 					title,
-					prompt,
+					prompt: agentId ? `Previous attempt failed: ${job.error ?? 'unknown error'}. Continue from the last accepted summary (the server keeps everything it accepted); if nothing was accepted yet, start the task over as instructed.` : prompt,
+					...(agentId ? { agentId } : {}),
 					// id агента известен сразу: «Остановить» и живой чат в приложении работают, пока агент идёт
 					onSpawn: agentId => {
 						if (this.isStale(job, gen)) return void host.cancelAgent(agentId).catch(() => undefined)
@@ -1210,7 +1288,8 @@ export class LearningService {
 				// агент после ответа удаляется: ответ остаётся в runs/ (см. `LearningStorePort.writeRun`)
 				// остановлено пользователем: ответ не пишется
 				if (this.cancelled.has(job.id)) throw new Error(CANCELLED)
-				calls += 1
+				const calls = (this.runCalls.get(job.id) ?? 0) + 1
+				this.runCalls.set(job.id, calls)
 				if (res.text) store.writeRun(job.subject, `${job.id}-${calls}`, res.text)
 				if (this.interrupted.has(job.id)) throw new Error('прервано остановкой')
 				if (!res.ok) throw new Error(res.error ?? 'агент завершился с ошибкой')
@@ -1228,7 +1307,7 @@ export class LearningService {
 				writeNotes: (id, text) => store.writeNotes(id, text),
 				writeDraft: (id, text) => store.writeDraft(id, text),
 				sessionTitle: id => this.sessionTitle(id),
-				seal: id => this.seal(id),
+				seal: id => this.seal(id, job.startedAt ? Date.parse(job.startedAt) : undefined),
 			},
 			failedBuilds: () => this.recentFailedBuilds(),
 			playbooks: this.playbooks,
@@ -1253,14 +1332,20 @@ export class LearningService {
 		this.failNow(job, error)
 	}
 
-	/** Задание снова в очереди с паузой `min(5 с × 2^(попытка−1), 2 мин)`, кейс в `error` не переходит. */
-	private failNow(job: JobState, error: string, stalled = false): void {
+	/**
+	 * Провал попытки: задание остаётся `running` (слот за ним), ошибка — в диалог агента и в журнал,
+	 * через `retrySec` — повтор: тому же агенту «continue» (жив и свободен), иначе новый агент. Число повторов не ограничено.
+	 */
+	private failNow(job: JobState, error: string): void {
+		this.runGen.delete(job.id)
 		const j = this.queue.fail(job.id, error)
-		const pause = j.retryAt === null ? '' : `; повтор через ${fmtDuration(j.retryAt - this.deps.clock.now())}`
-		this.log('warn', j.subject, stalled ? `${this.jobLabel(j)}: ${error}${pause}` : `${this.jobLabel(j)}: не удалось: ${error}${pause}`)
-		// провал любой попытки сборки: пока она повторяется или окончательно упала, `match` не ставит ту же группу заново
+		this.failed.add(j.id)
+		this.log('warn', j.subject, `${this.jobLabel(j)}: не удалось: ${error}; повтор через ${fmtDuration(this.settings.retrySec * 1000)}`)
+		if (j.agentId) this.deps.host.noteAgent?.(j.agentId, `Attempt ${j.attempts} failed: ${error}. Retry in ${this.settings.retrySec} s.`, 'error')
+		// провал любой попытки сборки: пока она повторяется, `match` не ставит ту же группу заново
 		if (j.kind === 'build') this.rememberFailedBuild(j)
 		this.jobsChanged(j)
+		this.scheduleRetry(j)
 	}
 
 	/** Провал сборки: `{ hash, cases, at }` в `meta.json` (старше суток записи отбрасываются). */
@@ -1309,20 +1394,21 @@ export class LearningService {
 	}
 
 	/** Итоговое описание готово: кейс `ready`; пустой кейс (нет ни описания, ни событий) удаляется. */
-	private seal(caseId: string): void {
+	private seal(caseId: string, since?: number): void {
 		const c = this.cases.get(caseId)
 		if (!c) return
 		const iso = new Date(this.deps.clock.now()).toISOString()
 		if (c.events === 0 && this.deps.store.readSummary(caseId).trim() === '') {
-			this.log('info', caseId, `Сессия «${this.sessionTitle(caseId)}»: событий нет, кейс убран`)
-			this.cases.delete(caseId)
-			this.queue.removeCase(caseId)
-			this.deps.store.removeCase(caseId)
-			this.deps.store.saveJobs(this.queue.list())
-			this.deps.hub.publish({ t: 'learning_case_removed', id: caseId })
+			this.removeEmpty(caseId)
 			return
 		}
-		this.update({ ...c, status: 'ready', closedAt: iso, updatedAt: iso })
+		// за время итогового сбора в сессии снова работали: кейс остаётся открытым, срок простоя пойдёт заново
+		const again = since !== undefined && (c.lastActivityAt ?? 0) > since
+		this.update(again ? { ...c, status: 'collecting', closedAt: null, updatedAt: iso } : { ...c, status: 'ready', closedAt: iso, updatedAt: iso })
+		if (again) {
+			this.armIdle()
+			return
+		}
 		this.log('info', caseId, `Сессия «${this.sessionTitle(caseId)}» обработана: ${c.events} ${plural(c.events, 'событие', 'события', 'событий')}, ${c.goals.length} ${plural(c.goals.length, 'цель', 'цели', 'целей')}`)
 		// судья и сопоставитель — только при плейбуках
 		if (this.playbooks) {

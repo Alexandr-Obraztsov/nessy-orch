@@ -1,8 +1,8 @@
-/** Просмотр и правка блоками (этап 3): задание с ответами, raw, summary, остановка сборщика, impact, PATCH плейбука. */
+/** Просмотр и правка блоками (этап 3): задание с ответами, raw, summary, остановка сборщика, impact, документ плейбука. */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { beforeEach, describe, it } from 'node:test'
-import type { HubEvent, PlaybookView, RawEvent } from '../../../shared/types'
+import type { HubEvent, RawEvent } from '../../../shared/types'
 import { AppError } from '../../../src/domain/errors'
 import { Hub } from '../../../src/application/hub'
 import { LearningService } from '../../../src/application/learning/learning.service'
@@ -51,7 +51,7 @@ describe('LearningService: просмотр и правка блоками', () 
 	const make = (): LearningService => {
 		const hub = new Hub()
 		hub.subscribe(e => events.push(e))
-		const svc = new LearningService({ store, host, hub, clock: { now: () => T0 + 3_600_000 }, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore })
+		const svc = new LearningService({ store, host, hub, clock: { now: () => T0 + 3_600_000 }, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, claudeProjectsDir: '/p', playbookStore: pstore })
 		current = svc
 		svc.load()
 		svc.start()
@@ -64,7 +64,7 @@ describe('LearningService: просмотр и правка блоками', () 
 	}
 	const job = (over: Partial<JobState>): JobState => ({
 		id: 'j-1', kind: 'collect', caseId: 'c-1', subject: 'c-1', status: 'done', attempts: 0, agentId: null, error: null, note: null, range: null,
-		createdAt: new Date(T0).toISOString(), startedAt: null, finishedAt: null, final: false, retryAt: null, payload: null, ...over,
+		createdAt: new Date(T0).toISOString(), startedAt: null, finishedAt: null, final: false, payload: null, ...over,
 	})
 
 	beforeEach(() => {
@@ -222,94 +222,90 @@ describe('LearningService: просмотр и правка блоками', () 
 		assert.throws(() => svc.caseImpact('c-x'), { code: 'no_case', status: 404 })
 	})
 
-	it('patchPlaybook: удаление шага — новая версия без файла этапа, n по порядку, журнал edit с версией', () => {
+	const markdownOf = (id = 'p-1'): string => svcDetail(id).markdown
+	let svcRef: LearningService | null = null
+	const svcDetail = (id: string): { markdown: string; version: number } => {
+		const d = svcRef?.playbookDetail(id)
+		if (!d) throw new Error('нет сервиса')
+		return d
+	}
+	const makeWithCases = (): LearningService => {
 		store.cases.set('c1', baseCase('c1', { status: 'ready' }))
 		store.cases.set('c2', baseCase('c2', { status: 'ready' }))
 		seedPlaybook()
-		const svc = make()
-		const view = svc.patchPlaybook('p-1', { baseVersion: 1, stages: [{ n: 9, slug: 'implement', title: 'Implement', role: null, where: 'repo', produce: 'a diff', done: 'tests pass', gate: true, template: 'Code' }] })
-		assert.equal(view.version, 2)
-		assert.deepEqual(view.stages.map(s => [s.n, s.slug]), [[1, 'implement']])
+		svcRef = make()
+		return svcRef
+	}
+
+	it('putPlaybookMarkdown: удаление этапа — новая версия без файла этапа, n по порядку, журнал edit с версией', () => {
+		const svc = makeWithCases()
+		const md = markdownOf()
+		const cut = md.slice(0, md.indexOf('### 1. Research')) + md.slice(md.indexOf('### 2. Implement')).replace('### 2. Implement', '### 7. Implement')
+		const d = svc.putPlaybookMarkdown('p-1', cut, 1)
+		assert.equal(d.version, 2)
+		assert.deepEqual(d.stages.map(s => [s.n, s.slug]), [[1, 'implement']])
 		const files = Object.keys(pstore.snapshots.get('p-1')?.at(-1)?.files ?? {})
 		assert.ok(files.includes('stages/01-implement.md'))
 		assert.ok(!files.some(f => f.includes('research')))
-		const entry = pstore.journal.at(-1)
-		assert.equal(entry?.kind, 'edit')
+		const entry = pstore.journal.filter(e => e.kind === 'edit').at(-1)
+		assert.ok(entry)
 		assert.equal(entry.revertible, true)
 		assert.equal((JSON.parse(entry.report ?? '{}') as { version: number }).version, 2)
 		assert.ok(events.some(e => e.t === 'learning_playbook'))
+		assert.match(d.markdown, /### 1\. Implement/)
 	})
 
-	it('patchPlaybook: description без «Use when» — 400 lint; нет плейбука — 404', () => {
-		seedPlaybook()
-		const svc = make()
-		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 1, description: 'Reviews things' }), { code: 'lint', status: 400 })
+	it('putPlaybookMarkdown: пустой description — 400 lint (замечания через перевод строки); нет плейбука — 404', () => {
+		const svc = makeWithCases()
+		const bad = markdownOf().replace(/^description: .*$/m, 'description: ""')
+		assert.throws(() => svc.putPlaybookMarkdown('p-1', bad, 1), (e: unknown) => e instanceof AppError && e.code === 'lint' && e.status === 400 && e.message.includes('description'))
+		assert.throws(() => svc.putPlaybookMarkdown('p-1', markdownOf().replace('Use when implementing', 'Implementing'), 1), { code: 'lint', status: 400 })
 		assert.equal(svc.playbooks?.get('p-1')?.version, 1)
-		assert.throws(() => svc.patchPlaybook('p-x', { baseVersion: 1, title: 'x' }), { code: 'no_playbook', status: 404 })
+		assert.throws(() => svc.putPlaybookMarkdown('p-x', 'x', 1), { code: 'no_playbook', status: 404 })
 	})
 
-	it('patchPlaybook: правила — новые candidate с id, отсутствующие → archived (не удаляются), правка текста сохраняет счётчики', () => {
-		store.cases.set('c1', baseCase('c1', { status: 'ready' }))
-		store.cases.set('c2', baseCase('c2', { status: 'ready' }))
-		seedPlaybook()
-		const svc = make()
-		const view = svc.patchPlaybook('p-1', { baseVersion: 1, rules: [{ id: 'r1', text: 'Run lint and tests', stage: 1 }, { text: 'Brand new', stage: null }] })
-		const byText = (t: string): PlaybookView['rules'][number] | undefined => view.rules.find(r => r.text === t)
-		const r1 = view.rules.find(r => r.id === 'r1')
-		assert.equal(r1?.text, 'Run lint and tests')
-		assert.equal(r1.stage, 1)
-		assert.equal(r1.up, 3)
-		assert.equal(r1.status, 'active')
-		const fresh = byText('Brand new')
-		assert.match(fresh?.id ?? '', /^r-[0-9a-f]{6}$/)
-		assert.equal(fresh?.status, 'candidate')
-		assert.equal(view.rules.find(r => r.id === 'r2')?.status, 'candidate')
-		assert.equal(view.rules.length, 3)
-		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 2, rules: [{ id: 'r-nope', text: 'x', stage: null }] }), { code: 'bad_request', status: 400 })
+	it('putPlaybookMarkdown: правка текста сохраняет счётчики; пропавший маркер — архив; строка без маркера — активное правило user', () => {
+		const svc = makeWithCases()
+		const md = markdownOf()
+			.replace('- Run lint <!--', '- Run lint and tests <!--')
+			.replace(/^- Maybe <!-- r2 -->\n/m, '')
+			.replace('### Candidates', '- Brand new rule\n\n### Candidates')
+		const d = svc.putPlaybookMarkdown('p-1', md, 1)
+		const r1 = d.rules.find(r => r.id === 'r1')
+		assert.deepEqual([r1?.text, r1?.up, r1?.down, r1?.status, r1?.evidence.length], ['Run lint and tests', 3, 1, 'active', 2])
+		assert.equal(d.rules.find(r => r.id === 'r2')?.status, 'archived')
+		const fresh = d.rules.find(r => r.text === 'Brand new rule')
+		assert.deepEqual([fresh?.status, fresh?.up, fresh?.down, fresh?.author], ['active', 2, 0, 'user'])
+		assert.match(fresh?.id ?? '', /^r-/)
+		assert.ok(pstore.journal.some(e => e.kind === 'rule_activated' && e.summary.includes('добавлено вручную')))
+		assert.doesNotMatch(d.markdown, /Maybe/)
 	})
 
-	it('patchPlaybook: по плейбуку идёт задание — 409 playbook_busy', async () => {
+	it('putPlaybookMarkdown: по плейбуку идёт задание — 409 playbook_busy', async () => {
 		seedPlaybook({ status: 'draft' })
 		for (const id of ['c1', 'c2', 'c3']) store.cases.set(id, baseCase(id, { status: 'ready' }))
 		const svc = make()
+		svcRef = svc
 		let release = (): void => {}
 		hold = new Promise<void>(r => {
 			release = r
 		})
 		svc.requestReview('p-1')
 		await flush()
-		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 1, title: 'New title' }), { code: 'playbook_busy', status: 409 })
+		assert.throws(() => svc.putPlaybookMarkdown('p-1', markdownOf(), 1), { code: 'playbook_busy', status: 409 })
 		release()
 	})
 
-	it('patchPlaybook: baseVersion не совпала — 409 stale с текущей версией, плейбук не меняется', () => {
-		seedPlaybook()
-		const svc = make()
+	it('putPlaybookMarkdown: baseVersion не совпала — 409 stale с текущей версией, плейбук не меняется', () => {
+		const svc = makeWithCases()
+		const md = markdownOf()
 		assert.throws(
-			() => svc.patchPlaybook('p-1', { baseVersion: 3, title: 'New' }),
+			() => svc.putPlaybookMarkdown('p-1', md, 3),
 			(e: unknown) => e instanceof AppError && e.status === 409 && e.code === 'stale' && e.extra?.['version'] === 1,
 		)
 		assert.equal(svc.playbooks?.get('p-1')?.version, 1)
-		assert.equal(svc.patchPlaybook('p-1', { baseVersion: 1, title: 'New' }).version, 2)
-		// после правки та же база уже устарела
-		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 1, title: 'Again' }), { code: 'stale', status: 409 })
-	})
-
-	it('patchPlaybook: не упомянутые правила не архивируются (кандидат сервера цел); архивируются только removeRules', () => {
-		store.cases.set('c1', baseCase('c1', { status: 'ready' }))
-		store.cases.set('c2', baseCase('c2', { status: 'ready' }))
-		seedPlaybook()
-		const svc = make()
-		const view = svc.patchPlaybook('p-1', { baseVersion: 1, rules: [{ id: 'r1', text: 'Run lint twice', stage: 2 }], removeRules: ['r2'] })
-		assert.deepEqual(view.rules.map(r => [r.id, r.text, r.status]), [['r1', 'Run lint twice', 'active'], ['r2', 'Maybe', 'archived']])
-		const only = svc.patchPlaybook('p-1', { baseVersion: 2, title: 'T2' })
-		assert.deepEqual(only.rules.map(r => r.status), ['active', 'archived'])
-		const fresh = svc.patchPlaybook('p-1', { baseVersion: 3, rules: [{ text: 'New one', stage: null }] })
-		assert.equal(fresh.rules.length, 3)
-		assert.equal(fresh.rules.find(r => r.text === 'New one')?.status, 'candidate')
-		assert.equal(fresh.rules.find(r => r.id === 'r1')?.status, 'active')
-		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 4, removeRules: ['r-nope'] }), { code: 'bad_request', status: 400 })
-		assert.throws(() => svc.patchPlaybook('p-1', { baseVersion: 4, rules: [{ id: 'r1', text: 'x', stage: null }], removeRules: ['r1'] }), { code: 'bad_request', status: 400 })
+		assert.equal(svc.putPlaybookMarkdown('p-1', md.replace('Implement aff package', 'New'), 1).version, 2)
+		assert.throws(() => svc.putPlaybookMarkdown('p-1', md, 1), { code: 'stale', status: 409 })
 	})
 
 	it('setCaseSummary: base не совпал — 409 stale, файл цел; после записи goals из текста (title не трогается), updatedAt и событие learning_case', () => {

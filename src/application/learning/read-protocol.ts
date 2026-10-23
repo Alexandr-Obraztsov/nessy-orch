@@ -6,7 +6,7 @@ import type { CaseDraftResult, CaseReadBlock, JobView, RawEvent } from '../../..
 import { parseSummaryHeads } from '../../domain/collector'
 import { renderPortion } from '../../domain/case-events'
 import { AppError } from '../../domain/errors'
-import { BLOCK_CHARS, BLOCK_EVENTS, MAX_REJECTS } from '../../domain/learning-settings'
+import { MAX_REJECTS } from '../../domain/learning-settings'
 import type { GateIssue } from '../../domain/learning.types'
 import { applyLadder, autoDescription, checkBlock, checkFinal, formatRejection, waiveSkipped } from '../../domain/summary-gate'
 import type { CaseState, JobState, ProtocolHost, ProtocolState } from './learning.types'
@@ -51,7 +51,7 @@ export class ReadProtocol {
 		return job.protocol
 	}
 
-	/** Следующий блок после принятого (≤ `BLOCK_EVENTS` событий и ≤ `BLOCK_CHARS` знаков, одно событие всегда). */
+	/** Следующий блок после принятого (≤ `blockEvents` событий и ≤ `blockChars` знаков из настроек, одно событие всегда). */
 	read(id: string): CaseReadBlock {
 		const c = this.host.getCase(id)
 		const job = this.job(id)
@@ -78,7 +78,8 @@ export class ReadProtocol {
 				done: true,
 			}
 		}
-		const portion = renderPortion(events.slice(0, BLOCK_EVENTS), BLOCK_CHARS)
+		const limits = this.host.blockLimits()
+		const portion = renderPortion(events.slice(0, limits.events), limits.chars)
 		p.pending = { from: portion.from, until: portion.until, text: portion.text }
 		this.host.changed(job)
 		this.host.log('info', id, `«${this.host.title(id)}»: блок ${p.blocks + 1} — события ${portion.from}–${portion.until}`)

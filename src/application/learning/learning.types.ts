@@ -19,6 +19,8 @@ export interface CaseState extends CaseView {
 	/** следующий номер события */
 	nextN: number
 	lastEventAt: number
+	/** последняя работа сессии, мс: хуки `Stop`/`UserPromptSubmit` (`signal`); нет в старых файлах — берётся `lastEventAt` */
+	lastActivityAt?: number
 	lastRunAt: number
 	nessyCalls: boolean
 	/** плейбуки, уже подсказанные в этой цепочке сессий (хук UserPromptSubmit) */
@@ -50,12 +52,10 @@ export interface FailedBuild {
 	at: number
 }
 
-export type JobState = Omit<JobView, 'progress' | 'phase' | 'title' | 'retryAt' | 'waiting'> & {
+export type JobState = Omit<JobView, 'progress' | 'phase' | 'title'> & {
 	/** название сессии кейса = имя агента-сборщика (нет — null) */
 	title?: string | null
 	final: boolean
-	/** когда можно запускать (мс): повтор после провала или отложенный старт; null — готово */
-	retryAt: number | null
 	/** последняя активность идущего задания, мс (старт, `read`, `draft`, вызов агента): сторожевой таймер */
 	activityAt?: number | null
 	/** строгий протокол чтения сборщика (`collect`/`close`): принятые блоки, выданный блок, отказы; задаётся обработчиком при старте */
@@ -104,6 +104,8 @@ export interface ProtocolHost {
 	update(c: CaseState): void
 	changed(job: JobState): void
 	touch(caseId: string): void
+	/** блок чтения из текущих настроек */
+	blockLimits(): { events: number; chars: number }
 	cancelAgent(agentId: string): void
 	now(): number
 	/** название сессии кейса (для строк журнала) */
@@ -137,7 +139,15 @@ export interface LearningHost {
 	/** есть работающий агент или очередь */
 	isBusy(sessionIds: readonly string[]): boolean
 	/** агент удаляется после ответа; текст ответа сервис сохраняет сам (`writeRun`) */
-	runAgent(req: { name: string; title: string; prompt: string; onSpawn?: (agentId: string) => void }): Promise<{ agentId: string; text: string; ok: boolean; error?: string }>
+	runAgent(req: { name: string; title: string; prompt: string; /** продолжить диалог живого агента (prompt — сообщение ему), а не создавать нового */ agentId?: string; onSpawn?: (agentId: string) => void }): Promise<{ agentId: string; text: string; ok: boolean; error?: string }>
+	/** агент жив и свободен (можно написать ему); нет метода — считается, что агента нет */
+	agentAlive?(agentId: string): boolean
+	/** системное событие в диалоге агента (ошибка попытки) */
+	noteAgent?(agentId: string, text: string, level: 'info' | 'error'): void
+	/** убрать агента задания (задание кончилось, сменило агента или снято) */
+	releaseAgent?(agentId: string): Promise<void>
+	/** время последнего события агента, мс; нет — null (сторож смотрит активность задания) */
+	agentActivity?(agentId: string): number | null
 	/** прервать ход агента (остановка сборщика); агента уже нет — не ошибка */
 	cancelAgent(agentId: string): Promise<void>
 }
@@ -149,7 +159,6 @@ export interface LearningDeps {
 	clock: Clock
 	ids: IdGenerator
 	defaultOn: boolean
-	tickMs: number
 	claudeProjectsDir: string
 	/** хранилище плейбуков; без него сервис работает как на этапе 1 (нет обработчиков плейбуков, `playbooks = []`) */
 	playbookStore?: PlaybookStorePort
@@ -163,8 +172,6 @@ export interface EnqueueOpts {
 	caseId?: string
 	final?: boolean
 	payload?: Record<string, unknown> | null
-	/** пауза до первого запуска, мс (повтор без горячего цикла) */
-	delayMs?: number
 	/** как свести `payload` уже ждущего задания с новым */
 	merge?: (a: Record<string, unknown> | null, b: Record<string, unknown> | null) => Record<string, unknown> | null
 }

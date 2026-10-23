@@ -1,6 +1,6 @@
 /** Фоновое обучение, сборка в приложение: закрытие вкладки → служебный агент-сборщик → готовый кейс; рестарт посреди работы. */
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -72,6 +72,36 @@ describe('фоновое обучение (сборка)', () => {
 		assert.deepEqual(sessions.map(x => x.id), [s.id])
 	})
 
+	it('хуки: hook stop только отмечает работу (кейс collecting, задания нет), hook end ставит close и кейс доходит до ready; хуки тихие и с кодом 0', T, async () => {
+		scenarios({ 'SESSION COLLECTOR': [{ text: REPLY }] })
+		h = await startHarness({ base, config: { learningDefaultOn: true } })
+		const hh = h
+		const s = await work(hh)
+		const cli = path.join(__dirname, '..', '..', 'src', 'interfaces', 'cli', 'main.js')
+		const hook = (name: string, session: string, input: object): Promise<{ code: number | null; out: string }> =>
+			new Promise(resolve => {
+				const p = spawn(process.execPath, [cli, 'hook', name], { env: { ...process.env, ORCH_PORT: String(hh.port), NO_COLOR: '1', NESSY_ORCH_SESSION: session } })
+				let out = ''
+				p.stdout.on('data', (d: Buffer) => (out += d.toString()))
+				p.on('close', code => resolve({ code, out }))
+				p.stdin.end(JSON.stringify(input))
+			})
+		const stop = await hook('stop', s.id, { session_id: `chat-${s.id}`, cwd: hh.ws })
+		assert.deepEqual([stop.code, stop.out], [0, ''])
+		const view = (await hh.api<LearningView>('GET', '/learning')).body
+		assert.deepEqual(view.cases.map(c => [c.id, c.status]), [[`c-${s.id}`, 'collecting']])
+		assert.equal(view.jobs.length, 0, 'активность заданий не ставит')
+		// нет NESSY_ORCH_SESSION — хук молчит и ничего не шлёт
+		const none = await hook('end', '', { session_id: 'x' })
+		assert.deepEqual([none.code, none.out], [0, ''])
+		assert.equal((await hh.api<LearningView>('GET', '/learning')).body.jobs.length, 0)
+		const end = await hook('end', s.id, { session_id: `chat-${s.id}` })
+		assert.deepEqual([end.code, end.out], [0, ''])
+		await until(() => hh.orch.learning?.view().cases.find(c => c.id === `c-${s.id}`)?.status === 'ready', 40000, 'кейс ready')
+		assert.equal((await hh.api<ApiError>('POST', '/learning/signal', { event: 'nope', session: s.id })).status, 400)
+		assert.equal((await hh.api('POST', '/learning/signal', { event: 'activity', session: s.id })).status, 200)
+	})
+
 	it('рестарт посреди работы сборщика: задание выполняется заново, кейс один, jobs.json без running', T, async () => {
 		scenarios({ 'SESSION COLLECTOR': [{ hang: 'думаю' }] })
 		h = await startHarness({ base, config: { learningDefaultOn: true } })
@@ -100,7 +130,7 @@ describe('фоновое обучение (сборка)', () => {
 			execFile(process.execPath, [CLI, ...args], { env: { ...process.env, ORCH_PORT: String(hh.port), NO_COLOR: '1' } }, (err, stdout, stderr) => resolve({ code: err ? 1 : 0, out: stdout + stderr }))
 		})
 
-	it('настройки: PATCH пишет learning.json, правка файла руками подхватывается тиком без рестарта', T, async () => {
+	it('настройки: PATCH пишет learning.json, правка файла руками подхватывается при ближайшем сигнале без рестарта', T, async () => {
 		h = await startHarness({ base, config: { learningDefaultOn: true } })
 		const stream = await h.sse('/stream')
 		const r = await h.api<LearningView['settings']>('PATCH', '/learning/settings', { enabled: false, maxAgents: 3 })
@@ -115,7 +145,7 @@ describe('фоновое обучение (сборка)', () => {
 		assert.equal((await h.api<ApiError>('PATCH', '/learning/settings', { enabled: 'да' })).status, 400)
 		await new Promise<void>(r2 => setTimeout(r2, 20))
 		fs.writeFileSync(file, JSON.stringify({ enabled: true, maxAgents: 1 }))
-		h.orch.learning?.tick()
+		h.orch.learning?.signal({ event: 'activity', session: 'x' })
 		const v = await h.api<LearningView>('GET', '/learning')
 		assert.equal(v.body.settings.enabled, true)
 		assert.equal(v.body.settings.maxAgents, 1)

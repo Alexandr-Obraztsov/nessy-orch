@@ -1,18 +1,6 @@
 import type { LearningSettings } from '../../shared/types'
 import { AppError } from './errors'
 
-/** Пауза между запусками сборщика одного кейса, мс: есть необработанное событие и пауза прошла — сбор ставится. */
-export const COOLDOWN_MS = 20_000
-/** Окно сведения событий шины в один `tick`, мс (новое сообщение или сессия → `tick` через это время). */
-export const TICK_DEBOUNCE_MS = 2_000
-/** Задание без активности (старт, `read`, `draft`, новый вызов агента) столько мс снимается: агент отменяется, задание — провал. */
-export const JOB_STALL_MS = 600_000
-/** Пауза повтора после провала: `min(RETRY_BASE_MS × 2^(попытка−1), RETRY_MAX_MS)`. */
-export const RETRY_BASE_MS = 5_000
-export const RETRY_MAX_MS = 120_000
-/** Блок чтения сборщика: не больше событий и знаков (одно событие берётся всегда); дальше — только после принятого описания. */
-export const BLOCK_EVENTS = 25
-export const BLOCK_CHARS = 12_000
 /** Сколько отказов описания выдерживает один блок: затем задание — провал, свежий агент продолжит с принятого. */
 export const MAX_REJECTS = 3
 /** Размер порции событий для сборщика, знаков (~50 тыс. токенов). */
@@ -20,12 +8,18 @@ export const PORTION_CHARS = 150_000
 /** Сколько знаков материалов сборщик плейбука берёт сразу; больше — сначала разбор каждого кейса отдельным агентом. */
 export const BUILD_CHARS = 300_000
 
+/** Умолчания и границы настроек (`learning.json`); таймеров и порогов вне настроек у очереди нет. */
 export const DEFAULT_LEARNING: LearningSettings = {
 	enabled: true,
 	autoReview: true,
 	intervalMin: 10,
-	idleMin: 30,
+	idleMin: 120,
 	maxAgents: 2,
+	retrySec: 60,
+	stallMin: 20,
+	blockEvents: 80,
+	blockChars: 40_000,
+	archiveDays: 30,
 	disabledSessions: [],
 }
 
@@ -44,8 +38,13 @@ export const parseLearningSettings = (raw: unknown): LearningSettings => {
 		enabled: typeof o['enabled'] === 'boolean' ? o['enabled'] : d.enabled,
 		autoReview: typeof o['autoReview'] === 'boolean' ? o['autoReview'] : d.autoReview,
 		intervalMin: num(o['intervalMin'], d.intervalMin, 1, 120),
-		idleMin: num(o['idleMin'], d.idleMin, 5, 1440),
+		idleMin: num(o['idleMin'], d.idleMin, 5, 10_080),
 		maxAgents: num(o['maxAgents'], d.maxAgents, 1, 6),
+		retrySec: num(o['retrySec'], d.retrySec, 5, 3600),
+		stallMin: num(o['stallMin'], d.stallMin, 0, 720),
+		blockEvents: num(o['blockEvents'], d.blockEvents, 10, 400),
+		blockChars: num(o['blockChars'], d.blockChars, 4000, 200_000),
+		archiveDays: num(o['archiveDays'], d.archiveDays, 0, 365),
 		disabledSessions: [...new Set(sessions)],
 	}
 }
@@ -62,7 +61,7 @@ export const patchLearningSettings = (prev: LearningSettings, patch: unknown): L
 		if (typeof v !== 'boolean') throw bad(key, 'boolean')
 		next[key] = v
 	}
-	for (const key of ['intervalMin', 'idleMin', 'maxAgents'] as const) {
+	for (const key of ['intervalMin', 'idleMin', 'maxAgents', 'retrySec', 'stallMin', 'blockEvents', 'blockChars', 'archiveDays'] as const) {
 		const v = patch[key]
 		if (v === undefined) continue
 		if (typeof v !== 'number' || !Number.isFinite(v)) throw bad(key, 'число')

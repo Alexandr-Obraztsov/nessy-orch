@@ -16,16 +16,36 @@ func playbookJSON(id: String = "p-1", status: String = "active", extra: String =
 func journalJSON(id: String, kind: String = "rule_activated", ts: String = "2026-10-20T12:00:00.000Z") -> String {
 	#"{"id":"\#(id)","ts":"\#(ts)","kind":"\#(kind)","subject":"p-1","summary":"Правило включено","report":null,"revertible":true,"revertedBy":null}"#
 }
-let settingsJSON = #"{"enabled":true,"autoReview":false,"intervalMin":10,"idleMin":60,"maxAgents":2,"disabledSessions":["s9"]}"#
+let settingsJSON = #"{"enabled":true,"idleMin":60,"retrySec":30,"maxAgents":2,"disabledSessions":["s9"]}"#
 
 func frame(_ s: String) -> StreamEvent { StreamEvent.decode(Data(s.utf8)) }
 func decode<T: Decodable>(_ s: String, as: T.Type = T.self) throws -> T { try JSONDecoder().decode(T.self, from: Data(s.utf8)) }
+
+/// Ворота для заглушки: `entered` — запрос дошёл до ожидания, `release()` — отпустить ответ.
+final class Hold: @unchecked Sendable {
+	private let lock = NSLock()
+	private var cont: CheckedContinuation<Void, Never>?
+	private var released = false
+	private(set) var entered = false
+	func wait() async {
+		await withCheckedContinuation { c in
+			lock.lock()
+			entered = true
+			if released { lock.unlock(); c.resume() } else { cont = c; lock.unlock() }
+		}
+	}
+	func release() {
+		lock.lock(); released = true; let c = cont; cont = nil; lock.unlock()
+		c?.resume()
+	}
+}
 
 /// Заглушка сервера: отдаёт заданный ответ и считает вызовы.
 final class FakeLearning: LearningSource, @unchecked Sendable {
 	var view: LearningView?
 	var error: Error?
-	var delay: Duration = .zero
+	/// пока задан, `learning()` стоит на воротах: тест сам решает, когда ответ придёт (без реального времени)
+	var hold: Hold?
 	var calls = 0
 	var chat: [ChatMessage] = []
 	var journalPages: [[JournalEntry]] = []
@@ -37,7 +57,7 @@ final class FakeLearning: LearningSource, @unchecked Sendable {
 	func learning() async throws -> LearningView {
 		calls += 1
 		let v = view, e = error
-		if delay > .zero { try? await Task.sleep(for: delay) }
+		await hold?.wait()
 		if let e { throw e }
 		return v!
 	}
@@ -72,7 +92,7 @@ struct LearningDecodingTests {
 		#expect(k.playbookRef?.id == "p-1" && k.playbookRef?.version == 3)
 		guard case .learningCaseRemoved("c-1") = frame(#"{"t":"learning_case_removed","rev":6,"id":"c-1"}"#) else { Issue.record("case_removed"); return }
 		guard case .learningSettings(let s) = frame(#"{"t":"learning_settings","rev":7,"settings":\#(settingsJSON)}"#) else { Issue.record("settings"); return }
-		#expect(s.enabled && !s.autoReview && s.disabledSessions == ["s9"])
+		#expect(s.enabled && s.retrySec == 30 && s.stallMin == 20 && s.disabledSessions == ["s9"])
 		guard case .learningPlaybook(let p) = frame(#"{"t":"learning_playbook","rev":8,"playbook":\#(playbookJSON())}"#) else { Issue.record("playbook"); return }
 		#expect(p.id == "p-1" && p.stages.first?.gate == true && p.stages.first?.where == "orch" && p.rules.first?.evidence.first?.anchor == "n 3–7")
 		guard case .learningPlaybookRemoved("p-1") = frame(#"{"t":"learning_playbook_removed","rev":9,"id":"p-1"}"#) else { Issue.record("playbook_removed"); return }
@@ -137,7 +157,7 @@ struct LearningStoreTests {
 		#expect(!s.loaded)
 		await s.refresh()
 		#expect(s.loaded && s.available && s.jobs.count == 1 && s.cases.count == 1 && s.playbooks.count == 1 && s.journal.count == 1)
-		#expect(s.settings?.autoReview == false)
+		#expect(s.settings?.idleMin == 60)
 		// нет связи: данные остаются
 		fake.error = APIError(status: 0, code: "offline", message: "нет связи")
 		await s.refresh()
@@ -169,8 +189,7 @@ struct LearningStoreTests {
 		fake.view = try learningView(cases: [caseJSON()])
 		let s = store(fake)
 		s.apply(frame(#"{"t":"snapshot","rev":1,"spaces":[],"agents":[],"roles":[],"sessions":[],"messages":[]}"#))
-		for _ in 0..<100 where fake.calls == 0 { try await Task.sleep(for: .milliseconds(10)) }
-		for _ in 0..<100 where s.cases.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+		for _ in 0..<100_000 where s.cases.isEmpty { await Task.yield() }
 		#expect(fake.calls == 1 && s.cases.count == 1)
 	}
 
@@ -184,16 +203,18 @@ struct LearningStoreTests {
 	@Test func eventsDuringRefreshSurviveStaleResponse() async throws {
 		let fake = FakeLearning()
 		fake.view = try learningView(cases: [caseJSON()]) // ответ собран до события
-		fake.delay = .milliseconds(150)
+		let hold = Hold(); fake.hold = hold
 		let s = store(fake)
 		let r = Task { await s.refresh() }
-		try await Task.sleep(for: .milliseconds(40))
+		for _ in 0..<100_000 where !hold.entered { await Task.yield() }
 		s.apply(frame(#"{"t":"learning_case","case":\#(caseJSON(id: "c-new"))}"#))
+		hold.release()
 		await r.value
 		#expect(Set(s.cases.map(\.id)) == ["c-1", "c-new"], "событие не теряется из-за устаревшего ответа")
 		// событие до первого чтения не дублируется после него
 		let s2 = store(fake)
 		s2.apply(frame(#"{"t":"learning_case","case":\#(caseJSON())}"#))
+		fake.hold = nil
 		await s2.refresh()
 		#expect(s2.cases.count == 1)
 	}

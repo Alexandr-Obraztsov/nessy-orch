@@ -53,7 +53,7 @@ describe('чат правок', () => {
 	const make = (): LearningService => {
 		const hub = new Hub()
 		hub.subscribe(e => events.push(e))
-		const svc = new LearningService({ store, host, hub, clock: { now: () => T0 + 3_600_000 }, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore })
+		const svc = new LearningService({ store, host, hub, clock: { now: () => T0 + 3_600_000 }, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, claudeProjectsDir: '/p', playbookStore: pstore })
 		svc.load()
 		svc.start()
 		return svc

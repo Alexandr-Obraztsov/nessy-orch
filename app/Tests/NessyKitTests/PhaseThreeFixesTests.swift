@@ -108,12 +108,13 @@ struct StoreRev {
 		var v = try learningView() // кейса уже нет: удалён до сборки ответа
 		v.rev = 10
 		fake.view = v
-		fake.delay = .milliseconds(150)
+		let hold = Hold(); fake.hold = hold
 		let s = store(fake)
 		let r = Task { await s.refresh() }
-		try await Task.sleep(for: .milliseconds(40))
+		for _ in 0..<100_000 where !hold.entered { await Task.yield() }
 		s.apply(frame(#"{"t":"learning_case","case":\#(caseJSON(id: "c-old"))}"#), rev: 9)
 		s.apply(frame(#"{"t":"learning_case","case":\#(caseJSON(id: "c-new"))}"#), rev: 11)
+		hold.release()
 		await r.value
 		#expect(s.cases.map(\.id) == ["c-new"])
 	}

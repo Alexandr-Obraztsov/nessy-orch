@@ -47,7 +47,7 @@ describe('LearningService как HintHost', () => {
 		},
 	}
 	const make = (): LearningService => {
-		const svc = new LearningService({ store, host, hub: new Hub(), clock: { now: () => T0 + 3_600_000 }, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, tickMs: 0, claudeProjectsDir: '/p', playbookStore: pstore })
+		const svc = new LearningService({ store, host, hub: new Hub(), clock: { now: () => T0 + 3_600_000 }, ids: { next: () => Math.random().toString(36).slice(2, 10) }, defaultOn: true, claudeProjectsDir: '/p', playbookStore: pstore })
 		svc.load()
 		svc.start()
 		return svc
@@ -125,10 +125,17 @@ describe('LearningService как HintHost', () => {
 		svc.postChat('c-1', 'поправь')
 		await flush()
 		assert.equal(svc.view().jobs.find(j => j.kind === 'edit')?.status, 'queued')
+		// агент закрытия ушёл, не приняв ни одного блока: провал, задание остаётся running и держит замок кейса
 		release?.()
+		await flush()
+		assert.equal(svc.view().jobs.find(j => j.kind === 'close')?.status, 'running')
+		assert.equal(svc.view().jobs.find(j => j.kind === 'edit')?.status, 'queued')
+		// пользователь снимает задание: замок свободен, правка стартует
+		svc.cancelJob(close.id)
 		await flush()
 		release?.()
 		await flush()
+		assert.equal(svc.view().jobs.find(j => j.kind === 'close')?.status, 'done')
 		assert.equal(svc.view().jobs.find(j => j.kind === 'edit')?.status, 'done')
 	})
 })

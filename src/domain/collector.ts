@@ -1,5 +1,5 @@
 import type { CaseGoal } from '../../shared/types'
-import { BLOCK_EVENTS, MAX_REJECTS } from './learning-settings'
+import { DEFAULT_LEARNING, MAX_REJECTS } from './learning-settings'
 import type { CollectorInput } from './learning.types'
 
 const EMPTY_SUMMARY = '(empty — start a new summary)'
@@ -15,7 +15,7 @@ export function buildCollectorPrompt(template: string, input: CollectorInput): s
 		notes: input.notes.trim() === '' ? '(none)' : input.notes,
 		total: String(input.total),
 		mode: input.final ? MODE_FINAL : MODE_INCREMENTAL,
-		block_events: String(BLOCK_EVENTS),
+		block_events: String(input.blockEvents ?? DEFAULT_LEARNING.blockEvents),
 		max_attempts: String(MAX_REJECTS),
 	}
 	return template.replace(/\{\{(case_id|session_title|summary|notes|total|mode|block_events|max_attempts)\}\}/g, (_m, key: string) => values[key] ?? '')

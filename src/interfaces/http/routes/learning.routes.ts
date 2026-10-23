@@ -3,7 +3,7 @@ import type { PlaybookStatus } from '../../../../shared/types'
 import type { LearningService } from '../../../application/learning/learning.service'
 import type { Orchestrator } from '../../../application/orchestrator'
 import { AppError } from '../../../domain/errors'
-import { parseLearningRun, parsePlaybookPatch, parsePlaybookStatus, parseRawRange, parseReason, parseSummaryPut, parseTextBody, parseVersion } from '../parsers'
+import { parseLearningRun, parseLearningSignal, parsePlaybookMarkdown, parsePlaybookStatus, parseRawRange, parseReason, parseSummaryPut, parseTextBody, parseVersion } from '../parsers'
 import { queryNum, readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -23,6 +23,12 @@ export function registerLearningRoutes(r: Router): void {
 		const svc = learning(orch)
 		const { session } = parseLearningRun(await readBody(req))
 		sendJson(res, 200, session === undefined ? svc.runAll() : [svc.runNow(session)])
+	})
+	// хуки Stop/UserPromptSubmit/SessionEnd: быстро и синхронно, без ожидания работы агентов
+	r.add('POST', '/learning/signal', async ({ req, res, orch }) => {
+		const svc = learning(orch)
+		svc.signal(parseLearningSignal(await readBody(req)))
+		sendJson(res, 200, { ok: true })
 	})
 	r.add('POST', '/learning/jobs/:id/retry', ({ res, orch, params }) => sendJson(res, 200, learning(orch).retry(params['id'] ?? '')))
 	r.add('POST', '/learning/jobs/:id/cancel', ({ res, orch, params }) => sendJson(res, 200, learning(orch).cancelJob(params['id'] ?? '')))
@@ -66,9 +72,10 @@ export function registerLearningRoutes(r: Router): void {
 	// ---------- плейбуки, журнал, заметки и чат ----------
 	r.add('GET', '/learning/playbooks', ({ res, orch }) => sendJson(res, 200, learning(orch).playbookList()))
 	r.add('GET', '/learning/playbooks/:id', ({ res, orch, params }) => sendJson(res, 200, learning(orch).playbookDetail(params['id'] ?? '')))
-	r.add('PATCH', '/learning/playbooks/:id', async ({ req, res, orch, params }) => {
+	r.add('PUT', '/learning/playbooks/:id/markdown', async ({ req, res, orch, params }) => {
 		const svc = learning(orch)
-		sendJson(res, 200, svc.patchPlaybook(params['id'] ?? '', parsePlaybookPatch(await readBody(req))))
+		const { text, baseVersion } = parsePlaybookMarkdown(await readBody(req))
+		sendJson(res, 200, svc.putPlaybookMarkdown(params['id'] ?? '', text, baseVersion))
 	})
 	r.add('POST', '/learning/playbooks/:id/review', ({ res, orch, params }) => sendJson(res, 200, learning(orch).requestReview(params['id'] ?? '')))
 	r.add('POST', '/learning/playbooks/:id/approve', ({ res, orch, params }) => sendJson(res, 200, learning(orch).approvePlaybook(params['id'] ?? '')))
