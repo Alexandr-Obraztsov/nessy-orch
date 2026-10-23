@@ -6,11 +6,11 @@ import type { SessionView } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
 import type { OrchSettings } from '../../../src/application/settings.types'
 import { AppError } from '../../../src/domain/errors'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 import { until } from '../../support/wait'
 
 function setup(extra: Partial<OrchSettings> = {}) {
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	const orch = new Orchestrator({
 		settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0, ...extra },
 		store: new MemoryStore(),
@@ -127,7 +127,7 @@ describe('ядро: удаление, откат и потерянные про�
 
 	it('рестарт: агент, чьё пространство пропало из состояния, не теряется — остаётся с ошибкой и причиной', async () => {
 		const store = new MemoryStore()
-		const gw = new FakeGateway()
+		const gw = new FakeAgentPort({ autoRespond: false })
 		const make = () =>
 			new Orchestrator({
 				settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0 },

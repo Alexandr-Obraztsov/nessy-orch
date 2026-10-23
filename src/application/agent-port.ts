@@ -54,16 +54,17 @@ export type CoreEvent =
 	| { type: 'turn.started'; data: { promptId: string | null } }
 	| { type: 'message.delta'; data: { messageId: string | null; text: string } }
 	| { type: 'message.completed'; data: { messageId: string | null; text: string } }
-	| { type: 'tool_call.started'; data: { toolId: string; name: string; input: Record<string, unknown> } }
-	| { type: 'tool_call.completed'; data: { toolId: string; name: string; status: string; output: string } }
+	| { type: 'tool_call.started'; data: { toolId: string; name: string; title?: string; input: Record<string, unknown> } }
+	| { type: 'tool_call.completed'; data: { toolId: string; name: string; title?: string; input?: Record<string, unknown>; status: string; output: string } }
 	| { type: 'turn.completed'; data: { stopReason: string; promptId: string | null } }
 	| { type: 'turn.failed'; data: { message: string; retryable: boolean; code: number | null } }
 	| { type: 'turn.cancelled'; data: { promptId: string | null } }
-	| { type: 'error'; data: { message: string } }
+	| { type: 'error'; data: { message: string; reason?: 'died' | 'evicted' } }
 	| { type: 'session.closed'; data: { sessionId: string } }
 
 // ---------- опциональные события (12) ----------
 export type ExtEventType =
+	| 'session.meta'
 	| 'permission.requested'
 	| 'permission.resolved'
 	| 'tool_call.delta'
@@ -74,9 +75,11 @@ export type ExtEventType =
 	| 'mid_turn.injected'
 	| 'context.usage'
 	| 'user_message.delta'
+	| 'session.resync'
 
 /** Опциональные события: адаптеры реализуют по мере возможности. `plan.updated` и `tool_call.delta` в P0–P3 не реализуются. */
 export type ExtEvent =
+	| { type: 'session.meta'; data: { displayName?: string | null; data?: Record<string, unknown> } }
 	| { type: 'permission.requested'; data: { requestId: string; title: string; options: { optionId: string; kind: string; name: string }[] } }
 	| { type: 'permission.resolved'; data: { requestId: string; optionId: string | null } }
 	| { type: 'tool_call.delta'; data: { toolId: string; status: string } }
@@ -87,6 +90,7 @@ export type ExtEvent =
 	| { type: 'mid_turn.injected'; data: { count: number } }
 	| { type: 'context.usage'; data: { used: number; size: number } }
 	| { type: 'user_message.delta'; data: { text: string } }
+	| { type: 'session.resync'; data: { hint?: string } }
 
 /** Любое событие порта (обязательное или опциональное). */
 export type PortEvent = CoreEvent | ExtEvent
@@ -107,6 +111,7 @@ export const CORE_EVENT_TYPES: readonly CoreEventType[] = [
 ]
 
 export const EXT_EVENT_TYPES: readonly ExtEventType[] = [
+	'session.meta',
 	'permission.requested',
 	'permission.resolved',
 	'tool_call.delta',
@@ -117,6 +122,7 @@ export const EXT_EVENT_TYPES: readonly ExtEventType[] = [
 	'mid_turn.injected',
 	'context.usage',
 	'user_message.delta',
+	'session.resync',
 ]
 
 // ---------- capability-флаги ----------
@@ -215,8 +221,18 @@ export function sessionEventToPortEvent(ev: SessionEvent): PortEvent | null {
 			return { type: 'thought.delta', data: { messageId: ev.messageId, text: ev.text } }
 		case 'tool':
 			return ev.status === 'completed' || ev.status === 'failed'
-				? { type: 'tool_call.completed', data: { toolId: ev.toolId, name: ev.name, status: ev.status, output: ev.output } }
-				: { type: 'tool_call.started', data: { toolId: ev.toolId, name: ev.name, input: ev.input } }
+				? {
+						type: 'tool_call.completed',
+						data: {
+							toolId: ev.toolId,
+							name: ev.name,
+							...(ev.title ? { title: ev.title } : {}),
+							...(Object.keys(ev.input).length ? { input: ev.input } : {}),
+							status: ev.status,
+							output: ev.output,
+						},
+					}
+				: { type: 'tool_call.started', data: { toolId: ev.toolId, name: ev.name, ...(ev.title ? { title: ev.title } : {}), input: ev.input } }
 		case 'turn_complete':
 			return { type: 'turn.completed', data: { stopReason: ev.stopReason, promptId: ev.promptId } }
 		case 'turn_error':
@@ -224,7 +240,7 @@ export function sessionEventToPortEvent(ev: SessionEvent): PortEvent | null {
 		case 'cancelled':
 			return { type: 'turn.cancelled', data: { promptId: ev.promptId } }
 		case 'meta':
-			return null // отображение имени — внутренняя мета, контракту не нужна
+			return { type: 'session.meta', data: { displayName: ev.displayName } }
 		case 'permission':
 			return { type: 'permission.requested', data: { requestId: ev.requestId, title: ev.title, options: ev.options } }
 		case 'followup':
@@ -232,13 +248,17 @@ export function sessionEventToPortEvent(ev: SessionEvent): PortEvent | null {
 		case 'plan':
 			return { type: 'plan.updated', data: { entries: ev.entries } }
 		case 'died':
-			return { type: 'error', data: { message: 'процесс агента nessy завершился' } }
+			return { type: 'error', data: { message: ev.reason, reason: 'died' } }
 		case 'evicted':
-			return null
+			return { type: 'error', data: { message: 'клиент вытеснен из сессии', reason: 'evicted' } }
 		case 'resync':
-			return null
+			return { type: 'session.resync', data: {} }
 		case 'injected':
 			return { type: 'mid_turn.injected', data: { count: ev.count } }
+		case 'usage':
+			return { type: 'context.usage', data: { used: ev.used, size: ev.size } }
+		case 'closed':
+			return { type: 'session.closed', data: { sessionId: '' } }
 	}
 }
 
@@ -253,9 +273,9 @@ export function portEventToSessionEvent(ev: PortEvent): SessionEvent | null {
 		case 'thought.delta':
 			return { kind: 'thought', text: ev.data.text, messageId: ev.data.messageId }
 		case 'tool_call.started':
-			return { kind: 'tool', toolId: ev.data.toolId, name: ev.data.name, title: ev.data.name, input: ev.data.input, status: 'in_progress', output: '' }
+			return { kind: 'tool', toolId: ev.data.toolId, name: ev.data.name, title: ev.data.title ?? ev.data.name, input: ev.data.input, status: 'in_progress', output: '' }
 		case 'tool_call.completed':
-			return { kind: 'tool', toolId: ev.data.toolId, name: ev.data.name, title: ev.data.name, input: {}, status: ev.data.status as 'completed' | 'failed', output: ev.data.output }
+			return { kind: 'tool', toolId: ev.data.toolId, name: ev.data.name, title: ev.data.title ?? ev.data.name, input: ev.data.input ?? {}, status: ev.data.status as 'completed' | 'failed', output: ev.data.output }
 		case 'turn.completed':
 			return { kind: 'turn_complete', stopReason: ev.data.stopReason, promptId: ev.data.promptId }
 		case 'turn.failed':
@@ -268,6 +288,18 @@ export function portEventToSessionEvent(ev: PortEvent): SessionEvent | null {
 			return { kind: 'plan', entries: ev.data.entries.map(e => ({ content: e.content, status: e.status as 'pending' | 'in_progress' | 'completed' })) }
 		case 'mid_turn.injected':
 			return { kind: 'injected', count: ev.data.count }
+		case 'session.meta':
+			return { kind: 'meta', displayName: ev.data.displayName ?? '' }
+		case 'session.resync':
+			return { kind: 'resync' }
+		case 'context.usage':
+			return { kind: 'usage', used: ev.data.used, size: ev.data.size }
+		case 'session.closed':
+			return { kind: 'closed' }
+		case 'error':
+			if (ev.data.reason === 'died') return { kind: 'died', reason: ev.data.message }
+			if (ev.data.reason === 'evicted') return { kind: 'evicted' }
+			return null
 		default:
 			return null
 	}

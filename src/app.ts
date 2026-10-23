@@ -9,33 +9,22 @@ import { Orchestrator } from './application/orchestrator'
 import { parseRolePreset } from './domain/role-presets'
 import type { RolePresetFile } from './domain/types'
 import type { RolePresetSource } from './application/ports'
+import type { SpaceFactory } from './application/ports'
 import type { AppInstance } from './app.types'
 import type { Config } from './infrastructure/config/config.types'
-import { NessyClient } from './infrastructure/nessy/nessy-client'
 import { FileRolePackages } from './infrastructure/persistence/role-packages'
 import { FileRolePresets } from './infrastructure/persistence/role-presets'
 import { FileStore } from './infrastructure/persistence/file-store'
-import { ServeSpace } from './infrastructure/process/serve-space'
+import { NessySdkSpace } from './infrastructure/process/sdk-space'
 import { createServer } from './interfaces/http/server'
 
-export function buildApp(config: Config, version: string): AppInstance {
+export function buildApp(config: Config, version: string, overrides: { spaceFactory?: SpaceFactory } = {}): AppInstance {
 	const store = new FileStore(config.home)
-	const usedPorts = new Set<number>()
 	const orch = new Orchestrator({
 		settings: config,
 		store,
 		rolePackages: new FileRolePackages(path.join(config.home, 'role-packages')),
-		spaceFactory: (init, listener) =>
-			new ServeSpace(
-				init,
-				{
-					settings: config,
-					usedPorts,
-					logPath: name => store.logPath(name),
-					makeClient: url => new NessyClient(url),
-				},
-				listener,
-			),
+		spaceFactory: overrides.spaceFactory ?? ((init, listener) => new NessySdkSpace(init, { model: config.sdkModel, permissionMode: config.sdkPermissionMode }, listener)),
 	})
 	// готовые роли из <root>/roles: при первом запуске все, потом только новые (уже виденные и удалённые пользователем не возвращаются)
 	const firstStart = !orch.hasStoredRoles

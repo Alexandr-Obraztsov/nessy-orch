@@ -59,9 +59,9 @@ MS Conductor): форк отклонён (tmux-scraping вместо струк�
 синтезировать их из собственных действий: отправка промпта → `turn.started`; конец хода с текстом →
 `message.completed`; готовность/закрытие сессии → `session.ready`/`session.closed`.
 
-**Опциональные (10):** `permission.requested`, `permission.resolved`, `tool_call.delta`, `thought.delta`,
-`plan.updated`, `model.switched`, `model.switch_failed`, `mid_turn.injected`, `context.usage`,
-`user_message.delta`.
+**Опциональные (12):** `session.meta`, `permission.requested`, `permission.resolved`, `tool_call.delta`,
+`thought.delta`, `plan.updated`, `model.switched`, `model.switch_failed`, `mid_turn.injected`,
+`context.usage`, `user_message.delta`, `session.resync`.
 
 `plan.updated` и `tool_call.delta` остаются контрактными строками, но в P0–P3 адаптерами не реализуются.
 
@@ -121,6 +121,10 @@ tokens»): ядро не содержит LLM-вызовов, все решен�
 `AgentPort`; путь отката при проблемах с новыми адаптерами. Декларируется `setModel=false`: в `NessyGateway`
 операции смены модели нет (`ports.ts:31-63`); `model.set` доступен только `NessySdk` и `Tclaude`. Только
 токен-лимиты: `parseStats` даёт input/output/cached/total (`usage.ts:13-22`).
+
+> **P1, решение пользователя:** serve-адаптер **удалён** (`nessy-client.ts`, `event-mapper.ts`, `serve-space.ts`,
+> `free-port.ts` и их тесты). Откат — `git revert e7fec3e..` (коммит P0, где адаптер ещё был). Остался только
+> nessy-sdk путь (§6б).
 
 **(б) NessySdk** — `@nestor/nessy-cli-sdk 0.8.6` (последняя опубликованная; клон 0.8.7-preview.0 не
 опубликован — работать с 0.8.6 до выхода стабильной). Процесс на сессию; `query()`/`canUseTool`/`setModel`.
@@ -193,11 +197,12 @@ tokens»): ядро не содержит LLM-вызовов, все решен�
 ## 11. План миграции
 
 - **P0** — контракт-рефакторинг без изменения поведения: слияние портов, `AgentCallbacks`, serve-адаптер,
-  все тесты зелёные, откат тривиален;
-- **P1** — сначала верификация API-поверхности SDK живым импортом `@nestor/nessy-cli-sdk` (пиннинг 0.8.6,
-  спайк `spike-nessy-sdk/` выполнен), затем адаптер `NessySdk` + выбор рантайма per-space/agent; обобщение
-  `SessionPool` → `RuntimePool` (риск дублирования тёплых пулов serve-SessionPool и NessySdk-пула — развести
-  намеренно, один механизм к P1);
+  все тесты зелёные, откат тривиален; **(выполнено, e7fec3e)**
+- **P1** — адаптер `NessySdk` (`@nestor/nessy-cli-sdk 0.8.6`), рантайм nessy-sdk как единственный (serve удалён
+  решением пользователя, §6а); контракт аддитивно расширен (`tool_call` title/input, `SessionEvent` usage/closed),
+  `FakeAgentPort` с движком сценариев, conformance + `context.usage`/`session.meta`; живые тесты `agent-port-sdk-live`
+  (`ORCH_E2E=1`) и смоук ядра (чистое завершение CLI-процессов). **Выполнено.** Обобщение `SessionPool` →
+  `RuntimePool` отложено на P2 (тёплого пула у SDK нет — старт 2.7с, §6б);
 - **P2** — адаптер `Tclaude` + модель на агенте;
 - **P3** — новый CLI;
 - **P4** (этап 2) — A2A-адаптер и Qwarium-раннер (маппинг 1-в-1 уже заложен в §3).

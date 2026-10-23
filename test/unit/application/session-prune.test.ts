@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import * as os from 'node:os'
 import { describe, it } from 'node:test'
 import { Orchestrator } from '../../../src/application/orchestrator'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 
 function setup(maxSessions: number) {
 	const clock = { t: Date.now() }
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	const orch = new Orchestrator({
 		settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0, maxSessions },
 		store: new MemoryStore(),

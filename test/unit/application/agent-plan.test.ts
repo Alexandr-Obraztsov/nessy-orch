@@ -5,12 +5,12 @@ import { beforeEach, describe, it } from 'node:test'
 import type { HubEvent, PlanEntry } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
 import { AppError } from '../../../src/domain/errors'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 import { until } from '../../support/wait'
 
 interface Ctx {
 	orch: Orchestrator
-	gw: FakeGateway
+	gw: FakeAgentPort
 	hub: HubEvent[]
 	clock: { t: number; now(): number }
 }
@@ -22,7 +22,7 @@ function setup(): Ctx {
 			return this.t
 		},
 	}
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	const orch = new Orchestrator({
 		settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', cancelGraceMs: 3000 },
 		store: new MemoryStore(),

@@ -8,11 +8,12 @@ export interface Config extends OrchSettings {
 	root: string
 	host: string
 	port: number
-	nessyBin: string
-	nessyServeArgs: string[]
-	serveBasePort: number
-	maxSessionsPerSpace: number
-	healthTimeoutMs: number
+	/** рантайм агентов (serve-путь удалён; зарезервировано для будущих рантаймов). */
+	runtime: 'nessy-sdk'
+	/** ожидаемая модель для верификации nessy-sdk (ORCH_SDK_MODEL); не задана — не проверяется */
+	sdkModel?: string
+	/** права nessy-sdk (ORCH_SDK_PERMISSION_MODE); по умолчанию 'default' */
+	sdkPermissionMode?: 'default' | 'plan' | 'auto-edit' | 'auto'
 	/** заливать пресеты ролей при первом запуске (ORCH_SEED_ROLES) */
 	seedRoles: boolean
 	/** каталог готовых ролей (по умолчанию <root>/roles) */

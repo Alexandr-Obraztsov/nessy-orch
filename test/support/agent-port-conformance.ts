@@ -21,6 +21,8 @@ export interface ConformanceOptions {
 	slowPrompt?: string
 	/** промпт, который порождает permission.requested и держит ход открытым до голоса; если не задан — кейс permission пропускается */
 	permissionPrompt?: string
+	/** промпт, который порождает session.meta; если не задан — кейс session.meta пропускается */
+	metaPrompt?: string
 	/** таймаут ожидания событий, мс */
 	waitMs?: number
 }
@@ -66,7 +68,7 @@ function ofType(c: Collector, type: string): Promise<Envelope> {
 }
 
 export function runAgentPortConformance(opts: ConformanceOptions): void {
-	const { makePort, cwd, label, slowPrompt = '#slow', permissionPrompt, waitMs = DEFAULT_WAIT_MS } = opts
+	const { makePort, cwd, label, slowPrompt = '#slow', permissionPrompt, metaPrompt, waitMs = DEFAULT_WAIT_MS } = opts
 	const p = (name: string): string => `${label}: ${name}`
 
 	test(p('создание сессии и session.ready'), async () => {
@@ -95,6 +97,31 @@ export function runAgentPortConformance(opts: ConformanceOptions): void {
 		}
 		const completed = await ofType(c, 'turn.completed')
 		assert.equal(completed.type, 'turn.completed')
+	})
+
+	test(p('context.usage обязателен после первого prompt.send'), async () => {
+		const port = await makePort()
+		const { sessionId } = await port.sessionCreate(cwd)
+		const c = new Collector()
+		port.subscribe(sessionId, { onEvent: e => c.push(e) })
+		await port.promptSend(sessionId, 'первый промпт')
+		await ofType(c, 'turn.completed')
+		const usage = await c.waitFor(e => e.type === 'context.usage', 'context.usage', waitMs)
+		const data = usage.data as { used: number; size: number }
+		assert.ok(typeof data.used === 'number' && data.used > 0, 'used — занятое окно контекста')
+		assert.ok(typeof data.size === 'number')
+	})
+
+	test(p('session.meta (по metaPrompt)'), async () => {
+		if (!metaPrompt) return
+		const port = await makePort()
+		const { sessionId } = await port.sessionCreate(cwd)
+		const c = new Collector()
+		port.subscribe(sessionId, { onEvent: e => c.push(e) })
+		await port.promptSend(sessionId, metaPrompt)
+		const meta = await c.waitFor(e => e.type === 'session.meta', 'session.meta', waitMs)
+		const data = meta.data as { displayName?: string }
+		assert.ok(typeof data.displayName === 'string')
 	})
 
 	test(p('отмена хода → turn.cancelled'), async () => {

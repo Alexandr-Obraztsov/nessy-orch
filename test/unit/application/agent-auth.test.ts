@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import * as os from 'node:os'
 import { describe, it } from 'node:test'
 import { Orchestrator } from '../../../src/application/orchestrator'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 import { until } from '../../support/wait'
 
 async function firstPrompt(authRequired: boolean): Promise<{ prompt: string; key: string }> {
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	const orch = new Orchestrator({
 		settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0, authRequired },
 		store: new MemoryStore(),

@@ -4,12 +4,12 @@ import * as os from 'node:os'
 import { describe, it } from 'node:test'
 import type { Message } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 import { until } from '../../support/wait'
 
 function setup(idleCloseMs = 30) {
 	const store = new MemoryStore()
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	const orch = new Orchestrator({
 		settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', cancelGraceMs: 3000, idleCloseMs },
 		store,
@@ -48,7 +48,7 @@ describe('агент: закрытие по простою и пробужден
 		await until(() => ctx.gw.prompts.length === 2, 1000, 'промпт после пробуждения')
 		assert.deepEqual(ctx.gw.restored, [nessyId], 'сессия поднята тем же id, а не создана заново')
 		assert.equal(ctx.gw.created, 1)
-		assert.equal(ctx.gw.subscribedFrom.at(-1)?.lastEventId, 7, 'подписка с lastEventId из ответа /load — без повтора истории')
+		assert.equal(ctx.gw.subscribedFrom.at(-1)?.lastSeq, 7, 'подписка с lastSeq из ответа резюма — без повтора истории')
 		assert.equal(ctx.orch.getAgent(id).parked, false)
 	})
 

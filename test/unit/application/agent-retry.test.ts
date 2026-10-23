@@ -5,11 +5,11 @@ import { describe, it } from 'node:test'
 import type { Message } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
 import type { OrchSettings } from '../../../src/application/settings.types'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 import { until } from '../../support/wait'
 
 function setup(extra: Partial<OrchSettings> = {}) {
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	const store = new MemoryStore()
 	const orch = new Orchestrator({
 		settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0, turnRetries: 2, turnRetryBaseMs: 10, ...extra },
@@ -20,7 +20,7 @@ function setup(extra: Partial<OrchSettings> = {}) {
 	const replies = (): Message[] => store.messages.filter(m => m.kind === 'reply' && m.to === 'you')
 	return { orch, gw, store, replies }
 }
-const fail = (id: string): Parameters<FakeGateway['emit']>[0][] => [
+const fail = (id: string): Parameters<FakeAgentPort['emit']>[0][] => [
 	{ kind: 'turn_error', message: 'модель перегружена', retryable: true, code: 529 },
 	{ kind: 'turn_complete', stopReason: 'end_turn', promptId: id },
 ]

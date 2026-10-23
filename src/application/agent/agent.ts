@@ -30,7 +30,9 @@ import type { AgentIdentity, TurnOutcome } from '../../domain/types'
 import { errMsg } from '../../lib/json'
 import { clip, plainText } from '../../lib/text'
 import type { PersistedAgent } from '../persisted.types'
-import type { NessyGateway, SessionEvent, SessionSubscription } from '../ports'
+import { portEventToSessionEvent } from '../agent-port'
+import type { AgentPort, Envelope, PortEvent, PortSubscription } from '../agent-port'
+import type { SessionEvent } from '../ports'
 import { AgentJournal } from './agent-journal'
 import type { AgentDeps, AgentInit, CurrentTurn, LiveRun, PendingPermission } from './agent.types'
 
@@ -85,7 +87,7 @@ export class Agent implements AgentIdentity {
 	private current: CurrentTurn | null = null
 	private lastTool: ToolBrief | null = null
 	private readonly pending = new Map<string, PendingPermission>()
-	private sub: SessionSubscription | null = null
+	private sub: PortSubscription | null = null
 	private attaching: Promise<void> | null = null
 	private pumping = false
 	/** при следующем подключении сначала попробовать поднять прежнюю сессию (/load) */
@@ -319,21 +321,21 @@ export class Agent implements AgentIdentity {
 		const client = await space.ensureReady()
 		await this.closing // сессию закрывали по простою: поднимать её можно только после закрытия
 		const prev = this.resume ? this.nessyId : null
-		// с какого события подписываться: у поднятой сессии — с lastEventId из ответа /load (повтор истории не нужен), у новой — с начала
+		// с какого события подписываться: у поднятой сессии — с последнего seq из ответа резюма (повтор истории не нужен), у новой — с начала
 		let cursor = this.lastEventId
 		let resumed = false
 		if (prev !== null) {
-			const r = await this.whenNessyFree(() => client.restoreSession(prev, space.path))
+			const r = await this.whenNessyFree(() => client.sessionResume(prev, space.path))
 			if (r) {
 				resumed = true
-				cursor = r.lastEventId ?? cursor
+				cursor = r.lastSeq ?? cursor
 			}
 		}
 		if (!resumed) {
 			const hadSession = this.nessyId !== null
 			// сначала заготовка из пула: создание сессии nessy — самая долгая часть запуска агента
 			const warm = this.deps.callbacks.takeWarmSession(this.space)
-			const sessionId = warm ?? (await this.whenNessyFree(() => client.createSession(space.path))).sessionId
+			const sessionId = warm ?? (await this.whenNessyFree(() => client.sessionCreate(space.path))).sessionId
 			this.nessyId = sessionId
 			cursor = null
 			this.lastEventId = null
@@ -344,8 +346,8 @@ export class Agent implements AgentIdentity {
 		this.resume = false
 		this.parked = false
 		this.sub = client.subscribe(this.nessyId ?? '', {
-			lastEventId: cursor,
-			onEvent: (ev, id) => this.onSessionEvent(ev, id),
+			lastSeq: cursor,
+			onEvent: envelope => this.onPortEvent(envelope),
 		})
 		const next = statusAfterAttach(this.status)
 		if (next !== this.status) this.setStatus(next)
@@ -408,7 +410,7 @@ export class Agent implements AgentIdentity {
 		this.publishNode()
 		if (!client) return
 		this.closing = client
-			.closeSession(id)
+			.sessionClose(id)
 			.catch(() => undefined)
 			.finally(() => {
 				this.closing = null
@@ -464,7 +466,7 @@ export class Agent implements AgentIdentity {
 		const turn = this.current
 		const client = this.deps.callbacks.getSpace(this.space)?.client
 		let ok = false
-		if (turn && client && this.nessyId) ok = await client.midTurn(this.nessyId, framePrompt(msg, this.deps.callbacks.labelOf(msg.from))).catch(() => false)
+		if (turn && client && this.nessyId) ok = await client.midTurnSend(this.nessyId, framePrompt(msg, this.deps.callbacks.labelOf(msg.from))).catch(() => false)
 		if (ok && this.current === turn && turn) {
 			turn.injected.push({ msg, confirmed: false })
 			this.touch()
@@ -537,7 +539,6 @@ export class Agent implements AgentIdentity {
 		}
 		this.journal.resetTools()
 		this.turnSteps = 0
-		this.startUsageTimer()
 		// новая сессия от оператора после выполненного плана — план сбрасывается (уточнения его сохраняют)
 		this.plan = planOnTurnStart(this.plan, msg.from === YOU || msg.from === USER, this.queue.length)
 		this.setStatus('working')
@@ -567,11 +568,11 @@ export class Agent implements AgentIdentity {
 	 * Отправить промпт; на временный отказ nessy (очередь переполнена, 429, сессия занята) ждём и повторяем
 	 * с растущей паузой (или Retry-After), пока ход не отменили. Окончательная ошибка пробрасывается.
 	 */
-	private async promptWithRetry(client: NessyGateway, sessionId: string, msg: Message): Promise<{ promptId: string | null }> {
+	private async promptWithRetry(client: AgentPort, sessionId: string, msg: Message): Promise<{ promptId: string | null }> {
 		const base = this.deps.promptRetryBaseMs ?? PROMPT_RETRY_BASE_MS
 		for (let attempt = 0; ; attempt++) {
 			try {
-				return await client.prompt(sessionId, this.buildPrompt(msg))
+				return await client.promptSend(sessionId, this.buildPrompt(msg))
 			} catch (e) {
 				const cur = this.turnFor(msg)
 				if (!(e instanceof NessyBusyError) || attempt >= PROMPT_RETRY_MAX || !cur || cur.cancelRequested) throw e
@@ -637,30 +638,12 @@ export class Agent implements AgentIdentity {
 
 	private async sendCancel(): Promise<void> {
 		const client = this.deps.callbacks.getSpace(this.space)?.client
-		if (client && this.nessyId) await client.cancel(this.nessyId).catch(() => undefined)
+		if (client && this.nessyId) await client.promptCancel(this.nessyId).catch(() => undefined)
 	}
 
 	private clearCancelTimer(): void {
 		if (this.cancelTimer) clearTimeout(this.cancelTimer)
 		this.cancelTimer = null
-		this.stopUsageTimer()
-	}
-
-	private usageTimer: ReturnType<typeof setInterval> | null = null
-
-	/** Пока идёт ход, токены и контекст опрашиваются у nessy каждые 5 с — карточка живая, а не обновляется в конце хода. */
-	private startUsageTimer(): void {
-		this.stopUsageTimer()
-		this.usageTimer = setInterval(() => {
-			if (this.current) void this.refreshUsage()
-			else this.stopUsageTimer()
-		}, 5000)
-		this.usageTimer.unref()
-	}
-
-	private stopUsageTimer(): void {
-		if (this.usageTimer) clearInterval(this.usageTimer)
-		this.usageTimer = null
 	}
 
 	private rememberDone(promptId: string): void {
@@ -676,7 +659,16 @@ export class Agent implements AgentIdentity {
 	async close(): Promise<void> {
 		this.detach()
 		const client = this.deps.callbacks.getSpace(this.space)?.client
-		if (client && this.nessyId) await client.closeSession(this.nessyId)
+		if (client && this.nessyId) await client.sessionClose(this.nessyId)
+	}
+
+	// ---------- события порта ----------
+	/** Событие порта: Envelope → SessionEvent (нормализация §3), seq конверта идёт как eventId (для lastEventId). */
+	private onPortEvent(envelope: Envelope): void {
+		// конверт несёт событие порта, разбитое на type + data; порт гарантирует контрактную форму
+		const portEvent: { type: string; data: unknown } = { type: envelope.type, data: envelope.data }
+		const ev = portEventToSessionEvent(portEvent as PortEvent)
+		if (ev) this.onSessionEvent(ev, envelope.seq ?? null)
 	}
 
 	// ---------- события nessy ----------
@@ -766,21 +758,22 @@ export class Agent implements AgentIdentity {
 				this.resume = true
 				void this.ensureAttached().catch(() => undefined)
 				return
+			case 'usage':
+				// расход контекста из события порта (вместо опроса /stats): used — занято в окне, size — окно модели
+				this.ctxUsed = ev.used
+				this.ctxSize = ev.size
+				if (ev.used > 0) this.stats = { ...this.stats, tokens: { input: 0, output: 0, cached: 0, total: ev.used }, ...this.contextMetric() }
+				this.publishNode()
+				return
+			case 'closed':
+				// сессия закрыта рантаймом: подписка мертва, следующее сообщение создаст новую сессию
+				this.detach()
+				this.resume = true
+				return
 		}
 	}
 
-	private lastUsagePoll = 0
-
-	/** Токены и контекст — на лету: во время хода опрашиваем nessy не чаще раза в 8 с (по событиям инструментов). */
-	private pollUsageLive(): void {
-		const now = this.deps.clock.now()
-		if (now - this.lastUsagePoll < 8000) return
-		this.lastUsagePoll = now
-		void this.refreshUsage()
-	}
-
 	private onTool(ev: Extract<SessionEvent, { kind: 'tool' }>): void {
-		this.pollUsageLive()
 		// обновление инструмента, который мы не видели, вне хода — это реплей: пропускаем
 		if (!this.current && !this.journal.hasTool(ev.toolId)) return
 		const [rec, created] = this.journal.upsertTool(ev)
@@ -821,7 +814,7 @@ export class Agent implements AgentIdentity {
 		if (this.deps.autoApprove) {
 			const client = this.deps.callbacks.getSpace(this.space)?.client
 			const optionId = pickPermissionOption(ev.options, true)
-			if (client && this.nessyId) void client.vote(this.nessyId, ev.requestId, optionId).catch(() => undefined)
+			if (client && this.nessyId) void client.permissionVote(this.nessyId, ev.requestId, optionId).catch(() => undefined)
 			this.journal.add({ kind: 'permission', requestId: ev.requestId, title, resolved: true, approved: true, auto: true })
 			this.touch()
 			return
@@ -836,7 +829,7 @@ export class Agent implements AgentIdentity {
 		const p = this.pending.get(requestId)
 		const client = this.deps.callbacks.getSpace(this.space)?.client
 		if (!p || !client || !this.nessyId) return false
-		await client.vote(this.nessyId, requestId, pickPermissionOption(p.options, approve))
+		await client.permissionVote(this.nessyId, requestId, pickPermissionOption(p.options, approve))
 		this.pending.delete(requestId)
 		this.journal.add({ kind: 'permission', requestId, title: p.title, resolved: true, approved: approve, auto: false })
 		this.touch()
@@ -899,7 +892,6 @@ export class Agent implements AgentIdentity {
 		}
 		void this.pump()
 		this.scheduleIdleClose()
-		void this.refreshUsage()
 	}
 
 	/** Нужен ли повтор: любая ошибка (кроме отмены), агент жив и повторы не исчерпаны. */
@@ -932,20 +924,6 @@ export class Agent implements AgentIdentity {
 			this.holdPump = false
 			void this.pump()
 		}, delayMs).unref()
-	}
-
-	/** Токены сессии нарастающим итогом (если nessy отдаёт /stats) — точнее суммы по ходам. */
-	private async refreshUsage(): Promise<void> {
-		const client = this.deps.callbacks.getSpace(this.space)?.client
-		if (!client || !this.nessyId) return
-		const [usage, ctx] = await Promise.all([client.usage(this.nessyId).catch(() => null), client.contextUsage(this.nessyId).catch(() => null)])
-		if (ctx) {
-			this.ctxUsed = ctx.used
-			this.ctxSize = ctx.size
-		}
-		if (!usage && !ctx) return
-		this.stats = { ...this.stats, ...(usage ? { tokens: usage } : {}), ...this.contextMetric() }
-		this.publishNode()
 	}
 
 	/** Запомнить ответ оператору (you) для карточки агента. true — запомнили. */

@@ -66,9 +66,9 @@ export class SessionPool {
 			for (;;) {
 				const list = this.ready.get(space) ?? []
 				if (list.length >= this.deps.target() || this.deps.isShuttingDown() || !this.deps.getSpace(space)) return
-				const { sessionId } = await client.createSession(rt.path)
+				const { sessionId } = await client.sessionCreate(rt.path)
 				if (this.deps.isShuttingDown() || !this.deps.getSpace(space)) {
-					void client.closeSession(sessionId).catch(() => undefined)
+					void client.sessionClose(sessionId).catch(() => undefined)
 					return
 				}
 				const now = this.ready.get(space) ?? []
@@ -93,7 +93,7 @@ export class SessionPool {
 		const jobs: Promise<unknown>[] = []
 		for (const [space, list] of this.ready) {
 			const client = this.deps.getSpace(space)?.client
-			if (client) for (const e of list) jobs.push(client.closeSession(e.id).catch(() => undefined))
+			if (client) for (const e of list) jobs.push(client.sessionClose(e.id).catch(() => undefined))
 		}
 		this.ready.clear()
 		await Promise.race([Promise.allSettled(jobs), new Promise(r => setTimeout(r, timeoutMs).unref())])
@@ -101,6 +101,6 @@ export class SessionPool {
 
 	private discard(space: string, id: string): void {
 		const client = this.deps.getSpace(space)?.client
-		if (client) void client.closeSession(id).catch(() => undefined)
+		if (client) void client.sessionClose(id).catch(() => undefined)
 	}
 }

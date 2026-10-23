@@ -5,19 +5,19 @@ import { beforeEach, describe, it } from 'node:test'
 import type { AgentEvent, HubEvent, Message, ToolEvent } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
 import { planReminder } from '../../../src/domain/preamble'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 import { until } from '../../support/wait'
 
 interface Ctx {
 	orch: Orchestrator
-	gw: FakeGateway
+	gw: FakeAgentPort
 	store: MemoryStore
 	hub: HubEvent[]
 }
 
 function setup(autoApprove = true, cancelGraceMs = 3000): Ctx {
 	const store = new MemoryStore()
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	const orch = new Orchestrator({
 		settings: { home: os.tmpdir(), autoApprove, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', cancelGraceMs },
 		store,
@@ -89,7 +89,8 @@ describe('агент: события сессии', () => {
 			{ seq: 0, ts: 0, endedTs: 0, kind: 'tool', toolId: 't1', name: 'read_file', title: 'Read: a.md', input: { path: 'a.md' }, status: 'completed', output: '# A' },
 		)
 		const published = ctx.hub.filter(e => e.t === 'event' && e.event.kind === 'tool').map(e => (e.t === 'event' && e.event.kind === 'tool' ? e.event.status : ''))
-		assert.deepEqual(published, ['pending', 'in_progress', 'completed'])
+		// pending стартового вызова через порт нормализуется в in_progress (tool_call.started статус не несёт)
+		assert.deepEqual(published, ['in_progress', 'in_progress', 'completed'])
 		assert.deepEqual(ctx.orch.getAgent(id).lastTool, { name: 'read_file', title: 'Read: a.md' })
 	})
 
@@ -267,12 +268,12 @@ describe('агент: архив и прерывание', () => {
 		assert.equal(ctx.orch.resolveAgent(id).nessyId, session)
 	})
 
-	it('метрика контекста: занято и окно модели — оба от nessy (GET /context-usage)', async () => {
+	it('метрика контекста: занято и окно модели — оба из события context.usage', async () => {
 		const ctx = setup()
-		ctx.gw.contextValue = { used: 33_241, size: 524_000 }
 		const id = await startTurn(ctx)
+		ctx.gw.emit({ kind: 'usage', used: 33_241, size: 524_000 })
 		ctx.gw.emit({ kind: 'text', text: 'ок', messageId: 'm1' }, { kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
-		await until(() => ctx.orch.getAgent(id).stats.contextPct === 6, 2000, 'контекст из /context-usage')
+		await until(() => ctx.orch.getAgent(id).stats.contextPct === 6, 2000, 'контекст из context.usage')
 		assert.equal(ctx.orch.getAgent(id).stats.contextTokens, 33_241)
 	})
 

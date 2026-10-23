@@ -7,7 +7,7 @@ import { beforeEach, describe, it } from 'node:test'
 import type { HubEvent, SessionView } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
 import { AppError } from '../../../src/domain/errors'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 
 interface Ctx {
 	orch: Orchestrator
@@ -16,7 +16,7 @@ interface Ctx {
 }
 
 function setup(store = new MemoryStore()): Ctx {
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	let n = 0
 	const orch = new Orchestrator({
 		settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch' },

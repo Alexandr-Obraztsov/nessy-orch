@@ -21,11 +21,11 @@ describe('agent-port: маппинг SessionEvent → PortEvent', () => {
 			data: { messageId: null, text: 'хм' },
 		})
 	})
-	it('tool в работе → tool_call.started, завершённый → tool_call.completed', () => {
+	it('tool в работе → tool_call.started, завершённый → tool_call.completed (title сохраняется)', () => {
 		const inProgress: SessionEvent = { kind: 'tool', toolId: 't1', name: 'grep', title: 'Grep', input: { q: 1 }, status: 'in_progress', output: '' }
-		assert.deepEqual(sessionEventToPortEvent(inProgress), { type: 'tool_call.started', data: { toolId: 't1', name: 'grep', input: { q: 1 } } })
+		assert.deepEqual(sessionEventToPortEvent(inProgress), { type: 'tool_call.started', data: { toolId: 't1', name: 'grep', title: 'Grep', input: { q: 1 } } })
 		const done: SessionEvent = { kind: 'tool', toolId: 't1', name: 'grep', title: 'Grep', input: {}, status: 'completed', output: 'ok' }
-		assert.deepEqual(sessionEventToPortEvent(done), { type: 'tool_call.completed', data: { toolId: 't1', name: 'grep', status: 'completed', output: 'ok' } })
+		assert.deepEqual(sessionEventToPortEvent(done), { type: 'tool_call.completed', data: { toolId: 't1', name: 'grep', title: 'Grep', status: 'completed', output: 'ok' } })
 	})
 	it('turn_complete → turn.completed, turn_error → turn.failed, cancelled → turn.cancelled', () => {
 		assert.deepEqual(sessionEventToPortEvent({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p' }), {
@@ -48,12 +48,12 @@ describe('agent-port: маппинг SessionEvent → PortEvent', () => {
 		assert.deepEqual(sessionEventToPortEvent({ kind: 'plan', entries }), { type: 'plan.updated', data: { entries } })
 		assert.deepEqual(sessionEventToPortEvent({ kind: 'injected', count: 2 }), { type: 'mid_turn.injected', data: { count: 2 } })
 	})
-	it('died → error, внутренние мета (meta/followup/evicted/resync) → null', () => {
-		assert.deepEqual(sessionEventToPortEvent({ kind: 'died', reason: 'crash' }), { type: 'error', data: { message: 'процесс агента nessy завершился' } })
-		assert.equal(sessionEventToPortEvent({ kind: 'meta', displayName: 'x' }), null)
+	it('died → error(reason:died), evicted → error(reason:evicted), meta → session.meta, resync → session.resync', () => {
+		assert.deepEqual(sessionEventToPortEvent({ kind: 'died', reason: 'crash' }), { type: 'error', data: { message: 'crash', reason: 'died' } })
+		assert.deepEqual(sessionEventToPortEvent({ kind: 'meta', displayName: 'x' }), { type: 'session.meta', data: { displayName: 'x' } })
+		assert.deepEqual(sessionEventToPortEvent({ kind: 'evicted' }), { type: 'error', data: { message: 'клиент вытеснен из сессии', reason: 'evicted' } })
+		assert.deepEqual(sessionEventToPortEvent({ kind: 'resync' }), { type: 'session.resync', data: {} })
 		assert.equal(sessionEventToPortEvent({ kind: 'followup', text: 'x' }), null)
-		assert.equal(sessionEventToPortEvent({ kind: 'evicted' }), null)
-		assert.equal(sessionEventToPortEvent({ kind: 'resync' }), null)
 	})
 })
 
@@ -112,7 +112,19 @@ describe('agent-port: обратный маппинг PortEvent → SessionEvent
 	it('mid_turn.injected', () => {
 		assert.deepEqual(portEventToSessionEvent({ type: 'mid_turn.injected', data: { count: 3 } }), { kind: 'injected', count: 3 })
 	})
-	it('не покрытые контрактом события → null (error, session.ready и др.)', () => {
+	it('session.meta → meta, session.resync → resync, error(died/evicted) → died/evicted', () => {
+		assert.deepEqual(portEventToSessionEvent({ type: 'session.meta', data: { displayName: 'Обзор' } }), { kind: 'meta', displayName: 'Обзор' })
+		assert.deepEqual(portEventToSessionEvent({ type: 'session.resync', data: {} }), { kind: 'resync' })
+		assert.deepEqual(portEventToSessionEvent({ type: 'error', data: { message: 'crash', reason: 'died' } }), { kind: 'died', reason: 'crash' })
+		assert.deepEqual(portEventToSessionEvent({ type: 'error', data: { message: 'x', reason: 'evicted' } }), { kind: 'evicted' })
+	})
+	it('context.usage → usage, session.closed → closed', () => {
+		assert.deepEqual(portEventToSessionEvent({ type: 'context.usage', data: { used: 33_241, size: 524_000 } }), { kind: 'usage', used: 33_241, size: 524_000 })
+		assert.deepEqual(portEventToSessionEvent({ type: 'session.closed', data: { sessionId: 's' } }), { kind: 'closed' })
+		assert.deepEqual(sessionEventToPortEvent({ kind: 'usage', used: 5, size: 10 }), { type: 'context.usage', data: { used: 5, size: 10 } })
+		assert.deepEqual(sessionEventToPortEvent({ kind: 'closed' }), { type: 'session.closed', data: { sessionId: '' } })
+	})
+	it('не покрытые контрактом события → null (error без reason, session.ready и др.)', () => {
 		assert.equal(portEventToSessionEvent({ type: 'error', data: { message: 'x' } }), null)
 		assert.equal(portEventToSessionEvent({ type: 'session.ready', data: { sessionId: 's' } }), null)
 		assert.equal(portEventToSessionEvent({ type: 'model.switched', data: { model: 'm' } }), null)
@@ -135,8 +147,9 @@ describe('agent-port: константы контракта', () => {
 			'session.closed',
 		])
 	})
-	it('10 опциональных ext-событий (plan.updated и tool_call.delta остаются контрактными, в P0–P3 не реализуются)', () => {
+	it('12 опциональных ext-событий (plan.updated и tool_call.delta остаются контрактными, в P0–P3 не реализуются)', () => {
 		assert.deepEqual(EXT_EVENT_TYPES, [
+			'session.meta',
 			'permission.requested',
 			'permission.resolved',
 			'tool_call.delta',
@@ -147,6 +160,7 @@ describe('agent-port: константы контракта', () => {
 			'mid_turn.injected',
 			'context.usage',
 			'user_message.delta',
+			'session.resync',
 		])
 	})
 })

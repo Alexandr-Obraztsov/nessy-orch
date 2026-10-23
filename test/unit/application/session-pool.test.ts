@@ -3,12 +3,12 @@ import assert from 'node:assert/strict'
 import * as os from 'node:os'
 import { describe, it } from 'node:test'
 import { Orchestrator } from '../../../src/application/orchestrator'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 import { until } from '../../support/wait'
 
-function setup(warmSessions: number, gwInit?: (gw: FakeGateway) => void) {
+function setup(warmSessions: number, gwInit?: (gw: FakeAgentPort) => void) {
 	const store = new MemoryStore()
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	gwInit?.(gw)
 	let now = 1_000_000
 	const orch = new Orchestrator({
@@ -27,7 +27,7 @@ describe('пул заготовок сессий', () => {
 		await until(() => gw.created === 2, 2000, 'две заготовки')
 		const r = await orch.spawn({ space: 'main', name: 'alpha', prompt: 'задача' })
 		await until(() => gw.prompts.length === 1, 2000, 'промпт ушёл')
-		assert.equal(orch.resolveAgent(r.agent.id).nessyId, 's-1', 'агент взял заготовку, а не создавал сессию')
+		assert.equal(orch.resolveAgent(r.agent.id).nessyId, gw.createdIds[0], 'агент взял заготовку, а не создавал сессию')
 		await until(() => gw.created === 3, 2000, 'пул пополнен до двух')
 	})
 
@@ -56,22 +56,25 @@ describe('пул заготовок сессий', () => {
 		const { orch, gw, tick } = setup(1)
 		orch.addSpace({ path: os.tmpdir(), name: 'main' })
 		await until(() => gw.created === 1, 2000, 'заготовка')
+		const warmId = gw.createdIds[gw.createdIds.length - 1] as string // единственная заготовка (id не хардкодим: счётчик общий на процесс)
 		tick(11 * 60 * 1000)
 		const r = await orch.spawn({ space: 'main', name: 'late', prompt: 'задача' })
 		await until(() => gw.prompts.length === 1, 2000, 'промпт ушёл')
-		assert.notEqual(orch.resolveAgent(r.agent.id).nessyId, 's-1', 'залежавшаяся сессия отброшена')
-		assert.ok(gw.closed.includes('s-1'), 'и закрыта')
+		assert.notEqual(orch.resolveAgent(r.agent.id).nessyId, warmId, 'залежавшаяся сессия отброшена')
+		// закрытие заготовки асинхронно (sessionClose с delay(0)) — ждём, а не проверяем синхронно
+		await until(() => gw.closed.includes(warmId), 2000, 'заготовка закрыта')
 	})
 
 	it('падение serve сбрасывает пул', async () => {
 		const { orch, gw } = setup(2)
 		orch.addSpace({ path: os.tmpdir(), name: 'main' })
 		await until(() => gw.created === 2, 2000, 'заготовки')
+		const warmIds = gw.createdIds.slice(-2) // заготовки этого теста (id не хардкодим: счётчик общий на процесс)
 		const space = orch.registry.spaces.get('main') as FakeSpace
 		space.crash()
 		const r = await orch.spawn({ space: 'main', name: 'after', prompt: 'задача' })
 		await until(() => gw.prompts.length === 1, 3000, 'промпт ушёл')
 		const id = orch.resolveAgent(r.agent.id).nessyId
-		assert.ok(id !== 's-1' && id !== 's-2', 'старые заготовки (жили в упавшем serve) не использованы')
+		assert.ok(id !== null && !warmIds.includes(id), 'старые заготовки (жили в упавшем serve) не использованы')
 	})
 })

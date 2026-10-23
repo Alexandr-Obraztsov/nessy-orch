@@ -28,10 +28,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		host: '127.0.0.1',
 		port: int(env['ORCH_PORT'], 4337),
 		home: env['NESSY_ORCH_HOME'] ?? path.join(os.homedir(), '.nessy-orch'),
-		nessyBin: env['NESSY_BIN'] ?? path.join(os.homedir(), '.local', 'bin', 'nessy'),
-		nessyServeArgs: (env['NESSY_SERVE_ARGS'] ?? '').split(/\s+/).filter(Boolean),
-		serveBasePort: int(env['SERVE_BASE_PORT'], 4360),
-		maxSessionsPerSpace: int(env['MAX_SESSIONS'], 32),
+		runtime: 'nessy-sdk',
+		...(env['ORCH_SDK_MODEL'] ? { sdkModel: env['ORCH_SDK_MODEL'] } : {}),
+		...(env['ORCH_SDK_PERMISSION_MODE'] === 'plan' || env['ORCH_SDK_PERMISSION_MODE'] === 'auto-edit' || env['ORCH_SDK_PERMISSION_MODE'] === 'auto' || env['ORCH_SDK_PERMISSION_MODE'] === 'default'
+			? { sdkPermissionMode: env['ORCH_SDK_PERMISSION_MODE'] }
+			: {}),
 		maxDepth: Math.max(0, int(env['ORCH_MAX_DEPTH'], 2)),
 		maxActivePerSession: Math.max(1, int(env['ORCH_MAX_ACTIVE'], 12)),
 		maxAgents: Math.max(1, int(env['ORCH_MAX_AGENTS'], 20)),
@@ -42,7 +43,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		autoApprove: flag(env['ORCH_AUTO_APPROVE'], true),
 		maxHops: int(env['ORCH_MAX_HOPS'], 8),
 		rateLimitPerMinute: int(env['ORCH_RATE_LIMIT'], 30),
-		healthTimeoutMs: int(env['ORCH_HEALTH_TIMEOUT_MS'], 60000),
 		warmSessions: Math.max(0, int(env['ORCH_WARM_SESSIONS'], 2)),
 		seedRoles: flag(env['ORCH_SEED_ROLES'], true),
 		rolesDir: path.join(root, 'roles'),

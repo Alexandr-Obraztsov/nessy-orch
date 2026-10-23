@@ -2,8 +2,9 @@
  * Порты прикладного слоя: что ядру нужно от внешнего мира (nessy, процессы, хранилище, часы, id).
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
-import type { AgentEvent, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, TokenUsage, ToolStatus } from '../../shared/types'
+import type { AgentEvent, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, ToolStatus } from '../../shared/types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
+import type { AgentPort } from './agent-port'
 import type { PersistedState } from './persisted.types'
 
 // ---------- nessy ----------
@@ -35,39 +36,10 @@ export type SessionEvent =
 	| { kind: 'resync' }
 	/** nessy забрал сообщения из очереди mid-turn в ход: модель их увидела */
 	| { kind: 'injected'; count: number }
-
-export interface SessionSubscription {
-	close(): void
-}
-
-export interface SubscribeOptions {
-	lastEventId: number | null
-	onEvent: (ev: SessionEvent, eventId: number | null) => void
-}
-
-/** Шлюз к одному `nessy serve`. */
-export interface NessyGateway {
-	health(): Promise<boolean>
-	createSession(cwd: string): Promise<{ sessionId: string }>
-	/**
-	 * Поднять закрытую (или пережившую рестарт демона) сессию вместе с контекстом модели: POST /session/:id/load.
-	 * null — сессии нет (404 и т. п.). lastEventId — с него подписываться, чтобы не получить повтор истории.
-	 * Пока ответ не пришёл, промпт слать нельзя (404): ждём этот вызов.
-	 */
-	restoreSession(sessionId: string, cwd: string): Promise<{ lastEventId: number | null } | null>
-	/** Доставить сообщение в идущий ход без прерывания (POST …/mid-turn-message). false — сессия простаивает или очередь полна. */
-	midTurn(sessionId: string, message: string): Promise<boolean>
-	prompt(sessionId: string, text: string): Promise<{ promptId: string | null }>
-	/** Токены сессии нарастающим итогом (GET /session/:id/stats); null — nessy не сообщает. */
-	usage(sessionId: string): Promise<TokenUsage | null>
-	/** Заполнение контекста (GET /session/:id/context-usage); null — nessy не сообщает. */
-	contextUsage(sessionId: string): Promise<{ used: number; size: number } | null>
-	cancel(sessionId: string): Promise<void>
-	closeSession(sessionId: string): Promise<void>
-	/** Проголосовать по запросу разрешения (optionId=null → отмена). */
-	vote(sessionId: string, requestId: string, optionId: string | null): Promise<void>
-	subscribe(sessionId: string, opts: SubscribeOptions): SessionSubscription
-}
+	/** расход контекста из события порта context.usage (used — занято в окне, size — окно модели) */
+	| { kind: 'usage'; used: number; size: number }
+	/** сессия закрыта (порт прислал session.closed) */
+	| { kind: 'closed' }
 
 // ---------- пространства ----------
 export interface SpaceInit {
@@ -88,18 +60,18 @@ export interface SpaceListener {
 	onExit(space: SpaceRuntime, info: SpaceExitInfo): void
 }
 
-/** Пространство: воркспейс + (managed) процесс nessy serve либо внешний демон (external). */
+/** Пространство: воркспейс + управляемый рантайм агента. Ядро управляет агентом через AgentPort. */
 export interface SpaceRuntime {
 	readonly name: string
 	readonly path: string
 	readonly url: string | null
 	readonly color: number
 	readonly status: SpaceStatus
-	readonly client: NessyGateway | null
-	/** Гарантировать, что nessy serve поднят. */
-	ensureReady(): Promise<NessyGateway>
+	readonly client: AgentPort | null
+	/** Гарантировать, что рантайм готов (вернуть порт управления агентом). */
+	ensureReady(): Promise<AgentPort>
 	stop(): Promise<void>
-	/** Синхронно послать SIGTERM своему nessy serve (на выходе процесса, когда ждать уже нельзя). */
+	/** Синхронно погасить свой рантайм (на выходе процесса, когда ждать уже нельзя). */
 	killSync(): void
 	toJSON(): SpaceView
 }

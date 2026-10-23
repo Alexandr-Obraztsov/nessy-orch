@@ -6,7 +6,7 @@ import type { Message, SourceView } from '../../../shared/types'
 import { Feed } from '../../../src/application/feed'
 import { Hub } from '../../../src/application/hub'
 import { Orchestrator } from '../../../src/application/orchestrator'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 
 const msg = (seq: number, from: string, to: string): Message => ({ seq, id: `m-${seq}`, ts: seq, from, to, kind: 'msg', text: `t${seq}`, hops: 0 })
 
@@ -32,7 +32,7 @@ describe('лента: история за окном памяти', () => {
 		const orch = new Orchestrator({
 			settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0 },
 			store,
-			spaceFactory: init => new FakeSpace(init.name, init.path, new FakeGateway()),
+			spaceFactory: init => new FakeSpace(init.name, init.path, new FakeAgentPort()),
 		})
 		const s = orch.createSession({ title: 'Источники' })
 		const source: SourceView = { id: 'x', kind: 'url', label: 'l', href: 'https://e.x', agentId: 'a', agentName: 'a', ts: 1, origin: 'reply' }

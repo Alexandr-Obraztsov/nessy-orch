@@ -4,18 +4,18 @@ import * as os from 'node:os'
 import { beforeEach, describe, it } from 'node:test'
 import type { ToolEvent } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
-import { FakeGateway, FakeSpace, MemoryStore } from '../../support/memory-store'
+import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 import { until } from '../../support/wait'
 
 interface Ctx {
 	orch: Orchestrator
-	gw: FakeGateway
+	gw: FakeAgentPort
 	store: MemoryStore
 }
 
 function setup(): Ctx {
 	const store = new MemoryStore()
-	const gw = new FakeGateway()
+	const gw = new FakeAgentPort({ autoRespond: false })
 	const orch = new Orchestrator({
 		settings: { home: os.tmpdir(), autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', cancelGraceMs: 3000 },
 		store,
@@ -92,26 +92,26 @@ describe('счётчики и ответ агента', () => {
 		const id = await startTurn(ctx, s.id)
 		ctx.gw.emit({ kind: 'tool', toolId: 't1', name: 'bash', title: 'ls', input: {}, status: 'completed', output: '' })
 		ctx.gw.emit({ kind: 'tool', toolId: 't2', name: 'bash', title: 'pwd', input: {}, status: 'completed', output: '' })
-		ctx.gw.usageValue = { input: 1000, output: 250, cached: 400, total: 1250 }
+		ctx.gw.emit({ kind: 'usage', used: 1250, size: 0 })
 		ctx.gw.emit({ kind: 'text', text: REPLY, messageId: 'm' })
 		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
-		await until(() => ctx.orch.getAgent(id).stats.tokens?.total === 1250, 2000, 'токены из /stats')
+		await until(() => ctx.orch.getAgent(id).stats.tokens?.total === 1250, 2000, 'токены из context.usage')
 		const a = ctx.orch.getAgent(id)
 		assert.equal(a.stats.turns, 1)
 		assert.equal(a.stats.toolCalls, 2)
-		assert.deepEqual(a.stats.tokens, { input: 1000, output: 250, cached: 400, total: 1250 })
+		assert.deepEqual(a.stats.tokens, { input: 0, output: 0, cached: 0, total: 1250 })
 		assert.equal(a.lastReply?.status, 'DONE_WITH_CONCERNS')
 		assert.equal(a.lastReply.reason, 'не гонял e2e')
 	})
 
-	it('токены — нарастающий итог из /stats', async () => {
+	it('токены — нарастающий итог из context.usage', async () => {
 		const ctx = setup()
-		ctx.gw.usageValue = { input: 5000, output: 900, cached: 0, total: 5900 }
 		const s = ctx.orch.createSession({ title: 'Токены' })
 		const id = await startTurn(ctx, s.id)
+		ctx.gw.emit({ kind: 'usage', used: 5900, size: 0 })
 		ctx.gw.emit({ kind: 'text', text: 'ок', messageId: 'm' })
 		ctx.gw.emit({ kind: 'turn_complete', stopReason: 'end_turn', promptId: 'p-1' })
-		await until(() => ctx.orch.getAgent(id).stats.tokens?.total === 5900, 2000, 'токены из /stats')
+		await until(() => ctx.orch.getAgent(id).stats.tokens?.total === 5900, 2000, 'токены из context.usage')
 	})
 
 	it('nessy не сообщает токены — null, а не нули', async () => {
