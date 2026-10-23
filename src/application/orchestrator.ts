@@ -116,7 +116,7 @@ export class Orchestrator implements AgentHost {
 			ids,
 			rolePackages: deps.rolePackages ?? NO_ROLE_PACKAGES,
 			agentDeps: {
-				host: this,
+				callbacks: this,
 				hub: this.hub,
 				store: deps.store,
 				clock,

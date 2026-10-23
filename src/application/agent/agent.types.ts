@@ -4,8 +4,8 @@ import type { AgentIdentity, PermissionOption, TurnOutcome } from '../../domain/
 import type { Hub } from '../hub'
 import type { Clock, SpaceRuntime, StorePort } from '../ports'
 
-/** Что агент требует от оркестратора. */
-export interface AgentHost {
+/** Что агент требует от оркестратора — узкий интерфейс колбэков (без цикла agent → host → agent). */
+export interface AgentCallbacks {
 	getSpace(name: string): SpaceRuntime | undefined
 	labelOf(id: string): string
 	preambleFor(agent: AgentIdentity): string
@@ -18,8 +18,12 @@ export interface AgentHost {
 	saveSoon(): void
 }
 
+/** Полный интерфейс хоста оркестратора; сегодня это точный алиас узких колбэков агента (AgentCallbacks). */
+export type AgentHost = AgentCallbacks
+
 export interface AgentDeps {
-	host: AgentHost
+	/** обратные вызовы в оркестратор; агент не видит весь host, только узкий интерфейс колбэков */
+	callbacks: AgentCallbacks
 	hub: Hub
 	store: StorePort
 	clock: Clock

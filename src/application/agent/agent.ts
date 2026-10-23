@@ -280,7 +280,7 @@ export class Agent implements AgentIdentity {
 
 	publishNode(): void {
 		this.deps.hub.publish({ t: 'agent', agent: this.toJSON() })
-		this.deps.host.saveSoon()
+		this.deps.callbacks.saveSoon()
 	}
 
 	addSystem(text: string, level: 'info' | 'error' = 'info'): void {
@@ -314,7 +314,7 @@ export class Agent implements AgentIdentity {
 	}
 
 	private async attach(): Promise<void> {
-		const space = this.deps.host.getSpace(this.space)
+		const space = this.deps.callbacks.getSpace(this.space)
 		if (!space) throw new Error(`пространство «${this.space}» не найдено`)
 		const client = await space.ensureReady()
 		await this.closing // сессию закрывали по простою: поднимать её можно только после закрытия
@@ -332,7 +332,7 @@ export class Agent implements AgentIdentity {
 		if (!resumed) {
 			const hadSession = this.nessyId !== null
 			// сначала заготовка из пула: создание сессии nessy — самая долгая часть запуска агента
-			const warm = this.deps.host.takeWarmSession(this.space)
+			const warm = this.deps.callbacks.takeWarmSession(this.space)
 			const sessionId = warm ?? (await this.whenNessyFree(() => client.createSession(space.path))).sessionId
 			this.nessyId = sessionId
 			cursor = null
@@ -401,7 +401,7 @@ export class Agent implements AgentIdentity {
 	async park(): Promise<void> {
 		if (this.current || this.queue.length || this.pumping || this.pending.size || !this.sub || !this.nessyId) return
 		const id = this.nessyId
-		const client = this.deps.host.getSpace(this.space)?.client
+		const client = this.deps.callbacks.getSpace(this.space)?.client
 		this.detach()
 		this.resume = true
 		this.parked = true
@@ -431,7 +431,7 @@ export class Agent implements AgentIdentity {
 	 */
 	deliver(msg: Message, interrupt = false): void {
 		if (this.removed) {
-			this.noteReply(this.deps.host.onTurnDone(this, msg, '', { error: 'агент удалён' }))
+			this.noteReply(this.deps.callbacks.onTurnDone(this, msg, '', { error: 'агент удалён' }))
 			return
 		}
 		this.archived = false
@@ -462,9 +462,9 @@ export class Agent implements AgentIdentity {
 
 	private async inject(msg: Message): Promise<void> {
 		const turn = this.current
-		const client = this.deps.host.getSpace(this.space)?.client
+		const client = this.deps.callbacks.getSpace(this.space)?.client
 		let ok = false
-		if (turn && client && this.nessyId) ok = await client.midTurn(this.nessyId, framePrompt(msg, this.deps.host.labelOf(msg.from))).catch(() => false)
+		if (turn && client && this.nessyId) ok = await client.midTurn(this.nessyId, framePrompt(msg, this.deps.callbacks.labelOf(msg.from))).catch(() => false)
 		if (ok && this.current === turn && turn) {
 			turn.injected.push({ msg, confirmed: false })
 			this.touch()
@@ -486,7 +486,7 @@ export class Agent implements AgentIdentity {
 			const reason = 'оркестратор был перезапущен во время хода'
 			this.addSystem(`${reason}: ответа не будет`, 'error')
 			this.setStatus('error', reason)
-			this.noteReply(this.deps.host.onTurnDone(this, lost, '', { error: reason }))
+			this.noteReply(this.deps.callbacks.onTurnDone(this, lost, '', { error: reason }))
 			this.publishNode()
 		}
 		if (this.queue.length) void this.pump()
@@ -510,7 +510,7 @@ export class Agent implements AgentIdentity {
 			}
 			const failed = this.queue.splice(0)
 			this.urgent = 0
-			for (const m of failed) this.noteReply(this.deps.host.onTurnDone(this, m, '', { error: errMsg(e) }))
+			for (const m of failed) this.noteReply(this.deps.callbacks.onTurnDone(this, m, '', { error: errMsg(e) }))
 			if (failed.length) this.publishNode()
 			return
 		}
@@ -543,7 +543,7 @@ export class Agent implements AgentIdentity {
 		this.setStatus('working')
 		this.journal.add({ kind: 'user', from: msg.from, msgId: msg.id, text: msg.text })
 		try {
-			const client = this.deps.host.getSpace(this.space)?.client
+			const client = this.deps.callbacks.getSpace(this.space)?.client
 			if (!client || !this.nessyId) throw new Error('нет соединения с nessy')
 			const { promptId } = await this.promptWithRetry(client, this.nessyId, msg)
 			this.introduced = true
@@ -588,14 +588,14 @@ export class Agent implements AgentIdentity {
 	}
 
 	private buildPrompt(msg: Message): string {
-		const { host } = this.deps
-		let body = framePrompt(msg, host.labelOf(msg.from))
+		const callbacks = this.deps.callbacks
+		let body = framePrompt(msg, callbacks.labelOf(msg.from))
 		// повтор после ошибки: модель знает, что предыдущая попытка оборвалась, и не повторяет уже сделанное
 		if (this.retryState?.id === msg.id) {
 			body = `[nessy-orch] Прошлая попытка выполнить это поручение оборвалась ошибкой: «${clip(this.retryState.error, 300)}». Продолжи с того места, где остановился. Уже выполненные действия (особенно записи во внешние системы: комментарии, правки, коммиты) не повторяй: сначала проверь текущее состояние.\n\n${body}`
 		}
 		// правила плана — в вводной первого промпта; напоминание повторяем только там: у агентов малое окно контекста, каждая строка в каждом ходе копится
-		return this.introduced ? body : `${host.preambleFor(this)}\n\n${body}\n\n${planReminder(this.id, this.deps.cliPath, this.deps.showKey ? this.key : undefined)}`
+		return this.introduced ? body : `${callbacks.preambleFor(this)}\n\n${body}\n\n${planReminder(this.id, this.deps.cliPath, this.deps.showKey ? this.key : undefined)}`
 	}
 
 	/** Прервать ход и очистить очередь. */
@@ -611,7 +611,7 @@ export class Agent implements AgentIdentity {
 			if (!this.current) this.setStatus('idle')
 		}
 		if (this.current) this.current.injected = this.current.injected.filter(i => i.confirmed)
-		for (const m of dropped) if (m.wait) this.noteReply(this.deps.host.onTurnDone(this, m, '', { stopReason: 'cancelled' }))
+		for (const m of dropped) if (m.wait) this.noteReply(this.deps.callbacks.onTurnDone(this, m, '', { stopReason: 'cancelled' }))
 		this.publishNode()
 		await this.requestCancel()
 	}
@@ -636,7 +636,7 @@ export class Agent implements AgentIdentity {
 	}
 
 	private async sendCancel(): Promise<void> {
-		const client = this.deps.host.getSpace(this.space)?.client
+		const client = this.deps.callbacks.getSpace(this.space)?.client
 		if (client && this.nessyId) await client.cancel(this.nessyId).catch(() => undefined)
 	}
 
@@ -675,7 +675,7 @@ export class Agent implements AgentIdentity {
 
 	async close(): Promise<void> {
 		this.detach()
-		const client = this.deps.host.getSpace(this.space)?.client
+		const client = this.deps.callbacks.getSpace(this.space)?.client
 		if (client && this.nessyId) await client.closeSession(this.nessyId)
 	}
 
@@ -683,7 +683,7 @@ export class Agent implements AgentIdentity {
 	private onSessionEvent(ev: SessionEvent, eventId: number | null): void {
 		if (eventId !== null) {
 			this.lastEventId = eventId
-			this.deps.host.saveSoon()
+			this.deps.callbacks.saveSoon()
 		}
 		// после неподтверждённой отмены содержимое старого промпта не должно попасть в новый ход
 		if (
@@ -786,7 +786,7 @@ export class Agent implements AgentIdentity {
 		const [rec, created] = this.journal.upsertTool(ev)
 		this.touch()
 		const urls = urlsInInput(rec.input)
-		if (urls.length) this.deps.host.onToolUrls(this, urls)
+		if (urls.length) this.deps.callbacks.onToolUrls(this, urls)
 		if (created) {
 			this.turnSteps++
 			this.lastTool = { name: rec.name, title: clip(rec.title || JSON.stringify(rec.input), 120) }
@@ -819,7 +819,7 @@ export class Agent implements AgentIdentity {
 	private onPermission(ev: Extract<SessionEvent, { kind: 'permission' }>): void {
 		const title = clip(ev.title, 200)
 		if (this.deps.autoApprove) {
-			const client = this.deps.host.getSpace(this.space)?.client
+			const client = this.deps.callbacks.getSpace(this.space)?.client
 			const optionId = pickPermissionOption(ev.options, true)
 			if (client && this.nessyId) void client.vote(this.nessyId, ev.requestId, optionId).catch(() => undefined)
 			this.journal.add({ kind: 'permission', requestId: ev.requestId, title, resolved: true, approved: true, auto: true })
@@ -834,7 +834,7 @@ export class Agent implements AgentIdentity {
 
 	async resolvePermission(requestId: string, approve: boolean): Promise<boolean> {
 		const p = this.pending.get(requestId)
-		const client = this.deps.host.getSpace(this.space)?.client
+		const client = this.deps.callbacks.getSpace(this.space)?.client
 		if (!p || !client || !this.nessyId) return false
 		await client.vote(this.nessyId, requestId, pickPermissionOption(p.options, approve))
 		this.pending.delete(requestId)
@@ -886,12 +886,12 @@ export class Agent implements AgentIdentity {
 		const queued = this.queue.length
 		if (archiveAfterTurn(info, queued)) this.archived = true
 		this.setStatus(statusAfterTurn(info, queued), info.error ?? null)
-		if (this.noteReply(this.deps.host.onTurnDone(this, cur.msg, text, info))) this.publishNode()
+		if (this.noteReply(this.deps.callbacks.onTurnDone(this, cur.msg, text, info))) this.publishNode()
 		// сообщения, доставленные в ход без прерывания: тому же отправителю отдельный ответ не нужен, остальным (и ждущим --wait) — нужен
 		const unseen: Message[] = []
 		for (const { msg: m, confirmed } of cur.injected) {
 			if (!confirmed) unseen.push(m) // ход закончился раньше, чем nessy забрал сообщение: модель его не видела
-			else if (m.from !== cur.msg.from || m.wait) this.noteReply(this.deps.host.onTurnDone(this, m, text, info))
+			else if (m.from !== cur.msg.from || m.wait) this.noteReply(this.deps.callbacks.onTurnDone(this, m, text, info))
 		}
 		if (unseen.length) {
 			this.queue.splice(this.urgent, 0, ...unseen) // после срочных, но раньше обычной очереди
@@ -936,7 +936,7 @@ export class Agent implements AgentIdentity {
 
 	/** Токены сессии нарастающим итогом (если nessy отдаёт /stats) — точнее суммы по ходам. */
 	private async refreshUsage(): Promise<void> {
-		const client = this.deps.host.getSpace(this.space)?.client
+		const client = this.deps.callbacks.getSpace(this.space)?.client
 		if (!client || !this.nessyId) return
 		const [usage, ctx] = await Promise.all([client.usage(this.nessyId).catch(() => null), client.contextUsage(this.nessyId).catch(() => null)])
 		if (ctx) {
