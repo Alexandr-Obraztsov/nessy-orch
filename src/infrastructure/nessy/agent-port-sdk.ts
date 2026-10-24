@@ -6,6 +6,10 @@
  * SDK держит процесс живым, пока очередь открыта; prompt.send кладёт SDKUserMessage в очередь, model отвечает,
  * на result синтезируется turn.completed с UnifiedUsage. session.close закрывает очередь — SDK завершает ход и процесс.
  *
+ * §6б-резюм: session.close сохраняет {sessionId, lastSeq, model, cwd} в closed-registry; session.resume(id) для
+ * закрытой сессии восстанавливает хэндл (query с QueryOptions.resume), seq продолжается от lastSeq — контекст
+ * «park→resume» больше не теряется.
+ *
  * Маппинг SDKMessage → Envelope(PortEvent):
  *  - system/init        → session.ready + верификация модели (адаптер не доверяет опции модели, §3);
  *  - stream_event text_delta → message.delta (includePartialMessages);
@@ -26,7 +30,7 @@ import { query, type PermissionResult, type Query, type QueryOptions, type SDKMe
 import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, PortSubscribeOptions } from '../../application/agent-port'
 import { AppError } from '../../domain/errors'
 import { errMsg } from '../../lib/json'
-import { isExit130, PromptQueue, type SessionState } from './agent-port-sdk-session'
+import { isExit130, usageOfResult, createSdkSessionState, type ClosedSession, type SessionState } from './agent-port-sdk-session'
 
 /** Фабрика Query — отделяется для тестов (инжектится мок; живой вызов — по умолчанию SDK.query). */
 export type MakeQuery = (args: { prompt: string | AsyncIterable<SDKUserMessage>; options?: QueryOptions }) => Query
@@ -56,6 +60,8 @@ export class NessySdkAgentPort implements AgentPort {
 	private readonly originatorClientId: string | null
 	private readonly makeQuery: MakeQuery
 	private readonly sessions = new Map<string, SessionState>()
+	/** §6б: закрытые сессии, чтобы session.resume мог вернуть спецификацию восстановления контекста. */
+	private readonly closed = new Map<string, ClosedSession>()
 
 	constructor(opts: NessySdkAgentPortOptions) {
 		this.cwd = opts.cwd
@@ -68,43 +74,38 @@ export class NessySdkAgentPort implements AgentPort {
 
 	sessionCreate(_cwd?: string): Promise<{ sessionId: string }> {
 		const sessionId = randomUUID()
-		const queue = new PromptQueue()
-		const q = this.makeQuery({ prompt: queue, options: this.buildOptions(sessionId) })
-		const state: SessionState = {
-			id: sessionId,
-			query: q,
-			queue,
-			seq: 0,
-			subscriber: null,
-			turnOpen: false,
-			promptId: null,
-			text: '',
-			ready: false,
-			permissions: new Map(),
-			actualModel: null,
-			closed: false,
-			named: false,
-		}
+		const state = createSdkSessionState(sessionId, { resume: null, seq: 0, actualModel: null, named: false })
 		this.sessions.set(sessionId, state)
-		void this.consume(state)
+		this.spawnQuery(state)
 		return Promise.resolve({ sessionId })
 	}
 
 	sessionResume(sessionId: string, _cwd?: string): Promise<{ lastSeq: number | null } | null> {
-		// SDK: резюм — это новый query с resume:sessionId (контекст модели поднимается на диске). lastSeq в adapter-space
-		// SDK не отдаёт — возвращаем null (подписка продолжается с текущего seq, повтор истории недоступен). Сбрасываем
-		// готовность, чтобы следующая подписка синтезировала session.ready заново (§3 «поздняя подписка»).
 		const existing = this.sessions.get(sessionId)
 		if (existing && !existing.closed) {
+			// живая сессия: готовность синтезируется на следующей подписке (§3 «поздняя подписка»)
 			existing.ready = false
 			return Promise.resolve({ lastSeq: null })
 		}
-		return Promise.resolve(null)
+		const saved = this.closed.get(sessionId)
+		if (!saved) return Promise.resolve(null)
+		// §6б-резюм закрытой сессии: восстанавливаем хэндл; query спавнится лениво при первом prompt.send.
+		// seq продолжается от lastSeq, чтобы наружу seq оставался строго монотонным сквозь close/resume.
+		const state = createSdkSessionState(sessionId, { resume: sessionId, seq: saved.lastSeq, actualModel: saved.model, named: true })
+		this.sessions.set(sessionId, state)
+		this.closed.delete(sessionId)
+		return Promise.resolve({ lastSeq: saved.lastSeq })
 	}
 
 	promptSend(sessionId: string, text: string): Promise<{ promptId: string | null }> {
 		const state = this.sessions.get(sessionId)
 		if (!state || state.closed) return Promise.reject(new AppError(404, 'session_not_found', `сессия «${sessionId}» не найдена`))
+		if (state.turnOpen) {
+			// ядро сериализует промпты, но адаптер обязан защищаться от параллельной отправки (§3)
+			return Promise.reject(new AppError(409, 'session_busy', `сессия «${sessionId}» занята ходом; дождитесь терминала`))
+		}
+		// ленивый спавн резюма: query поднялся на sessionResume, но процесс поднимаем только под первый ход
+		if (state.query === null) this.spawnQuery(state)
 		const promptId = randomUUID()
 		state.text = ''
 		state.promptId = promptId
@@ -128,7 +129,7 @@ export class NessySdkAgentPort implements AgentPort {
 		const state = this.sessions.get(sessionId)
 		if (!state || state.closed) return
 		try {
-			await state.query.interrupt()
+			await state.query?.interrupt()
 		} catch {
 			/* interrupt грязный: настоящую отмену зафиксирует выход процесса 130 в consume() */
 		}
@@ -139,13 +140,15 @@ export class NessySdkAgentPort implements AgentPort {
 	permissionVote(sessionId: string, requestId: string, optionId: string | null): Promise<void> {
 		const state = this.sessions.get(sessionId)
 		if (!state || state.closed) return Promise.resolve()
-		const resolve = state.permissions.get(requestId)
-		if (!resolve) return Promise.reject(new AppError(404, 'permission_not_found', `запрос разрешения «${requestId}» не найден`))
+		const entry = state.permissions.get(requestId)
+		if (!entry) return Promise.reject(new AppError(404, 'permission_not_found', `запрос разрешения «${requestId}» не найден`))
 		state.permissions.delete(requestId)
-		if (optionId === null || optionId === 'deny') {
-			resolve({ behavior: 'deny', message: 'отклонено оператором' })
+		// строгий голос: optionId обязан совпадать с заявленной опцией; иначе — deny (§3, permissionVote)
+		const opt = optionId === null ? undefined : entry.options.find(o => o.optionId === optionId)
+		if (opt && opt.kind === 'allow') {
+			entry.resolve({ behavior: 'allow', updatedInput: {} })
 		} else {
-			resolve({ behavior: 'allow', updatedInput: {} })
+			entry.resolve({ behavior: 'deny', message: opt ? 'отклонено оператором' : `неизвестная опция «${optionId}»` })
 		}
 		this.emit(state, { type: 'permission.resolved', data: { requestId, optionId } })
 		return Promise.resolve()
@@ -154,6 +157,7 @@ export class NessySdkAgentPort implements AgentPort {
 	async modelSet(sessionId: string, model: string): Promise<void> {
 		const state = this.sessions.get(sessionId)
 		if (!state || state.closed) throw new AppError(404, 'session_not_found', `сессия «${sessionId}» не найдена`)
+		if (!state.query) throw new AppError(409, 'session_busy', `сессия «${sessionId}» в режиме резюма; отправьте промпт`)
 		try {
 			await state.query.setModel(model)
 			state.actualModel = model
@@ -175,14 +179,20 @@ export class NessySdkAgentPort implements AgentPort {
 			state.turnOpen = false
 			this.emit(state, { type: 'turn.cancelled', data: { promptId: state.promptId } })
 		}
-		state.queue.end()
+		this.resolveAllPermissions(state, 'сессия закрыта')
+		// §6б: сохраняем спецификацию восстановления ДО удаления, чтобы sessionResume мог вернуть её
+		this.closed.set(sessionId, { lastSeq: state.seq, model: state.actualModel, cwd: this.cwd })
 		this.emit(state, { type: 'session.closed', data: { sessionId } })
+		state.closed = true
+		state.queue.end()
 		this.sessions.delete(sessionId)
 		try {
-			await state.query.close()
+			await state.query?.close()
 		} catch {
 			/* процесс мог уже упасть — закрытие необязательно */
 		}
+		// abort-контроллер SDK: принудительно гасим процесс, если он ещё жив (двойная страховка к queue.end())
+		state.abortController.abort()
 	}
 
 	/** Закрыть все живые сессии (остановка пространства/оркестратора): без этого CLI-процессы nessy остаются осиротевшими. */
@@ -209,15 +219,22 @@ export class NessySdkAgentPort implements AgentPort {
 	}
 
 	// ---------- внутреннее ----------
-	private buildOptions(sessionId: string): QueryOptions {
+	/** Спавн query-хэндла SDK (свежая сессия — через sessionId; резюм — через resume). */
+	private spawnQuery(state: SessionState): void {
+		const q = this.makeQuery({ prompt: state.queue, options: this.buildOptions(state) })
+		state.query = q
+		void this.consume(state)
+	}
+
+	private buildOptions(state: SessionState): QueryOptions {
 		return {
 			cwd: this.cwd,
-			sessionId,
+			...(state.resume ? { resume: state.resume } : { sessionId: state.id }),
 			...(this.expectedModel !== undefined ? { model: this.expectedModel } : {}),
 			includePartialMessages: true,
 			permissionMode: this.permissionMode,
-			canUseTool: (toolName, input) => this.onCanUseTool(sessionId, toolName, input),
-			abortController: new AbortController(),
+			canUseTool: (toolName, input) => this.onCanUseTool(state.id, toolName, input),
+			abortController: state.abortController,
 			maxSessionTurns: -1,
 		}
 	}
@@ -226,19 +243,16 @@ export class NessySdkAgentPort implements AgentPort {
 	private onCanUseTool(sessionId: string, toolName: string, _input: Record<string, unknown>): Promise<PermissionResult> {
 		const state = this.sessions.get(sessionId)
 		if (!state || state.closed) return Promise.resolve({ behavior: 'deny', message: 'сессия закрыта' })
+		const options = [
+			{ optionId: 'allow', kind: 'allow', name: 'Разрешить' },
+			{ optionId: 'deny', kind: 'deny', name: 'Отклонить' },
+		]
 		return new Promise<PermissionResult>(resolve => {
 			const requestId = randomUUID()
-			state.permissions.set(requestId, resolve)
+			state.permissions.set(requestId, { resolve, options })
 			this.emit(state, {
 				type: 'permission.requested',
-				data: {
-					requestId,
-					title: toolName,
-					options: [
-						{ optionId: 'allow', kind: 'allow', name: 'Разрешить' },
-						{ optionId: 'deny', kind: 'deny', name: 'Отклонить' },
-					],
-				},
+				data: { requestId, title: toolName, options },
 			})
 		})
 	}
@@ -246,6 +260,7 @@ export class NessySdkAgentPort implements AgentPort {
 	/** Читать поток SDKMessage сессии и переводить в Envelope. */
 	private async consume(state: SessionState): Promise<void> {
 		try {
+			if (!state.query) return
 			for await (const msg of state.query) this.onMessage(state, msg)
 		} catch (e) {
 			if (isExit130(e)) {
@@ -295,31 +310,22 @@ export class NessySdkAgentPort implements AgentPort {
 				return
 			}
 			case 'result': {
+				// гейт на закрытие: после cancelled+session.closed поздний result не синтезирует turn.completed/usage
+				if (!state.turnOpen) return
 				if (msg.is_error) {
 					this.terminate(state, {
 						type: 'turn.failed',
 						data: { message: msg.error?.message ?? 'ошибка хода', retryable: msg.subtype === 'error_during_execution', code: null },
 					})
 				} else {
-					this.emit(state, { type: 'turn.completed', data: { stopReason: msg.subtype, promptId: state.promptId } })
-					this.emit(state, { type: 'context.usage', data: this.usageOf(msg) })
+					this.terminate(state, { type: 'turn.completed', data: { stopReason: msg.subtype, promptId: state.promptId } })
+					this.emit(state, { type: 'context.usage', data: usageOfResult(msg) })
 				}
-				state.turnOpen = false
 				return
 			}
 			default:
 				return
 		}
-	}
-
-	/** UnifiedUsage из result.usage. */
-	private usageOf(msg: Extract<SDKMessage, { type: 'result' }>): { used: number; size: number } {
-		const u = msg.usage
-		const inputTokens = u.input_tokens
-		const outputTokens = u.output_tokens
-		const total = u.total_tokens ?? null
-		// контекстный usage не отдаёт окно модели — оставляем размер 0 (метрика «контекст %» для nessy-sdk не считается)
-		return { used: total === null ? inputTokens + outputTokens : total, size: 0 }
 	}
 
 	/** Терминальное событие открытого хода (гарантия парности turn.started → терминал). */
@@ -330,6 +336,12 @@ export class NessySdkAgentPort implements AgentPort {
 		}
 	}
 
+	/** Разрезолвить все висящие canUseTool-промисы отказом (закрытие хэндла: запросы больше не получат голоса). */
+	private resolveAllPermissions(state: SessionState, message: string): void {
+		for (const entry of state.permissions.values()) entry.resolve({ behavior: 'deny', message })
+		state.permissions.clear()
+	}
+
 	/** Принудительно закрыть хэндл: разрезолвить висящие разрешения и записать закрытое состояние. */
 	private forceClose(state: SessionState, reason: string): void {
 		if (state.closed) return
@@ -337,9 +349,10 @@ export class NessySdkAgentPort implements AgentPort {
 			state.turnOpen = false
 			this.emit(state, { type: 'turn.cancelled', data: { promptId: state.promptId } })
 		}
-		for (const resolve of state.permissions.values()) resolve({ behavior: 'deny', message: `хэндл закрыт (${reason})` })
-		state.permissions.clear()
+		this.resolveAllPermissions(state, `хэндл закрыт (${reason})`)
+		this.emit(state, { type: 'session.closed', data: { sessionId: state.id } }) // клиент узнаёт о смерти хэндла
 		state.closed = true
+		state.abortController.abort()
 		this.sessions.delete(state.id)
 	}
 
@@ -355,6 +368,11 @@ export class NessySdkAgentPort implements AgentPort {
 			type: port.type,
 			data: port.data,
 		}
-		state.subscriber?.(envelope)
+		// исключение подписчика не должно убивать сессию/процесс: логируем и продолжаем
+		try {
+			state.subscriber?.(envelope)
+		} catch (e) {
+			console.error(`[nessy-orch] подписчик сессии ${state.id} бросил исключение: ${errMsg(e)}`)
+		}
 	}
 }

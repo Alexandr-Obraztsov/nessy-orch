@@ -59,10 +59,30 @@ export function newSessionState(id: string, cwd: string, homeDir: string, model:
 	}
 }
 
-/** Сверка фактической модели из system/init с запрошенной; без явной модели проверять нечего — фолбэк рантайма допустим. */
+/** Нормализация алиасов моделей: короткое имя → префикс полного id (tclaude `--model opus` отдаёт claude-opus-*). */
+const MODEL_ALIASES: Record<string, string> = {
+	opus: 'claude-opus',
+	sonnet: 'claude-sonnet',
+	haiku: 'claude-haiku',
+}
+
+export function normalizeModel(model: string | null): string {
+	if (!model) return ''
+	const m = model.trim()
+	return MODEL_ALIASES[m] ?? m
+}
+
+/**
+ * Сверка фактической модели из system/init с запрошенной; без явной модели проверять нечего — фолбэк рантайма допустим.
+ * Алиасы нормализуются (opus→claude-opus*, sonnet→claude-sonnet*), чтобы не было ложных model.switch_failed:
+ * фактическая модель сравнивается с запрошенной по нормализованному префиксу.
+ */
 export function verifyModel(expected: string | null, actual: string | null): ModelVerifyResult {
 	if (!expected) return { expected: '', actual, matched: true }
-	return { expected, actual, matched: actual === expected }
+	const exp = normalizeModel(expected)
+	const act = actual ?? ''
+	const matched = act !== '' && (act === exp || act.startsWith(exp) || normalizeModel(act).startsWith(exp))
+	return { expected, actual, matched }
 }
 
 /** Склеить текст из content-блоков типа text сообщения assistant. */
@@ -123,11 +143,17 @@ export function processLine(s: TclaudeSession, ev: Record<string, unknown>, emit
 		if (s.cancelRequested) return
 		const text = extractText(ev.message as { content?: unknown[] } | undefined)
 		if (!text) return
-		// дельты уже собрали текст — assistant (полный) не дублируем; если дельт не было — это единственный источник
-		if (!s.text) {
-			s.text += text
-			emit({ type: 'message.delta', data: { messageId: null, text } })
+		// дедуп по content-блоку (не по пустоте s.text): много-assistant-ход не теряет блоки, а дельты+финал
+		// не дублируют текст (дописываем только недостающий хвост блока)
+		let rest = text
+		const cur = s.text
+		if (cur) {
+			if (text.startsWith(cur)) rest = text.slice(cur.length)
+			else if (cur.endsWith(text)) return
 		}
+		if (!rest) return
+		s.text += rest
+		emit({ type: 'message.delta', data: { messageId: null, text: rest } })
 		return
 	}
 	if (type === 'result') {
@@ -139,6 +165,7 @@ export function processLine(s: TclaudeSession, ev: Record<string, unknown>, emit
 		}
 		s.turnOpen = false
 		emit({ type: 'turn.completed', data: { stopReason: stopReason(ev), promptId: null } })
+		emit({ type: 'context.usage', data: { used: s.lastUsage.totalTokens ?? 0, size: 0 } })
 		return
 	}
 	if (type === 'error') {

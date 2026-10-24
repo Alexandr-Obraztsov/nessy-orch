@@ -27,12 +27,13 @@ function optRuntime(v: unknown): RuntimeId | undefined {
 
 export function parseSpaceRequest(b: unknown): SpaceRequest {
 	if (!isObject(b) || typeof b['path'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле path (строка)')
+	const model = optStr(b['model'])
 	const out = {
 		path: b['path'],
 		name: optStr(b['name']),
 		url: optStr(b['url']),
 		...(b['runtime'] !== undefined ? { runtime: optRuntime(b['runtime']) } : {}),
-		...(optStr(b['model']) !== undefined ? { model: optStr(b['model']) } : {}),
+		...(model !== undefined ? { model } : {}),
 	}
 	return out as SpaceRequest
 }

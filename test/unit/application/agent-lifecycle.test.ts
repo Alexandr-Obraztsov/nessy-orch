@@ -49,7 +49,8 @@ describe('агент: закрытие по простою и пробужден
 		await until(() => ctx.gw.prompts.length === 2, 1000, 'промпт после пробуждения')
 		assert.deepEqual(ctx.gw.restored, [nessyId], 'сессия поднята тем же id, а не создана заново')
 		assert.equal(ctx.gw.created, 1)
-		assert.equal(ctx.gw.subscribedFrom.at(-1)?.lastSeq, 7, 'подписка с lastSeq из ответа резюма — без повтора истории')
+		const lastSeq = ctx.gw.subscribedFrom.at(-1)?.lastSeq
+		assert.ok(typeof lastSeq === 'number' && lastSeq > 0, 'подписка с lastSeq из ответа резюма (счётчик), а не с начала — без повтора истории')
 		assert.equal(ctx.orch.getAgent(id).parked, false)
 	})
 

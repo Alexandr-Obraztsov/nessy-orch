@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { buildClaudeEnv, buildTclaudeArgs } from '../../../../src/infrastructure/tclaude/spawn-claude'
+import { normalizeModel, verifyModel } from '../../../../src/infrastructure/tclaude/tclaude-session'
 import { AppError } from '../../../../src/domain/errors'
 import { firstChild, makePort, subscribedSession } from './tclaude-test-support'
 
@@ -171,7 +172,7 @@ describe('TclaudeAgentPort', () => {
 		const seqs: number[] = []
 		port.subscribe(sessionId, {
 			onEvent: e => {
-				if (e.seq !== undefined) seqs.push(e.seq)
+				seqs.push(e.seq)
 			},
 		})
 		const child = firstChild(children)
@@ -258,5 +259,37 @@ describe('TclaudeAgentPort', () => {
 		// процесс недоступен → false
 		child.stdin.destroyed = true
 		assert.equal(await port.midTurnSend(sessionId, 'x'), false)
+	})
+
+	it('context.usage эмитится из result после каждого хода (conformance)', async () => {
+		const { port, children } = makePort()
+		const { sessionId } = await port.sessionCreate('/ws')
+		const types: string[] = []
+		const usageData: unknown[] = []
+		port.subscribe(sessionId, { onEvent: e => (types.push(e.type), e.type === 'context.usage' ? usageData.push(e.data) : undefined) })
+		await port.promptSend(sessionId, 'x')
+		firstChild(children).emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'ответ' }] } })
+		firstChild(children).emitLine({ type: 'result', subtype: 'success', stop_reason: 'end_turn', total_tokens: 42, num_turns: 1 })
+		assert.ok(types.includes('context.usage'), `ожидали context.usage: ${types.join(', ')}`)
+		const u = usageData[0] as { used: number; size: number }
+		assert.equal(u.used, 42, 'used из total_tokens')
+		assert.equal(u.size, 0)
+	})
+
+	it('verifyModel: нормализация алиасов (opus→claude-opus*, sonnet→claude-sonnet*) — нет ложного switch_failed', () => {
+		assert.equal(verifyModel('opus', 'claude-opus-4-5').matched, true)
+		assert.equal(verifyModel('sonnet', 'claude-sonnet-4-5').matched, true)
+		assert.equal(verifyModel('claude-opus-4-5', 'claude-opus-4-5').matched, true)
+		assert.equal(verifyModel('opus', 'sonnet').matched, false)
+		assert.equal(verifyModel('opus', null).matched, false)
+		assert.equal(normalizeModel('sonnet'), 'claude-sonnet')
+		assert.equal(normalizeModel('claude-haiku-3-5'), 'claude-haiku-3-5')
+	})
+
+	it('интеграция: --model opus, init приходит claude-opus-* → нет model.switch_failed', async () => {
+		const { port, children } = makePort('opus')
+		const { sessionId, types } = await subscribedSession(port)
+		firstChild(children).emitLine({ type: 'system', subtype: 'init', session_id: sessionId, model: 'claude-opus-4-5', cwd: '/ws' })
+		assert.ok(!types.includes('model.switch_failed'), `не должно быть switch_failed: ${types.join(', ')}`)
 	})
 })

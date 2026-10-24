@@ -121,6 +121,7 @@ async function cmdAsk(c: Ctx): Promise<void> {
 	const r = await t.post<SpawnResponse>('/agents', {
 		space: spaceArg(space, cwd),
 		session: sessionOf(p, env),
+		from: flagStr(p, 'from'),
 		prompt,
 		wait: true,
 		waitTimeoutSec: flagNum(p, 'timeout') ?? DEFAULT_WAIT_SEC,
@@ -150,7 +151,8 @@ async function cmdLs(c: Ctx): Promise<void> {
 	const list = flagBool(p, 'all') ? scope : scope.filter(a => !a.archived)
 	if (flagBool(p, 'json')) return c.json(list)
 	if (!list.length) return c.out('активных агентов нет. Создайте: nessy-orch-v2 spawn --session <id> "поручение"')
-	const forest = buildForest(list)
+	const archivedIds = new Set(scope.filter(a => a.archived).map(a => a.id))
+	const forest = buildForest(list, undefined, archivedIds)
 	const header = session ? `сессия ${session}` : 'you'
 	c.out(renderTree(forest, header))
 	if (scope.length - list.length) c.info(dim(`в архиве: ${scope.length - list.length} (показать: nessy-orch-v2 ls --all)`))

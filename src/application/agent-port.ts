@@ -20,8 +20,10 @@ export type AgentPortOperation =
 export interface Envelope {
 	v: 1
 	sessionId?: string | null
-	seq?: number
-	ts?: number
+	/** сквозной монотонный счётчик событий сессии (Last-Event-ID для resume) */
+	seq: number
+	/** время эмиссии события, мс */
+	ts: number
 	originatorClientId?: string | null
 	type: string
 	data: unknown

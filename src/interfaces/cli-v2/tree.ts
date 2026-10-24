@@ -12,7 +12,7 @@ export interface TreeNode {
 }
 
 /** Построить лес из агентов: top-level — агенты с родителем среди `roots` (или чей родитель — не агент этого списка). */
-export function buildForest(agents: readonly AgentView[], roots: readonly string[] = ['you']): TreeNode[] {
+export function buildForest(agents: readonly AgentView[], roots: readonly string[] = ['you'], archivedIds?: ReadonlySet<string>): TreeNode[] {
 	const nodes = new Map<string, TreeNode>()
 	for (const a of agents) nodes.set(a.id, { agent: a, children: [] })
 	const rootSet = new Set(roots)
@@ -23,6 +23,9 @@ export function buildForest(agents: readonly AgentView[], roots: readonly string
 		// субагент висит под своим родителем, если тот в списке и не top-level; иначе — корень леса
 		if (a.parent && !rootSet.has(a.parent) && nodes.has(a.parent)) {
 			nodes.get(a.parent)?.children.push(node)
+		} else if (a.parent && !rootSet.has(a.parent) && archivedIds?.has(a.parent)) {
+			// родитель в архиве и не показан (ls без --all) — не показываем агента корнем-сиротой, а скрываем всю ветку
+			continue
 		} else {
 			top.push(node)
 		}

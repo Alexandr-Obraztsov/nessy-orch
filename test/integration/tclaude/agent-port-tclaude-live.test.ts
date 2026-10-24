@@ -102,7 +102,7 @@ if (E2E) {
 		// seq монотонен и уникален
 		let prev = -Infinity
 		for (const e of c.all()) {
-			const seq = e.seq as number
+			const seq = e.seq
 			assert.ok(Number.isInteger(seq) && seq > prev, `seq не монотонен: ${e.type}=${seq}`)
 			prev = seq
 		}

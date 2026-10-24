@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AgentPort, Envelope } from '../../src/application/agent-port'
+import { isObject } from '../../src/lib/json'
 
 export interface ConformanceOptions {
 	/** свежий порт на каждый сценарий */
@@ -23,6 +24,10 @@ export interface ConformanceOptions {
 	permissionPrompt?: string
 	/** промпт, который порождает session.meta; если не задан — кейс session.meta пропускается */
 	metaPrompt?: string
+	/** промпт, который порождает core-событие error (пример: падение процесса); если не задан — кейс error пропускается */
+	errorPrompt?: string
+	/** промпт, который порождает tool_call.started/completed; если не задан — кейс tool-схемы пропускается */
+	toolsPrompt?: string
 	/** таймаут ожидания событий, мс */
 	waitMs?: number
 }
@@ -70,8 +75,54 @@ function ofType(c: Collector, type: string): Promise<Envelope> {
 	return c.waitFor(e => e.type === type, type, DEFAULT_WAIT_MS)
 }
 
+/** Минимальные схемы обязательных core-событий: поле → предикат корректности (§3). */
+function requiredData(type: string): Record<string, (v: unknown) => boolean> {
+	switch (type) {
+		case 'session.ready':
+			return { sessionId: (v: unknown) => typeof v === 'string' }
+		case 'session.closed':
+			return { sessionId: (v: unknown) => typeof v === 'string' }
+		case 'turn.started':
+			return { promptId: (v: unknown) => v === null || typeof v === 'string' }
+		case 'turn.completed':
+			return { stopReason: (v: unknown) => typeof v === 'string' }
+		case 'turn.cancelled':
+			return { promptId: (v: unknown) => v === null || typeof v === 'string' }
+		case 'turn.failed':
+			return { message: (v: unknown) => typeof v === 'string', retryable: (v: unknown) => typeof v === 'boolean' }
+		case 'error':
+			return { message: (v: unknown) => typeof v === 'string' }
+		case 'message.delta':
+		case 'message.completed':
+			return { text: (v: unknown) => typeof v === 'string' }
+		case 'tool_call.started':
+		case 'tool_call.completed':
+			return { toolId: (v: unknown) => typeof v === 'string' }
+		default:
+			return {}
+	}
+}
+
+/** Проверить конверт: база (v/seq/ts/type), минимальная схема данных и sessionId-консистентность подписки. */
+function assertEventShape(e: Envelope, sessionId: string): void {
+	assert.equal(e.v, 1, `${e.type}: v`)
+	assert.equal(typeof e.type, 'string')
+	assert.ok(e.type.length > 0, 'type пустой')
+	assert.equal(typeof e.seq, 'number', `${e.type}: seq должен быть числом`)
+	assert.ok(Number.isInteger(e.seq), `${e.type}: seq должен быть целым`)
+	assert.equal(typeof e.ts, 'number', `${e.type}: ts должен быть числом`)
+	if (e.sessionId !== undefined && e.sessionId !== null) assert.equal(e.sessionId, sessionId, `${e.type}: sessionId конверта`)
+	if (!isObject(e.data)) throw new Error(`[conformance] ${e.type}: data не объект`)
+	const data = e.data as Record<string, unknown>
+	for (const [k, ok] of Object.entries(requiredData(e.type))) {
+		assert.ok(k in data, `[conformance] ${e.type}: нет обязательного поля ${k}`)
+		assert.ok(ok(data[k]), `[conformance] ${e.type}: поле ${k} неверного типа`)
+	}
+	if ('sessionId' in data) assert.equal(data['sessionId'], sessionId, `${e.type}: data.sessionId`)
+}
+
 export function runAgentPortConformance(opts: ConformanceOptions): void {
-	const { makePort, cwd, label, slowPrompt = '#slow', permissionPrompt, metaPrompt, waitMs = DEFAULT_WAIT_MS } = opts
+	const { makePort, cwd, label, slowPrompt = '#slow', permissionPrompt, metaPrompt, errorPrompt, toolsPrompt, waitMs = DEFAULT_WAIT_MS } = opts
 	const p = (name: string): string => `${label}: ${name}`
 
 	test(p('создание сессии и session.ready'), async () => {
@@ -81,7 +132,6 @@ export function runAgentPortConformance(opts: ConformanceOptions): void {
 		const c = new Collector()
 		port.subscribe(sessionId, { onEvent: e => c.push(e) })
 		const ready = await c.waitFor(e => e.type === 'session.ready', 'session.ready', waitMs)
-		assert.equal(ready.type, 'session.ready')
 		assert.equal(ready.v, 1)
 		assert.ok(typeof ready.ts === 'number')
 	})
@@ -96,10 +146,10 @@ export function runAgentPortConformance(opts: ConformanceOptions): void {
 		if (port.capabilities.streamText) {
 			const delta = await ofType(c, 'message.delta')
 			assert.ok(typeof delta.data === 'object' && delta.data !== null && typeof (delta.data as { text?: string }).text === 'string')
-			await ofType(c, 'message.completed')
 		}
-		const completed = await ofType(c, 'turn.completed')
-		assert.equal(completed.type, 'turn.completed')
+		// message.completed — обязательное core-событие: ждём всегда, независимо от streamText
+		await ofType(c, 'message.completed')
+		await ofType(c, 'turn.completed')
 	})
 
 	test(p('context.usage обязателен после первого prompt.send'), async () => {
@@ -171,7 +221,9 @@ export function runAgentPortConformance(opts: ConformanceOptions): void {
 		assert.ok(r.lastSeq === null || typeof r.lastSeq === 'number')
 		const c2 = new Collector()
 		port.subscribe(sessionId, { onEvent: e => c2.push(e) })
-		await ofType(c2, 'session.ready')
+		const ready2 = await ofType(c2, 'session.ready')
+		// резюм-непрерывность seq: новые события идут после lastSeq (адаптер поддерживает резюм и отдал счётчик)
+		if (r.lastSeq !== null) assert.ok(ready2.seq > r.lastSeq, `seq после resume (${ready2.seq}) должен быть > lastSeq (${r.lastSeq})`)
 	})
 
 	test(p('permission.vote: request → голос → permission.resolved'), async () => {
@@ -207,7 +259,7 @@ export function runAgentPortConformance(opts: ConformanceOptions): void {
 		for (const key of ['streamText', 'midTurn', 'permissionVote', 'setModel'] as const) assert.equal(typeof caps[key], 'boolean')
 	})
 
-	test(p('все конверты валидны, seq монотонен и уникален (v, seq, ts, type)'), async () => {
+	test(p('все конверты валидны, seq монотонен и уникален (v, seq, ts, type, schema)'), async () => {
 		const port = await makePort()
 		const { sessionId } = await port.sessionCreate(cwd)
 		const c = new Collector()
@@ -219,15 +271,67 @@ export function runAgentPortConformance(opts: ConformanceOptions): void {
 		assert.ok(all.length > 0, 'должны быть получены события')
 		let prev = -Infinity
 		for (const e of all) {
-			assert.equal(e.v, 1)
-			assert.ok(typeof e.type === 'string' && e.type.length > 0)
-			assert.equal(typeof e.seq, 'number', `${e.type}: seq должен быть числом`)
-			const seq = e.seq as number
-			assert.ok(Number.isInteger(seq), `${e.type}: seq должен быть целым`)
-			assert.ok(seq > prev, `${e.type}: seq должен быть строго монотонным и уникальным (получено ${seq}, предыдущий ${prev})`)
-			prev = seq
-			assert.ok(typeof e.ts === 'number')
+			assertEventShape(e, sessionId)
+			assert.ok(e.seq > prev, `${e.type}: seq должен быть строго монотонным и уникальным (получено ${e.seq}, предыдущий ${prev})`)
+			prev = e.seq
 		}
+	})
+
+	test(p('tool_call: минимальная схема toolId/name и парность started→completed (по toolsPrompt)'), async () => {
+		if (!toolsPrompt) return
+		const port = await makePort()
+		const { sessionId } = await port.sessionCreate(cwd)
+		const c = new Collector()
+		port.subscribe(sessionId, { onEvent: e => c.push(e) })
+		await port.promptSend(sessionId, toolsPrompt)
+		await ofType(c, 'turn.completed')
+		const starts = c.all().filter(e => e.type === 'tool_call.started')
+		assert.ok(starts.length > 0, 'ожидались tool_call.started')
+		for (const e of starts) {
+			const data = e.data as { toolId: string; name: string }
+			assert.ok(typeof data.toolId === 'string' && data.toolId.length > 0)
+			assert.ok(typeof data.name === 'string' && data.name.length > 0)
+			const done = c.all().find(x => x.type === 'tool_call.completed' && (x.data as { toolId?: string }).toolId === data.toolId)
+			assert.ok(done, `для tool_call ${data.toolId} нет completed`)
+		}
+	})
+
+	test(p('парность: ровно один терминал на turn.started, нет событий после session.closed'), async () => {
+		const port = await makePort()
+		const { sessionId } = await port.sessionCreate(cwd)
+		const c = new Collector()
+		port.subscribe(sessionId, { onEvent: e => c.push(e) })
+		await port.promptSend(sessionId, 'парность')
+		await ofType(c, 'turn.completed')
+		await port.sessionClose(sessionId)
+		await ofType(c, 'session.closed')
+		await new Promise(r => setTimeout(r, 10))
+		const all = c.all()
+		const terminals = ['turn.completed', 'turn.failed', 'turn.cancelled']
+		const starts = all.filter(e => e.type === 'turn.started').length
+		const ends = all.filter(e => terminals.includes(e.type)).length
+		assert.equal(starts, ends, `на ${starts} turn.started должно быть ровно ${starts} терминала, получено ${ends}`)
+		const closedAt = all.findIndex(e => e.type === 'session.closed')
+		assert.ok(closedAt >= 0, 'нет session.closed')
+		assert.ok(
+			all.slice(closedAt + 1).length === 0,
+			`после session.closed пришли события: ${all
+				.slice(closedAt + 1)
+				.map(e => e.type)
+				.join(', ')}`,
+		)
+	})
+
+	test(p('событие error (по errorPrompt)'), async () => {
+		if (!errorPrompt) return
+		const port = await makePort()
+		const { sessionId } = await port.sessionCreate(cwd)
+		const c = new Collector()
+		port.subscribe(sessionId, { onEvent: e => c.push(e) })
+		await port.promptSend(sessionId, errorPrompt)
+		const err = await ofType(c, 'error')
+		assert.ok(typeof (err.data as { message: string }).message === 'string' && (err.data as { message: string }).message.length > 0)
+		assertEventShape(err, sessionId)
 	})
 
 	test(p('mid_turn.send → boolean; при true — mid_turn.injected'), async () => {

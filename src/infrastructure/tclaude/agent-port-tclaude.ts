@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { ChildProcess } from 'node:child_process'
 import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, PortSubscribeOptions, UnifiedUsage } from '../../application/agent-port'
 import { AppError } from '../../domain/errors'
 import { spawnClaude, type SpawnClaudeFn, type SpawnClaudeOptions } from './spawn-claude'
@@ -59,14 +60,20 @@ export class TclaudeAgentPort implements AgentPort {
 	}
 
 	sessionCreate(cwd: string): Promise<{ sessionId: string }> {
+		const sessionId = randomUUID()
+		const homeDir = mkdtempSync(join(tmpdir(), 'tclaude-agent-'))
 		try {
-			const sessionId = randomUUID()
-			const homeDir = mkdtempSync(join(tmpdir(), 'tclaude-agent-'))
 			const s = newSessionState(sessionId, cwd, homeDir, this.model, this.permissionMode)
 			this.spawnProcess(s, { resume: false })
 			this.sessions.set(sessionId, s)
 			return Promise.resolve({ sessionId })
 		} catch (e) {
+			// спавн упал (бинар недоступен и т.п.): временный HOME агента больше не нужен — не оставляем утечки
+			try {
+				rmSync(homeDir, { recursive: true, force: true })
+			} catch {
+				/* не критично: каталог под tmpdir, осиротеет при перезагрузке */
+			}
 			return Promise.reject(toError(e))
 		}
 	}
@@ -163,14 +170,7 @@ export class TclaudeAgentPort implements AgentPort {
 		s.detached = true
 		this.sessions.delete(sessionId)
 		const child = s.child
-		if (child) {
-			child.kill('SIGINT')
-			const t = setTimeout(() => {
-				// завис: exit ещё не наступил — добиваем SIGKILL
-				if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-			}, KILL_GRACE_MS)
-			t.unref()
-		}
+		if (child) this.killGracefully(child, 'SIGINT')
 		// временный HOME агента больше не нужен — убираем только свой каталог
 		try {
 			rmSync(s.homeDir, { recursive: true, force: true })
@@ -298,9 +298,19 @@ export class TclaudeAgentPort implements AgentPort {
 
 	/** Переподнять процесс сессии с --resume (контекст сохраняется); старый процесс убиваем, события его не учитываются. */
 	private respawn(s: TclaudeSession): void {
-		s.child?.kill('SIGTERM')
+		if (s.child) this.killGracefully(s.child, 'SIGTERM')
 		s.cancelRequested = false
 		this.spawnProcess(s, { resume: true })
+	}
+
+	/** Послать сигнал и, если процесс не завершился за grace-таймаут, добить SIGKILL (эскалация, как при close). */
+	private killGracefully(child: ChildProcess, signal: NodeJS.Signals): void {
+		child.kill(signal)
+		const t = setTimeout(() => {
+			// завис: exit ещё не наступил — добиваем SIGKILL
+			if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+		}, KILL_GRACE_MS)
+		t.unref()
 	}
 
 	private requireSession(sessionId: string): TclaudeSession {

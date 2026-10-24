@@ -93,7 +93,8 @@ export class FakeAgentPort implements AgentPort {
 		if (!this.canRestore || !this.known.has(sessionId)) return null
 		const s = this.ensure(sessionId)
 		s.ready = false
-		return { lastSeq: 7 }
+		// честный lastSeq: текущий счётчик порта (следующая подписка продолжит с большим seq)
+		return { lastSeq: this.seq }
 	}
 
 	async promptSend(sessionId: string, text: string): Promise<{ promptId: string | null }> {

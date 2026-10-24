@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import { describe, it } from 'node:test'
 import { firstChild, makePort, subscribedSession } from './tclaude-test-support'
+import { KILL_GRACE_MS } from '../../../../src/infrastructure/tclaude/tclaude-session'
 
 describe('TclaudeAgentPort (многоходовость и диагностика)', () => {
 	it('stream_event (text_delta) → message.delta и message.completed с текстом (потеря текста)', async () => {
@@ -62,5 +63,42 @@ describe('TclaudeAgentPort (многоходовость и диагностик
 		assert.equal(fs.existsSync(home), true)
 		await port.sessionClose(sessionId)
 		assert.equal(fs.existsSync(home), false, 'temp HOME должен быть удалён после закрытия')
+	})
+
+	it('много-assistant-ход: ни один блок текста не теряется', async () => {
+		const { port, children } = makePort()
+		const { sessionId } = await subscribedSession(port)
+		const completed: string[] = []
+		port.subscribe(sessionId, { onEvent: e => (e.type === 'message.completed' ? completed.push((e.data as { text: string }).text) : undefined) })
+		const child = firstChild(children)
+		await port.promptSend(sessionId, 'x')
+		child.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'часть' }] } })
+		child.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: ' два' }] } })
+		child.emitLine({ type: 'result', subtype: 'success', stop_reason: 'end_turn', num_turns: 1 })
+		assert.deepEqual(completed, ['часть два'], 'оба assistant-блока должны дойти до message.completed')
+	})
+
+	it('delta+assistant-финал: текст не дублируется и не теряется', async () => {
+		const { port, children } = makePort()
+		const { sessionId } = await subscribedSession(port)
+		const completed: string[] = []
+		port.subscribe(sessionId, { onEvent: e => (e.type === 'message.completed' ? completed.push((e.data as { text: string }).text) : undefined) })
+		const child = firstChild(children)
+		await port.promptSend(sessionId, 'x')
+		child.emitLine({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'при' } } })
+		child.emitLine({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'вет' } } })
+		child.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'привет' }] } })
+		child.emitLine({ type: 'result', subtype: 'success', stop_reason: 'end_turn', num_turns: 1 })
+		assert.deepEqual(completed, ['привет'], 'полный текст без дублирования')
+	})
+
+	it('respawn: зависший старый процесс добивается SIGKILL после grace (эскалация)', async () => {
+		const { port, children } = makePort()
+		const { sessionId } = await subscribedSession(port)
+		const old = firstChild(children)
+		await port.sessionResume(sessionId, '/ws') // respawn → SIGTERM старому
+		assert.ok(old.signalLog.includes('SIGTERM'), 'SIGTERM должен быть послан при респавне')
+		await new Promise(r => setTimeout(r, KILL_GRACE_MS + 200))
+		assert.ok(old.signalLog.includes('SIGKILL'), 'не завершившийся за grace процесс должен быть добит SIGKILL')
 	})
 })

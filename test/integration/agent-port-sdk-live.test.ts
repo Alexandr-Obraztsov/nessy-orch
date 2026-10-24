@@ -88,7 +88,7 @@ it('agent-port-sdk live: полный ход, мета, модель из system
 	assert.ok(typeof (usage.data as { used?: number }).used === 'number' && (usage.data as { used: number }).used > 0, 'usage.used из result')
 
 	// seq строго монотонен и уникален по всей сессии
-	const seqs = c.all().map(e => e.seq as number)
+	const seqs = c.all().map(e => e.seq)
 	assert.ok(seqs.length >= 3, `мало событий: ${seqs.length}`)
 	for (let i = 1; i < seqs.length; i++) assert.ok((seqs[i] as number) > (seqs[i - 1] as number), `seq не монотонен: ${seqs.join(', ')}`)
 
@@ -114,6 +114,36 @@ it('agent-port-sdk live: второй промпт на той же сессии
 	const u1 = (usage1.data as { used: number }).used
 	const u2 = (usage2.data as { used: number }).used
 	assert.ok(u2 >= u1, `контекст не вырос между ходами: ${u1} → ${u2}`)
+
+	await port.sessionClose(sessionId)
+})
+
+it('agent-port-sdk live: close→resume→promptSend поднимает контекст (второй ход после закрытия)', { skip: !LIVE, timeout: 180_000 }, async () => {
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nessy-live-'))
+	const port = livePort(cwd)
+	const { sessionId } = await port.sessionCreate(cwd)
+	const c = new Collector()
+	port.subscribe(sessionId, { onEvent: e => c.push(e) })
+	await c.waitFor(e => e.type === 'session.ready', 'session.ready', 30_000)
+
+	// первый ход кладёт факт в контекст
+	await port.promptSend(sessionId, 'Запомни секретное слово: абрикос. Ответь одним словом: готово')
+	await waitDone(c, 'первый ход')
+	await c.waitFor(e => e.type === 'context.usage', 'usage 1', 10_000)
+
+	// закрываем и резюмим — контекст должен подняться (не теряться при park)
+	await port.sessionClose(sessionId)
+	const r = await port.sessionResume(sessionId, cwd)
+	assert.ok(r, 'резюм закрытой сессии должен вернуть спецификацию восстановления')
+	const c2 = new Collector()
+	port.subscribe(sessionId, { onEvent: e => c2.push(e) })
+	await c2.waitFor(e => e.type === 'session.ready', 'session.ready после resume', 30_000)
+
+	// второй ход опирается на контекст первого (резюм реально поднял историю)
+	await port.promptSend(sessionId, 'Назови секретное слово, которое ты запомнил. Только одно слово.')
+	await waitDone(c2, 'второй ход')
+	const usage2 = await c2.waitFor(e => e.type === 'context.usage', 'usage 2', 10_000)
+	assert.ok((usage2.data as { used: number }).used > 0, 'usage на втором ходу')
 
 	await port.sessionClose(sessionId)
 })

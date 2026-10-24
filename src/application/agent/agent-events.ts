@@ -18,7 +18,7 @@ export function processPortEvent(a: AgentState, envelope: Envelope): void {
 	// конверт несёт событие порта, разбитое на type + data; порт гарантирует контрактную форму
 	const portEvent: { type: string; data: unknown } = { type: envelope.type, data: envelope.data }
 	const ev = portEventToSessionEvent(portEvent as PortEvent)
-	if (ev) onSessionEvent(a, ev, envelope.seq ?? null)
+	if (ev) onSessionEvent(a, ev, envelope.seq)
 }
 
 function onSessionEvent(a: AgentState, ev: SessionEvent, eventId: number | null): void {

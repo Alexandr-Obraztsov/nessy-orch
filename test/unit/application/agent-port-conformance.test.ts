@@ -10,5 +10,7 @@ runAgentPortConformance({
 	cwd: '/tmp/fake-cwd',
 	slowPrompt: '#hang',
 	permissionPrompt: '#perm',
+	errorPrompt: '#fail',
+	toolsPrompt: '#tools',
 	makePort: () => Promise.resolve(new FakeAgentPort()),
 })
