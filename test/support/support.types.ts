@@ -2,6 +2,7 @@
 import type { AppInstance } from '../../src/app.types'
 import type { Orchestrator } from '../../src/application/orchestrator'
 import type { Config } from '../../src/infrastructure/config/config.types'
+import type { SpaceFactory } from '../../src/application/ports'
 import type { SseClient } from './http-client'
 
 export interface ApiResult<T> {
@@ -27,4 +28,6 @@ export interface HarnessOptions {
 	config?: Partial<Config>
 	/** переиспользовать каталог предыдущего стенда (рестарт) */
 	base?: string
+	/** фабрика пространств вместо фейковой по умолчанию (для реальных рантаймов) */
+	spaceFactory?: SpaceFactory
 }

@@ -3,6 +3,9 @@
 /** Идентификатор узла графа: `you` либо id агента. */
 export type NodeId = string
 
+/** Рантайм, на котором работает агент/пространство: nessy-sdk — встроенный SDK, tclaude — headless Claude Code. */
+export type RuntimeId = 'nessy-sdk' | 'tclaude'
+
 /**
  * Статус агента. Состояния сна нет: агент без работы — idle; закончив сессию, он уходит в архив
  * (archived=true), а его сессия nessy сохраняется и восстанавливается при следующем сообщении.
@@ -23,6 +26,8 @@ export interface SpaceView {
 	url: string | null
 	status: SpaceStatus
 	error: string | null
+	/** рантайм пространства; нет в старых состояниях (→ nessy-sdk) */
+	runtime?: RuntimeId
 }
 
 export interface ToolBrief {
@@ -115,6 +120,10 @@ export interface AgentView {
 	/** id роли (RoleView.id) или null */
 	role: string | null
 	status: AgentStatus
+	/** рантайм агента (пространства); нет в старых состояниях (→ nessy-sdk) */
+	runtime?: RuntimeId
+	/** модель агента (пространства); null — дефолт рантайма */
+	model?: string | null
 	/**
 	 * Скрыт из рабочего списка: сессия выполнена. Сессия сохранена — сообщение агенту
 	 * (или POST /agents/:ref/restore) возвращает его в работу с прежним контекстом.

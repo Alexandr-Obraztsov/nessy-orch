@@ -36,6 +36,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 		env['ORCH_SDK_PERMISSION_MODE'] === 'default'
 			? { sdkPermissionMode: env['ORCH_SDK_PERMISSION_MODE'] }
 			: {}),
+		tclaudeBin: env['TCLAUDE_PATH'] ?? 'tclaude',
+		...(env['ORCH_TCLAUDE_MODEL'] ? { tclaudeModel: env['ORCH_TCLAUDE_MODEL'] } : {}),
+		...(env['ORCH_TCLAUDE_PERMISSION_MODE'] === 'plan' ||
+		env['ORCH_TCLAUDE_PERMISSION_MODE'] === 'auto-edit' ||
+		env['ORCH_TCLAUDE_PERMISSION_MODE'] === 'auto' ||
+		env['ORCH_TCLAUDE_PERMISSION_MODE'] === 'default'
+			? { tclaudePermissionMode: env['ORCH_TCLAUDE_PERMISSION_MODE'] }
+			: {}),
 		maxDepth: Math.max(0, int(env['ORCH_MAX_DEPTH'], 2)),
 		maxActivePerSession: Math.max(1, int(env['ORCH_MAX_ACTIVE'], 12)),
 		maxAgents: Math.max(1, int(env['ORCH_MAX_AGENTS'], 20)),

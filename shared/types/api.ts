@@ -1,5 +1,5 @@
 /** Тела запросов и ответов REST API. */
-import type { AgentView, Message, NodeId, RoleView, SpaceView, SessionStatus, SessionView } from './domain'
+import type { AgentView, Message, NodeId, RoleView, RuntimeId, SpaceView, SessionStatus, SessionView } from './domain'
 
 export interface GraphView {
 	rev: number
@@ -20,6 +20,10 @@ export interface SpawnRequest {
 	title?: string
 	/** id или имя роли */
 	role?: string
+	/** рантайм агента (пространства); по умолчанию — рантайм выбранного пространства */
+	runtime?: RuntimeId
+	/** модель агента (пространства); не задана — дефолт рантайма/конфига */
+	model?: string
 	/** id сессии; по умолчанию — сессия родителя (агент, запущенный агентом, наследует её) */
 	session?: string
 	prompt?: string
@@ -65,6 +69,10 @@ export interface SpaceRequest {
 	name?: string
 	/** URL уже запущенного nessy serve (иначе оркестратор запустит свой) */
 	url?: string
+	/** рантайм пространства; по умолчанию — nessy-sdk */
+	runtime?: RuntimeId
+	/** модель по умолчанию для агентов пространства */
+	model?: string
 }
 
 /** POST /agents/:ref/plan — агент сообщает план целиком. */

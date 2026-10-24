@@ -16,6 +16,7 @@ import { FileRolePackages } from './infrastructure/persistence/role-packages'
 import { FileRolePresets } from './infrastructure/persistence/role-presets'
 import { FileStore } from './infrastructure/persistence/file-store'
 import { NessySdkSpace } from './infrastructure/process/sdk-space'
+import { TclaudeSpace } from './infrastructure/process/tclaude-space'
 import { createServer } from './interfaces/http/server'
 
 export function buildApp(config: Config, version: string, overrides: { spaceFactory?: SpaceFactory } = {}): AppInstance {
@@ -26,15 +27,28 @@ export function buildApp(config: Config, version: string, overrides: { spaceFact
 		rolePackages: new FileRolePackages(path.join(config.home, 'role-packages')),
 		spaceFactory:
 			overrides.spaceFactory ??
-			((init, listener) =>
-				new NessySdkSpace(
+			((init, listener) => {
+				// рантайм выбирается на создании пространства; tclaude — локальный Claude Code, иначе — nessy-sdk
+				if ((init.runtime ?? 'nessy-sdk') === 'tclaude') {
+					return new TclaudeSpace(
+						init,
+						{
+							...(config.tclaudeBin ? { bin: config.tclaudeBin } : {}),
+							...(config.tclaudeModel !== undefined ? { model: config.tclaudeModel } : {}),
+							...(config.tclaudePermissionMode !== undefined ? { permissionMode: config.tclaudePermissionMode } : {}),
+						},
+						listener,
+					)
+				}
+				return new NessySdkSpace(
 					init,
 					{
 						...(config.sdkModel !== undefined ? { model: config.sdkModel } : {}),
 						...(config.sdkPermissionMode !== undefined ? { permissionMode: config.sdkPermissionMode } : {}),
 					},
 					listener,
-				)),
+				)
+			}),
 	})
 	// готовые роли из <root>/roles: при первом запуске все, потом только новые (уже виденные и удалённые пользователем не возвращаются)
 	const firstStart = !orch.hasStoredRoles

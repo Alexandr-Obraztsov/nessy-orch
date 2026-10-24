@@ -1,7 +1,7 @@
 /** Пространства: добавление, удаление, разрешение по имени/пути. */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { SpaceRequest, SpaceView } from '../../../shared/types'
+import type { RuntimeId, SpaceRequest, SpaceView } from '../../../shared/types'
 import { PALETTE } from '../../domain/constants'
 import { AppError } from '../../domain/errors'
 import { defaultSpaceName, normalizeWorkspacePath, uniqueName } from '../../domain/naming'
@@ -34,11 +34,23 @@ export class SpacesService {
 		const p = normalizeWorkspacePath(req.path)
 		if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) throw new AppError(400, 'bad_path', `каталог не найден: ${p}`)
 		const existing = [...registry.spaces.values()].find(s => s.path === p)
-		if (existing) return existing.toJSON()
+		if (existing) {
+			// конкуренты уже создали пространство по этому пути: рантайм обязан совпадать с запрошенным, иначе понятная ошибка
+			if (req.runtime !== undefined && existing.runtime !== req.runtime)
+				throw new AppError(409, 'runtime_mismatch', `пространство «${existing.name}» работает на ${existing.runtime}, а не на ${req.runtime}`)
+			return existing.toJSON()
+		}
 		if (req.name && registry.spaces.has(req.name)) throw new AppError(409, 'space_exists', `пространство «${req.name}» уже существует`)
 		const name = req.name ?? uniqueName(defaultSpaceName(p), n => registry.spaces.has(n))
 		const color = PALETTE[registry.spaces.size % PALETTE.length] ?? 210
-		const space = this.make({ name, path: p, url: req.url ?? null, color })
+		const space = this.make({
+			name,
+			path: p,
+			url: req.url ?? null,
+			color,
+			...(req.runtime ? { runtime: req.runtime } : {}),
+			...(req.model !== undefined ? { model: req.model } : {}),
+		})
 		registry.spaces.set(name, space)
 		this.ctx.hub.publish({ t: 'space', space: space.toJSON() })
 		this.ctx.saveSoon()
@@ -64,12 +76,16 @@ export class SpacesService {
 	 * Имя пространства, путь или пусто (если пространство единственное; иначе — cwd вызывающего, если он передан).
 	 * Неизвестный путь добавляется.
 	 */
-	resolve(spec?: string, cwd?: string): SpaceRuntime {
+	resolve(spec?: string, cwd?: string, runtime?: RuntimeId, model?: string): SpaceRuntime {
 		const { spaces } = this.ctx.registry
 		// каталог оркестратора (cwd чата Claude или CLI) важнее «единственного пространства»: агент работает там, где работает Claude
 		if (!spec && cwd && path.isAbsolute(cwd)) spec = cwd
 		if (!spec) {
-			if (spaces.size === 1) return [...spaces.values()][0] as SpaceRuntime
+			if (spaces.size === 1) {
+				const single = [...spaces.values()][0] as SpaceRuntime
+				this.ensureRuntime(single, runtime)
+				return single
+			}
 			throw new AppError(
 				400,
 				'space_required',
@@ -77,14 +93,28 @@ export class SpacesService {
 			)
 		}
 		const byName = spaces.get(spec)
-		if (byName) return byName
+		if (byName) {
+			this.ensureRuntime(byName, runtime)
+			return byName
+		}
 		if (path.isAbsolute(spec)) {
 			const norm = normalizeWorkspacePath(spec)
 			const byPath = [...spaces.values()].find(s => s.path === norm)
-			if (byPath) return byPath
-			const v = this.add({ path: norm })
-			return spaces.get(v.name) as SpaceRuntime
+			if (byPath) {
+				this.ensureRuntime(byPath, runtime)
+				return byPath
+			}
+			const v = this.add({ path: norm, ...(runtime ? { runtime } : {}), ...(model !== undefined ? { model } : {}) })
+			const created = spaces.get(v.name)
+			if (created) this.ensureRuntime(created, runtime)
+			return created as SpaceRuntime
 		}
 		throw new AppError(404, 'no_space', `пространство «${spec}» не найдено`)
+	}
+
+	/** Запрошенный рантайм пространства обязан совпадать с фактическим; иначе — понятная ошибка (а не молчаливый подмен). */
+	private ensureRuntime(space: SpaceRuntime, runtime?: RuntimeId): void {
+		if (runtime !== undefined && space.runtime !== runtime)
+			throw new AppError(409, 'runtime_mismatch', `пространство «${space.name}» работает на ${space.runtime}, а не на ${runtime}`)
 	}
 }

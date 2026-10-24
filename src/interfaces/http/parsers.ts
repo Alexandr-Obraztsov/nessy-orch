@@ -1,20 +1,45 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
-import type { AttachRequest, RoleRequest, SendRequest, SpaceRequest, SpawnRequest, SessionPatch, SessionRequest, SessionStatus } from '../../../shared/types'
+import type {
+	AttachRequest,
+	RoleRequest,
+	RuntimeId,
+	SendRequest,
+	SpaceRequest,
+	SpawnRequest,
+	SessionPatch,
+	SessionRequest,
+	SessionStatus,
+} from '../../../shared/types'
 import { AppError } from '../../domain/errors'
+import { isRuntimeId } from '../../domain/constants'
 import { isSessionStatus } from '../../domain/sessions'
 import { isObject } from '../../lib/json'
 
 const optStr = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
 const optNum = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
 
+/** необязательный рантайм: строка и известный рантайм, иначе 400. */
+function optRuntime(v: unknown): RuntimeId | undefined {
+	if (v === undefined) return undefined
+	if (typeof v !== 'string' || !isRuntimeId(v)) throw new AppError(400, 'bad_request', `runtime — одно из: nessy-sdk, tclaude`)
+	return v
+}
+
 export function parseSpaceRequest(b: unknown): SpaceRequest {
 	if (!isObject(b) || typeof b['path'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле path (строка)')
-	const out = { path: b['path'], name: optStr(b['name']), url: optStr(b['url']) }
+	const out = {
+		path: b['path'],
+		name: optStr(b['name']),
+		url: optStr(b['url']),
+		...(b['runtime'] !== undefined ? { runtime: optRuntime(b['runtime']) } : {}),
+		...(optStr(b['model']) !== undefined ? { model: optStr(b['model']) } : {}),
+	}
 	return out as SpaceRequest
 }
 
 export function parseSpawnRequest(b: unknown): SpawnRequest {
 	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
+	const model = optStr(b['model'])
 	const out = {
 		space: optStr(b['space']),
 		cwd: optStr(b['cwd']),
@@ -27,6 +52,8 @@ export function parseSpawnRequest(b: unknown): SpawnRequest {
 		from: optStr(b['from']),
 		wait: b['wait'] === true,
 		waitTimeoutSec: optNum(b['waitTimeoutSec']),
+		...(b['runtime'] !== undefined ? { runtime: optRuntime(b['runtime']) } : {}),
+		...(model !== undefined ? { model } : {}),
 	}
 	return out as SpawnRequest
 }

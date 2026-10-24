@@ -1,11 +1,15 @@
 /** Форма состояния оркестратора в хранилище (state.json). */
-import type { AgentPlan, AgentStats, Message, ReplyBrief } from '../../shared/types'
+import type { AgentPlan, AgentStats, Message, ReplyBrief, RuntimeId } from '../../shared/types'
 
 export interface PersistedSpace {
 	name: string
 	path: string
 	url: string | null
 	color: number
+	/** рантайм пространства; нет в старых состояниях (→ nessy-sdk) */
+	runtime?: RuntimeId
+	/** модель по умолчанию агентов пространства; нет в старых состояниях */
+	model?: string | null
 }
 
 export interface PersistedAgent {

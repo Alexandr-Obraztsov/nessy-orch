@@ -1,5 +1,5 @@
 /** Хранилище в памяти и поддельный порт агента для unit-тестов прикладного слоя. */
-import type { AgentEvent, Message, RoleView, SpaceView, SessionView, SourceView } from '../../shared/types'
+import type { AgentEvent, Message, RoleView, RuntimeId, SpaceView, SessionView, SourceView } from '../../shared/types'
 import type { PersistedState } from '../../src/application/persisted.types'
 import type { SpaceListener, SpaceRuntime, StorePort } from '../../src/application/ports'
 import type { AgentPort } from '../../src/application/agent-port'
@@ -80,6 +80,8 @@ export class FakeSpace implements SpaceRuntime {
 
 	readonly url = null
 	readonly color = 210
+	readonly runtime: RuntimeId = 'nessy-sdk'
+	readonly model: string | null = null
 	status: SpaceView['status'] = 'stopped'
 	constructor(
 		readonly name: string,
@@ -103,6 +105,6 @@ export class FakeSpace implements SpaceRuntime {
 	}
 	toJSON(): SpaceView {
 		// у FakeSpace нет внешнего url — пространство всегда «managed»
-		return { name: this.name, path: this.path, color: this.color, mode: 'managed', url: null, status: this.status, error: null }
+		return { name: this.name, path: this.path, color: this.color, mode: 'managed', url: null, status: this.status, error: null, runtime: this.runtime }
 	}
 }

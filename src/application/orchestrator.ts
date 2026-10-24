@@ -135,7 +135,7 @@ export class Orchestrator implements AgentHost {
 
 	private persistState(): PersistedState {
 		return {
-			spaces: [...this.registry.spaces.values()].map(s => ({ name: s.name, path: s.path, url: s.url, color: s.color })),
+			spaces: [...this.registry.spaces.values()].map(s => ({ name: s.name, path: s.path, url: s.url, color: s.color, runtime: s.runtime, model: s.model })),
 			agents: [...this.registry.agents.values()].map(a => a.persist()),
 			msgSeq: this.feed.msgSeq,
 		}

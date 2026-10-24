@@ -2,7 +2,7 @@
  * Порты прикладного слоя: что ядру нужно от внешнего мира (nessy, процессы, хранилище, часы, id).
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
-import type { AgentEvent, Message, PlanEntry, RoleView, SpaceStatus, SpaceView, SessionView, SourceView, ToolStatus } from '../../shared/types'
+import type { AgentEvent, Message, PlanEntry, RoleView, RuntimeId, SpaceStatus, SpaceView, SessionView, SourceView, ToolStatus } from '../../shared/types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
 import type { AgentPort } from './agent-port'
 import type { PersistedState } from './persisted.types'
@@ -47,6 +47,10 @@ export interface SpaceInit {
 	path: string
 	url?: string | null
 	color?: number
+	/** рантайм пространства (по умолчанию — nessy-sdk) */
+	runtime?: RuntimeId
+	/** модель по умолчанию для агентов пространства */
+	model?: string | null
 }
 
 export interface SpaceExitInfo {
@@ -68,6 +72,10 @@ export interface SpaceRuntime {
 	readonly color: number
 	readonly status: SpaceStatus
 	readonly client: AgentPort | null
+	/** рантайм, на котором работает пространство. */
+	readonly runtime: RuntimeId
+	/** модель по умолчанию агентов пространства; null — дефолт рантайма. */
+	readonly model: string | null
 	/** Гарантировать, что рантайм готов (вернуть порт управления агентом). */
 	ensureReady(): Promise<AgentPort>
 	stop(): Promise<void>

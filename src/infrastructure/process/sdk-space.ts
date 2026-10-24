@@ -3,7 +3,7 @@
  * в отдельном CLI-процессе, который поднимает сам адаптер (NessySdkAgentPort). Пространство — только воркспейс
  * и единый порт для всех сессий. `ensureReady()` возвращает общий для пространства AgentPort.
  */
-import type { SpaceStatus, SpaceView } from '../../../shared/types'
+import type { RuntimeId, SpaceStatus, SpaceView } from '../../../shared/types'
 import type { AgentPort } from '../../application/agent-port'
 import type { SpaceInit, SpaceListener, SpaceRuntime } from '../../application/ports'
 import { NessySdkAgentPort, type NessySdkAgentPortOptions } from '../nessy/agent-port-sdk'
@@ -20,6 +20,8 @@ export class NessySdkSpace implements SpaceRuntime {
 	readonly path: string
 	readonly url: string | null = null
 	readonly color: number
+	readonly runtime: RuntimeId = 'nessy-sdk'
+	readonly model: string | null
 	status: SpaceStatus = 'ready'
 	client: AgentPort | null = null
 
@@ -34,13 +36,14 @@ export class NessySdkSpace implements SpaceRuntime {
 		this.name = init.name
 		this.path = init.path
 		this.color = init.color ?? 210
+		this.model = init.model ?? opts.model ?? null
 		this.opts = opts
 	}
 
 	ensureReady(): Promise<AgentPort> {
 		this.client ??= new NessySdkAgentPort({
 			cwd: this.path,
-			...(this.opts.model !== undefined ? { model: this.opts.model } : {}),
+			...(this.model !== null ? { model: this.model } : {}),
 			...(this.opts.permissionMode !== undefined ? { permissionMode: this.opts.permissionMode } : {}),
 		})
 		return Promise.resolve(this.client)
@@ -61,6 +64,15 @@ export class NessySdkSpace implements SpaceRuntime {
 	}
 
 	toJSON(): SpaceView {
-		return { name: this.name, path: this.path, color: this.color, mode: this.url ? 'external' : 'managed', url: null, status: this.status, error: null }
+		return {
+			name: this.name,
+			path: this.path,
+			color: this.color,
+			mode: this.url ? 'external' : 'managed',
+			url: null,
+			status: this.status,
+			error: null,
+			runtime: this.runtime,
+		}
 	}
 }

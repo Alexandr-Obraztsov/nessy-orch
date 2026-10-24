@@ -8,12 +8,14 @@
     "node": ">=20"
   },
   "bin": {
-    "nessy-orch": "bin/nessy-orch"
+    "nessy-orch": "bin/nessy-orch",
+    "nessy-orch-v2": "bin/nessy-orch-v2"
   },
   "scripts": {
     "build": "npm run build:server",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build:server": "npm run clean && tsc -p tsconfig.json && node scripts/postbuild.mjs",
+    "cli-v2": "node dist/src/interfaces/cli-v2/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.ts\" \"shared/**/*.ts\" \"test/**/*.ts\"",

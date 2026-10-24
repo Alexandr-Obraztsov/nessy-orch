@@ -14,6 +14,12 @@ export interface Config extends OrchSettings {
 	sdkModel?: string
 	/** права nessy-sdk (ORCH_SDK_PERMISSION_MODE); по умолчанию 'default' */
 	sdkPermissionMode?: 'default' | 'plan' | 'auto-edit' | 'auto'
+	/** путь к бинарю tclaude (TCLAUDE_PATH); по умолчанию 'tclaude' */
+	tclaudeBin?: string
+	/** модель tclaude по умолчанию (ORCH_TCLAUDE_MODEL); не задана — дефолт рантайма */
+	tclaudeModel?: string
+	/** права tclaude (ORCH_TCLAUDE_PERMISSION_MODE); безопасный дефолт 'default' */
+	tclaudePermissionMode?: 'default' | 'plan' | 'auto-edit' | 'auto'
 	/** заливать пресеты ролей при первом запуске (ORCH_SEED_ROLES) */
 	seedRoles: boolean
 	/** каталог готовых ролей (по умолчанию <root>/roles) */

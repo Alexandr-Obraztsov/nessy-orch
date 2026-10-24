@@ -45,7 +45,7 @@ export class AgentsService {
 		// сессия: явная (проверяем существование) или сессия родителя — агент, запущенный агентом, наследует её
 		const session = req.session?.trim() ? this.sessions.resolve(req.session).id : (registry.agents.get(parent)?.session ?? null)
 		// без --space агент запускается в каталоге оркестратора — там, где идёт чат Claude (cwd сессии), отдельные каталоги не создаются
-		const space = this.spaces.resolve(req.space, (session ? this.sessions.cwdOf(session) : null) ?? req.cwd)
+		const space = this.spaces.resolve(req.space, (session ? this.sessions.cwdOf(session) : null) ?? req.cwd, req.runtime, req.model)
 		await this.assertBudget(parent, session)
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)

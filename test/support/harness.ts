@@ -55,9 +55,9 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 			...opts.config,
 		}
 		// пространства ядра в интеграционных тестах держат FakeAgentPort (serve-путь удалён): HTTP/CLI-поверхность настоящая,
-		// рантайм агента — детерминированный in-process фейк
+		// рантайм агента — детерминированный in-process фейк (если не передан свой spaceFactory)
 		const candidate = buildApp(config, 'test', {
-			spaceFactory: (init, listener) => new FakeSpace(init.name, init.path, new FakeAgentPort(), listener),
+			spaceFactory: opts.spaceFactory ?? ((init, listener) => new FakeSpace(init.name, init.path, new FakeAgentPort(), listener)),
 		})
 		try {
 			await candidate.listen()

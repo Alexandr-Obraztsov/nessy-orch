@@ -1,3 +1,5 @@
+import type { RuntimeId } from '../../shared/types'
+
 /** Узел графа — главный оператор (человек + Claude Code). */
 export const YOU = 'you'
 /**
@@ -9,3 +11,11 @@ export const USER = 'user'
 export const SYSTEM = 'system'
 /** Палитра пространств (hue). */
 export const PALETTE: readonly number[] = [210, 28, 150, 285, 340, 175, 55, 250]
+
+/** Рантаймы агентов/пространств (порядок — для вывода по умолчанию); тип — единый из shared/types/domain.ts. */
+export const RUNTIME_IDS: readonly RuntimeId[] = ['nessy-sdk', 'tclaude']
+
+/** Строгая проверка: значение — известный рантайм. */
+export function isRuntimeId(v: unknown): v is RuntimeId {
+	return typeof v === 'string' && (RUNTIME_IDS as readonly string[]).includes(v)
+}

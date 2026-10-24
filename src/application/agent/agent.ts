@@ -174,6 +174,9 @@ export class Agent implements AgentIdentity {
 			session: this.session,
 			role: this.role,
 			status: this.status,
+			// рантайм и модель — свойства пространства агента (без дублирования в состоянии)
+			runtime: this.deps.callbacks.getSpace(this.space)?.runtime ?? 'nessy-sdk',
+			model: this.deps.callbacks.getSpace(this.space)?.model ?? null,
 			archived: this.archived,
 			parked: this.parked,
 			error: this.error,
