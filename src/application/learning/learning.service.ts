@@ -1,24 +1,29 @@
-import type { CaseDraftResult, CaseImpact, CaseReadBlock, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookStatus, PlaybookView } from '../../../shared/types'
+import type { CaseDraftResult, CaseImpact, LearningCards, CaseReadBlock, ChatMessage, JobDetail, JournalEntry, PlaybookDetail, PlaybookStatus, PlaybookView } from '../../../shared/types'
 import type { CaseDetail, CaseView, JobKind, JobView, LearningSettings, LearningSignal, LearningView, RawEvent, SessionView } from '../../../shared/types'
 import { createHash } from 'node:crypto'
+import { caseCard, playbookCard } from '../../domain/cards'
 import { AppError } from '../../domain/errors'
 import { parseSummaryHeads } from '../../domain/collector'
 import { parseLearningSettings, patchLearningSettings } from '../../domain/learning-settings'
 import { caseIdOf, chainOf, ingest } from './case-ingest'
 import { onCaseReady } from './case-ready'
-import { buildHandler } from './build.handler'
+import { absorbHandler } from './absorb.handler'
+import { buildHandler, groupHash } from './build.handler'
 import { collectHandler } from './collect.handler'
 import { editHandler, mergeEditPayload } from './edit.handler'
+import { foldHandler } from './fold.handler'
 import { improveHandler } from './improve.handler'
 import { judgeHandler } from './judge.handler'
 import { matchHandler } from './match.handler'
 import { approvePlaybook, meanCorrections, rejectPlaybook, reviewHandler } from './review.handler'
+import { verifyHandler } from './verify.handler'
 import type { HintHost, JobContext, JobHandler } from './handlers.types'
 import { JobQueue } from './job-queue'
 import { PlaybookService, playbookView } from './playbook.service'
 import { ReadProtocol, protocolPhase, protocolProgress } from './read-protocol'
-import type { CaseState, EnqueueOpts, FailedBuild, JobState, LearningDeps, LearningMeta, LogLevel, TranscriptCursor } from './learning.types'
+import type { CaseState, EnqueueOpts, FailedBuild, FoldRef, JobState, LearningDeps, LearningMeta, LogLevel, TranscriptCursor } from './learning.types'
 import { recount } from '../../domain/rule-counters'
+import { payloadStr } from './payload'
 
 /** Сколько после окончательного провала сборки `match` не повторяет ту же группу. */
 const FAILED_BUILD_MS = 24 * 3600 * 1000
@@ -61,6 +66,7 @@ const toView = (c: CaseState): CaseView => ({
 	updatedAt: c.updatedAt,
 	closedAt: c.closedAt,
 	playbook: c.playbook,
+	...(c.foldedGoals ? { foldedGoals: c.foldedGoals } : {}),
 	source: 'live',
 })
 
@@ -128,11 +134,11 @@ export class LearningService {
 		this.settings = parseLearningSettings({ enabled: deps.defaultOn })
 		this.queue = new JobQueue({ ids: deps.ids, now: () => deps.clock.now() })
 		this.playbooks = deps.playbookStore
-			? new PlaybookService({ store: deps.playbookStore, hub: deps.hub, clock: deps.clock, ids: deps.ids, pluginVersion: deps.pluginVersion, caseOf: id => this.cases.get(id) ?? null })
+			? new PlaybookService({ store: deps.playbookStore, hub: deps.hub, clock: deps.clock, ids: deps.ids, pluginVersion: deps.pluginVersion, caseOf: id => this.cases.get(id) ?? null, onFolds: (id, refs) => this.enqueueFolds(id, refs) })
 			: null
 		this.registerHandler(collectHandler)
 		// обработчики плейбуков — только при хранилище плейбуков
-		if (this.playbooks) for (const h of [matchHandler, buildHandler, reviewHandler, judgeHandler, improveHandler, editHandler]) this.registerHandler(h)
+		if (this.playbooks) for (const h of [matchHandler, verifyHandler, buildHandler, absorbHandler, foldHandler, reviewHandler, judgeHandler, improveHandler, editHandler]) this.registerHandler(h)
 	}
 
 	/** Регистрирует обработчик заданий своих видов (повторная регистрация заменяет прежний). */
@@ -185,6 +191,7 @@ export class LearningService {
 			if (open?.status === 'collecting') this.ingestCase(open)
 		}
 		this.decay()
+		this.purgeArchive()
 		this.armIdle()
 		this.armStall()
 		this.pump()
@@ -380,7 +387,13 @@ export class LearningService {
 			case 'close':
 				return `Итоговое описание «${this.nameOf(j.caseId)}»`
 			case 'match':
-				return 'Сопоставление кейсов с плейбуками'
+				return 'Сопоставление сессий с плейбуками'
+			case 'verify':
+				return `Проверка группы «${payloadStr(j.payload, 'task')}»`
+			case 'absorb':
+				return `Вливание в плейбук «${playbook()}»`
+			case 'fold':
+				return `Свёртка цели «${payloadStr(j.payload, 'goal')}» из сессии «${this.nameOf(j.caseId)}»`
 			case 'build':
 				return 'Сборка плейбука'
 			case 'review':
@@ -486,6 +499,16 @@ export class LearningService {
 		return this.playbooks
 	}
 
+	/** Карточки для обзора сопоставителя: кейсы `ready` (свежие первыми) и плейбуки. */
+	cards(): LearningCards {
+		const cases = [...this.cases.values()]
+			.filter(c => c.status === 'ready')
+			.sort((a, b) => (b.closedAt ?? b.updatedAt).localeCompare(a.closedAt ?? a.updatedAt))
+			.map(c => ({ id: c.id, card: caseCard({ title: this.sessionTitle(c.id), date: c.closedAt ?? c.updatedAt, summary: this.deps.store.readSummary(c.id) }) }))
+		const playbooks = (this.playbooks?.list() ?? []).map(p => ({ id: p.id, card: playbookCard(p) }))
+		return { cases, playbooks }
+	}
+
 	playbookList(): PlaybookView[] {
 		return this.pb().list().map(playbookView)
 	}
@@ -556,6 +579,10 @@ export class LearningService {
 	private playbookOfJob(job: JobState): string | null {
 		if (job.kind === 'review' && job.subject.startsWith('p-')) return job.subject
 		if (job.kind === 'edit' && job.subject.startsWith('edit:p-')) return job.subject.slice('edit:'.length)
+		if (job.kind === 'absorb' || job.kind === 'fold') {
+			const id = job.payload?.['playbookId']
+			return typeof id === 'string' ? id : null
+		}
 		if (job.kind === 'judge' || job.kind === 'improve') {
 			const id = job.payload?.['playbookId']
 			if (typeof id === 'string') return id
@@ -647,6 +674,33 @@ export class LearningService {
 		this.deps.store.removeCase(id)
 		this.deps.store.saveJobs(this.queue.list())
 		this.deps.hub.publish({ t: 'learning_case_removed', id })
+	}
+
+	/** Влитые цели ждут свёртки: каждая — отдельное задание `fold` (по сессии и цели). */
+	private enqueueFolds(playbookId: string, refs: readonly FoldRef[]): void {
+		for (const r of refs) this.enqueue('fold', `fold:${r.caseId}:${groupHash([r.goal])}`, { caseId: r.caseId, payload: { playbookId, caseId: r.caseId, goal: r.goal } })
+	}
+
+	/**
+	 * Сессия свёрнута (все цели влиты): кейс удаляется без надгробия, сырые события — в скрытый архив
+	 * (`archiveDays` 0 — не хранятся). Живая сессия, если оживёт, заведёт новый кейс.
+	 */
+	private dropFolded(id: string): void {
+		const c = this.cases.get(id)
+		if (!c) return
+		if (this.settings.archiveDays > 0) this.deps.store.archiveRaw(id, this.deps.clock.now())
+		this.cases.delete(id)
+		this.queue.removeCase(id)
+		this.deps.store.removeCase(id)
+		this.deps.store.saveJobs(this.queue.list())
+		this.deps.hub.publish({ t: 'learning_case_removed', id })
+		this.purgeArchive()
+	}
+
+	/** Чистка скрытого архива по `archiveDays` (при старте и после каждой свёртки, без таймеров); 0 — архив не хранится. */
+	private purgeArchive(): void {
+		const gone = this.deps.store.purgeArchive(this.deps.clock.now() - this.settings.archiveDays * 86_400_000)
+		if (gone.length) this.log('info', '', `Архив событий: стёрто сессий ${gone.length} (старше ${this.settings.archiveDays} дн.)`)
 	}
 
 	private saveMeta(next: LearningMeta): void {
@@ -1026,6 +1080,11 @@ export class LearningService {
 		} else if (job.kind === 'collect' || job.kind === 'close') {
 			if (running.some(j => j.kind === 'edit' && j.subject === `edit:${job.caseId || job.subject}`)) return true
 		}
+		// свёртка не идёт, пока работают задания над той же сессией (в том числе проверка и вливание, где она член группы)
+		if (job.kind === 'fold') {
+			const id = job.caseId
+			if (running.some(j => j.id !== job.id && (j.caseId === id || (['match', 'verify', 'build', 'absorb'].includes(j.kind) && JSON.stringify(j.payload ?? {}).includes(id))))) return true
+		}
 		// замок плейбука: пока другое задание того же плейбука работает, это ждёт
 		const target = this.playbookOfJob(job)
 		if (target !== null && running.some(j => j.id !== job.id && this.playbookOfJob(j) === target)) return true
@@ -1308,7 +1367,9 @@ export class LearningService {
 				writeDraft: (id, text) => store.writeDraft(id, text),
 				sessionTitle: id => this.sessionTitle(id),
 				seal: id => this.seal(id, job.startedAt ? Date.parse(job.startedAt) : undefined),
+				drop: id => this.dropFolded(id),
 			},
+			log: (level, subject, text) => this.log(level, subject, text),
 			failedBuilds: () => this.recentFailedBuilds(),
 			playbooks: this.playbooks,
 			hints: this.hints,

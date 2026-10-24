@@ -19,9 +19,10 @@ function repoRoot(): string {
 }
 
 const PROMPTS: Record<string, { marker: string; vars: string[] }> = {
-	matcher: { marker: 'PLAYBOOK MATCHER', vars: ['new_case', 'candidates', 'playbooks'] },
+	matcher: { marker: 'PLAYBOOK MATCHER', vars: ['new_case', 'playbooks', 'other_cases', 'hints'] },
+	'group-verifier': { marker: 'GROUP VERIFIER', vars: ['group'] },
 	'case-analyst': { marker: 'CASE ANALYST', vars: ['case_id', 'events', 'summary'] },
-	'playbook-builder': { marker: 'PLAYBOOK BUILDER', vars: ['group', 'materials', 'notes', 'existing'] },
+	'playbook-builder': { marker: 'PLAYBOOK BUILDER', vars: ['group', 'existing_playbook', 'materials', 'notes', 'existing'] },
 	judge: { marker: 'RULE JUDGE', vars: ['rules', 'summary', 'events'] },
 	improver: { marker: 'PLAYBOOK IMPROVER', vars: ['playbook', 'summary', 'events', 'rejected', 'notes'] },
 	editor: { marker: 'PLAYBOOK EDITOR', vars: ['object', 'files', 'message', 'notes'] },

@@ -8,7 +8,7 @@ import type { CaseState, JobState, LearningHost } from '../../../src/application
 import { YOU } from '../../../src/domain/constants'
 import { observe } from '../../support/signals'
 import { MemoryLearningStore } from '../../support/memory-learning-store'
-import { drainReads, submitBlock, summaryFor } from '../../support/read-blocks'
+import { drainReads, submitBlock, summaryFor, withBrief } from '../../support/read-blocks'
 
 const T0 = Date.parse('2026-10-01T10:00:00.000Z')
 
@@ -438,7 +438,7 @@ describe('LearningService: задания', () => {
 				assert.equal(d.done, true)
 				assert.match(d.card, /case draft --final/)
 				assert.throws(() => svc.caseDraft('c-s1', summaryFor(svc.caseRaw('c-s1', 1, 2), b), false), { status: 409, code: 'no_block' })
-				const r = svc.caseDraft('c-s1', svc.getCaseDetail('c-s1').summary, true)
+				const r = svc.caseDraft('c-s1', withBrief(svc.getCaseDetail('c-s1').summary), true)
 				assert.equal(r.final, true)
 				return Promise.resolve({ ok: true, text: '' })
 			},

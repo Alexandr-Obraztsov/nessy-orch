@@ -389,8 +389,12 @@ async function reviewJob(ctx: JobContext): Promise<void> {
 			const report = mk(p.version)
 			saveReport(ps, report)
 			ps.record({ kind: 'review_passed', subject: id, summary: `${id}: правки (${edits.hashes.length}) прошли ревью`, report: journalReport(p.status, report), revertible: false, revertedBy: null })
+			// влитые правкой цели можно сворачивать
+			ps.releaseFolds(id, f => f.hash !== undefined && edits.hashes.includes(f.hash), true)
 		} else {
 			const rejected = rejectEdits(ps, id, edits.hashes, reason, edits.baseVersion)
+			// правка откачена: влитые ею цели остаются в своих сессиях
+			ps.releaseFolds(id, f => f.hash !== undefined && edits.hashes.includes(f.hash), false)
 			const report = mk(rejected.version)
 			saveReport(ps, report)
 			ps.record({ kind: 'review_failed', subject: id, summary: `${id}: правки (${edits.hashes.length}) отклонены ревью. ${reason}`, report: journalReport(p.status, report), revertible: false, revertedBy: null })

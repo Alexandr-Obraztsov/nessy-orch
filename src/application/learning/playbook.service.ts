@@ -5,7 +5,7 @@ import { parseDocument, renderDocument } from '../../domain/playbook-document'
 import { lintPlaybook } from '../../domain/playbook-lint'
 import { addChangelog, renderPlaybook, skillName } from '../../domain/playbook-render'
 import type { BuildDraft, MatchGroup } from '../../domain/playbook.types'
-import type { NewEntry, PlaybookServiceDeps, PlaybookState } from './learning.types'
+import type { FoldRef, NewEntry, PlaybookServiceDeps, PlaybookState } from './learning.types'
 import { applyEdit } from './playbook-edits'
 
 const LIVE: readonly PlaybookStatus[] = ['trial', 'active']
@@ -15,8 +15,8 @@ const RULE_STATUSES: readonly RuleStatus[] = ['candidate', 'active', 'archived']
 
 /** Видимая часть плейбука (без вердиктов и служебных счётчиков). */
 export function playbookView(p: PlaybookState): PlaybookView {
-	const { verdicts: _v, rejectedEdits: _r, reviewAttempts: _a, ...view } = p
-	return { ...view, tools: view.tools ?? [] }
+	const { verdicts: _v, rejectedEdits: _r, reviewAttempts: _a, folds: _f, ...view } = p
+	return { ...view, tools: view.tools ?? [], basedOn: view.basedOn ?? [] }
 }
 
 /**
@@ -59,7 +59,7 @@ export class PlaybookService {
 
 	load(): void {
 		this.map.clear()
-		for (const p of this.deps.store.loadPlaybooks()) this.map.set(p.id, { ...p, pendingEdits: p.pendingEdits ?? [], tools: p.tools ?? [] })
+		for (const p of this.deps.store.loadPlaybooks()) this.map.set(p.id, { ...p, pendingEdits: p.pendingEdits ?? [], tools: p.tools ?? [], folds: p.folds ?? [], basedOn: p.basedOn ?? [] })
 		// плагин должен совпадать с диском и после рестарта
 		try {
 			this.publishActive()
@@ -136,7 +136,7 @@ export class PlaybookService {
 	}
 
 	/** Новый плейбук `draft`: правила с доказательствами из ≥ 2 кейсов — `active`, иначе `candidate`. */
-	create(draft: BuildDraft, group: MatchGroup, heldOut: string | null): PlaybookState {
+	create(draft: BuildDraft, group: MatchGroup, heldOut: string | null, folds: FoldRef[] = []): PlaybookState {
 		const iso = this.iso()
 		const base = `p-${skillName(draft.taskType || group.taskType || draft.title).slice(0, 56)}`
 		const id = uniqueName(base, n => this.map.has(n))
@@ -178,6 +178,8 @@ export class PlaybookService {
 			rejectedEdits: [],
 			reviewAttempts: 0,
 			pendingEdits: [],
+			folds,
+			basedOn: [],
 		}
 		return this.persist(p, 'Playbook created', { kind: 'playbook_created', subject: id, summary: `Создан плейбук «${draft.title}»`, report: null, revertible: false, revertedBy: null })
 	}
@@ -224,6 +226,38 @@ export class PlaybookService {
 		this.map.set(id, next)
 		this.deps.hub.publish({ t: 'learning_playbook', playbook: playbookView(next) })
 		return next
+	}
+
+	/**
+	 * «Основан на сессии»: добавляет запись в `basedOn` без новой версии (пишется только `playbook.json`: документ строится из состояния).
+	 * Та же сессия и дата повторно не добавляются.
+	 */
+	addBasedOn(id: string, entry: { session: string; date: string }): PlaybookState {
+		const p = this.need(id)
+		const have = p.basedOn ?? []
+		if (have.some(b => b.session === entry.session && b.date === entry.date)) return p
+		const next: PlaybookState = { ...p, basedOn: [...have, entry], updatedAt: this.iso() }
+		this.deps.store.saveState(next)
+		this.map.set(id, next)
+		this.deps.hub.publish({ t: 'learning_playbook', playbook: playbookView(next) })
+		return next
+	}
+
+	/**
+	 * Влитые цели, ждущие свёртки, снимаются с плейбука подходящими под `pick` и возвращаются;
+	 * `deliver` — отдать их на свёртку (`onFolds`), иначе они просто забываются (правка не прошла ревью).
+	 */
+	releaseFolds(id: string, pick: (f: FoldRef) => boolean, deliver: boolean): FoldRef[] {
+		const p = this.get(id)
+		if (!p) return []
+		const all = p.folds ?? []
+		const taken = all.filter(pick)
+		if (!taken.length) return []
+		const next: PlaybookState = { ...p, folds: all.filter(f => !pick(f)) }
+		this.deps.store.saveState(next)
+		this.map.set(id, next)
+		if (deliver) this.deps.onFolds?.(id, taken)
+		return taken
 	}
 
 	/** Правки улучшателя, ждущие решения человека (`autoReview: false`): без новой версии, пишется только `playbook.json`. */
@@ -407,6 +441,8 @@ export class PlaybookService {
 		this.map.set(saved.id, saved)
 		this.deps.hub.publish({ t: 'learning_playbook', playbook: playbookView(saved) })
 		if (isLive(saved.status) || (prev !== undefined && isLive(prev.status))) this.publishActive()
+		// плейбук вышел в `trial`/`active`: влитые цели (без ревью правки) можно сворачивать
+		if (isLive(saved.status) && !(prev !== undefined && isLive(prev.status))) this.releaseFolds(saved.id, f => f.hash === undefined, true)
 		return saved
 	}
 

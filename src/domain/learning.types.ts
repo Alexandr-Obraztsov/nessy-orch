@@ -38,6 +38,8 @@ export interface CollectorInput {
 export interface GateIssue {
 	code: string
 	text: string
+	/** предупреждение: описание принимается с пометкой, отказа нет */
+	soft?: boolean
 }
 
 /** Вход проверки описания к блоку событий. */

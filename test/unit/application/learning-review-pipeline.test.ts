@@ -123,12 +123,14 @@ describe('авто-ревью, шесть ступеней', () => {
 				update: () => undefined,
 				writeSummary: () => true,
 				seal: () => undefined,
+				drop: () => undefined,
 			},
 			playbooks: ps,
 			enqueue: (kind, subject) => void enqueued.push(`${kind}:${subject}`),
 			chat: () => undefined,
 			finish: note => void finished.push(note),
 			changed: () => undefined,
+			log: () => undefined,
 		}
 	}
 

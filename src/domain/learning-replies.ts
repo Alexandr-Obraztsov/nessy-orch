@@ -1,5 +1,7 @@
 import type { Evidence, PlaybookStage, PlaybookTool } from '../../shared/types'
-import type { BuildDraft, Improvement, JsonObject as Obj, MatchGroup, PlaybookFiles, RuleVerdict } from './playbook.types'
+import type { BuildDraft, GroupMember, GroupVerdict, Improvement, JsonObject as Obj, MatchAction, MatchDecision, PlaybookFiles, RuleVerdict } from './playbook.types'
+
+export const MATCH_ACTIONS: readonly MatchAction[] = ['new_playbook', 'add_to_playbook', 'merge_into_playbook', 'merge_case_and_playbook']
 
 const PLACEHOLDER = /\{\{([A-Za-z_][\w-]*)\}\}/g
 
@@ -80,29 +82,62 @@ function evidenceOf(v: unknown): Evidence[] | null {
 	return out
 }
 
-/** Сопоставитель: группы кейсов одной задачи. Группа без кейсов с верным якорем отбрасывается; нет списка групп — null. */
-export function parseMatch(text: string): MatchGroup[] | null {
+/** Члены группы: пары «кейс + цель» с верными якорями; без цели, без кейса или без единого якоря — отбрасываются, повтор пары сливается. */
+function membersOf(v: unknown): GroupMember[] {
+	const out: GroupMember[] = []
+	if (!Array.isArray(v)) return out
+	for (const m of v) {
+		const o = obj(m)
+		const caseId = nonEmpty(o?.caseId)
+		const goal = nonEmpty(o?.goal)
+		const anchors = Array.isArray(o?.anchors) ? [...new Set(o.anchors.map(anchorOf).filter((a): a is string => a !== null))] : []
+		if (caseId === null || goal === null || !anchors.length) continue
+		const same = out.find(x => x.caseId === caseId && x.goal === goal)
+		if (same) same.anchors = [...new Set([...same.anchors, ...anchors])]
+		else out.push({ caseId, goal, anchors })
+	}
+	return out
+}
+
+/**
+ * Сопоставитель: группы пар «сессия + цель». Группа без членов, с неизвестным действием или (кроме `new_playbook`) без плейбука
+ * отбрасывается; нет списка групп — null.
+ */
+export function parseMatch(text: string): MatchDecision[] | null {
 	const data = parseResult(text)
 	const list = Array.isArray(data) ? data : obj(data)?.groups
 	if (!Array.isArray(list)) return null
-	const groups: MatchGroup[] = []
+	const groups: MatchDecision[] = []
 	for (const g of list) {
 		const o = obj(g)
 		if (!o) continue
 		const task = nonEmpty(o.task)
-		if (task === null || !Array.isArray(o.cases)) continue
-		const cases: Evidence[] = []
-		for (const c of o.cases) {
-			const co = obj(c)
-			const caseId = nonEmpty(co?.caseId)
-			const anchor = anchorOf(co?.anchor)
-			if (caseId !== null && anchor !== null && !cases.some(x => x.caseId === caseId && x.anchor === anchor)) cases.push({ caseId, anchor })
-		}
-		if (cases.length < 1) continue
+		const action = MATCH_ACTIONS.find(a => a === o.action)
+		const members = membersOf(o.members)
 		const playbookId = nonEmpty(o.playbookId)
-		groups.push({ task, taskType: str(o.taskType)?.trim() ?? '', playbookId, cases })
+		if (task === null || action === undefined || !members.length) continue
+		if (action !== 'new_playbook' && playbookId === null) continue
+		groups.push({ task, taskType: str(o.taskType)?.trim() ?? '', action, playbookId: action === 'new_playbook' ? null : playbookId, members, reason: str(o.reason)?.trim() ?? '' })
 	}
 	return groups
+}
+
+/** Второй проход: `confirm`, `reject` или `split` (с оставшимися членами); причина обязательна. */
+export function parseGroupVerdict(text: string): GroupVerdict | null {
+	const o = obj(parseResult(text))
+	const verdict = (['confirm', 'reject', 'split'] as const).find(v => v === o?.verdict)
+	if (!o || verdict === undefined) return null
+	const reason = str(o.reason)?.trim() ?? ''
+	if (verdict !== 'split') return { verdict, reason }
+	if (!Array.isArray(o.members)) return null
+	const members: Array<{ caseId: string; goal: string }> = []
+	for (const m of o.members) {
+		const mo = obj(m)
+		const caseId = nonEmpty(mo?.caseId)
+		const goal = nonEmpty(mo?.goal)
+		if (caseId !== null && goal !== null) members.push({ caseId, goal })
+	}
+	return { verdict, reason, members }
 }
 
 export function parseCaseAnalysis(text: string): { caseId: string; analysis: string } | null {
@@ -186,7 +221,8 @@ export function parseBuild(text: string): BuildDraft | null {
 		const evidence = evidenceOf(ro?.evidence ?? [])
 		if (t === null || evidence === null) return null
 		if (ro?.stage !== null && ro?.stage !== undefined && typeof ro.stage !== 'number') return null
-		return { text: t, stage: typeof ro?.stage === 'number' ? ro.stage : null, evidence }
+		const id = nonEmpty(ro?.id)
+		return { text: t, stage: typeof ro?.stage === 'number' ? ro.stage : null, evidence, ...(id !== null ? { id } : {}) }
 	})
 	if (params === null || stages === null || rules === null || stages.length < 1) return null
 	return {

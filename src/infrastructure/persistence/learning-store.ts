@@ -9,6 +9,7 @@
  *   <home>/cases/<id>/{summary,notes}.md          описание сессии и заметки
  *   <home>/cases/<id>/raw/events.jsonl            события кейса
  *   <home>/cases/<id>/runs/<job>-<k>.md           ответы фоновых агентов по кейсу
+ *   <home>/learning/archive/<id>/raw/             скрытый архив сырых событий свёрнутых сессий (+ `at` — время архивации, мс)
  *   <home>/learning/runs/<subject>/<job>-<k>.md   ответы агентов не-кейсовых заданий
  *   <home>/cases/<id>/raw/transcript-<chat>.jsonl копия транскриптов Claude Code
  *   <root>/learning/prompts/<name>.md             промпты агентов
@@ -32,6 +33,7 @@ export class FileLearningStore implements LearningStorePort {
 	private readonly jobsPath: string
 	private readonly metaPath: string
 	private readonly promptsDir: string
+	private readonly archiveDir: string
 	private lastWarn = 0
 
 	constructor(
@@ -43,6 +45,7 @@ export class FileLearningStore implements LearningStorePort {
 		this.jobsPath = path.join(home, 'learning', 'jobs.json')
 		this.metaPath = path.join(home, 'learning', 'meta.json')
 		this.promptsDir = path.join(root, 'learning', 'prompts')
+		this.archiveDir = path.join(home, 'learning', 'archive')
 	}
 
 	ensureCasesDir(): void {
@@ -279,6 +282,37 @@ export class FileLearningStore implements LearningStorePort {
 
 	readPrompt(name: string): string {
 		return readText(path.join(this.promptsDir, `${fileName(name)}.md`))
+	}
+
+	archiveRaw(id: string, at: number): void {
+		this.safe('архив событий кейса', () => {
+			const from = path.join(this.caseDir(id), 'raw')
+			if (!fs.existsSync(from)) return
+			const dir = path.join(this.archiveDir, fileName(id))
+			fs.rmSync(dir, { recursive: true, force: true })
+			fs.mkdirSync(dir, { recursive: true })
+			fs.renameSync(from, path.join(dir, 'raw'))
+			writeAtomic(path.join(dir, 'at'), String(at))
+		})
+	}
+
+	purgeArchive(before: number): string[] {
+		let ids: string[]
+		try {
+			ids = fs.readdirSync(this.archiveDir)
+		} catch {
+			return []
+		}
+		const gone: string[] = []
+		for (const id of ids) {
+			const dir = path.join(this.archiveDir, id)
+			const at = Number(readText(path.join(dir, 'at')))
+			// нет отметки времени — смотрим на изменение каталога
+			const when = Number.isFinite(at) && at > 0 ? at : fs.statSync(dir).mtimeMs
+			if (when > before) continue
+			if (this.safe('чистка архива', () => fs.rmSync(dir, { recursive: true, force: true }))) gone.push(id)
+		}
+		return gone
 	}
 
 	private caseDir(id: string): string {

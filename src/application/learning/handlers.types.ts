@@ -1,6 +1,6 @@
 import type { JobKind, LearningSettings } from '../../../shared/types'
 import type { RawEvent } from '../../domain/learning.types'
-import type { CaseState, EnqueueOpts, FailedBuild, JobState, PlaybookState } from './learning.types'
+import type { CaseState, EnqueueOpts, FailedBuild, JobState, LogLevel, PlaybookState } from './learning.types'
 import type { PlaybookService } from './playbook.service'
 
 /** `payload` задания. */
@@ -34,7 +34,14 @@ export interface JobContext {
 		sessionTitle(id: string): string
 		/** итоговое описание готово: кейс `ready` (пустой удаляется), ставит последующие задания */
 		seal(id: string): void
+		/**
+		 * Кейс свёрнут (все цели влиты): удаляется без надгробия, сырые события — в скрытый архив
+		 * (`archiveDays` 0 — не хранятся), чистка архива; журнал.
+		 */
+		drop(id: string): void
 	}
+	/** строка журнала обучения (`subject` — id кейса или плейбука, у общих пусто) */
+	log(level: LogLevel, subject: string, text: string): void
 	/** окончательные провалы сборки за последние сутки (память `match`) */
 	failedBuilds?(): FailedBuild[]
 	/** без хранилища плейбуков — null (обработчики плейбуков тогда не регистрируются) */

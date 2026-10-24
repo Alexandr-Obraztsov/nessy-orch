@@ -117,8 +117,19 @@ export interface ProtocolHost {
 /** Уровень строки журнала (`JournalEntry.level`). */
 export type LogLevel = NonNullable<JournalEntry['level']>
 
+/** Цель сессии, влитая в плейбук, но ещё не свёрнутая (`fold`): ждёт, пока плейбук станет `trial`/`active`. */
+export interface FoldRef {
+	caseId: string
+	/** название влитой цели */
+	goal: string
+	/** хэш правки на ревью (`absorb` в живой плейбук): свёртка по итогу ревью; нет — по выходу плейбука в `trial`/`active` */
+	hash?: string
+}
+
 /** Плейбук на диске: видимая часть и служебное состояние обучения. */
 export interface PlaybookState extends PlaybookView {
+	/** влитые цели, которые ждут свёртки (нет в старых файлах — `[]`) */
+	folds?: FoldRef[]
 	/** вердикты судьи по кейсам: id кейса → вердикты по правилам */
 	verdicts: Record<string, RuleVerdict[]>
 	/** отклонённые правки улучшателя (отпечатки), чтобы не предлагать снова */
@@ -185,6 +196,8 @@ export interface PlaybookServiceDeps {
 	pluginVersion?: () => string
 	/** кейс по id (нужен только `playbook` кейса) */
 	caseOf?: (id: string) => { playbook: string | null } | null
+	/** влитые цели можно сворачивать: плейбук стал `trial`/`active` или правка прошла ревью */
+	onFolds?: (playbookId: string, refs: FoldRef[]) => void
 }
 
 /** Запись журнала до выдачи `id` и времени. */

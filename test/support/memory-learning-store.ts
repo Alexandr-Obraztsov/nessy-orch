@@ -126,4 +126,14 @@ export class MemoryLearningStore implements LearningStorePort {
 	readPrompt(name: string): string {
 		return this.prompts.get(name) ?? ''
 	}
+	/** скрытый архив сырых событий: id кейса → события и время архивации */
+	archive = new Map<string, { raw: RawEvent[]; at: number }>()
+	archiveRaw(id: string, at: number): void {
+		this.archive.set(id, { raw: this.raw.get(id) ?? [], at })
+	}
+	purgeArchive(before: number): string[] {
+		const gone = [...this.archive].filter(([, a]) => a.at <= before).map(([id]) => id)
+		for (const id of gone) this.archive.delete(id)
+		return gone
+	}
 }

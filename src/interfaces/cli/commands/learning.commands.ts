@@ -2,11 +2,11 @@
  * Команды фонового обучения:
  *   learn [status] | on | off [--session S] | run [--session S]
  *   learn journal [--limit N] [--revert <id>]
- *   case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>" | read <id> | draft <id> [--file F] [--final]
- *   playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason] | revert <id> --version N | rm <id> | note <id> "<текст>"
+ *   case ls [--cards] | show <id> | rm <id> | rebuild <id> | note <id> "<текст>" | read <id> | draft <id> [--file F] [--final]
+ *   playbook ls [--cards] | show <id> | review <id> | approve <id> | reject <id> [--reason] | revert <id> --version N | rm <id> | note <id> "<текст>"
  *   playbook edits <id> | accept <id> <hash> | reject <id> <hash>   правки улучшателя без авто-ревью (`autoReview: false`)
  */
-import type { CaseDetail, CaseDraftResult, CaseReadBlock, JobView, JournalEntry, LearningSettings, LearningView, PendingEdit, PlaybookDetail, PlaybookView } from '../../../../shared/types'
+import type { CaseDetail, CaseDraftResult, CaseReadBlock, JobView, JournalEntry, LearningCards, LearningSettings, LearningView, PendingEdit, PlaybookDetail, PlaybookView } from '../../../../shared/types'
 import { flagBool, flagNum, flagStr } from '../args'
 import type { FlagSpec, Parsed } from '../args.types'
 import { CliError } from '../errors'
@@ -16,18 +16,18 @@ import { del, enc, get, info, json, out, patch, post, put } from '../io'
 import type { CommandTable } from './command.types'
 
 export const LEARN_FLAGS: FlagSpec = { bool: ['json', 'help', 'all'], value: ['session', 'revert', 'limit'], short: { a: 'all' } }
-export const CASE_FLAGS: FlagSpec = { bool: ['json', 'help', 'final'], value: ['file', 'from', 'key'] }
-export const PLAYBOOK_FLAGS: FlagSpec = { bool: ['json', 'help'], value: ['reason', 'version'] }
+export const CASE_FLAGS: FlagSpec = { bool: ['json', 'help', 'final', 'cards'], value: ['file', 'from', 'key'] }
+export const PLAYBOOK_FLAGS: FlagSpec = { bool: ['json', 'help', 'cards'], value: ['reason', 'version'] }
 
 const LEARN_USAGE = `использование:
   nessy-orch learn [status] | on | off [--session S] | run [--session S]
   nessy-orch learn journal [--limit N] [--revert <id записи>]`
 const CASE_USAGE = `использование:
-  nessy-orch case ls | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"
+  nessy-orch case ls [--cards] | show <id> | rm <id> | rebuild <id> | note <id> "<текст>"
   nessy-orch case read <id>   следующий блок событий кейса (для агента-сборщика; следующий — только после принятого draft)
   nessy-orch case draft <id> [--file F] [--final] [--from A --key K]   сдать полное описание за блок (иначе stdin); --final — итоговая консолидация после done`
 const PLAYBOOK_USAGE = `использование:
-  nessy-orch playbook ls | show <id> | review <id> | approve <id> | reject <id> [--reason R] | revert <id> --version N | rm <id> | note <id> "<текст>"
+  nessy-orch playbook ls [--cards] | show <id> | review <id> | approve <id> | reject <id> [--reason R] | revert <id> --version N | rm <id> | note <id> "<текст>"
   nessy-orch playbook edits <id> | accept <id> <hash> | reject <id> <hash>   правки улучшателя, ждущие решения (авто-ревью выключено)`
 
 function settingsLine(s: LearningSettings): string {
@@ -101,6 +101,10 @@ function needId(id: string | undefined, sub: string): string {
 async function cmdCase(p: Parsed): Promise<void> {
 	const [sub = 'ls', ...rest] = p.positionals
 	const asJson = flagBool(p, 'json')
+	if (sub === 'ls' && flagBool(p, 'cards')) {
+		const c = await get<LearningCards>('/learning/cards')
+		return asJson ? json(c.cases) : out(printCards(c.cases, 'CASE'))
+	}
 	if (sub === 'ls') {
 		const v = await get<LearningView>('/learning')
 		return asJson ? json(v.cases) : out(casesTable(v.cases))
@@ -157,16 +161,9 @@ async function cmdCase(p: Parsed): Promise<void> {
 	throw new CliError(`неизвестная подкоманда case ${sub}\n${CASE_USAGE}`, 2)
 }
 
-function printPlaybook(p: PlaybookDetail): void {
-	out(`${bold(p.id)}  ${p.status}  v${p.version}  ${p.title}`)
-	out(dim(p.description))
-	out(dim(`тип: ${p.taskType} · кейсов ${p.cases.length}${p.heldOut ? ` (отложен ${p.heldOut})` : ''} · обновлён ${p.updatedAt}`))
-	if (p.trial) out(dim(`пробный режим: до плейбука ${p.trial.before} поправок на кейс, с ним ${p.trial.corrections.join(', ') || 'кейсов пока нет'}`))
-	if (p.stages.length) out(`\n${bold('Ступени')}\n${p.stages.map(s => `  ${s.n}. ${s.title}`).join('\n')}`)
-	if (p.rules.length) out(`\n${bold('Правила')}\n${p.rules.map(r => `  [${r.status}] ▲${r.up} ▼${r.down} ${r.text}`).join('\n')}`)
-	const last = p.reviews.at(-1)
-	if (last) out(`\n${bold('Ревью')}  v${last.version}: ${last.passed ? 'пройдено' : 'не пройдено'}${last.stages.map(s => ` · ${s.stage}:${s.verdict}`).join('')}`)
-	if (p.notes.trim()) out(`\n${bold('Заметки')}\n${p.notes.trim()}`)
+/** Карточки одним текстом: `CASE <id>` / `PLAYBOOK <id>` и сама карточка. */
+function printCards(list: ReadonlyArray<{ id: string; card: string }>, label: string): string {
+	return list.length ? list.map(x => `${label} ${x.id}\n${x.card}`).join('\n\n') : dim('карточек нет')
 }
 
 /** Правка по хэшу или его началу (от 4 знаков); неоднозначное или неизвестное — ошибка с кодом 2. */
@@ -189,6 +186,10 @@ function printEdits(id: string, edits: readonly PendingEdit[]): void {
 async function cmdPlaybook(p: Parsed): Promise<void> {
 	const [sub = 'ls', ...rest] = p.positionals
 	const asJson = flagBool(p, 'json')
+	if (sub === 'ls' && flagBool(p, 'cards')) {
+		const c = await get<LearningCards>('/learning/cards')
+		return asJson ? json(c.playbooks) : out(printCards(c.playbooks, 'PLAYBOOK'))
+	}
 	if (sub === 'ls') {
 		const list = await get<PlaybookView[]>('/learning/playbooks')
 		return asJson ? json(list) : out(playbooksTable(list))
@@ -200,7 +201,7 @@ async function cmdPlaybook(p: Parsed): Promise<void> {
 	}
 	if (sub === 'show') {
 		const d = await get<PlaybookDetail>(`/learning/playbooks/${need()}`)
-		return asJson ? json(d) : printPlaybook(d)
+		return asJson ? json(d) : out(d.markdown)
 	}
 	if (sub === 'review') {
 		const job = await post<JobView>(`/learning/playbooks/${need()}/review`, {})

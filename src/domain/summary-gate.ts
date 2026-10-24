@@ -3,6 +3,7 @@
  * Каждая проверка возвращает все свои нарушения сразу; отказ перечисляет их все (`formatRejection`).
  */
 import { parseAnchor } from './anchors'
+import { BRIEF_ENTITIES_MAX, BRIEF_SKELETON_MAX, briefProblems } from './brief'
 import { eventText } from './case-events'
 import type { GateInput, GateIssue, RawEvent } from './learning.types'
 
@@ -16,6 +17,11 @@ const COPY_CHARS = 200
 const QUOTE_WORDS = 25
 /** Доля якорей прежнего описания, которая обязана уцелеть в итоговом (F1). */
 const KEEP_RATIO = 0.9
+/** Длина пункта `### Actions`, знаков (R10, предупреждение). */
+const ITEM_CHARS = 200
+/** Длина всего описания: предупреждение / отказ, знаков (R10). */
+const WARN_CHARS = 12000
+const MAX_CHARS = 20000
 /** Сколько элементов перечисляется в тексте отказа. */
 const LIST_MAX = 8
 
@@ -190,7 +196,7 @@ function r4(parsed: Parsed, input: GateInput): GateIssue[] {
 	const left = input.events.filter(e => !skip.has(e.n)).length
 	const need = Math.ceil(left / EVENTS_PER_ITEM)
 	const have = parsed.body.filter(l => !GOAL.test(l) && findAnchors(l).some(a => a.ok && a.to >= input.from && a.from <= input.until)).length
-	return have < need ? [{ code: 'R4', text: `density: ${have} anchored items for the events of n ${input.from}–${input.until}, need at least ${need} (one per ${EVENTS_PER_ITEM} events)` }] : []
+	return have < need ? [{ code: 'R4', soft: true, text: `density: ${have} anchored items for the events of n ${input.from}–${input.until}, need at least ${need} (one per ${EVENTS_PER_ITEM} events)` }] : []
 }
 
 /** R5: общие фразы вместо фактов. */
@@ -235,7 +241,7 @@ function r6(text: string, events: readonly RawEvent[]): GateIssue[] {
 		const base = f.includes('/') && !/^https?:/.test(f) ? f.slice(f.lastIndexOf('/') + 1) : ''
 		return !(base !== '' && text.includes(base))
 	})
-	return missing.length ? [{ code: 'R6', text: `facts: identifiers of the block are missing from the description: ${cap(missing)}; put each into an item or into ### Skipped` }] : []
+	return missing.length ? [{ code: 'R6', soft: true, text: `facts: identifiers of the block are missing from the description: ${cap(missing)}; put each into an item or into ### Skipped` }] : []
 }
 
 /** События `user`, где есть маркер поправки или указания. */
@@ -257,8 +263,8 @@ function r7(parsed: Parsed, events: readonly RawEvent[]): GateIssue[] {
 		if (quotes.length && quotes.every(q => words(q) > QUOTE_WORDS)) long.push(e.n)
 	}
 	const out: GateIssue[] = []
-	if (missing.length) out.push({ code: 'R7', text: `corrections: user events ${rangesText(missing)} contain a correction or instruction; quote each under ### User corrections with an anchor on its n` })
-	if (long.length) out.push({ code: 'R7', text: `corrections: the quote for ${rangesText(long)} is longer than ${QUOTE_WORDS} words; shorten it` })
+	if (missing.length) out.push({ code: 'R7', soft: true, text: `corrections: user events ${rangesText(missing)} contain a correction or instruction; quote each under ### User corrections with an anchor on its n` })
+	if (long.length) out.push({ code: 'R7', soft: true, text: `corrections: the quote for ${rangesText(long)} is longer than ${QUOTE_WORDS} words; shorten it` })
 	return out
 }
 
@@ -299,10 +305,20 @@ function r9(text: string): GateIssue[] {
 	return problems.length ? [{ code: 'R9', text: `structure: ${problems.join('; ')}` }] : []
 }
 
-/** Проверка описания, сданного за блок: R1–R9, все нарушения сразу. */
+/** R10: длина описания (> 12 000 знаков — предупреждение, > 20 000 — отказ) и пунктов `### Actions` (> 200 знаков — предупреждение). */
+function r10(text: string): GateIssue[] {
+	const out: GateIssue[] = []
+	if (text.length > MAX_CHARS) out.push({ code: 'R10', text: `length: the description has ${text.length} characters, the limit is ${MAX_CHARS}; merge items and shorten, details come at the next stage` })
+	else if (text.length > WARN_CHARS) out.push({ code: 'R10', soft: true, text: `length: the description has ${text.length} characters (aim for at most ${WARN_CHARS}); merge items and shorten` })
+	const long = parse(text).goals.flatMap(g => g.sections.get('actions') ?? []).filter(l => l.length > ITEM_CHARS)
+	if (long.length) out.push({ code: 'R10', soft: true, text: `length: ${long.length} ### Actions item(s) longer than ${ITEM_CHARS} characters, e.g. "${norm(long[0] ?? '').slice(0, 40)}…"` })
+	return out
+}
+
+/** Проверка описания, сданного за блок: R1–R10, все нарушения сразу (R4, R6, R7 и мягкий R10 — предупреждения). */
 export function checkBlock(input: GateInput): GateIssue[] {
 	const { parsed } = parse(input.text)
-	return [...r1(input.text, input.until), ...r2(parsed, input.events), ...r3(input), ...r4(parsed, input), ...r5(input.text), ...r6(input.text, input.events), ...r7(parsed, input.events), ...r8(input.text, input.events), ...r9(input.text)]
+	return [...r1(input.text, input.until), ...r2(parsed, input.events), ...r3(input), ...r4(parsed, input), ...r5(input.text), ...r6(input.text, input.events), ...r7(parsed, input.events), ...r8(input.text, input.events), ...r9(input.text), ...r10(input.text)]
 }
 
 /** Якоря описания как уникальные ключи `a-b`. */
@@ -312,9 +328,9 @@ function anchorKeys(text: string): Map<string, string> {
 	return m
 }
 
-/** Итоговая консолидация (`--final`): R1, R5, R9 и сохранение якорей прежнего описания (≥ 90 %). */
+/** Итоговая консолидация (`--final`): R1, R5, R9, R10, сохранение якорей прежнего описания (≥ 90 %, F1) и корректный `## Brief` (F2). */
 export function checkFinal(input: { text: string; prev: string; until: number }): GateIssue[] {
-	const issues = [...r1(input.text, input.until), ...r5(input.text), ...r9(input.text)]
+	const issues = [...r1(input.text, input.until), ...r5(input.text), ...r9(input.text), ...r10(input.text)]
 	const before = anchorKeys(input.prev)
 	if (before.size) {
 		const now = anchorKeys(input.text)
@@ -322,6 +338,8 @@ export function checkFinal(input: { text: string; prev: string; until: number })
 		const kept = before.size - lost.length
 		if (kept / before.size < KEEP_RATIO) issues.push({ code: 'F1', text: `anchors preserved: only ${kept} of ${before.size} anchors of the previous description remain (need ${Math.round(KEEP_RATIO * 100)}%); missing e.g. ${cap(lost)}; merging duplicate items is fine, dropping facts is not` })
 	}
+	const brief = briefProblems(input.text)
+	if (brief.length) issues.push({ code: 'F2', text: `brief: ${brief.join('; ')}; end the description with "## Brief" (gist: 1–2 sentences; entities: up to ${BRIEF_ENTITIES_MAX}, comma-separated; skeleton: numbered list of up to ${BRIEF_SKELETON_MAX} steps)` })
 	return issues
 }
 
@@ -330,14 +348,18 @@ export function formatRejection(issues: readonly GateIssue[], attempt: number, m
 	return `REJECTED (attempt ${attempt}/${max}): ${issues.map(i => `${i.code}: ${i.text}`).join(' | ')}. Fix only the listed items. Do not resubmit until all checks pass.`
 }
 
-/** Правила, которые на первой ступени лестницы смягчения становятся предупреждениями. */
-const SOFT = new Set(['R4', 'R6', 'R7'])
 /** Правила, которые остаются жёсткими на последней ступени (структура и якоря не выдуманы). */
 const CORE = new Set(['R1', 'R3', 'R9'])
+/** Правила, которые снимаются уже на первой ступени после исчерпанных отказов (формальные придирки). */
+const FORMAL = new Set(['R5', 'R8', 'F1'])
 
-/** Нарушения по ступени лестницы: `fails` = сколько заданий подряд исчерпали отказы на этом блоке (0 — всё жёстко, 1 — R4/R6/R7 предупреждения, ≥ 2 — жёсткие только R1/R3/R9). */
-export function applyLadder(issues: readonly GateIssue[], fails: number): { hard: GateIssue[]; warnings: GateIssue[] } {
-	const waived = (i: GateIssue): boolean => (fails >= 2 ? !CORE.has(i.code) : fails === 1 ? SOFT.has(i.code) : false)
+/**
+ * Нарушения по ступени лестницы: `fails` = сколько заданий подряд исчерпали отказы на этом блоке.
+ * Предупреждения (`soft`) не отказ на любой ступени; 1 — снимаются R5/R8/F1; ≥ 2 — жёсткие только R1/R3/R9 (итог: R1/R9).
+ */
+export function applyLadder(issues: readonly GateIssue[], fails: number, final = false): { hard: GateIssue[]; warnings: GateIssue[] } {
+	const core = final ? new Set(['R1', 'R9']) : CORE
+	const waived = (i: GateIssue): boolean => i.soft === true || (fails >= 2 ? !core.has(i.code) : fails === 1 ? FORMAL.has(i.code) : false)
 	return { hard: issues.filter(i => !waived(i)), warnings: issues.filter(waived) }
 }
 

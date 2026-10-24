@@ -523,8 +523,10 @@ public struct PlaybookView: Codable, Hashable, Identifiable, Sendable {
 	public var cases: [String]
 	public var heldOut: String?
 	public var params: [PlaybookParam]
-	/// «основан на сессии»: название и дата; сервер может прислать и просто строки
+	/// источники данных этапов (GitLab, Jira…); сервер присылает строки, мягко читаются и объекты
 	public var sources: [PlaybookSource]
+	/// «основан на сессии»: название и дата (`basedOn`); у старых данных поля нет — `[]`
+	public var basedOn: [PlaybookSource]
 	public var files: [String]
 	public var behavior: [String]
 	public var stages: [PlaybookStage]
@@ -550,6 +552,7 @@ public struct PlaybookView: Codable, Hashable, Identifiable, Sendable {
 		heldOut = c.getOpt(.heldOut)
 		params = (try? c.decodeIfPresent(LossyArray<PlaybookParam>.self, forKey: .params))?.items ?? []
 		sources = (try? c.decodeIfPresent(LossyArray<PlaybookSource>.self, forKey: .sources))?.items ?? []
+		basedOn = (try? c.decodeIfPresent(LossyArray<PlaybookSource>.self, forKey: .basedOn))?.items ?? []
 		files = c.get(.files, [])
 		behavior = c.get(.behavior, [])
 		stages = (try? c.decodeIfPresent(LossyArray<PlaybookStage>.self, forKey: .stages))?.items ?? []

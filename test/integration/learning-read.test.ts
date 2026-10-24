@@ -5,7 +5,7 @@ import * as path from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import type { ApiError, CaseDetail, CaseDraftResult, CaseReadBlock, RawEvent, SessionView, SpawnResponse } from '../../shared/types'
 import { startHarness } from '../support/harness'
-import { summaryFor } from '../support/read-blocks'
+import { summaryFor, withBrief } from '../support/read-blocks'
 import type { Harness } from '../support/support.types'
 import { until } from '../support/wait'
 
@@ -81,7 +81,7 @@ describe('агент-сборщик: read и draft', () => {
 		assert.equal(detail.summary, good)
 		assert.equal(detail.coveredUntil, first.body.until)
 		assert.deepEqual(detail.progress, { read: first.body.total, total: first.body.total })
-		const fin = await h.api<CaseDraftResult>('POST', `/learning/cases/${caseId}/draft?final=1`, { text: good, from: agentId }, agent)
+		const fin = await h.api<CaseDraftResult>('POST', `/learning/cases/${caseId}/draft?final=1`, { text: withBrief(good), from: agentId }, agent)
 		assert.equal(fin.status, 200)
 		assert.equal(fin.body.final, true)
 		const denied = await h.api<ApiError>('POST', `/learning/cases/${caseId}/rebuild`, {}, agent)

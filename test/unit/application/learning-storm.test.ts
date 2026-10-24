@@ -29,7 +29,7 @@ function repoRoot(): string {
 	}
 	throw new Error('корень репозитория не найден')
 }
-const PROMPTS = ['matcher', 'playbook-builder', 'judge', 'improver', 'grader', 'reviewer', 'consistency', 'planner', 'comparator', 'selector', 'case-analyst', 'description-improver']
+const PROMPTS = ['matcher', 'group-verifier', 'playbook-builder', 'judge', 'improver', 'grader', 'reviewer', 'consistency', 'planner', 'comparator', 'selector', 'case-analyst', 'description-improver']
 const prompt = (name: string): string => readFileSync(join(repoRoot(), 'learning', 'prompts', `${name}.md`), 'utf8')
 
 const result = (o: unknown): string => `Итог\n<result>\n${JSON.stringify(o)}\n</result>\nСтатус: ok`
@@ -89,7 +89,8 @@ describe('шторм агентов', () => {
 		id: 'j-match', kind: 'match', caseId: '', subject: 'all', status: 'queued', attempts: 0, agentId: null, error: null, note: null, range: null,
 		createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, payload: { caseIds: ids },
 	})
-	const group = (ids: string[]): Array<{ caseId: string; anchor: string }> => ids.map(caseId => ({ caseId, anchor: 'n 2–6' }))
+	const members = (ids: string[]): Array<{ caseId: string; goal: string; anchors: string[] }> => ids.map(caseId => ({ caseId, goal: 'review a merge request', anchors: ['n 2–6'] }))
+	const decision = (action: string, ids: string[], playbookId: string | null = null): { groups: unknown[] } => ({ groups: [{ task: 't', taskType: 'review-mr', action, playbookId, members: members(ids), reason: 'same' }] })
 	const start = async (jobs: JobState[] = []): Promise<LearningService> => {
 		store.jobs = jobs
 		const svc = service()
@@ -110,13 +111,13 @@ describe('шторм агентов', () => {
 		maxRun = 0
 		now = T0 + HOUR
 		for (const n of PROMPTS) store.prompts.set(n, prompt(n))
-		reply = {}
+		reply = { 'GROUP VERIFIER': () => result({ verdict: 'confirm', reason: 'same task' }) }
 	})
 
 	describe('B2-7a память о провале сборки', () => {
 		const buildJob = (ids: string[]): JobState => ({
 			id: 'j-build', kind: 'build', caseId: '', subject: 'g-abc12345', status: 'queued', attempts: 2, agentId: null, error: null, note: null, range: null,
-			createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, payload: { task: 't', taskType: 'review-mr', playbookId: null, cases: group(ids) },
+			createdAt: '2026-10-01T10:00:00Z', startedAt: null, finishedAt: null, final: false, payload: { task: 't', taskType: 'review-mr', playbookId: null, cases: ids.map(caseId => ({ caseId, anchor: 'n 2–6' })), members: members(ids) },
 		})
 
 		it('провал сборки пишет { hash, cases, at } в meta.json', async () => {
@@ -131,7 +132,7 @@ describe('шторм агентов', () => {
 		it('match не ставит build для группы, у которой ≥ 2/3 кейсов общие с проваленной < 24 ч назад', async () => {
 			for (const [i, id] of ['c1', 'c2', 'c3', 'c4'].entries()) addCase(id, i)
 			store.meta = META({ failedBuilds: [{ hash: 'x', cases: ['c1', 'c2', 'c3'], at: now - HOUR }] })
-			reply['PLAYBOOK MATCHER'] = () => result({ groups: [{ task: 't', taskType: 'review-mr', playbookId: null, cases: group(['c1', 'c2', 'c3', 'c4']) }] })
+			reply['PLAYBOOK MATCHER'] = () => result(decision('new_playbook', ['c1', 'c2', 'c3', 'c4']))
 			const svc = await start([matchJob(['c4'])])
 			assert.equal(count('PLAYBOOK MATCHER'), 1)
 			assert.ok(!svc.view().jobs.some(j => j.kind === 'build'))
@@ -140,36 +141,46 @@ describe('шторм агентов', () => {
 		it('провал старше 24 ч не мешает; группа, у которой общих меньше 2/3, тоже', async () => {
 			for (const [i, id] of ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'].entries()) addCase(id, i)
 			store.meta = META({ failedBuilds: [{ hash: 'x', cases: ['c1', 'c2', 'c3'], at: now - 25 * HOUR }] })
-			reply['PLAYBOOK MATCHER'] = () => result({ groups: [{ task: 't', taskType: 'review-mr', playbookId: null, cases: group(['c1', 'c2', 'c3']) }] })
+			reply['PLAYBOOK MATCHER'] = () => result(decision('new_playbook', ['c1', 'c2', 'c3']))
 			const svc = await start([matchJob(['c3'])])
 			assert.equal(svc.view().jobs.filter(j => j.kind === 'build').length, 1)
 
 			// 3 общих из 6 — меньше 2/3
 			store.meta = META({ failedBuilds: [{ hash: 'y', cases: ['c1', 'c2', 'c3'], at: now - HOUR }] })
 			store.jobs = []
-			reply['PLAYBOOK MATCHER'] = () => result({ groups: [{ task: 't', taskType: 'review-mr', playbookId: null, cases: group(['c1', 'c2', 'c3', 'c4', 'c5', 'c6']) }] })
+			reply['PLAYBOOK MATCHER'] = () => result(decision('new_playbook', ['c1', 'c2', 'c3', 'c4', 'c5', 'c6']))
 			const svc2 = await start([matchJob(['c6'])])
 			assert.equal(svc2.view().jobs.filter(j => j.kind === 'build').length, 1)
 		})
 	})
 
-	describe('B2-7b группа существующего плейбука', () => {
+	describe('B2-7b группы существующего плейбука', () => {
 		beforeEach(() => {
 			for (const [i, id] of ['c1', 'c2', 'c3', 'c4', 'c5'].entries()) addCase(id, i)
 			savePb(pbState('p-x', { cases: ['c1', 'c2'], heldOut: 'c3', status: 'active' }))
 		})
 
-		it('≥ половины кейсов группы уже в плейбуке: addCases, а не новая сборка', async () => {
-			reply['PLAYBOOK MATCHER'] = () => result({ groups: [{ task: 't', taskType: 'review-mr', playbookId: null, cases: group(['c2', 'c3', 'c4']) }] })
+		it('add_to_playbook с кейсами, уже вошедшими в плейбук: проверка и вливание не ставятся', async () => {
+			reply['PLAYBOOK MATCHER'] = () => result(decision('add_to_playbook', ['c4', 'c3'], 'p-x'))
+			// c4 не в плейбуке — группа годна; c3 отложен — пропускается при вливании
 			const svc = await start([matchJob(['c4'])])
-			assert.deepEqual(svc.playbooks?.get('p-x')?.cases, ['c1', 'c2', 'c4'])
-			assert.ok(!svc.view().jobs.some(j => j.kind === 'build'))
+			assert.equal(svc.view().jobs.filter(j => j.kind === 'verify').length, 1)
+			reply['PLAYBOOK MATCHER'] = () => result(decision('add_to_playbook', ['c1', 'c2'], 'p-x'))
+			store.jobs = []
+			const svc2 = await start([matchJob(['c2'])])
+			assert.ok(!svc2.view().jobs.some(j => j.kind === 'verify' || j.kind === 'absorb'))
 		})
 
-		it('меньше половины: новая сборка', async () => {
-			reply['PLAYBOOK MATCHER'] = () => result({ groups: [{ task: 't', taskType: 'review-mr', playbookId: null, cases: group(['c3', 'c4', 'c5']) }] })
+		it('new_playbook над теми же кейсами, что уже в плейбуке: ни проверки, ни сборки', async () => {
+			reply['PLAYBOOK MATCHER'] = () => result(decision('new_playbook', ['c1', 'c2', 'c3']))
+			const svc = await start([matchJob(['c3'])])
+			assert.ok(!svc.view().jobs.some(j => j.kind === 'verify' || j.kind === 'build'))
+		})
+
+		it('new_playbook с новым кейсом: после проверки одна сборка', async () => {
+			reply['PLAYBOOK MATCHER'] = () => result(decision('new_playbook', ['c3', 'c4', 'c5']))
 			const svc = await start([matchJob(['c5'])])
-			assert.deepEqual(svc.playbooks?.get('p-x')?.cases, ['c1', 'c2'])
+			assert.equal(svc.playbooks?.get('p-x')?.cases.length, 2)
 			assert.equal(svc.view().jobs.filter(j => j.kind === 'build').length, 1)
 		})
 	})
@@ -195,7 +206,7 @@ describe('шторм агентов', () => {
 			reply['PLAYBOOK MATCHER'] = () => result({ groups: [] })
 			await start([matchJob(['n1'])])
 			assert.equal(count('PLAYBOOK MATCHER'), 1)
-			assert.equal(((/<candidates>([\s\S]*?)<\/candidates>/.exec(calls[0]?.prompt ?? '')?.[1] ?? '').match(/^CASE o\d+/gm) ?? []).length, 10)
+			assert.equal(((/<hints>([\s\S]*?)<\/hints>/.exec(calls[0]?.prompt ?? '')?.[1] ?? '').match(/^o\d+ \|/gm) ?? []).length, 10)
 		})
 	})
 
@@ -228,7 +239,7 @@ describe('шторм агентов', () => {
 		it('кейс с поправками на активном плейбуке: ≤ 20 вызовов, одновременно не больше maxAgents', async () => {
 			const msgOk = result({ critical: [], notes: [] })
 			reply = {
-				'PLAYBOOK MATCHER': () => result({ groups: [{ task: 't', taskType: 'review-mr', playbookId: 'p-x', cases: group(['c1', 'c7']) }] }),
+				'PLAYBOOK MATCHER': () => result({ groups: [] }),
 				'RULE JUDGE': () => result({ verdicts: [{ ruleId: 'r1', verdict: 'applied', anchor: 'n 2' }] }),
 				'PLAYBOOK IMPROVER': () => result({ cause: 'gap', edits: [{ file: 'SKILL.md', before: 'Ask before pushing', after: 'Ask before pushing twice', anchor: 'n 2' }], candidates: [] }),
 				'PLAYBOOK GRADER': () => msgOk,
@@ -248,7 +259,7 @@ describe('шторм агентов', () => {
 			await flush(600)
 			assert.ok(calls.length <= 20, `вызовов агентов: ${calls.length}: ${calls.map(c => c.name).join()}`)
 			assert.ok(maxRun <= svc.getSettings().maxAgents, `одновременно: ${maxRun}`)
-			// улучшатель один (match его не ставит), ревью правок дошло до конца
+			// улучшатель один (match его не ставит; групп нет — ни проверки, ни вливания), ревью правок дошло до конца
 			assert.equal(count('PLAYBOOK IMPROVER'), 1)
 			assert.equal(count('TASK PLANNER'), 6)
 			assert.ok(svc.view().jobs.every(j => j.status === 'done'), svc.view().jobs.map(j => `${j.kind}:${j.status}`).join())

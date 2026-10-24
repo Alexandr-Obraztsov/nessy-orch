@@ -270,4 +270,18 @@ describe('FileLearningStore', () => {
 		const b = store.copyTranscript('c1', 'chat', a.next)
 		assert.equal(a.next.offset + b.text.length, line.length * n)
 	})
+
+	it('скрытый архив: raw переезжает в learning/archive, кейс не читается, чистка по сроку', () => {
+		store.saveCase(mkCase('c1'))
+		store.appendRaw('c1', [ev(1), ev(2)])
+		store.archiveRaw('c1', 1000)
+		assert.ok(fs.existsSync(path.join(home, 'learning', 'archive', 'c1', 'raw', 'events.jsonl')))
+		assert.deepEqual(store.readRaw('c1', 0), [])
+		store.archiveRaw('c2', 5000)
+		assert.deepEqual(store.purgeArchive(999), [])
+		assert.deepEqual(store.purgeArchive(1000), ['c1'])
+		assert.ok(!fs.existsSync(path.join(home, 'learning', 'archive', 'c1')))
+		// архив не попадает в список кейсов
+		assert.deepEqual(store.loadCases().map(c => c.id), ['c1'])
+	})
 })

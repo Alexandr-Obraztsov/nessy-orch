@@ -15,6 +15,7 @@ function learning(orch: Orchestrator): LearningService {
 
 export function registerLearningRoutes(r: Router): void {
 	r.add('GET', '/learning', ({ res, orch }) => sendJson(res, 200, learning(orch).view()))
+	r.add('GET', '/learning/cards', ({ res, orch }) => sendJson(res, 200, learning(orch).cards()))
 	r.add('PATCH', '/learning/settings', async ({ req, res, orch }) => {
 		const svc = learning(orch)
 		sendJson(res, 200, svc.updateSettings(await readBody(req)))

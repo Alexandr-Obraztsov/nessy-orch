@@ -9,6 +9,7 @@ import {
 	parseEdit,
 	parseGrade,
 	parseImprovement,
+	parseGroupVerdict,
 	parseMatch,
 	parsePlan,
 	parseResult,
@@ -48,29 +49,43 @@ describe('parseResult', () => {
 })
 
 describe('parseMatch', () => {
-	const ok = { groups: [{ task: 'review', taskType: 'review mr', playbookId: null, cases: [{ caseId: 'c1', anchor: 'n 1–4' }, { caseId: 'c2', anchor: 'n 7' }] }] }
-	it('разбирает группы', () => {
-		assert.deepEqual(parseMatch(wrap(ok)), [{ task: 'review', taskType: 'review mr', playbookId: null, cases: ok.groups[0]?.cases }])
+	const member = (caseId: string, goal: string, anchors: string[]) => ({ caseId, goal, anchors })
+	const ok = { groups: [{ task: 'review', taskType: 'review mr', action: 'new_playbook', playbookId: null, members: [member('c1', 'Review MR', ['n 1–4']), member('c2', 'Review MR', ['n 7'])], reason: 'same' }] }
+	it('разбирает группы пар «сессия + цель»', () => {
+		assert.deepEqual(parseMatch(wrap(ok)), [{ task: 'review', taskType: 'review mr', action: 'new_playbook', playbookId: null, members: ok.groups[0]?.members, reason: 'same' }])
 	})
-	it('выбрасывает неверные якоря и группы без кейсов', () => {
+	it('выбрасывает неверные якоря, члены без якорей, неизвестное действие и действие над плейбуком без плейбука', () => {
 		const r = parseMatch(
 			wrap({
 				groups: [
-					{ task: 'a', taskType: 't', playbookId: 'p-1', cases: [{ caseId: 'c1', anchor: 'n 1-2' }, { caseId: 'c2', anchor: 'about 5' }, { caseId: 'c3', anchor: 'n 9–2' }] },
-					{ task: 'b', taskType: 't', playbookId: null, cases: [{ caseId: 'c1', anchor: 'foo' }] },
-					{ task: 'c', taskType: 't', playbookId: null, cases: [] },
+					{ task: 'a', taskType: 't', action: 'add_to_playbook', playbookId: 'p-1', members: [member('c1', 'g', ['n 1-2', 'about 5', 'n 9–2']), member('c2', 'g', ['foo'])], reason: '' },
+					{ task: 'b', taskType: 't', action: 'add_to_playbook', playbookId: null, members: [member('c1', 'g', ['n 1'])] },
+					{ task: 'c', taskType: 't', action: 'dance', playbookId: null, members: [member('c1', 'g', ['n 1'])] },
+					{ task: 'd', taskType: 't', action: 'new_playbook', playbookId: 'p-9', members: [] },
 				],
 			}),
 		)
 		assert.equal(r?.length, 1)
-		const g = r.at(0)
-		assert.deepEqual(g?.cases, [{ caseId: 'c1', anchor: 'n 1-2' }])
-		assert.equal(g.playbookId, 'p-1')
+		assert.deepEqual(r.at(0)?.members, [member('c1', 'g', ['n 1-2'])])
+		assert.equal(r.at(0)?.playbookId, 'p-1')
 	})
 	it('пустой список групп допустим; без result и не та форма — null', () => {
 		assert.deepEqual(parseMatch(wrap({ groups: [] })), [])
 		assert.equal(parseMatch('text'), null)
 		assert.equal(parseMatch(wrap({ groups: 'x' })), null)
+	})
+})
+
+describe('parseGroupVerdict', () => {
+	it('confirm, reject и split с членами', () => {
+		assert.deepEqual(parseGroupVerdict(wrap({ verdict: 'confirm', reason: 'ok' })), { verdict: 'confirm', reason: 'ok' })
+		assert.deepEqual(parseGroupVerdict(wrap({ verdict: 'reject', reason: 'no' })), { verdict: 'reject', reason: 'no' })
+		assert.deepEqual(parseGroupVerdict(wrap({ verdict: 'split', reason: 'x', members: [{ caseId: 'c1', goal: 'g' }, { caseId: 'c2' }] })), { verdict: 'split', reason: 'x', members: [{ caseId: 'c1', goal: 'g' }] })
+	})
+	it('неизвестный вердикт, split без членов, нет result — null', () => {
+		assert.equal(parseGroupVerdict(wrap({ verdict: 'maybe' })), null)
+		assert.equal(parseGroupVerdict(wrap({ verdict: 'split', reason: '' })), null)
+		assert.equal(parseGroupVerdict('text'), null)
 	})
 })
 

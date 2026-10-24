@@ -92,12 +92,14 @@ describe('judge и improve', () => {
 			writeDraft: () => true,
 			sessionTitle: id => id,
 			seal: () => undefined,
+			drop: () => undefined,
 		},
 		playbooks: pb,
 		enqueue: (k, s, o) => void queued.push({ kind: k, subject: s, caseId: o?.caseId, payload: o?.payload }),
 		chat: () => undefined,
 		finish: note => void finished.push(note),
 		changed: () => undefined,
+		log: () => undefined,
 	})
 	const verdicts = (list: unknown[]): string => `<result>${JSON.stringify({ verdicts: list })}</result>`
 

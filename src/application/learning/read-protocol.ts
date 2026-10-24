@@ -29,12 +29,11 @@ export function protocolPhase(job: JobState): JobView['phase'] {
 }
 
 const CARD = [
-	'PROTOCOL CARD. Before you run `nessy-orch case draft`:',
-	'1. Every event of this block is cited as an anchor (n a–b) or listed under ### Skipped as "- n a–b — reason" (reason of 3+ words).',
-	'2. At least one anchored item per 6 events; every ticket key, MR !N, URL, file path and number of 3+ digits of the block is in the text.',
-	'3. Every user correction or instruction is quoted (25 words max) under ### User corrections with its anchor.',
-	'4. Retell in your own words (no 200+ character copies, no "the text discusses"); keep all earlier items.',
-	'5. Submit the FULL description. NO BLOCK IS CLOSED WITHOUT AN ACCEPTED SUMMARY. A rejected draft is not a draft.',
+	'PROTOCOL CARD. Be brief: what the block was about and what was solved, with anchors. Details come later. Before `nessy-orch case draft`:',
+	'1. Every event of the block is cited as an anchor (n a–b) or listed under ### Skipped as "- n a–b — reason" (3+ words).',
+	'2. Retell in your own words (no 200+ character copies, no "the text discusses"); an Actions item is at most 200 characters; the whole description at most 12000.',
+	'3. User corrections go under ### User corrections (short quote, anchor); ticket keys, MR !N, URLs and paths in the items (warnings only).',
+	'4. Submit the FULL description in the v2 format; keep earlier items. NO BLOCK IS CLOSED WITHOUT AN ACCEPTED SUMMARY.',
 ].join('\n')
 
 export class ReadProtocol {
@@ -70,7 +69,7 @@ export class ReadProtocol {
 			return {
 				text: '',
 				header: '',
-				card: `All blocks are acknowledged (n ${p.base + 1}–${p.ackedUntil}). Consolidate the description (merge duplicate items, close open questions, check the user corrections) and submit it with 'nessy-orch case draft --final'.`,
+				card: `All blocks are acknowledged (n ${p.base + 1}–${p.ackedUntil}). Consolidate the description (merge duplicate items, close open questions, check the user corrections), end it with the \`## Brief\` section (gist, entities, skeleton) and submit it with 'nessy-orch case draft --final'.`,
 				from: 0,
 				until: p.ackedUntil,
 				total: p.total,
@@ -120,8 +119,7 @@ export class ReadProtocol {
 		// лестница смягчения: сколько заданий подряд уже исчерпали отказы на этом блоке (итог — ключ 0)
 		const key = final ? 0 : block.from
 		const fails = c.blockFails?.from === key ? c.blockFails.fails : 0
-		const ladder = final ? { hard: fails >= 2 ? issues.filter(i => i.code === 'R1' || i.code === 'R9') : fails === 1 ? issues.filter(i => i.code !== 'F1') : issues, warnings: [] as GateIssue[] } : applyLadder(issues, fails)
-		const { hard, warnings } = ladder
+		const { hard, warnings } = applyLadder(issues, fails, final)
 		let note = ''
 		if (hard.length && fails < 2) {
 			p.rejects += 1

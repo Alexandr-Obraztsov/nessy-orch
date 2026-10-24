@@ -73,10 +73,12 @@ describe('плейбуки (сквозной)', () => {
 			ids.push(`c-${s.id}`)
 		}
 		const evidence = ids.map(caseId => ({ caseId, anchor: 'n 1' }))
-		const group = { task: 'review a merge request', taskType: 'review-mr', playbookId: null, cases: evidence }
+		const members = ids.map(caseId => ({ caseId, goal: 'do the task', anchors: ['n 1'] }))
+		const group = { task: 'review a merge request', taskType: 'review-mr', action: 'new_playbook', playbookId: null, members, reason: 'same task' }
 		scenarios({
 			...collect,
 			'# PLAYBOOK MATCHER': result({ groups: [group] }),
+			'# GROUP VERIFIER': result({ verdict: 'confirm', reason: 'same task' }),
 			'# PLAYBOOK BUILDER': result({ ...DRAFT, rules: [{ text: 'Run lint before review', stage: 1, evidence }] }),
 			'# PLAYBOOK GRADER': GOOD,
 			'# PLAYBOOK REVIEWER': GOOD,

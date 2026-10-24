@@ -9,6 +9,37 @@ export interface MatchGroup {
 	cases: Evidence[]
 }
 
+/** Что сопоставитель предлагает сделать с группой пар «сессия + цель». */
+export type MatchAction = 'new_playbook' | 'add_to_playbook' | 'merge_into_playbook' | 'merge_case_and_playbook'
+
+/** Член группы: цель сессии (по названию) и якоря её общей части. */
+export interface GroupMember {
+	caseId: string
+	/** название цели (`## Goal: <title>`) в описании сессии */
+	goal: string
+	/** якоря вида `n a–b` */
+	anchors: string[]
+}
+
+/** Решение сопоставителя по одной группе. */
+export interface MatchDecision {
+	task: string
+	taskType: string
+	action: MatchAction
+	/** плейбук, к которому относится группа; у `new_playbook` — null */
+	playbookId: string | null
+	members: GroupMember[]
+	reason: string
+}
+
+/** Вердикт второго прохода по группе. */
+export interface GroupVerdict {
+	verdict: 'confirm' | 'reject' | 'split'
+	reason: string
+	/** при `split` — какие члены остаются (`caseId` + `goal`) */
+	members?: Array<{ caseId: string; goal: string }>
+}
+
 /** Черновик плейбука от сборщика: всё содержимое `PlaybookView` от `title` до `rules`, правила без счётчиков. */
 export interface BuildDraft {
 	title: string
@@ -21,7 +52,7 @@ export interface BuildDraft {
 	files: string[]
 	behavior: string[]
 	stages: PlaybookView['stages']
-	rules: Array<{ text: string; stage: number | null; evidence: Evidence[] }>
+	rules: Array<{ text: string; stage: number | null; evidence: Evidence[]; /** id правила существующего плейбука, которое сборщик сохраняет или правит (`absorb`) */ id?: string }>
 	/** скрипты `tools/*`; нет — `[]` */
 	tools?: PlaybookTool[]
 }

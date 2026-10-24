@@ -5,7 +5,7 @@ import { renderPortion } from '../../domain/case-events'
 import { fillPrompt, parseBuild, parseCaseAnalysis } from '../../domain/learning-replies'
 import { BUILD_CHARS, PORTION_CHARS } from '../../domain/learning-settings'
 import type { RawEvent } from '../../domain/learning.types'
-import type { MatchGroup, Range } from '../../domain/playbook.types'
+import type { GroupMember, MatchGroup, Range } from '../../domain/playbook.types'
 import type { JobContext, JobHandler } from './handlers.types'
 
 /** Запас вокруг якоря: события до и после общей части. */
@@ -25,6 +25,18 @@ export function sameSet(a: readonly string[], b: readonly string[]): boolean {
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** Члены группы из `payload` (`members`): их цели после выхода плейбука в работу сворачиваются. */
+export function membersOf(payload: Record<string, unknown> | null): GroupMember[] {
+	const raw = payload?.['members']
+	if (!Array.isArray(raw)) return []
+	const out: GroupMember[] = []
+	for (const m of raw) {
+		if (!isObject(m) || typeof m['caseId'] !== 'string' || typeof m['goal'] !== 'string') continue
+		out.push({ caseId: m['caseId'], goal: m['goal'], anchors: Array.isArray(m['anchors']) ? m['anchors'].filter((a): a is string => typeof a === 'string') : [] })
+	}
+	return out
+}
 
 /** Группа из `payload` задания; битая — null. */
 function groupOf(payload: Record<string, unknown> | null): MatchGroup | null {
@@ -48,6 +60,30 @@ function eventsOf(ctx: JobContext, caseId: string, anchors: readonly string[]): 
 	const out: RawEvent[] = []
 	for (const r of mergeRanges(ranges, PAD)) out.push(...ctx.cases.raw(caseId, r.from, r.to))
 	return out
+}
+
+/** Материалы по якорям: сырые события, а при большом объёме — разбор каждого кейса отдельным агентом (`case-analyst`). */
+export async function gatherMaterials(ctx: JobContext, used: readonly string[], anchorsOf: (id: string) => string[]): Promise<string> {
+	const events = new Map(used.map(id => [id, eventsOf(ctx, id, anchorsOf(id))]))
+	const rendered = used.map(id => ({ id, text: renderPortion(events.get(id) ?? [], UNLIMITED).text }))
+	const total = rendered.reduce((n, r) => n + r.text.length, 0)
+	if (total <= BUILD_CHARS) return rendered.map(r => `### CASE ${r.id} (${anchorsOf(r.id).join(', ')})\n${r.text}`).join('\n\n')
+	const parts: string[] = []
+	for (const id of used) {
+		let rest = events.get(id) ?? []
+		const analyses: string[] = []
+		while (rest.length) {
+			const portion = renderPortion(rest, PORTION_CHARS)
+			rest = rest.filter(e => e.n > portion.until)
+			const prompt = fillPrompt(ctx.prompt('case-analyst'), { case_id: id, summary: ctx.cases.summary(id), events: portion.text })
+			const res = await ctx.runAgent(`case-analyst-${id}`, `Разбор кейса ${id}`, prompt)
+			const a = parseCaseAnalysis(res.text)
+			if (!a) throw new Error(`в ответе разбора кейса ${id} нет <result>`)
+			analyses.push(a.analysis)
+		}
+		parts.push(`### ANALYSIS of case ${id} (${anchorsOf(id).join(', ')})\n${analyses.join('\n\n')}`)
+	}
+	return parts.join('\n\n')
 }
 
 /** Сборщик плейбука из группы кейсов: один агент, а при больших материалах — разбор каждого кейса и сборка по разборам. */
@@ -80,37 +116,14 @@ export const buildHandler: JobHandler = {
 		const heldOut = [...ids].sort((a, b) => fresh(b).localeCompare(fresh(a)) || b.localeCompare(a))[0] ?? null
 		const used = ids.filter(id => id !== heldOut).sort()
 		const anchorsOf = (id: string): string[] => evidence.filter(e => e.caseId === id).map(e => e.anchor)
-		const events = new Map(used.map(id => [id, eventsOf(ctx, id, anchorsOf(id))]))
-		const rendered = used.map(id => ({ id, text: renderPortion(events.get(id) ?? [], UNLIMITED).text }))
-		const total = rendered.reduce((n, r) => n + r.text.length, 0)
-
-		let materials: string
-		if (total <= BUILD_CHARS) {
-			materials = rendered.map(r => `### CASE ${r.id} (${anchorsOf(r.id).join(', ')})\n${r.text}`).join('\n\n')
-		} else {
-			const parts: string[] = []
-			for (const id of used) {
-				let rest = events.get(id) ?? []
-				const analyses: string[] = []
-				while (rest.length) {
-					const portion = renderPortion(rest, PORTION_CHARS)
-					rest = rest.filter(e => e.n > portion.until)
-					const prompt = fillPrompt(ctx.prompt('case-analyst'), { case_id: id, summary: ctx.cases.summary(id), events: portion.text })
-					const res = await ctx.runAgent(`case-analyst-${id}`, `Разбор кейса ${id}`, prompt)
-					const a = parseCaseAnalysis(res.text)
-					if (!a) throw new Error(`в ответе разбора кейса ${id} нет <result>`)
-					analyses.push(a.analysis)
-				}
-				parts.push(`### ANALYSIS of case ${id} (${anchorsOf(id).join(', ')})\n${analyses.join('\n\n')}`)
-			}
-			materials = parts.join('\n\n')
-		}
+		const materials = await gatherMaterials(ctx, used, anchorsOf)
 
 		const notes = used.map(id => ({ id, text: ctx.cases.notes(id).trim() })).filter(n => n.text)
 		const prompt = fillPrompt(ctx.prompt('playbook-builder'), {
 			group: [`Task: ${group.task}`, `Task type: ${group.taskType}`, ...used.map(id => `CASE ${id}: ${anchorsOf(id).join(', ')}`)].join('\n'),
 			materials,
 			notes: notes.length ? notes.map(n => `[${n.id}] ${n.text}`).join('\n\n') : '(none)',
+			existing_playbook: '(none)',
 			existing: playbooks.list().length ? playbooks.list().map(p => `${p.id}: ${p.description}`).join('\n') : '(none)',
 		})
 		const res = await ctx.runAgent(`playbook-builder-${groupHash(ids)}`, `Сборка плейбука: ${group.task || group.taskType}`.slice(0, 80), prompt)
@@ -123,7 +136,8 @@ export const buildHandler: JobHandler = {
 		}
 		const known = new Set(used)
 		const rules = draft.rules.map(r => ({ ...r, evidence: r.evidence.filter(e => known.has(e.caseId)) }))
-		const playbook = playbooks.create({ ...draft, cases: used, heldOut, rules }, { ...group, cases: evidence }, heldOut)
+		const folds = membersOf(ctx.job.payload).filter(m => ids.includes(m.caseId)).map(m => ({ caseId: m.caseId, goal: m.goal }))
+		const playbook = playbooks.create({ ...draft, cases: used, heldOut, rules }, { ...group, cases: evidence }, heldOut, folds)
 		ctx.enqueue('review', playbook.id, {})
 		ctx.finish()
 	},

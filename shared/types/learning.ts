@@ -54,11 +54,13 @@ export interface CaseView {
 	updatedAt: string
 	closedAt: string | null
 	playbook: string | null
+	/** сколько целей уже влито в плейбуки и убрано из описания (нет — 0); кейс без остаточных целей удаляется */
+	foldedGoals?: number
 	/** всегда `live`: разбор прошлых сессий убран, поле осталось для совместимости клиентов */
 	source: 'live'
 }
 
-export type JobKind = 'collect' | 'close' | 'match' | 'build' | 'review' | 'judge' | 'improve' | 'edit'
+export type JobKind = 'collect' | 'close' | 'match' | 'verify' | 'build' | 'absorb' | 'fold' | 'review' | 'judge' | 'improve' | 'edit'
 /** В работе только `queued` и `running`; `done` — завершено или снято, `error` остался для старых файлов. */
 export type JobStatus = 'queued' | 'running' | 'done' | 'error'
 
@@ -306,4 +308,16 @@ export interface ChatMessage {
 	from: 'user' | 'agent'
 	text: string
 	changes: string[]
+}
+
+/** Карточка кейса или плейбука для обзора сопоставителя (`GET /learning/cards`): plain text, кейс ≤ 500 знаков, плейбук ≤ 600. */
+export interface LearningCard {
+	id: string
+	card: string
+}
+
+/** Все карточки: кейсы `ready` (по свежести) и плейбуки. */
+export interface LearningCards {
+	cases: LearningCard[]
+	playbooks: LearningCard[]
 }

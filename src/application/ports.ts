@@ -154,6 +154,10 @@ export interface LearningStorePort {
 	saveJobs(jobs: readonly JobState[]): void
 	/** <root>/learning/prompts/<name>.md */
 	readPrompt(name: string): string
+	/** Сырые события кейса (`raw/`) переезжают в скрытый архив `<home>/learning/archive/<id>/`; `at` — время архивации, мс. Сам кейс не удаляется. */
+	archiveRaw(id: string, at: number): void
+	/** Стирает из архива всё, что заархивировано не позже `before` (мс); возвращает id стёртого. */
+	purgeArchive(before: number): string[]
 }
 
 /** Хранилище плейбуков: git-репозиторий на плейбук, ревью, журнал, чаты и плагин `nessy-playbooks`. */

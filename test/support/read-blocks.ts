@@ -24,17 +24,23 @@ export function summaryFor(events: readonly RawEvent[], block: { from: number; u
 		'### Plan',
 		'- work through the events step by step',
 		'### Actions',
-		...events.map(e => `- ${e.kind} step ${quote(e, 3)} -> agent -> done (n ${e.n})`),
+		...events.map(e => `- ${e.kind} step ${quote(e, 3)} — agent — done (n ${e.n})`),
 		...(facts.length ? [`- identifiers: ${facts.join(', ')} (n ${block.from}–${block.until})`] : []),
-		'### Sources',
-		'- none',
 		'### User corrections',
 		...(corrections.length ? corrections.map(e => `- User: "${quote(e, 10)}" (n ${e.n})`) : ['- none']),
-		'### Open questions',
+		'### Sources',
 		'- none',
 		'### Skipped',
 		'- none',
+		'### Open questions',
+		'- none',
 	].join('\n')
+}
+
+/** Описание с корректным блоком `## Brief` в конце (итоговая консолидация, `--final`); прежний Brief заменяется. */
+export function withBrief(summary: string): string {
+	const body = summary.replace(/\n## Brief[\s\S]*$/, '').trimEnd()
+	return [body, '## Brief', 'gist: the user asked for a task; the agent did it and the result was accepted.', 'entities: PROJ-1, src/app/main.ts', 'skeleton:', '1. plan', '2. execute', '3. verify'].join('\n')
 }
 
 /** Агент читает следующий блок и сдаёт валидное описание; возвращает блок. */
@@ -53,7 +59,7 @@ export function drainReads(svc: LearningService | null): void {
 			const b = svc.caseRead(j.caseId)
 			if (b.done) {
 				// консолидация: принятое описание без потерь
-				svc.caseDraft(j.caseId, svc.getCaseDetail(j.caseId).summary, true)
+				svc.caseDraft(j.caseId, withBrief(svc.getCaseDetail(j.caseId).summary), true)
 				break
 			}
 			svc.caseDraft(j.caseId, summaryFor(svc.caseRaw(j.caseId, 1, b.until), b), false)
