@@ -29,6 +29,27 @@ struct RoleChip: View {
 	}
 }
 
+/// Капсула рантайма агента (nessy-sdk/tclaude) и, если задана, модель. Нет рантайма (старые снимки) — не рисуется.
+struct RuntimeBadge: View {
+	var runtime: String?
+	var model: String?
+	var body: some View {
+		if let runtime, !runtime.isEmpty {
+			let label = [runtime, model].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: " · ")
+			if !label.isEmpty {
+				HStack(spacing: 4) {
+					Image(systemName: "cpu").font(.system(size: 9, weight: .semibold))
+					Text(label).font(DS.Typography.caption.weight(.medium)).lineLimit(1)
+				}
+				.foregroundStyle(DS.Palette.textSecondary)
+				.padding(.horizontal, 6).padding(.vertical, 1)
+				.background(DS.Palette.hover, in: Capsule())
+				.help(model.map { "Рантайм \(runtime), модель \($0)" } ?? "Рантайм \(runtime)")
+			}
+		}
+	}
+}
+
 extension AppModel {
 	/// Роль агента для показа: имя, иконка, оттенок. Нет роли — nil; неизвестная роль — серая с её названием.
 	func roleInfo(of a: AgentView) -> (name: String, icon: String?, hue: Double, description: String)? {

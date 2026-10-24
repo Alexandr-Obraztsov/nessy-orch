@@ -107,8 +107,8 @@ public final class OrchClient: @unchecked Sendable {
 	public func renameSession(_ id: String, title: String) async throws { try await raw("PATCH", "/sessions/\(id)", body: ["title": title]) }
 	public func deleteSession(_ id: String) async throws { try await raw("DELETE", "/sessions/\(id)") }
 	// MARK: потоки
-	public func stream() -> SSEStream { SSEStream(url: url("/stream")) }
-	public func agentStream(_ ref: String) -> SSEStream { SSEStream(url: url("/agents/\(ref)/stream")) }
+	public func stream() -> SSEStream { SSEStream(url: url("/stream"), token: token) }
+	public func agentStream(_ ref: String) -> SSEStream { SSEStream(url: url("/agents/\(ref)/stream"), token: token) }
 }
 
 // MARK: тела запросов

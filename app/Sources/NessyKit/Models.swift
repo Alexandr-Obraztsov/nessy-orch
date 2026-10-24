@@ -56,6 +56,8 @@ public struct SpaceView: Codable, Hashable, Identifiable, Sendable {
 	public var url: String?
 	public var status: SpaceStatus
 	public var error: String?
+	/// рантайм пространства (nessy-sdk/tclaude); нет в старых состояниях (→ nessy-sdk)
+	public var runtime: String?
 	public var id: String { name }
 }
 
@@ -155,6 +157,10 @@ public struct AgentView: Codable, Hashable, Identifiable, Sendable {
 	public var parent: String
 	public var role: String?
 	public var status: AgentStatus
+	/// рантайм агента (пространства); нет в старых состояниях (→ nessy-sdk)
+	public var runtime: String?
+	/// модель агента (пространства); nil — дефолт рантайма
+	public var model: String?
 	public var archived: Bool
 	/// сессия nessy закрыта по простою (контекст на диске); поднимется при следующем сообщении
 	public var parked: Bool
@@ -183,6 +189,8 @@ public struct AgentView: Codable, Hashable, Identifiable, Sendable {
 		parent = try c.decode(String.self, forKey: .parent)
 		role = try c.decodeIfPresent(String.self, forKey: .role)
 		status = try c.decode(AgentStatus.self, forKey: .status)
+		runtime = try c.decodeIfPresent(String.self, forKey: .runtime)
+		model = try c.decodeIfPresent(String.self, forKey: .model)
 		archived = try c.decode(Bool.self, forKey: .archived)
 		parked = try c.decodeIfPresent(Bool.self, forKey: .parked) ?? false
 		error = try c.decodeIfPresent(String.self, forKey: .error)

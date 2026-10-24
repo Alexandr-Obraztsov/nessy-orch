@@ -16,9 +16,14 @@ public enum SSEState: Sendable, Equatable { case connecting, open, failed(String
 /// клиент обязан сбросить накопленное состояние: сервер повторно присылает снапшот/реплей.
 public final class SSEStream: @unchecked Sendable {
 	private let url: URL
+	/// токен оператора — общий источник с REST-клиентом (OrchClient.raw): чтение потоков требует авторизацию
+	private let token: @Sendable () -> String?
 	private var task: Task<Void, Never>?
 
-	init(url: URL) { self.url = url }
+	init(url: URL, token: @escaping @Sendable () -> String? = { OrchToken.read() }) {
+		self.url = url
+		self.token = token
+	}
 
 	public func start(
 		onState: @escaping @Sendable (SSEState) -> Void,
@@ -26,6 +31,7 @@ public final class SSEStream: @unchecked Sendable {
 		onData: @escaping @Sendable (Data) -> Void
 	) {
 		let url = self.url
+		let token = self.token
 		task = Task.detached {
 			var attempt = 0
 			let cfg = URLSessionConfiguration.ephemeral
@@ -38,6 +44,7 @@ public final class SSEStream: @unchecked Sendable {
 				do {
 					var req = URLRequest(url: url)
 					req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+					if let t = token() { req.setValue(t, forHTTPHeaderField: "X-Orch-Token") }
 					let (bytes, resp) = try await session.bytes(for: req)
 					guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
 						throw APIError(status: (resp as? HTTPURLResponse)?.statusCode ?? 0, code: "stream", message: "поток недоступен")

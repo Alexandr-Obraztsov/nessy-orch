@@ -33,7 +33,9 @@ describe('доступ: токен оператора и ключи агенто
 	after(() => h.close())
 
 	it('чтение открыто без токена, изменения — только с токеном оператора', T, async () => {
-		assert.equal((await h.api('GET', '/graph')).status, 200)
+		const deniedGraph = await h.api<ApiError>('GET', '/graph')
+		assert.equal(deniedGraph.status, 403, '/graph без авторизации должен быть 403')
+		assert.equal(deniedGraph.body.code, 'auth_required')
 		const denied = await h.api<ApiError>('POST', '/sessions', { title: 'без токена' })
 		assert.equal(denied.status, 403)
 		assert.equal(denied.body.code, 'operator_required')
@@ -93,14 +95,16 @@ describe('доступ: токен оператора и ключи агенто
 		assert.match(bad.out, /bad_agent_key/)
 	})
 
-	it('чтение ленты/потока/истории — токен оператора или ключ агента; /health открыт', T, async () => {
+	it('чтение ленты/потока/истории/графа — токен оператора или ключ агента; /health открыт', T, async () => {
 		assert.equal((await h.api('GET', '/health')).status, 200, '/health остаётся открытым')
-		for (const p of ['/messages', `/agents/${a}/history`, '/stream']) {
+		for (const p of ['/messages', `/agents/${a}/history`, '/stream', '/graph']) {
 			const denied = await h.api<ApiError>('GET', p)
 			assert.equal(denied.status, 403, `${p} без авторизации должен быть 403`)
 			assert.equal(denied.body.code, 'auth_required')
 		}
 		assert.equal((await h.api('GET', '/messages', undefined, op)).status, 200, 'с токеном оператора — 200')
 		assert.equal((await h.api('GET', `/agents/${a}/history`, undefined, { 'X-Agent-Key': key(a) })).status, 200, 'с ключом агента — 200')
+		assert.equal((await h.api('GET', '/graph', undefined, op)).status, 200, '/graph с токеном оператора — 200')
+		assert.equal((await h.api('GET', '/graph', undefined, { 'X-Agent-Key': key(a) })).status, 200, '/graph с ключом агента — 200')
 	})
 })

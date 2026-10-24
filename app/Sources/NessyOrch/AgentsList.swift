@@ -158,7 +158,11 @@ struct AgentRow: View {
 		HStack(alignment: .firstTextBaseline, spacing: 0) {
 			// карточка: 1) заголовок на всю ширину · 2) роль, токены, вызовы, статус · (итог или причина у не работающего) · 3) план, контекст, время
 			VStack(alignment: .leading, spacing: 2) {
-				Text(model.store.title(of: a)).font(DS.Typography.secondary.weight(.semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(2)
+				HStack(spacing: DS.Metrics.s2) {
+					Text(model.store.title(of: a)).font(DS.Typography.secondary.weight(.semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(2)
+					Spacer(minLength: DS.Metrics.s1)
+					RuntimeBadge(runtime: a.runtime, model: a.model)
+				}
 				meta
 				AgentStageLine(agent: a)
 				footer
@@ -335,6 +339,7 @@ struct AgentHeaderRow: View {
 			Text(model.store.title(of: agent)).font(DS.Typography.panelTitle)
 				.foregroundStyle(DS.Palette.textPrimary).lineLimit(1).truncationMode(.tail)
 				.help(model.store.goal(of: agent))
+			RuntimeBadge(runtime: agent.runtime, model: agent.model)
 			Spacer(minLength: 0)
 		}
 		.padding(.leading, DS.Metrics.s2).padding(.trailing, 96)
