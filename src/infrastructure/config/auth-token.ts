@@ -16,6 +16,7 @@ export function ensureToken(home: string): string {
 		/* файла ещё нет */
 	}
 	fs.mkdirSync(home, { recursive: true })
+	fs.chmodSync(home, 0o700) // секреты в покое: домашний каталог ORCH только для владельца (§3)
 	const token = crypto.randomBytes(24).toString('hex')
 	fs.writeFileSync(file, token + '\n', { mode: 0o600 })
 	fs.chmodSync(file, 0o600)

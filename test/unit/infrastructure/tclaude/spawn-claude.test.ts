@@ -140,6 +140,18 @@ describe('buildClaudeEnv', () => {
 		assert.equal(env['ANTHROPIC_BASE_URL'], 'https://explicit')
 		assert.equal(env['HOME'], '/h')
 	})
+
+	it('NESSY_ORCH_TOKEN вырезается из env ребёнка (даже если был в process.env)', () => {
+		const prev = process.env['NESSY_ORCH_TOKEN']
+		process.env['NESSY_ORCH_TOKEN'] = 'OPERATOR-SECRET'
+		try {
+			const env = buildClaudeEnv({ bin: 't', permissionMode: 'default', homeDir: '/h', cwd: '/ws', resolveAuth: () => ({}) })
+			assert.equal(env['NESSY_ORCH_TOKEN'], undefined, 'агентский процесс не должен получить токен оператора')
+		} finally {
+			if (prev === undefined) delete process.env['NESSY_ORCH_TOKEN']
+			else process.env['NESSY_ORCH_TOKEN'] = prev
+		}
+	})
 })
 
 describe('spawnClaude', () => {

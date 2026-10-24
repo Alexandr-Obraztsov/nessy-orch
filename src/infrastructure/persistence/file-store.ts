@@ -37,6 +37,8 @@ export class FileStore implements StorePort {
 		fs.mkdirSync(this.sourcesDir, { recursive: true })
 		fs.mkdirSync(this.agentsDir, { recursive: true })
 		fs.mkdirSync(this.logsDir, { recursive: true })
+		// секреты в покое: каталоги только для владельца (файлы внутри — 0o600 через jsonl) (§3)
+		for (const dir of [this.sourcesDir, this.agentsDir, this.logsDir]) fs.chmodSync(dir, 0o700)
 		this.statePath = path.join(home, 'state.json')
 		this.msgPath = path.join(home, 'messages.jsonl')
 		this.rolesPath = path.join(home, 'roles.json')

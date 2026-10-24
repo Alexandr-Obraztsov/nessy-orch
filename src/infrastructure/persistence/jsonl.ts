@@ -22,12 +22,15 @@ export function readJsonl<T>(file: string, limit: number): T[] {
 }
 
 export function appendJsonl(file: string, value: unknown): void {
+	const isNew = !fs.existsSync(file)
 	fs.appendFileSync(file, JSON.stringify(value) + '\n')
+	// секреты в покое: новый файл ограничиваем только владельцем (§3 «секреты в покое»)
+	if (isNew) fs.chmodSync(file, 0o600)
 }
 
-/** Атомарная запись: tmp + rename. */
+/** Атомарная запись: tmp + rename. Файл пишется с правами 0o600 — секреты в покое (§3). */
 export function writeAtomic(file: string, text: string): void {
 	const tmp = file + '.tmp'
-	fs.writeFileSync(tmp, text)
+	fs.writeFileSync(tmp, text, { mode: 0o600 })
 	fs.renameSync(tmp, file)
 }

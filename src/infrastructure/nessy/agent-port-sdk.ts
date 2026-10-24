@@ -31,6 +31,7 @@ import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, Po
 import { AppError } from '../../domain/errors'
 import { errMsg } from '../../lib/json'
 import { isExit130, usageOfResult, createSdkSessionState, type ClosedSession, type SessionState } from './agent-port-sdk-session'
+import { emitToolResult, emitToolUse } from './agent-port-sdk-tools'
 
 /** Фабрика Query — отделяется для тестов (инжектится мок; живой вызов — по умолчанию SDK.query). */
 export type MakeQuery = (args: { prompt: string | AsyncIterable<SDKUserMessage>; options?: QueryOptions }) => Query
@@ -107,7 +108,6 @@ export class NessySdkAgentPort implements AgentPort {
 		// ленивый спавн резюма: query поднялся на sessionResume, но процесс поднимаем только под первый ход
 		if (state.query === null) this.spawnQuery(state)
 		const promptId = randomUUID()
-		state.text = ''
 		state.promptId = promptId
 		state.turnOpen = true
 		// первый промпт даёт имя сессии (displayName) — как у serve-пути (§3, session.meta)
@@ -233,6 +233,8 @@ export class NessySdkAgentPort implements AgentPort {
 			...(this.expectedModel !== undefined ? { model: this.expectedModel } : {}),
 			includePartialMessages: true,
 			permissionMode: this.permissionMode,
+			// SDK-ребёнок наследует process.env: затираем токен оператора (§3 «секреты в env детей»)
+			env: { NESSY_ORCH_TOKEN: '' },
 			canUseTool: (toolName, input) => this.onCanUseTool(state.id, toolName, input),
 			abortController: state.abortController,
 			maxSessionTurns: -1,
@@ -295,18 +297,25 @@ export class NessySdkAgentPort implements AgentPort {
 				// partial-текст (includePartialMessages): стриминг чанками
 				const ev = msg.event
 				if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') {
-					state.text += ev.delta.text
 					this.emit(state, { type: 'message.delta', data: { messageId: null, text: ev.delta.text } })
 				}
 				return
 			}
 			case 'assistant': {
-				const blocks = msg.message.content
-				const texts = blocks
-					.filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-					.map(b => b.text)
-					.join('')
-				if (texts) this.emit(state, { type: 'message.completed', data: { messageId: null, text: texts } })
+				const texts: string[] = []
+				for (const b of msg.message.content) {
+					if (b.type === 'text') texts.push(b.text)
+					else if (b.type === 'tool_use') emitToolUse(state, (s, e) => this.emit(s, e), b.id, b.name, b.input)
+					else if (b.type === 'tool_result') emitToolResult(state, (s, e) => this.emit(s, e), b.tool_use_id, b.content, b.is_error)
+				}
+				if (texts.length) this.emit(state, { type: 'message.completed', data: { messageId: null, text: texts.join('') } })
+				return
+			}
+			case 'user': {
+				// tool_result приходит от CLI обратно SDK в user-сообщении: завершаем tool_call (§3)
+				if (Array.isArray(msg.message.content))
+					for (const b of msg.message.content)
+						if (b.type === 'tool_result') emitToolResult(state, (s, e) => this.emit(s, e), b.tool_use_id, b.content, b.is_error)
 				return
 			}
 			case 'result': {

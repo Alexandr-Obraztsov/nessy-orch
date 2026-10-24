@@ -92,4 +92,15 @@ describe('доступ: токен оператора и ключи агенто
 		const bad = await cli({}, 'send', '--from', a, '--key', 'nope', b, 'из cli')
 		assert.match(bad.out, /bad_agent_key/)
 	})
+
+	it('чтение ленты/потока/истории — токен оператора или ключ агента; /health открыт', T, async () => {
+		assert.equal((await h.api('GET', '/health')).status, 200, '/health остаётся открытым')
+		for (const p of ['/messages', `/agents/${a}/history`, '/stream']) {
+			const denied = await h.api<ApiError>('GET', p)
+			assert.equal(denied.status, 403, `${p} без авторизации должен быть 403`)
+			assert.equal(denied.body.code, 'auth_required')
+		}
+		assert.equal((await h.api('GET', '/messages', undefined, op)).status, 200, 'с токеном оператора — 200')
+		assert.equal((await h.api('GET', `/agents/${a}/history`, undefined, { 'X-Agent-Key': key(a) })).status, 200, 'с ключом агента — 200')
+	})
 })

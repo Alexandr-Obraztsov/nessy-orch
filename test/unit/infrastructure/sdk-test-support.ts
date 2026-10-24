@@ -46,6 +46,23 @@ export const assistantMsg = (text: string): SDKMessage =>
 			usage: { input_tokens: 2, output_tokens: 3 },
 		},
 	})
+/** assistant-сообщение с произвольными content-блоками (для tool-сценария conformance). */
+export const assistantMsgWithBlocks = (content: unknown[]): SDKMessage =>
+	sdkMsg({
+		type: 'assistant',
+		uuid: 'u',
+		session_id: 's',
+		parent_tool_use_id: null,
+		message: {
+			id: 'm1',
+			type: 'message',
+			role: 'assistant',
+			model: 'm',
+			content,
+			stop_reason: 'end_turn',
+			usage: { input_tokens: 2, output_tokens: 3 },
+		},
+	})
 export const resultSuccess = (text = 'ok'): SDKMessage =>
 	sdkMsg({
 		type: 'result',
@@ -123,6 +140,10 @@ export class FakeQuery {
 		return this.options?.resume
 	}
 
+	envOption(): Record<string, string> | undefined {
+		return this.options?.env
+	}
+
 	interrupt(): Promise<void> {
 		this.calls.push('interrupt')
 		this.interrupted = true
@@ -175,6 +196,14 @@ export function makePort(respond: Respond, model?: string): SdkPortFixture {
 export const defaultRespond: Respond = text => {
 	if (text === '#slow') return 'hang'
 	if (text === '#error') return [resultError()]
+	if (text === '#tools')
+		return [
+			assistantMsgWithBlocks([
+				{ type: 'tool_use', id: 't1', name: 'grep', input: { query: 'x' } },
+				{ type: 'tool_result', tool_use_id: 't1', content: 'найдено 0', is_error: false },
+			]),
+			resultSuccess(),
+		]
 	return [deltaMsg('x'), assistantMsg('x'), resultSuccess()]
 }
 

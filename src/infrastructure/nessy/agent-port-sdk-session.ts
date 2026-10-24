@@ -36,10 +36,10 @@ export interface SessionState {
 	turnOpen: boolean
 	/** id идущего хода (для turn.completed/turn.failed/turn.cancelled). */
 	promptId: string | null
-	/** накопленный текст текущего хода (для message.completed). */
-	text: string
 	/** синтез готовности: session.ready ещё не эмичен. */
 	ready: boolean
+	/** toolId → данные tool_use-блока: нужен, чтобы tool_result дал имя/title (§3, tool_call.completed). */
+	pendingTools: Map<string, { name: string; input: Record<string, unknown> }>
 	/** запросы разрешений: requestId → резолвер canUseTool + опции. */
 	permissions: Map<string, PendingPermission>
 	/** модель, сообщённая в system/init. */
@@ -102,8 +102,8 @@ export function createSdkSessionState(
 		subscriber: null,
 		turnOpen: false,
 		promptId: null,
-		text: '',
 		ready: false,
+		pendingTools: new Map(),
 		permissions: new Map(),
 		actualModel: init.actualModel,
 		closed: false,

@@ -37,7 +37,13 @@ export function identify(req: http.IncomingMessage, token: string | undefined): 
 /** Маршруты, которые агент может вызвать от своего имени (остальное меняющее — только оператору). */
 const AGENT_ROUTES = new Set(['POST /agents', 'POST /agents/:ref/send', 'POST /agents/:ref/plan', 'DELETE /agents/:ref/plan'])
 
+/** Чтение ленты/потока/истории требует операторский токен ИЛИ агентский ключ: без авторизации любой локальный
+ *  процесс (в т.ч. SDK-ребёнок без токена) прочитал бы весь чат. /health остаётся открытым. */
+const READ_REQUIRES_AUTH = new Set(['GET /messages', 'GET /stream', 'GET /agents/:ref/history'])
+
 export function assertAllowed(method: string, pattern: string, caller: Caller): void {
+	if (READ_REQUIRES_AUTH.has(pattern) && !caller.operator && !caller.agentKey)
+		throw new AppError(403, 'auth_required', 'чтение ленты/потока/истории требует токен оператора или ключ агента')
 	if (caller.operator || method === 'GET' || AGENT_ROUTES.has(pattern)) return
 	throw new AppError(403, 'operator_required', 'эта команда доступна только оператору (главному агенту и приложению): в твоём окружении нет токена')
 }

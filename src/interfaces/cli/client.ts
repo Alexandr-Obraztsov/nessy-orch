@@ -83,7 +83,7 @@ function requestOnce(ep: Endpoint, method: string, path: string, body?: unknown)
 export function sse(ep: Endpoint, path: string, onData: (data: unknown) => void): { done: Promise<void>; close: () => void } {
 	let req: http.ClientRequest | null = null
 	const done = new Promise<void>((resolve, reject) => {
-		req = http.request({ host: ep.host, port: ep.port, method: 'GET', path, headers: { Accept: 'text/event-stream' } }, res => {
+		req = http.request({ host: ep.host, port: ep.port, method: 'GET', path, headers: { ...authHeaders(), Accept: 'text/event-stream' } }, res => {
 			if (res.statusCode !== 200) {
 				let d = ''
 				res.on('data', (c: Buffer) => (d += c.toString()))

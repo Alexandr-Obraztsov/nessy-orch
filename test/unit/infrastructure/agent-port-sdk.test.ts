@@ -128,6 +128,38 @@ describe('NessySdkAgentPort', () => {
 		assert.ok(seqs.length >= 3)
 		for (let i = 1; i < seqs.length; i++) assert.ok((seqs[i] as number) > (seqs[i - 1] as number), `seq не монотонен: ${seqs.join(', ')}`)
 	})
+
+	it('tool_use/tool_result → tool_call.started/completed (toolId/name/title, статус и output)', async () => {
+		const { port } = makePort(defaultRespond)
+		const id = (await port.sessionCreate()).sessionId
+		const events: { type: string; data?: unknown }[] = []
+		port.subscribe(id, { onEvent: e => events.push({ type: e.type, data: e.data }) })
+		await port.promptSend(id, '#tools')
+		await waitFor(events, 'turn.completed')
+		const start = events.find(e => e.type === 'tool_call.started')
+		assert.ok(start, `нет tool_call.started: ${events.map(e => e.type).join(', ')}`)
+		const startData = start.data as { toolId: string; name: string; title?: string; input: Record<string, unknown> }
+		assert.equal(startData.toolId, 't1')
+		assert.equal(startData.name, 'grep')
+		assert.equal(startData.title, 'grep')
+		assert.deepEqual(startData.input, { query: 'x' })
+		const done = events.find(e => e.type === 'tool_call.completed')
+		assert.ok(done, `нет tool_call.completed: ${events.map(e => e.type).join(', ')}`)
+		const doneData = done.data as { toolId: string; name: string; status: string; output: string }
+		assert.equal(doneData.toolId, 't1')
+		assert.equal(doneData.name, 'grep')
+		assert.equal(doneData.status, 'completed')
+		assert.equal(doneData.output, 'найдено 0')
+	})
+
+	it('NESSY_ORCH_TOKEN не передаётся SDK-ребёнку (env затирается пустой строкой)', async () => {
+		const { port, lastQuery } = makePort(defaultRespond)
+		await port.sessionCreate('/ws')
+		assert.ok(lastQuery(), 'query должен быть создан')
+		const env = lastQuery().envOption()
+		assert.ok(env, 'ожидали env в опциях query')
+		assert.equal(env['NESSY_ORCH_TOKEN'], '')
+	})
 })
 
 // conformance-сьют на адаптере с фейковым Query (без живого nessy): обязательные сценарии порта.
@@ -138,6 +170,7 @@ describe('NessySdkAgentPort conformance', () => {
 		makePort: () => Promise.resolve(makePort(defaultRespond).port),
 		metaPrompt: 'имя сессии из первого промпта',
 		// permissionPrompt не задан: permission-кейс conformance пропускается (путь vote проверен в unit-тестах)
+		toolsPrompt: '#tools',
 		waitMs: 1500,
 	})
 })

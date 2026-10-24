@@ -89,6 +89,8 @@ export function buildClaudeEnv(opts: SpawnClaudeOptions): NodeJS.ProcessEnv {
 		if (auth.token) env['ANTHROPIC_AUTH_TOKEN'] = auth.token
 		if (auth.baseUrl) env['ANTHROPIC_BASE_URL'] = auth.baseUrl
 	}
+	// агентский процесс не должен получить токен оператора (§3 «секреты в env детей»)
+	delete env['NESSY_ORCH_TOKEN']
 	return env
 }
 
