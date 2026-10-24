@@ -3,7 +3,9 @@
  * «очередь промптов + состояние хэндла» — механика, которую держит NessySdkAgentPort (операции и маппинг событий).
  */
 import type { PermissionResult, Query, SDKMessage, SDKUserMessage } from '@nestor/nessy-cli-sdk'
-import type { PortEventListener } from '../../application/agent-port'
+import { modelConfirmEvent } from '../../application/agent-port'
+import type { PortEvent, PortEventListener } from '../../application/agent-port'
+import { modelMatches } from '../../domain/models'
 import { errMsg } from '../../lib/json'
 
 /** Запрос разрешения: резолвер canUseTool + заявленные опции (для строгого permission.vote). */
@@ -44,6 +46,8 @@ export interface SessionState {
 	permissions: Map<string, PendingPermission>
 	/** модель, сообщённая в system/init. */
 	actualModel: string | null
+	/** запрошенная (ожидаемая) модель сессии: опция запуска query и эталон сверки с system/init; null — дефолт рантайма */
+	model: string | null
 	/** закрыт ли хэндл (query больше не использовать). */
 	closed: boolean
 	/** отправлен ли первый промпт: по нему синтезируется session.meta (displayName), как у serve-пути. */
@@ -87,10 +91,26 @@ export function isExit130(e: unknown): boolean {
 	return /code 130|exit code 130|SIGINT/.test(s)
 }
 
+/**
+ * system/init: фактическая модель, готовность сессии (если ещё не объявлена) и сверка с запрошенной моделью сессии —
+ * адаптер не доверяет опции модели (§3), расхождение даёт `model.switch_failed`.
+ */
+export function onInit(state: SessionState, model: string | undefined, emit: (port: PortEvent) => void): void {
+	state.actualModel = model ?? null
+	if (!state.ready) {
+		state.ready = true
+		emit({ type: 'session.ready', data: { sessionId: state.id } })
+	}
+	if (!model) return
+	emit(modelConfirmEvent(model))
+	if (state.model && !modelMatches(state.model, model))
+		emit({ type: 'model.switch_failed', data: { expected: state.model, actual: model, message: `модель nessy ${model} не совпадает с ожидаемой ${state.model}` } })
+}
+
 /** Начальное состояние хэндла сессии (свежая или §6б-резюм). */
 export function createSdkSessionState(
 	sessionId: string,
-	init: { resume: string | null; seq: number; actualModel: string | null; named: boolean },
+	init: { resume: string | null; seq: number; actualModel: string | null; named: boolean; model: string | null },
 ): SessionState {
 	return {
 		id: sessionId,
@@ -106,6 +126,7 @@ export function createSdkSessionState(
 		pendingTools: new Map(),
 		permissions: new Map(),
 		actualModel: init.actualModel,
+		model: init.model,
 		closed: false,
 		named: init.named,
 	}

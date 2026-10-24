@@ -80,15 +80,19 @@ export class FakeSpace implements SpaceRuntime {
 
 	readonly url = null
 	readonly color = 210
-	readonly runtime: RuntimeId = 'nessy-sdk'
-	readonly model: string | null = null
+	readonly runtime: RuntimeId
+	readonly model: string | null
 	status: SpaceView['status'] = 'stopped'
 	constructor(
 		readonly name: string,
 		readonly path: string,
 		readonly client: FakeAgentPort,
 		private readonly listener?: SpaceListener,
-	) {}
+		opts: { runtime?: RuntimeId; model?: string | null } = {},
+	) {
+		this.runtime = opts.runtime ?? 'nessy-sdk'
+		this.model = opts.model ?? null
+	}
 	/** Имитация падения рантайма (не по просьбе оркестратора). */
 	crash(): void {
 		this.listener?.onExit(this, { intended: false, code: 1, signal: null })

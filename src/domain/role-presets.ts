@@ -2,6 +2,7 @@
  * Пресеты ролей в markdown: строгий frontmatter (`---\nkey: value\n---\nтело`) + инструкции в теле.
  * Чистые функции: разбор, проверка полей и обратная запись (round-trip с `role export`).
  */
+import { isRuntimeId } from './constants'
 import { AppError } from './errors'
 import type { RoleInput, RolePresetMeta } from './types'
 
@@ -62,6 +63,12 @@ export function parseRolePreset(text: string): RoleInput {
 		input.color = n
 	}
 	if (fields['icon']) input.icon = fields['icon']
+	if (fields['model']) input.model = fields['model']
+	const runtime = fields['runtime']
+	if (runtime) {
+		if (!isRuntimeId(runtime)) throw bad(`runtime «${runtime}» — одно из: nessy-sdk, tclaude`)
+		input.runtime = runtime
+	}
 	return input
 }
 
@@ -70,10 +77,12 @@ function formatValue(v: string): string {
 }
 
 /** Роль → текст пресета (обратное к parseRolePreset). */
-export function formatRolePreset(role: { id: string; name: string; description: string; color: number; icon?: string | null; instructions: string }): string {
+export function formatRolePreset(role: { id: string; name: string; description: string; color: number; icon?: string | null; model?: string | null; runtime?: string | null; instructions: string }): string {
 	const head = [`id: ${formatValue(role.id)}`, `name: ${formatValue(role.name)}`]
 	if (role.description) head.push(`description: ${formatValue(role.description)}`)
 	head.push(`color: ${role.color}`)
 	if (role.icon) head.push(`icon: ${role.icon}`)
+	if (role.model) head.push(`model: ${formatValue(role.model)}`)
+	if (role.runtime) head.push(`runtime: ${role.runtime}`)
 	return `---\n${head.join('\n')}\n---\n${role.instructions.replace(/\n*$/, '')}\n`
 }

@@ -122,8 +122,15 @@ export interface AgentView {
 	status: AgentStatus
 	/** рантайм агента (пространства); нет в старых состояниях (→ nessy-sdk) */
 	runtime?: RuntimeId
-	/** модель агента (пространства); null — дефолт рантайма */
+	/**
+	 * Модель агента. Фактическая, если адаптер её подтвердил (system/init, `model.switched`, `modelConfirmed=true`);
+	 * до подтверждения — запрошенная (запрос spawn → роль → пространство → дефолт рантайма); null — дефолт рантайма.
+	 */
 	model?: string | null
+	/** запрошенная модель, если фактическая от неё отличается (рантайм молча подставил другую): UI показывает предупреждение; иначе null */
+	modelRequested?: string | null
+	/** `model` подтверждена рантаймом (а не только запрошена) */
+	modelConfirmed?: boolean
 	/**
 	 * Скрыт из рабочего списка: сессия выполнена. Сессия сохранена — сообщение агенту
 	 * (или POST /agents/:ref/restore) возвращает его в работу с прежним контекстом.
@@ -186,6 +193,10 @@ export interface RoleView {
 	color: number
 	/** имя иконки (SF Symbols), например `magnifyingglass`; null — без иконки */
 	icon: string | null
+	/** модель субагента (псевдоним или id модели рантайма); null/нет — по умолчанию (модель пространства, затем дефолт рантайма) */
+	model?: string | null
+	/** рантайм субагента; null/нет — как у пространства. Подсказка: действует, только если пространство создаётся под этого агента */
+	runtime?: RuntimeId | null
 	/** у роли есть пакет файлов (`role-packages/<id>`): `{{role_dir}}` в инструкциях заменяется путём к нему */
 	package?: boolean
 	createdAt: string
@@ -221,4 +232,35 @@ export interface ReplyBrief {
 	status?: ReplyStatus
 	/** причина после статуса */
 	reason?: string
+}
+
+/** Что рантайм умеет (флаги AgentPort); UI по ним включает и выключает действия. */
+export interface RuntimeCapabilities {
+	/** смена модели у живого агента (`POST /agents/:ref/model`) */
+	setModel: boolean
+	/** доставка сообщения в идущий ход без прерывания */
+	midTurn: boolean
+	/** голосование по запросам разрешений */
+	permissionVote: boolean
+	/** стриминг текста чанками */
+	streamText: boolean
+}
+
+/** Модель в каталоге рантайма: id — то, что передаётся в `model` (псевдоним или полный id); label — для показа. */
+export interface RuntimeModel {
+	id: string
+	label: string
+}
+
+/** Рантайм из каталога `GET /runtimes`. Список моделей — подсказка: свободный ввод модели при запуске допустим. */
+export interface RuntimeInfo {
+	id: RuntimeId
+	label: string
+	/** модель по умолчанию из конфигурации сервера (ORCH_SDK_MODEL / ORCH_TCLAUDE_MODEL); null — дефолт самого рантайма */
+	defaultModel: string | null
+	/** известные модели: дефолт конфигурации, подтверждённые псевдонимы, модели пространств и агентов (без выдуманных) */
+	models: RuntimeModel[]
+	capabilities: RuntimeCapabilities
+	/** рантайм можно запустить на этой машине (tclaude найден; nessy-sdk встроен) */
+	available: boolean
 }

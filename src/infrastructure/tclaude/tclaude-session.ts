@@ -3,7 +3,11 @@
  * Вынесено из agent-port-tclaude.ts, чтобы держать файл в лимите строк и отделить чистую логику от `this`-методов.
  */
 import type { ChildProcess } from 'node:child_process'
+import { modelConfirmEvent } from '../../application/agent-port'
 import type { ModelVerifyResult, PortEvent, PortEventListener, UnifiedUsage } from '../../application/agent-port'
+import { modelMatches, normalizeModel } from '../../domain/models'
+
+export { normalizeModel }
 
 /** Безопасный дефолт режима разрешений — штатные подтверждения (не bypassPermissions из спайка). */
 export const DEFAULT_PERMISSION_MODE = 'default'
@@ -59,19 +63,6 @@ export function newSessionState(id: string, cwd: string, homeDir: string, model:
 	}
 }
 
-/** Нормализация алиасов моделей: короткое имя → префикс полного id (tclaude `--model opus` отдаёт claude-opus-*). */
-const MODEL_ALIASES: Record<string, string> = {
-	opus: 'claude-opus',
-	sonnet: 'claude-sonnet',
-	haiku: 'claude-haiku',
-}
-
-export function normalizeModel(model: string | null): string {
-	if (!model) return ''
-	const m = model.trim()
-	return MODEL_ALIASES[m] ?? m
-}
-
 /**
  * Сверка фактической модели из system/init с запрошенной; без явной модели проверять нечего — фолбэк рантайма допустим.
  * Алиасы нормализуются (opus→claude-opus*, sonnet→claude-sonnet*), чтобы не было ложных model.switch_failed:
@@ -79,10 +70,7 @@ export function normalizeModel(model: string | null): string {
  */
 export function verifyModel(expected: string | null, actual: string | null): ModelVerifyResult {
 	if (!expected) return { expected: '', actual, matched: true }
-	const exp = normalizeModel(expected)
-	const act = actual ?? ''
-	const matched = act !== '' && (act === exp || act.startsWith(exp) || normalizeModel(act).startsWith(exp))
-	return { expected, actual, matched }
+	return { expected, actual, matched: modelMatches(expected, actual) }
 }
 
 /** Склеить текст из content-блоков типа text сообщения assistant. */
@@ -128,6 +116,7 @@ export function processLine(s: TclaudeSession, ev: Record<string, unknown>, emit
 	if (type === 'system' && ev.subtype === 'init') {
 		s.actualModel = (ev.model as string | null | undefined) ?? null
 		s.verifyResult = verifyModel(s.model, s.actualModel)
+		emitModelConfirmed(s, emit)
 		emitModelSwitchFailedIfNeeded(s, emit)
 		return
 	}
@@ -173,6 +162,11 @@ export function processLine(s: TclaudeSession, ev: Record<string, unknown>, emit
 		s.turnOpen = false
 		emit({ type: 'turn.failed', data: { message: errorMessage(ev), retryable: false, code: null } })
 	}
+}
+
+/** Фактическая модель из system/init → подтверждение для ядра (повтор безвреден: состояние идемпотентно). */
+export function emitModelConfirmed(s: TclaudeSession, emit: (port: PortEvent) => void): void {
+	if (s.actualModel) emit(modelConfirmEvent(s.actualModel))
 }
 
 /** При расхождении фактической модели с ожидаемой — одноразовый model.switch_failed. */

@@ -7,8 +7,10 @@ import type {
 	AgentView,
 	GraphView,
 	Message,
+	ModelRequest,
 	RoleRequest,
 	RoleView,
+	RuntimeInfo,
 	SendRequest,
 	SendResponse,
 	SpaceRequest,
@@ -27,18 +29,19 @@ import type {
 } from '../../shared/types'
 import type { AgentIdentity, MessageDraft, RolePresetFile, RoleSeedResult, TurnOutcome } from '../domain/types'
 import { checkSender } from './authorize-sender'
-import { Agent } from './agent/agent'
+import type { Agent } from './agent/agent'
 import type { AgentHost } from './agent/agent.types'
 import { Hub } from './hub'
 import { assembleOrchestrator } from './orchestrator.assembly'
 import type { OrchestratorDeps } from './orchestrator.types'
-import type { PersistedState } from './persisted.types'
 import type { SpaceRuntime } from './ports'
+import { restoreAgents, snapshotState } from './orchestrator-state'
 import { Registry } from './registry'
 import type { AgentsService } from './services/agents.service'
 import type { ServiceContext } from './services/context.types'
 import type { MessagingService } from './services/messaging.service'
 import type { RolesService } from './services/roles.service'
+import type { RuntimesService } from './services/runtimes.service'
 import type { SessionsService } from './services/sessions.service'
 import type { SourcesService } from './services/sources.service'
 import type { SpacesService } from './services/spaces.service'
@@ -65,6 +68,7 @@ export class Orchestrator implements AgentHost {
 	private readonly rolesSvc: RolesService
 	private readonly sessionsSvc: SessionsService
 	private readonly sourcesSvc: SourcesService
+	private readonly runtimesSvc: RuntimesService
 	private readonly ctx: ServiceContext
 	private readonly pruner: SessionPruner
 	private shuttingDown = false
@@ -88,6 +92,7 @@ export class Orchestrator implements AgentHost {
 		this.rolesSvc = built.rolesSvc
 		this.sessionsSvc = built.sessionsSvc
 		this.sourcesSvc = built.sourcesSvc
+		this.runtimesSvc = built.runtimesSvc
 		this.agentsSvc = built.agentsSvc
 		this.pruner = new SessionPruner(this.registry, this.ctx, this.sessionsSvc, this.agentsSvc, id => this.removeSession(id))
 	}
@@ -99,15 +104,7 @@ export class Orchestrator implements AgentHost {
 		this.sessionsSvc.load()
 		this.feed.load(st.msgSeq)
 		for (const s of st.spaces) this.registry.spaces.set(s.name, this.spacesSvc.make(s))
-		for (const p of st.agents) {
-			// пространство пропало из состояния: агент остаётся (его чат и ответы не теряем), а статус — ошибка с причиной
-			const lost = !this.registry.spaces.has(p.space)
-			// старые состояния без сессии и ссылки на пропавшую сессию → вне сессий
-			const session = p.session && this.sessionsSvc.has(p.session) ? p.session : null
-			const agent = Agent.restore({ ...p, session }, this.ctx.agentDeps)
-			if (lost) agent.markLost(`пространство «${p.space}» не найдено — агент недоступен, пока оно не добавлено снова`)
-			this.registry.agents.set(p.id, agent)
-		}
+		restoreAgents(st.agents, this.registry, this.sessionsSvc, this.ctx.agentDeps)
 	}
 
 	/**
@@ -133,16 +130,8 @@ export class Orchestrator implements AgentHost {
 		for (const s of this.registry.spaces.values()) s.killSync()
 	}
 
-	private persistState(): PersistedState {
-		return {
-			spaces: [...this.registry.spaces.values()].map(s => ({ name: s.name, path: s.path, url: s.url, color: s.color, runtime: s.runtime, model: s.model })),
-			agents: [...this.registry.agents.values()].map(a => a.persist()),
-			msgSeq: this.feed.msgSeq,
-		}
-	}
-
 	saveSoon(): void {
-		this.store.saveStateSoon(() => this.persistState())
+		this.store.saveStateSoon(() => snapshotState(this.registry, this.feed.msgSeq))
 	}
 
 	async shutdown(): Promise<void> {
@@ -151,7 +140,7 @@ export class Orchestrator implements AgentHost {
 		await this.pool.closeAll()
 		for (const a of this.registry.agents.values()) a.detach()
 		this.feed.close()
-		this.store.saveStateSoon(() => this.persistState())
+		this.store.saveStateSoon(() => snapshotState(this.registry, this.feed.msgSeq))
 		this.store.flush()
 		await Promise.all([...this.registry.spaces.values()].map(s => s.stop().catch(() => undefined)))
 		this.store.close()
@@ -175,7 +164,9 @@ export class Orchestrator implements AgentHost {
 		return this.messaging.onTurnDone(agent, msg, text, outcome)
 	}
 
-	takeWarmSession(space: string): string | null {
+	takeWarmSession(space: string, model: string | null): string | null {
+		// заготовки созданы на модели пространства: агенту со своей (отличной) моделью заготовка не подходит
+		if (model !== null && model !== this.registry.getSpace(space)?.model) return null
 		return this.pool.take(space)
 	}
 
@@ -213,6 +204,11 @@ export class Orchestrator implements AgentHost {
 		return this.agentsSvc.cancel(ref)
 	}
 
+	/** Сменить модель живого агента (409 model_switch_unsupported, если рантайм не умеет; 409 busy у работающего). */
+	setAgentModel(ref: string, req: ModelRequest): Promise<AgentView> {
+		return this.agentsSvc.setModel(ref, req)
+	}
+
 	archiveAgent(ref: string): AgentView {
 		return this.agentsSvc.archive(ref)
 	}
@@ -232,6 +228,11 @@ export class Orchestrator implements AgentHost {
 
 	agentHistory(ref: string, limit = 400, includeLive = true): AgentEvent[] {
 		return this.agentsSvc.history(ref, limit, includeLive)
+	}
+
+	// ---------- рантаймы ----------
+	listRuntimes(): RuntimeInfo[] {
+		return this.runtimesSvc.list()
 	}
 
 	// ---------- роли ----------

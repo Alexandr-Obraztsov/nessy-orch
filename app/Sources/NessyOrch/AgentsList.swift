@@ -34,13 +34,19 @@ struct AgentsListView: View {
 	private var failedExpanded: Bool { get { model.failedGroupOpen } nonmutating set { model.failedGroupOpen = newValue } }
 	@FocusState private var listFocused: Bool
 
-	private var agents: [AgentView] { win?.agents ?? [] }
+	@State private var runtimeFilter: String?
+
+	private var allAgents: [AgentView] { win?.agents ?? [] }
+	private var runtimes: [String] { RuntimeLogic.ids(in: allAgents, spaces: model.store.spaces) }
+	/// выбранного рантайма в списке уже нет — показываем всех
+	private var activeRuntime: String? { runtimeFilter.flatMap { runtimes.contains($0) ? $0 : nil } }
+	private var agents: [AgentView] { RuntimeLogic.filter(allAgents, runtime: activeRuntime, spaces: model.store.spaces) }
 
 	var body: some View {
 		let sections = AgentGrouping.sections(agents)
 		let ids = visibleIds(sections)
 		Group {
-			if agents.isEmpty {
+			if allAgents.isEmpty {
 				VStack(alignment: .leading, spacing: DS.Metrics.s1) {
 					Text("Агентов пока нет").font(DS.Typography.body).foregroundStyle(DS.Palette.textPrimary)
 					Text("Их запускает главный агент.").font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary)
@@ -59,7 +65,7 @@ struct AgentsListView: View {
 	private var header: some View {
 		HStack(spacing: DS.Metrics.s2) {
 			Text("Агенты").font(DS.Typography.panelTitle)
-			if !agents.isEmpty { Text("·").foregroundStyle(DS.Palette.textTertiary); DSCount(value: agents.count).foregroundStyle(DS.Palette.textSecondary) }
+			if !allAgents.isEmpty { Text("·").foregroundStyle(DS.Palette.textTertiary); DSCount(value: agents.count).foregroundStyle(DS.Palette.textSecondary) }
 			Spacer(minLength: 0)
 		}
 		.foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
@@ -70,6 +76,14 @@ struct AgentsListView: View {
 	private func list(_ sections: [AgentSection], _ ids: [String]) -> some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: DS.Metrics.s4) {
+				// рантайм один — переключателя нет
+				if runtimes.count > 1 {
+					Picker("Рантайм", selection: Binding(get: { activeRuntime ?? "" }, set: { runtimeFilter = $0.isEmpty ? nil : $0 })) {
+						Text("Все").tag("")
+						ForEach(runtimes, id: \.self) { Text(RuntimeLogic.name($0)).tag($0) }
+					}
+					.pickerStyle(.segmented).labelsHidden().controlSize(.small)
+				}
 				ForEach(sections) { sec in
 					let collapsible = (sec.group == .done && sections.count > 1) || sec.group == .failed
 					let expanded = !collapsible || (sec.group == .failed ? failedExpanded : isDoneExpanded(sec, sections))
@@ -161,8 +175,9 @@ struct AgentRow: View {
 				HStack(spacing: DS.Metrics.s2) {
 					Text(model.store.title(of: a)).font(DS.Typography.secondary.weight(.semibold)).foregroundStyle(DS.Palette.textPrimary).lineLimit(2)
 					Spacer(minLength: DS.Metrics.s1)
-					RuntimeBadge(runtime: a.runtime, model: a.model)
+					RuntimeBadge(runtime: model.runtimeId(of: a))
 				}
+				ModelLine(agent: a)
 				meta
 				AgentStageLine(agent: a)
 				footer
@@ -223,6 +238,7 @@ struct AgentRow: View {
 	/// Всё, что видно в карточке, одной фразой для VoiceOver.
 	private var accessibilityText: String {
 		var p = [model.store.title(of: a), a.stateWord]
+		if let c = RuntimeLogic.modelCaption(a) { p.append(c.requested.map { "модель \(c.text), запрошена \($0)" } ?? "модель \(c.text)") }
 		if !compact, let r = model.roleInfo(of: a)?.name { p.append("роль \(r)") }
 		if let t = a.stats.tokens, t.total > 0 { p.append("\(Numbers.compact(t.total)) токенов") }
 		if a.stats.toolCalls > 0 { p.append(Numbers.count(a.stats.toolCalls, "вызов", "вызова", "вызовов")) }
@@ -339,7 +355,8 @@ struct AgentHeaderRow: View {
 			Text(model.store.title(of: agent)).font(DS.Typography.panelTitle)
 				.foregroundStyle(DS.Palette.textPrimary).lineLimit(1).truncationMode(.tail)
 				.help(model.store.goal(of: agent))
-			RuntimeBadge(runtime: agent.runtime, model: agent.model)
+			RuntimeBadge(runtime: model.runtimeId(of: agent))
+			ModelMenu(agent: agent)
 			Spacer(minLength: 0)
 		}
 		.padding(.leading, DS.Metrics.s2).padding(.trailing, 96)

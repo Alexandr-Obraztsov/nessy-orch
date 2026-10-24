@@ -265,12 +265,10 @@ struct AgentComposer: View {
 			if let pct = agent.stats.contextPct {
 				DSContextMeter(pct: pct, size: 12)
 				Text("Контекст заполнен на \(pct) %" + (agent.stats.contextTokens.map { " · в окне \(Numbers.compact($0)) токенов" } ?? ""))
-			} else {
-				Text("Контекст: нет данных")
 			}
 		}
 		.font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary).monospacedDigit()
-		.padding(.top, 2)
+		.padding(.top, agent.stats.contextPct == nil ? 0 : 2)
 	}
 
 	private func submit() {

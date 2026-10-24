@@ -1,7 +1,9 @@
 /** Жизненный цикл агентов: создание, удаление, прерывание, архив, разрешения, история чата. */
-import type { AgentEvent, AgentView, Message, PlanRequest, SendResponse, SpawnRequest, SpawnResponse, RoleView, WaitResponse } from '../../../shared/types'
+import type { AgentEvent, AgentView, Message, ModelRequest, PlanRequest, SendResponse, SpawnRequest, SpawnResponse, RoleView, WaitResponse } from '../../../shared/types'
 import { AppError } from '../../domain/errors'
+import { validateModel } from '../../domain/models'
 import { cleanTitle, uniqueName } from '../../domain/naming'
+import { errMsg } from '../../lib/json'
 import { validatePlanEntries } from '../../domain/plan'
 import { buildPreamble } from '../../domain/preamble'
 import type { AgentIdentity, PeerInfo } from '../../domain/types'
@@ -45,7 +47,11 @@ export class AgentsService {
 		// сессия: явная (проверяем существование) или сессия родителя — агент, запущенный агентом, наследует её
 		const session = req.session?.trim() ? this.sessions.resolve(req.session).id : (registry.agents.get(parent)?.session ?? null)
 		// без --space агент запускается в каталоге оркестратора — там, где идёт чат Claude (cwd сессии), отдельные каталоги не создаются
-		const space = this.spaces.resolve(req.space, (session ? this.sessions.cwdOf(session) : null) ?? req.cwd, req.runtime, req.model)
+		const cwd = (session ? this.sessions.cwdOf(session) : null) ?? req.cwd
+		// рантайм: запрос → пространство; роль подсказывает рантайм только новому пространству (существующее не переключается)
+		const space = this.spaces.resolve(req.space, cwd, req.runtime, role?.runtime ?? undefined)
+		// модель: запрос → роль → модель пространства (учтёт и дефолт конфигурации; null — дефолт рантайма): последнее разрешает Agent
+		const model = validateModel(req.model) ?? validateModel(role?.model) ?? null
 		await this.assertBudget(parent, session)
 		let id: string
 		do id = 'a-' + this.ctx.ids.next(4)
@@ -55,7 +61,7 @@ export class AgentsService {
 		const base = req.name?.trim() || role?.id || 'agent'
 		const name = uniqueName(base, n => registry.isNameTaken(n))
 
-		const agent = new Agent({ id, name, space: space.name, parent, session, role: role?.id ?? null }, this.ctx.agentDeps)
+		const agent = new Agent({ id, name, space: space.name, parent, session, role: role?.id ?? null, model }, this.ctx.agentDeps)
 		agent.title = cleanTitle(req.title)
 		registry.agents.set(id, agent)
 		agent.addSystem(
@@ -196,6 +202,42 @@ export class AgentsService {
 		this.ctx.hub.publish({ t: 'agent_removed', id: agent.id })
 		this.messaging.postEvent(`агент ${registry.labelOf(agent.id)} удалён`, agent.id)
 		this.ctx.saveSoon()
+	}
+
+	/**
+	 * Сменить модель живого агента (AgentPort.model.set). Только свободного агента: у tclaude смена перезапускает процесс, и
+	 * идущий ход потерялся бы. 409 `model_switch_unsupported`, если рантайм не умеет `capabilities.setModel`; 409 `busy` — агент работает.
+	 * Агент без сессии рантайма (ещё не подключён) получает модель на запуск без обращения к рантайму.
+	 */
+	async setModel(ref: string, req: ModelRequest): Promise<AgentView> {
+		const agent = this.ctx.registry.resolveAgent(ref)
+		const model = validateModel(req.model)
+		if (model === null) throw new AppError(400, 'bad_request', 'model обязательна')
+		const space = this.ctx.registry.getSpace(agent.space)
+		if (!space) throw new AppError(409, 'space_down', `пространство «${agent.space}» недоступно`)
+		const port = await space.ensureReady()
+		if (!port.capabilities.setModel)
+			throw new AppError(409, 'model_switch_unsupported', `рантайм ${space.runtime} не умеет менять модель у живого агента`)
+		if (agent.isBusy || agent.queue.length > 0) throw new AppError(409, 'busy', `агент ${this.ctx.registry.labelOf(agent.id)} работает — смена модели только у свободного`)
+		await agent.attaching?.catch(() => undefined) // идёт подключение: дождаться, чтобы не разойтись с создаваемой сессией
+		const hasSession = agent.nessyId !== null
+		if (!hasSession) {
+			agent.modelRequested = model
+			agent.modelActual = null
+			agent.publishNode()
+			this.ctx.saveSoon()
+			return agent.toJSON()
+		}
+		await agent.ensureAttached()
+		const sessionId = agent.nessyId
+		if (sessionId === null) throw new AppError(409, 'no_session', `у агента ${this.ctx.registry.labelOf(agent.id)} нет сессии рантайма`)
+		try {
+			await port.modelSet(sessionId, model)
+		} catch (e) {
+			if (e instanceof AppError) throw e
+			throw new AppError(502, 'model_switch_failed', `не удалось сменить модель: ${errMsg(e)}`)
+		}
+		return agent.toJSON()
 	}
 
 	async cancel(ref: string): Promise<AgentView> {

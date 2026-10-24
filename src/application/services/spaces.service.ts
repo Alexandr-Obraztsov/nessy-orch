@@ -74,9 +74,9 @@ export class SpacesService {
 
 	/**
 	 * Имя пространства, путь или пусто (если пространство единственное; иначе — cwd вызывающего, если он передан).
-	 * Неизвестный путь добавляется.
+	 * Неизвестный путь добавляется (рантайм — явный из запроса, иначе подсказка `hintRuntime` от роли, иначе nessy-sdk).
 	 */
-	resolve(spec?: string, cwd?: string, runtime?: RuntimeId, model?: string): SpaceRuntime {
+	resolve(spec?: string, cwd?: string, runtime?: RuntimeId, hintRuntime?: RuntimeId): SpaceRuntime {
 		const { spaces } = this.ctx.registry
 		// каталог оркестратора (cwd чата Claude или CLI) важнее «единственного пространства»: агент работает там, где работает Claude
 		if (!spec && cwd && path.isAbsolute(cwd)) spec = cwd
@@ -104,7 +104,9 @@ export class SpacesService {
 				this.ensureRuntime(byPath, runtime)
 				return byPath
 			}
-			const v = this.add({ path: norm, ...(runtime ? { runtime } : {}), ...(model !== undefined ? { model } : {}) })
+			// новое пространство: явный рантайм запроса важнее подсказки роли (она действует только здесь, на существующие пространства — нет)
+			const created0 = runtime ?? hintRuntime
+			const v = this.add({ path: norm, ...(created0 ? { runtime: created0 } : {}) })
 			const created = spaces.get(v.name)
 			if (created) this.ensureRuntime(created, runtime)
 			return created as SpaceRuntime

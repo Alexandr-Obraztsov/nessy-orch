@@ -4,7 +4,7 @@ public struct APIError: Error, LocalizedError, Sendable {
 	public var status: Int
 	public var code: String
 	public var message: String
-	public var errorDescription: String? { message }
+	public var errorDescription: String? { RuntimeLogic.apiMessage(status: status, code: code, message: message) }
 	/// Демон недоступен (нет соединения), а не ответил ошибкой.
 	public var isOffline: Bool { status == 0 }
 }
@@ -82,12 +82,22 @@ public final class OrchClient: @unchecked Sendable {
 	}
 
 	// MARK: роли (docs/api.md: RoleRequest)
-	/// Создать (`id == nil`) или заменить поля роли. `color`/`icon` = nil — не передавать (останутся прежними); `icon: ""` убирает иконку.
+	/// Создать (`id == nil`) или заменить поля роли. `color`/`icon` = nil — не передавать (останутся прежними); `icon: ""` убирает иконку; `model`/`runtime` = nil — не передавать, `""` — убрать (PUT заменяет роль целиком).
 	@discardableResult
-	public func saveRole(id: String?, name: String, description: String, instructions: String, color: Double? = nil, icon: String? = nil) async throws -> RoleView {
-		let body = RoleBody(name: name, description: description, instructions: instructions, color: color, icon: icon)
+	public func saveRole(id: String?, name: String, description: String, instructions: String, color: Double? = nil, icon: String? = nil, model: String? = nil, runtime: String? = nil) async throws -> RoleView {
+		let body = RoleBody(name: name, description: description, instructions: instructions, color: color, icon: icon, model: model, runtime: runtime)
 		if let id { return try await send("PUT", "/roles/\(id)", body: body) }
 		return try await send("POST", "/roles", body: body)
+	}
+	/// Каталог рантаймов и их моделей.
+	public func runtimes() async throws -> [RuntimeInfo] {
+		let data = try await raw("GET", "/runtimes")
+		return try JSONDecoder().decode(LossyArray<RuntimeInfo>.self, from: data).items
+	}
+	/// Сменить модель живого агента (docs/api.md: POST /agents/:ref/model); итог приходит событиями агента.
+	@discardableResult
+	public func setModel(agent ref: String, model: String) async throws -> AgentView {
+		try await send("POST", "/agents/\(ref)/model", body: ModelBody(model: model))
 	}
 	public func deleteRole(_ id: String) async throws { try await raw("DELETE", "/roles/\(id)") }
 	/// Завести роли папку для файлов (скрипты, шаблоны); если она есть — ничего не меняется.
@@ -124,7 +134,12 @@ struct RoleBody: Encodable {
 	var name: String; var description: String; var instructions: String
 	var color: Double? = nil
 	var icon: String? = nil
+	var model: String? = nil
+	var runtime: String? = nil
 }
+
+/// Тело `POST /agents/:ref/model`.
+struct ModelBody: Encodable { var model: String }
 
 /// Тело `POST /agents/:ref/send`: отправитель всегда you.
 struct SendBody: Encodable {

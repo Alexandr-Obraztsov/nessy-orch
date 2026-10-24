@@ -27,10 +27,12 @@
  */
 import { randomUUID } from 'node:crypto'
 import { query, type PermissionResult, type Query, type QueryOptions, type SDKMessage, type SDKUserMessage } from '@nestor/nessy-cli-sdk'
-import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, PortSubscribeOptions } from '../../application/agent-port'
+import { modelConfirmEvent } from '../../application/agent-port'
+import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, PortSubscribeOptions, SessionCreateOptions } from '../../application/agent-port'
+import { SDK_CAPABILITIES } from '../../application/runtime-catalog'
 import { AppError } from '../../domain/errors'
 import { errMsg } from '../../lib/json'
-import { isExit130, usageOfResult, createSdkSessionState, type ClosedSession, type SessionState } from './agent-port-sdk-session'
+import { isExit130, onInit, usageOfResult, createSdkSessionState, type ClosedSession, type SessionState } from './agent-port-sdk-session'
 import { emitToolResult, emitToolUse } from './agent-port-sdk-tools'
 
 /** Фабрика Query — отделяется для тестов (инжектится мок; живой вызов — по умолчанию SDK.query). */
@@ -52,7 +54,7 @@ export interface NessySdkAgentPortOptions {
 }
 
 export class NessySdkAgentPort implements AgentPort {
-	readonly capabilities: Capabilities = { streamText: true, midTurn: false, permissionVote: true, setModel: true }
+	readonly capabilities: Capabilities = SDK_CAPABILITIES
 
 	private readonly cwd: string
 	private readonly expectedModel: string | undefined
@@ -73,9 +75,9 @@ export class NessySdkAgentPort implements AgentPort {
 		this.makeQuery = opts.makeQuery ?? query
 	}
 
-	sessionCreate(_cwd?: string): Promise<{ sessionId: string }> {
+	sessionCreate(_cwd?: string, opts?: SessionCreateOptions): Promise<{ sessionId: string }> {
 		const sessionId = randomUUID()
-		const state = createSdkSessionState(sessionId, { resume: null, seq: 0, actualModel: null, named: false })
+		const state = createSdkSessionState(sessionId, { resume: null, seq: 0, actualModel: null, named: false, model: opts?.model || this.expectedModel || null })
 		this.sessions.set(sessionId, state)
 		this.spawnQuery(state)
 		return Promise.resolve({ sessionId })
@@ -92,7 +94,7 @@ export class NessySdkAgentPort implements AgentPort {
 		if (!saved) return Promise.resolve(null)
 		// §6б-резюм закрытой сессии: восстанавливаем хэндл; query спавнится лениво при первом prompt.send.
 		// seq продолжается от lastSeq, чтобы наружу seq оставался строго монотонным сквозь close/resume.
-		const state = createSdkSessionState(sessionId, { resume: sessionId, seq: saved.lastSeq, actualModel: saved.model, named: true })
+		const state = createSdkSessionState(sessionId, { resume: sessionId, seq: saved.lastSeq, actualModel: saved.model, named: true, model: saved.model ?? this.expectedModel ?? null })
 		this.sessions.set(sessionId, state)
 		this.closed.delete(sessionId)
 		return Promise.resolve({ lastSeq: saved.lastSeq })
@@ -157,10 +159,16 @@ export class NessySdkAgentPort implements AgentPort {
 	async modelSet(sessionId: string, model: string): Promise<void> {
 		const state = this.sessions.get(sessionId)
 		if (!state || state.closed) throw new AppError(404, 'session_not_found', `сессия «${sessionId}» не найдена`)
-		if (!state.query) throw new AppError(409, 'session_busy', `сессия «${sessionId}» в режиме резюма; отправьте промпт`)
+		if (!state.query) {
+			// резюм без процесса: модель применится при его запуске (под первый ход), setModel не нужен
+			state.model = model
+			this.emit(state, { type: 'model.switched', data: { model } })
+			return
+		}
 		try {
 			await state.query.setModel(model)
 			state.actualModel = model
+			state.model = model
 			this.emit(state, { type: 'model.switched', data: { model } })
 		} catch (e) {
 			this.emit(state, { type: 'model.switch_failed', data: { expected: model, actual: state.actualModel, message: errMsg(e) } })
@@ -211,6 +219,8 @@ export class NessySdkAgentPort implements AgentPort {
 			state.ready = true
 			this.emit(state, { type: 'session.ready', data: { sessionId } })
 		}
+		// поздняя подписка: фактическая модель уже известна из system/init
+		if (state.actualModel) this.emit(state, modelConfirmEvent(state.actualModel))
 		return {
 			close(): void {
 				if (state.subscriber === opts.onEvent) state.subscriber = null
@@ -230,7 +240,7 @@ export class NessySdkAgentPort implements AgentPort {
 		return {
 			cwd: this.cwd,
 			...(state.resume ? { resume: state.resume } : { sessionId: state.id }),
-			...(this.expectedModel !== undefined ? { model: this.expectedModel } : {}),
+			...(state.model ? { model: state.model } : {}),
 			includePartialMessages: true,
 			permissionMode: this.permissionMode,
 			// SDK-ребёнок наследует process.env: затираем токен оператора (§3 «секреты в env детей»)
@@ -278,19 +288,7 @@ export class NessySdkAgentPort implements AgentPort {
 	private onMessage(state: SessionState, msg: SDKMessage): void {
 		switch (msg.type) {
 			case 'system': {
-				if (msg.subtype === 'init') {
-					state.actualModel = msg.model ?? null
-					if (!state.ready) {
-						state.ready = true
-						this.emit(state, { type: 'session.ready', data: { sessionId: state.id } })
-					}
-					if (this.expectedModel && msg.model && msg.model !== this.expectedModel) {
-						this.emit(state, {
-							type: 'model.switch_failed',
-							data: { expected: this.expectedModel, actual: msg.model, message: `модель nessy ${msg.model} не совпадает с ожидаемой ${this.expectedModel}` },
-						})
-					}
-				}
+				if (msg.subtype === 'init') onInit(state, msg.model, port => this.emit(state, port))
 				return
 			}
 			case 'stream_event': {

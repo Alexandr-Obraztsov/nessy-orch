@@ -30,9 +30,10 @@
 |---|---|---|
 | GET | `/health` | `{status:"ok"}` |
 | GET | `/status` | `StatusResponse` (`version,pid,uptimeSec,rev,home,autoApprove,spaces,agents,working,roles`) |
+| GET | `/runtimes` | `RuntimeInfo[]` — каталог рантаймов и моделей (см. «Рантаймы и модели») |
 | GET | `/graph` | `GraphView` = `{rev, spaces[], agents[], roles[]}` (агенты — включая архивных) |
 
-Сервер отдаёт только API (статики нет): первые сегменты маршрутов — `health status graph stream spaces agents roles sessions messages inbox`; неизвестный маршрут → `404 not_found`.
+Сервер отдаёт только API (статики нет): первые сегменты маршрутов — `health status runtimes graph stream spaces agents roles sessions messages inbox`; неизвестный маршрут → `404 not_found`.
 
 ## Пространства
 
@@ -53,6 +54,7 @@
 | DELETE | `/agents/:ref` | — | `{ok:true}` (отмена хода, закрытие сессии, архив истории) |
 | POST | `/agents/:ref/send` | `SendRequest` | `SendResponse`; `started` — адресат был свободен и сообщение запустило его в работу, `interrupted` — работавшему прерван ход, `queued` — встало в очередь |
 | POST | `/agents/:ref/cancel` | `{}` | `AgentView` (прервать ход, очистить очередь) |
+| POST | `/agents/:ref/model` | `ModelRequest {model}` | `AgentView`: сменить модель живого агента (оператору). `409 model_switch_unsupported` — рантайм не умеет (`capabilities.setModel=false`); `409 busy` — агент работает или есть очередь; `400 bad_request` — пустая или неверная модель; `502 model_switch_failed` — рантайм отказал. Итог приходит событиями: `AgentView.model` обновится по подтверждению рантайма |
 | POST | `/agents/:ref/archive` | `{}` | `AgentView` (`archived:true`); агент работает или у него очередь → `409 busy` |
 | POST | `/agents/:ref/restore` | `{}` | `AgentView` (`archived:false`, без сообщения) |
 | POST | `/agents/:ref/permission/:requestId` | `{approve:boolean}` (по умолчанию `true`) | `{ok:true}`; если запрос не найден (или нет соединения) — `404 {ok:false}`. Тело без `approve:false` означает «разрешить» |
@@ -121,6 +123,8 @@
   "space": "main",        // имя ИЛИ абсолютный путь (неизвестный путь создаёт space); можно опустить, если space один (иначе 400 space_required)
   "name": "reviewer",     // опционально, уникально; иначе = id (с ролью — id роли: reviewer, reviewer-2, …)
   "role": "reviewer",     // опционально: id или имя роли (без учёта регистра); неизвестная → 404 no_role
+  "model": "opus",        // опционально: псевдоним или id модели (≤ 100 символов, без пробелов; иначе 400); важнее модели роли и пространства
+  "runtime": "tclaude",   // опционально: рантайм; должен совпасть с рантаймом пространства (иначе 409 runtime_mismatch); у нового пространства — его рантайм
   "prompt": "задача",     // опционально: если задан — отправляется сразу
   "from": "you",          // отправитель стартового сообщения (id агента, если агент спавнит агента)
   "parent": "you",        // родитель в графе; по умолчанию = from
@@ -129,6 +133,9 @@
 ```
 
 `SpawnResponse` = `{agent, message?, reply?, timedOut?}` (`message` — стартовое сообщение; без `prompt` его нет). Занятое имя → `409 name_taken`.
+Модель агента: `model` запроса → `role.model` → модель пространства (в неё входит дефолт конфигурации `ORCH_SDK_MODEL`/`ORCH_TCLAUDE_MODEL`) → дефолт рантайма.
+Рантайм: `runtime` запроса → пространство. `role.runtime` — только подсказка: если пространство создаётся этим spawn (по пути `space`/`cwd`), оно
+получает рантайм роли; существующее пространство не переключается и `runtime_mismatch` не вызывает.
 С ролью `agent.role` = id роли, а инструкции роли добавляются во вводную агента (раздел «Твоя роль: <имя>»).
 
 ### SendRequest / SendResponse
@@ -166,7 +173,7 @@
 | Метод | Путь | Тело | Ответ |
 |---|---|---|---|
 | GET | `/roles` | — | `RoleView[]` (по имени) |
-| POST | `/roles` | `RoleRequest {name, instructions, description?, color?, icon?, id?, packageDir?}` | `201 RoleView`; `packageDir` — абсолютный путь к папке пакета роли: копируется в `~/.nessy-orch/role-packages/<id>`, `{{role_dir}}` в инструкциях подменяется путём (`RoleView.package: true`) |
+| POST | `/roles` | `RoleRequest {name, instructions, description?, color?, icon?, model?, runtime?, id?, packageDir?}` | `201 RoleView`; `packageDir` — абсолютный путь к папке пакета роли: копируется в `~/.nessy-orch/role-packages/<id>`, `{{role_dir}}` в инструкциях подменяется путём (`RoleView.package: true`) |
 | GET | `/roles/:id` | — | `RoleView`; `:id` — id или имя (без учёта регистра) |
 | PUT | `/roles/:id` | `RoleRequest` | `RoleView` (полная замена полей; `id` и `createdAt` не меняются; без `color` цвет прежний) |
 | POST | `/roles/:id/package` | — | `RoleView`: заводит роли папку для файлов (`role-packages/<id>`); в ней лежит `role.md` — зеркало роли (frontmatter + инструкции) |
@@ -180,10 +187,33 @@
   "description": "одна строка",  // опционально
   "color": 210,                  // опционально, hue 0..360; по умолчанию — из хеша имени
   "icon": "eye",                 // опционально: имя SF Symbols ([a-z0-9.-], ≤ 40); "" — убрать; при PUT без поля — прежняя
+  "model": "sonnet",             // опционально: псевдоним или id модели субагента (≤ 100, без пробелов); "" или null — убрать; при PUT без поля — прежняя
+  "runtime": "tclaude",          // опционально: nessy-sdk | tclaude (подсказка при создании пространства); null — убрать; при PUT без поля — прежний; неизвестный → 400
   "id": "reviewer" }             // опционально, только при создании: [a-z0-9-], ≤ 40; по умолчанию — из имени (кириллица транслитерируется: «Ревьюер» → revyuer)
 ```
 
 Ошибки: `400 bad_request` (поля), `404 no_role`, `409 role_exists` (занят id или имя). Роли хранятся в `<home>/roles.json`.
+`RoleView.model` / `RoleView.runtime` — `null` или отсутствуют, если не заданы. В `role.md` и `roles/*.md` — строки frontmatter `model:` и `runtime:`.
+
+## Рантаймы и модели
+
+`GET /runtimes` → `RuntimeInfo[]` (всегда `nessy-sdk`, затем `tclaude`):
+
+```jsonc
+{ "id": "tclaude", "label": "tclaude (Claude Code)",
+  "defaultModel": null,                    // ORCH_SDK_MODEL / ORCH_TCLAUDE_MODEL; null — дефолт самого рантайма
+  "models": [{ "id": "opus", "label": "Opus" }, …],
+  "capabilities": { "setModel": true, "midTurn": true, "permissionVote": false, "streamText": true },
+  "available": true }                      // tclaude найден (TCLAUDE_PATH или PATH); nessy-sdk встроен
+```
+
+Список моделей — подсказка, не ограничение: при запуске допустима любая строка. В него входят только подтверждённое: дефолт конфигурации,
+псевдонимы tclaude `opus`/`sonnet`/`haiku`, модели пространств рантайма и фактические модели его агентов. У `nessy-sdk` перечислить модели
+нечем (SDK списка не отдаёт), поэтому без дефолта конфигурации и без агентов список пуст.
+
+`AgentView.model` — фактическая модель, если рантайм её подтвердил (`modelConfirmed: true`: `system/init`, смена модели), иначе запрошенная.
+Рантайм молча подставляет другую модель, когда запрошенной нет: тогда `model` — фактическая, а `modelRequested` — запрошенная (UI показывает
+предупреждение); при совпадении (с учётом псевдонимов: `opus` ≈ `claude-opus-*`) `modelRequested: null`.
 
 ## Сообщения
 

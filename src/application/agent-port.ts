@@ -157,6 +157,20 @@ export interface ModelVerifyResult {
 }
 
 // ---------- порт ----------
+/** Параметры новой сессии. */
+export interface SessionCreateOptions {
+	/** запрошенная модель сессии (псевдоним или id); null/нет — модель порта по умолчанию или дефолт рантайма */
+	model?: string | null
+}
+
+/**
+ * Подтверждение фактической модели: `session.meta` без displayName и с `data.model` — адаптер сообщает модель из `system/init`
+ * (сверка с запрошенной даёт `model.switch_failed`). Ядро читает её в agent-model.ts.
+ */
+export function modelConfirmEvent(model: string): PortEvent {
+	return { type: 'session.meta', data: { data: { model } } }
+}
+
 /** Обратный вызов на событие порта. `envelope` — сериализованный Envelope (data уже преобразовано в PortEvent). */
 export type PortEventListener = (envelope: Envelope) => void
 
@@ -177,8 +191,8 @@ export interface PortSubscribeOptions {
  */
 export interface AgentPort {
 	readonly capabilities: Capabilities
-	/** создать новую сессию; возвращает sessionId */
-	sessionCreate(cwd: string): Promise<{ sessionId: string }>
+	/** создать новую сессию; возвращает sessionId. `opts.model` — модель этой сессии (иначе модель порта по умолчанию) */
+	sessionCreate(cwd: string, opts?: SessionCreateOptions): Promise<{ sessionId: string }>
 	/** поднять закрытую/пережившую рестарт сессию; null — сессии нет */
 	sessionResume(sessionId: string, cwd: string): Promise<{ lastSeq: number | null } | null>
 	/** отправить промпт (асинхронно — результат событиями) */
@@ -300,7 +314,8 @@ export function portEventToSessionEvent(ev: PortEvent): SessionEvent | null {
 		case 'mid_turn.injected':
 			return { kind: 'injected', count: ev.data.count }
 		case 'session.meta':
-			return { kind: 'meta', displayName: ev.data.displayName ?? '' }
+			// session.meta без имени (подтверждение модели) в старую форму не сворачивается
+			return ev.data.displayName === undefined ? null : { kind: 'meta', displayName: ev.data.displayName ?? '' }
 		case 'session.resync':
 			return { kind: 'resync' }
 		case 'context.usage':

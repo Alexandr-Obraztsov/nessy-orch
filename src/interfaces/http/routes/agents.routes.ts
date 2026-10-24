@@ -1,5 +1,5 @@
 /** Маршруты агентов. */
-import { parseApprove, parsePlanRequest, parseSendRequest, parseSpawnRequest } from '../parsers'
+import { parseApprove, parseModelRequest, parsePlanRequest, parseSendRequest, parseSpawnRequest } from '../parsers'
 import { queryNum, readBody, sendJson } from '../respond'
 import type { Router } from '../router'
 
@@ -32,6 +32,9 @@ export function registerAgentRoutes(r: Router): void {
 	r.add('POST', '/agents/:ref/archive', ({ res, orch, params }) => sendJson(res, 200, orch.archiveAgent(params['ref'] ?? '')))
 	r.add('POST', '/agents/:ref/restore', ({ res, orch, params }) => sendJson(res, 200, orch.restoreAgent(params['ref'] ?? '')))
 	r.add('POST', '/agents/:ref/cancel', async ({ res, orch, params }) => sendJson(res, 200, await orch.cancelAgent(params['ref'] ?? '')))
+	r.add('POST', '/agents/:ref/model', async ({ req, res, orch, params }) => {
+		sendJson(res, 200, await orch.setAgentModel(params['ref'] ?? '', parseModelRequest(await readBody(req))))
+	})
 	r.add('POST', '/agents/:ref/plan', async ({ req, res, orch, params, caller }) => {
 		const plan = parsePlanRequest(await readBody(req))
 		orch.authorizeSender(plan.from, caller)

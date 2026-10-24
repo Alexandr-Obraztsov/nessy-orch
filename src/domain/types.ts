@@ -1,5 +1,5 @@
 /** Доменные типы ядра (без кода). */
-import type { MessageKind, NodeId } from '../../shared/types'
+import type { MessageKind, NodeId, RuntimeId } from '../../shared/types'
 
 /** Лимиты маршрутизации межагентной переписки. */
 export interface RoutingLimits {
@@ -59,6 +59,10 @@ export interface RoleFields {
 	instructions: string
 	color: number
 	icon: string | null
+	/** модель субагента или null (по умолчанию) */
+	model: string | null
+	/** рантайм субагента или null (как у пространства) */
+	runtime: RuntimeId | null
 	/** путь к папке пакета (источник копирования) или null */
 	packageDir: string | null
 }
@@ -70,6 +74,10 @@ export interface RoleInput {
 	instructions: string
 	color?: number
 	icon?: string
+	/** null и пустая строка — убрать */
+	model?: string | null
+	/** null — убрать */
+	runtime?: RuntimeId | null
 	id?: string
 	packageDir?: string
 }

@@ -22,6 +22,7 @@
 import type { AgentPlan, AgentStats, AgentStatus, AgentView, Message, PlanEntry, ReplyBrief, ToolBrief } from '../../../shared/types'
 import { restoredStatus } from '../../domain/agent-status'
 import { USER, YOU } from '../../domain/constants'
+import { resolveModelView } from '../../domain/models'
 import { parseReply } from '../../domain/reply'
 import type { AgentIdentity } from '../../domain/types'
 import { clip, plainText } from '../../lib/text'
@@ -30,6 +31,7 @@ import type { PersistedAgent } from '../persisted.types'
 import { ensureAttached as ensureAttachedFn, detach as detachFn, park as parkFn, scheduleIdleClose as scheduleIdleCloseFn } from './agent-connection'
 import { processPortEvent, resolvePermission as resolvePermissionFn } from './agent-events'
 import { AgentJournal } from './agent-journal'
+import { applyPersisted } from './agent-restore'
 import type { AgentDeps, AgentInit, AgentState, CurrentTurn, LiveRun, PendingPermission } from './agent.types'
 import { cancel as cancelFn, deliver as deliverFn, finishTurn as finishTurnFn, resumeQueue as resumeQueueFn } from './agent-turn'
 
@@ -42,6 +44,10 @@ export class Agent implements AgentIdentity {
 	session: string | null
 	/** id роли (роль могли удалить — id остаётся) */
 	readonly role: string | null
+	/** запрошенная модель (запрос spawn → роль → пространство → дефолт); null — дефолт пространства/рантайма */
+	modelRequested: string | null
+	/** фактическая модель, подтверждённая адаптером (system/init, смена); null — ещё не подтверждена */
+	modelActual: string | null = null
 	/** секретный ключ: подтверждает, что команду от имени агента (`--from`) выполняет он сам; в AgentView не попадает */
 	readonly key: string
 	createdAt: string
@@ -117,6 +123,7 @@ export class Agent implements AgentIdentity {
 		this.parent = init.parent
 		this.session = init.session ?? null
 		this.role = init.role ?? null
+		this.modelRequested = init.model ?? null
 		this.key = init.key ?? deps.newKey()
 		this.status = init.status ?? 'starting'
 		this.createdAt = new Date(this.deps.clock.now()).toISOString()
@@ -135,32 +142,14 @@ export class Agent implements AgentIdentity {
 				parent: p.parent,
 				session: p.session ?? null,
 				role: p.role ?? null,
+				model: p.model ?? null,
 				status: restoredStatus(),
 				...(p.key ? { key: p.key } : {}),
 			},
 			deps,
 			evSeq,
 		)
-		// агент из состояния без ключа получает новый и снова «представляется» (вводная содержит ключ)
-		if (!p.key) a.introduced = false
-		a.createdAt = p.createdAt
-		a.nessyId = p.sessionId
-		a.displayName = p.displayName
-		a.title = p.title ?? null
-		a.lastEventId = p.lastEventId
-		a.introduced = p.introduced
-		a.queue = p.queue
-		a.lastActivityAt = p.lastActivityAt
-		a.lastReply = p.lastReply
-		a.plan = p.plan ?? null
-		a.turnSteps = p.turnSteps ?? 0
-		a.lastTurnMs = p.lastTurnMs ?? null
-		a.replyBrief = p.replyBrief ?? null
-		a.archived = p.archived === true
-		a.parked = p.parked === true
-		if (p.stats) a.stats = { ...p.stats }
-		a.lostTurn = p.inflight ?? null
-		a.resume = p.sessionId !== null // сессия поднимется лениво, при первом сообщении
+		applyPersisted(a as unknown as AgentState, p)
 		return a
 	}
 
@@ -174,9 +163,9 @@ export class Agent implements AgentIdentity {
 			session: this.session,
 			role: this.role,
 			status: this.status,
-			// рантайм и модель — свойства пространства агента (без дублирования в состоянии)
+			// рантайм — свойство пространства агента; модель — фактическая (подтверждена адаптером) или запрошенная
 			runtime: this.deps.callbacks.getSpace(this.space)?.runtime ?? 'nessy-sdk',
-			model: this.deps.callbacks.getSpace(this.space)?.model ?? null,
+			...resolveModelView(this.effectiveRequestedModel(), this.modelActual),
 			archived: this.archived,
 			parked: this.parked,
 			error: this.error,
@@ -203,6 +192,11 @@ export class Agent implements AgentIdentity {
 		}
 	}
 
+	/** Запрошенная модель: своя, иначе модель пространства (она уже включает дефолт конфигурации). */
+	effectiveRequestedModel(): string | null {
+		return this.modelRequested ?? this.deps.callbacks.getSpace(this.space)?.model ?? null
+	}
+
 	persist(): PersistedAgent {
 		return {
 			id: this.id,
@@ -211,6 +205,8 @@ export class Agent implements AgentIdentity {
 			parent: this.parent,
 			session: this.session,
 			role: this.role,
+			model: this.modelRequested,
+			modelActual: this.modelActual,
 			archived: this.archived,
 			parked: this.parked,
 			key: this.key,

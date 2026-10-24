@@ -10,11 +10,13 @@ import { pickPermissionOption } from '../../domain/permission'
 import { urlsInInput } from '../../domain/sources'
 import { clip } from '../../lib/text'
 import { detach, ensureAttached } from './agent-connection'
+import { applyModelEvent } from './agent-model'
 import { finishTurn, sendCancel } from './agent-turn'
 import type { AgentState, CurrentTurn } from './agent.types'
 
 /** Событие порта: Envelope → SessionEvent (нормализация §3), seq конверта идёт как eventId (для lastEventId). */
 export function processPortEvent(a: AgentState, envelope: Envelope): void {
+	if (applyModelEvent(a, envelope)) return
 	// конверт несёт событие порта, разбитое на type + data; порт гарантирует контрактную форму
 	const portEvent: { type: string; data: unknown } = { type: envelope.type, data: envelope.data }
 	const ev = portEventToSessionEvent(portEvent as PortEvent)

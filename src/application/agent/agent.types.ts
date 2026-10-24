@@ -16,7 +16,7 @@ export interface AgentCallbacks {
 	/** Ссылки из вызова инструмента агента → источники его сессии. */
 	onToolUrls(agent: AgentIdentity, urls: readonly string[]): void
 	/** Готовая заранее созданная сессия nessy для пространства (null — нет, создавать самому). */
-	takeWarmSession(space: string): string | null
+	takeWarmSession(space: string, model: string | null): string | null
 	saveSoon(): void
 }
 
@@ -57,6 +57,8 @@ export interface AgentInit {
 	/** id сессии (null — вне сессий) */
 	session?: string | null
 	role?: string | null
+	/** запрошенная модель (запрос spawn → роль → пространство → дефолт); null/нет — дефолт рантайма */
+	model?: string | null
 	status?: AgentStatus
 	key?: string
 }
@@ -118,6 +120,10 @@ export interface AgentState {
 	readonly deps: AgentDeps
 	session: string | null
 	readonly role: string | null
+	/** запрошенная модель агента (меняется сменой модели); null — дефолт пространства/рантайма */
+	modelRequested: string | null
+	/** фактическая модель, подтверждённая адаптером (system/init, смена); null — ещё не подтверждена */
+	modelActual: string | null
 	readonly key: string
 	createdAt: string
 	nessyId: string | null
@@ -174,4 +180,6 @@ export interface AgentState {
 	isDonePrompt(promptId: string | null): boolean
 	contextMetric(): Pick<AgentStats, 'contextTokens' | 'contextPct'>
 	noteReply(reply: Message | null): boolean
+	/** запрошенная модель агента, иначе модель пространства (null — дефолт рантайма) */
+	effectiveRequestedModel(): string | null
 }

@@ -1,6 +1,6 @@
 # nessy-orch
 
-Оркестратор агентов nessy: HTTP/SSE API на `127.0.0.1:4337`, нативное macOS-приложение «TClaude-Orch» (`app/`, SwiftUI), CLI `nessy-orch`. Через него ты (Claude) делегируешь
+Оркестратор агентов nessy: HTTP/SSE API на `127.0.0.1:4337`, нативное macOS-приложение «TClaude-Orch» (`app/`, SwiftUI), CLI `nessy-orch` (`src/interfaces/cli/`: `main` → `dispatch` → `commands/*`, транспорт к API в `transport.ts`). Через него ты (Claude) делегируешь
 задачи агентам nessy, у которых есть dp-инструменты (GitLab, Jira, Sage, Wiki) и долгая автономная работа.
 
 ## Использование сервиса: ты — оркестратор
@@ -36,7 +36,7 @@ launchd, запускается через login shell с окружением �
 
 ## Разработка в этом репозитории
 
-- Устройство проекта описано в README.md (архитектура, API, CLI) и в `docs/` (требования, API, контракт nessy serve,
+- Устройство проекта описано в README.md (архитектура, API, CLI) и в `docs/` (требования, API, контракт nessy,
   `design/` — архитектура (`architecture-v5.md`) и дизайн приложения, `research-orchestrators.md` — исследование аналогов).
 - Сервер на TypeScript без рантайм-зависимостей, слои `domain → application → infrastructure → interfaces`.
   Типы лежат только в `types.ts`, `*.types.ts` и `ports.ts`. Контракт с клиентами находится в `shared/types/`.

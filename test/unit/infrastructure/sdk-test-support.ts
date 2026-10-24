@@ -140,6 +140,10 @@ export class FakeQuery {
 		return this.options?.resume
 	}
 
+	modelOption(): string | undefined {
+		return this.options?.model
+	}
+
 	envOption(): Record<string, string> | undefined {
 		return this.options?.env
 	}

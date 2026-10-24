@@ -42,8 +42,10 @@ async function attach(a: AgentState): Promise<void> {
 	if (!resumed) {
 		const hadSession = a.nessyId !== null
 		// сначала заготовка из пула: создание сессии nessy — самая долгая часть запуска агента
-		const warm = a.deps.callbacks.takeWarmSession(a.space)
-		const sessionId = warm ?? (await whenNessyFree(a, () => client.sessionCreate(space.path))).sessionId
+		// (заготовка подходит, только если агенту нужна модель пространства по умолчанию)
+		const model = a.effectiveRequestedModel()
+		const warm = a.deps.callbacks.takeWarmSession(a.space, a.modelRequested)
+		const sessionId = warm ?? (await whenNessyFree(a, () => client.sessionCreate(space.path, { model }))).sessionId
 		a.nessyId = sessionId
 		cursor = null
 		a.lastEventId = null

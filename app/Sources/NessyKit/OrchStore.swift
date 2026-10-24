@@ -33,6 +33,8 @@ public final class OrchStore {
 	public private(set) var spaces: [SpaceView] = []
 	public private(set) var roles: [RoleView] = []
 	public private(set) var sessions: [SessionView] = []
+	/// каталог рантаймов и моделей (`GET /runtimes`); пуст, пока не загружен
+	public private(set) var runtimes: [RuntimeInfo] = []
 	/// записей последнего снимка, которые не удалось разобрать (пропущены, остальное показывается)
 	public private(set) var skippedRecords = 0
 	public private(set) var agents: [String: AgentView] = [:]
@@ -99,10 +101,22 @@ public final class OrchStore {
 	public func refreshStatus() async {
 		do {
 			let s = try await client.status()
+			let wasOnline: Bool
+			if case .online = daemon { wasOnline = true } else { wasOnline = false }
 			daemon = .online(version: s.version)
+			if !wasOnline || runtimes.isEmpty { await refreshRuntimes() }
 		} catch let e as APIError where e.isOffline {
 			daemon = .offline(e.message)
 		} catch {}
+	}
+
+	/// Обновить каталог рантаймов; при ошибке остаётся прежний.
+	public func refreshRuntimes() async {
+		if let r = try? await client.runtimes() { runtimes = r }
+	}
+	/// Рантайм агента из каталога (nil — каталог не загружен).
+	public func runtimeInfo(of a: AgentView) -> RuntimeInfo? {
+		RuntimeLogic.info(RuntimeLogic.id(of: a, spaces: spaces), in: runtimes)
 	}
 
 	// MARK: применение событий

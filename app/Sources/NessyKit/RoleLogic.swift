@@ -10,9 +10,12 @@ public struct RoleDraft: Equatable, Sendable {
 	public var icon = RolePalette.defaultIcon
 	/// у роли есть пакет файлов: правка инструкций его не трогает
 	public var hasPackage = false
+	/// модель и рантайм роли; пусто — по умолчанию
+	public var model = ""
+	public var runtime = ""
 
 	public init() {}
-	public init(_ r: RoleView) { name = r.name; description = r.description; instructions = r.instructions; color = r.color; icon = r.icon ?? RolePalette.defaultIcon; hasPackage = r.package == true }
+	public init(_ r: RoleView) { model = r.model ?? ""; runtime = r.runtime ?? ""; name = r.name; description = r.description; instructions = r.instructions; color = r.color; icon = r.icon ?? RolePalette.defaultIcon; hasPackage = r.package == true }
 
 	/// Новая роль: случайный цвет из палитры и иконка сразу.
 	public static func fresh(using g: inout some RandomNumberGenerator) -> RoleDraft {
@@ -39,6 +42,8 @@ public struct RoleDraft: Equatable, Sendable {
 		d.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
 		d.description = description.trimmingCharacters(in: .whitespacesAndNewlines)
 		d.instructions = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+		d.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+		d.runtime = runtime.trimmingCharacters(in: .whitespacesAndNewlines)
 		return d
 	}
 }

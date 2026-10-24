@@ -161,6 +161,10 @@ public struct AgentView: Codable, Hashable, Identifiable, Sendable {
 	public var runtime: String?
 	/// модель агента (пространства); nil — дефолт рантайма
 	public var model: String?
+	/// рантайм подтвердил модель (`system/init`, смена); nil/false — пока только запрошена
+	public var modelConfirmed: Bool?
+	/// запрошенная модель, если рантайм подставил другую; иначе nil
+	public var modelRequested: String?
 	public var archived: Bool
 	/// сессия nessy закрыта по простою (контекст на диске); поднимется при следующем сообщении
 	public var parked: Bool
@@ -191,6 +195,8 @@ public struct AgentView: Codable, Hashable, Identifiable, Sendable {
 		status = try c.decode(AgentStatus.self, forKey: .status)
 		runtime = try c.decodeIfPresent(String.self, forKey: .runtime)
 		model = try c.decodeIfPresent(String.self, forKey: .model)
+		modelConfirmed = try c.decodeIfPresent(Bool.self, forKey: .modelConfirmed)
+		modelRequested = try c.decodeIfPresent(String.self, forKey: .modelRequested)
 		archived = try c.decode(Bool.self, forKey: .archived)
 		parked = try c.decodeIfPresent(Bool.self, forKey: .parked) ?? false
 		error = try c.decodeIfPresent(String.self, forKey: .error)
@@ -237,8 +243,60 @@ public struct RoleView: Codable, Hashable, Identifiable, Sendable {
 	public var icon: String?
 	/// у роли есть пакет файлов (скрипты, шаблоны): `{{role_dir}}` в инструкциях — путь к ним
 	public var package: Bool?
+	/// модель субагента роли (псевдоним или id); nil — по умолчанию
+	public var model: String?
+	/// рантайм роли; nil — рантайм пространства
+	public var runtime: String?
 	public var createdAt: String
 	public var updatedAt: String
+}
+
+/// Модель из каталога рантайма (`GET /runtimes`).
+public struct RuntimeModel: Codable, Hashable, Sendable {
+	public var id: String
+	public var label: String
+	public init(id: String, label: String) { self.id = id; self.label = label }
+}
+
+public struct RuntimeCapabilities: Codable, Hashable, Sendable {
+	public var setModel: Bool
+	public var midTurn: Bool
+	public var permissionVote: Bool
+	public var streamText: Bool
+
+	public init(setModel: Bool = false, midTurn: Bool = false, permissionVote: Bool = false, streamText: Bool = false) {
+		self.setModel = setModel; self.midTurn = midTurn; self.permissionVote = permissionVote; self.streamText = streamText
+	}
+	public init(from decoder: Decoder) throws {
+		let c = try decoder.container(keyedBy: CodingKeys.self)
+		setModel = try c.decodeIfPresent(Bool.self, forKey: .setModel) ?? false
+		midTurn = try c.decodeIfPresent(Bool.self, forKey: .midTurn) ?? false
+		permissionVote = try c.decodeIfPresent(Bool.self, forKey: .permissionVote) ?? false
+		streamText = try c.decodeIfPresent(Bool.self, forKey: .streamText) ?? false
+	}
+}
+
+/// Рантайм из каталога: модели, возможности, доступность. Список моделей — подсказка, свободный ввод допустим.
+public struct RuntimeInfo: Codable, Hashable, Identifiable, Sendable {
+	public var id: String
+	public var label: String
+	public var defaultModel: String?
+	public var models: [RuntimeModel]
+	public var capabilities: RuntimeCapabilities
+	public var available: Bool
+
+	public init(id: String, label: String, defaultModel: String? = nil, models: [RuntimeModel] = [], capabilities: RuntimeCapabilities = RuntimeCapabilities(), available: Bool = true) {
+		self.id = id; self.label = label; self.defaultModel = defaultModel; self.models = models; self.capabilities = capabilities; self.available = available
+	}
+	public init(from decoder: Decoder) throws {
+		let c = try decoder.container(keyedBy: CodingKeys.self)
+		id = try c.decode(String.self, forKey: .id)
+		label = try c.decodeIfPresent(String.self, forKey: .label) ?? id
+		defaultModel = try c.decodeIfPresent(String.self, forKey: .defaultModel)
+		models = try c.decodeIfPresent([RuntimeModel].self, forKey: .models) ?? []
+		capabilities = try c.decodeIfPresent(RuntimeCapabilities.self, forKey: .capabilities) ?? RuntimeCapabilities()
+		available = try c.decodeIfPresent(Bool.self, forKey: .available) ?? true
+	}
 }
 
 // MARK: события чата агента

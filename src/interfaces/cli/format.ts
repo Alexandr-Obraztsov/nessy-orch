@@ -1,5 +1,5 @@
-/** Форматирование вывода CLI (для человека; для машин есть --json). */
-import type { AgentPlan, AgentView, Message, RoleView, SpaceView, SessionView } from '../../../shared/types'
+/** Форматирование вывода CLI (для человека; для машин есть --json): цвета, таблицы, статусы, план. */
+import type { AgentPlan, AgentView, Message, SessionView } from '../../../shared/types'
 import { formatPlanLine } from '../../domain/plan'
 
 const tty = process.stdout.isTTY && !process.env['NO_COLOR']
@@ -62,62 +62,6 @@ export function formatMessage(m: Message, agents: ReadonlyMap<string, AgentView>
 	return `${head}\n${body}`
 }
 
-function roleCell(id: string | null, roles: ReadonlyMap<string, RoleView>): string {
-	if (id === null) return dim('—')
-	return roles.has(id) ? id : dim(`${id} (удалена)`)
-}
-
-/** Таблица агентов; hiddenArchived — сколько архивных скрыто (подсказка про --all). */
-/** Заполнение окна контекста агента: от 60% красим — новую задачу такому агенту лучше не давать. */
-function contextCell(a: AgentView): string {
-	const pct = a.stats.contextPct
-	if (pct === null || pct === undefined) return dim('—')
-	return pct >= 60 ? red(`${pct}%`) : `${pct}%`
-}
-
-export function agentsTable(agents: readonly AgentView[], spaces: readonly SpaceView[], roles: readonly RoleView[] = [], hiddenArchived = 0): string {
-	const hint = hiddenArchived ? dim(`в архиве: ${hiddenArchived} (показать: nessy-orch ls --all)`) : ''
-	if (!agents.length) return [dim('активных агентов нет. Создайте: nessy-orch spawn --session <id> "поручение"'), hint].filter(Boolean).join('\n')
-	const sp = new Map(spaces.map(s => [s.name, s]))
-	const rl = new Map(roles.map(r => [r.id, r]))
-	const rows = table(
-		agents.map(a => [
-			bold(a.id),
-			a.name === a.id ? dim('—') : a.name,
-			a.title ?? dim('—'),
-			roleCell(a.role, rl),
-			status(a.status) + (a.archived ? dim(' · архив') : '') + (a.queued ? dim(` +${a.queued}`) : ''),
-			a.space + (sp.get(a.space)?.status === 'failed' ? red(' (!)') : ''),
-			contextCell(a),
-			a.lastTool ? dim(`⚙ ${a.lastTool.name}`) : a.preview ? dim(a.preview.replace(/\s+/g, ' ').slice(0, 50)) : '',
-		]),
-		['ID', 'ИМЯ', 'ЗАГОЛОВОК', 'РОЛЬ', 'СТАТУС', 'ПРОСТРАНСТВО', 'КОНТЕКСТ', 'ПОСЛЕДНЕЕ'],
-	)
-	return hint ? `${rows}\n${hint}` : rows
-}
-
-export function rolesTable(roles: readonly RoleView[]): string {
-	if (!roles.length) return dim('ролей нет. Добавьте: nessy-orch role add <имя> --instructions "…"')
-	return table(
-		roles.map(r => [
-			bold(r.id),
-			r.name,
-			dim(`${r.color}°${r.icon ? ` ${r.icon}` : ''}`),
-			dim(r.description.slice(0, 60)),
-			dim(`${r.instructions.length} симв.`),
-		]),
-		['ID', 'ИМЯ', 'ЦВЕТ', 'ОПИСАНИЕ', 'ИНСТРУКЦИИ'],
-	)
-}
-
-export function spacesTable(spaces: readonly SpaceView[]): string {
-	if (!spaces.length) return dim('пространств нет. Добавьте: nessy-orch space add <путь>')
-	return table(
-		spaces.map(s => [bold(s.name), status(s.status), s.mode, s.path, s.error ? red(s.error.slice(0, 60)) : '']),
-		['ИМЯ', 'СТАТУС', 'РЕЖИМ', 'ПУТЬ', 'ОШИБКА'],
-	)
-}
-
 /** План чек-листом: [x] сделано, [~] в работе, [ ] впереди. */
 export function planText(plan: AgentPlan): string {
 	const done = plan.entries.filter(e => e.status === 'completed').length
@@ -170,4 +114,52 @@ export function sessionAgentsTable(agents: readonly AgentView[]): string {
 		]),
 		['ID', 'ИМЯ', 'РОЛЬ', 'СТАТУС', 'ПЛАН', 'ПОСЛЕДНЕЕ'],
 	)
+}
+
+/** Цветной маркер статуса агента/сессии: ● работает, ○ свободен, ✖ ошибка. */
+export function statusDot(s: string): string {
+	switch (s) {
+		case 'working':
+		case 'starting':
+		case 'active':
+			return status('●')
+		case 'idle':
+		case 'ready':
+		case 'done':
+			return status('○')
+		case 'error':
+		case 'failed':
+		case 'stopped':
+			return status('✖')
+		default:
+			return '○'
+	}
+}
+
+/** «рантайм · модель» агента; если рантайм подставил не ту модель — пометка «запрошено X»; нет полей — прочерк. */
+export function runtimeModelCell(a: AgentView): string {
+	const parts: string[] = []
+	if (a.runtime) parts.push(a.runtime)
+	if (a.model) parts.push(a.model)
+	if (a.modelRequested) parts.push(yellow(`запрошено ${a.modelRequested}`))
+	return parts.length ? dim(parts.join(' · ')) : dim('—')
+}
+
+/** «рантайм · модель» роли: что не задано — прочерк (пространство/дефолт рантайма). */
+export function roleModelCell(r: { model?: string | null; runtime?: string | null }): string {
+	return dim(`${r.runtime ?? '—'} · ${r.model ?? '—'}`)
+}
+
+/** Заполнение окна контекста (%): от 60% красим красным. */
+export function contextCell(a: AgentView): string {
+	const pct = a.stats.contextPct
+	if (pct === null || pct === undefined) return dim('—')
+	return pct >= 60 ? red(String(pct)) + '%' : `${pct}%`
+}
+
+/** Компактная строка «id — статус — очередь» для дерева. */
+export function agentCell(a: AgentView): string {
+	const busy = a.queued ? dim(` +${a.queued}`) : ''
+	const archived = a.archived ? dim(' · архив') : ''
+	return `${bold(a.id)} ${statusDot(a.status)}${busy}${archived}`
 }

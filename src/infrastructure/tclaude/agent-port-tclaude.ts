@@ -3,13 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
-import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, PortSubscribeOptions, UnifiedUsage } from '../../application/agent-port'
+import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, PortSubscribeOptions, SessionCreateOptions, UnifiedUsage } from '../../application/agent-port'
+import { TCLAUDE_CAPABILITIES } from '../../application/runtime-catalog'
 import { AppError } from '../../domain/errors'
 import { spawnClaude, type SpawnClaudeFn, type SpawnClaudeOptions } from './spawn-claude'
 import {
 	DEFAULT_PERMISSION_MODE,
 	KILL_GRACE_MS,
 	appendStderrTail,
+	emitModelConfirmed,
 	emitModelSwitchFailedIfNeeded,
 	newSessionState,
 	processLine,
@@ -40,7 +42,7 @@ export interface TclaudeAdapterOptions {
  * операцией (см. promptCancel). seq — единый монотонный per-session счётчик адаптера.
  */
 export class TclaudeAgentPort implements AgentPort {
-	readonly capabilities: Capabilities = { streamText: true, midTurn: true, permissionVote: false, setModel: true }
+	readonly capabilities: Capabilities = TCLAUDE_CAPABILITIES
 
 	private readonly bin: string
 	private readonly model: string | null
@@ -59,11 +61,11 @@ export class TclaudeAgentPort implements AgentPort {
 		this.spawn = opts.spawn ?? spawnClaude
 	}
 
-	sessionCreate(cwd: string): Promise<{ sessionId: string }> {
+	sessionCreate(cwd: string, opts?: SessionCreateOptions): Promise<{ sessionId: string }> {
 		const sessionId = randomUUID()
 		const homeDir = mkdtempSync(join(tmpdir(), 'tclaude-agent-'))
 		try {
-			const s = newSessionState(sessionId, cwd, homeDir, this.model, this.permissionMode)
+			const s = newSessionState(sessionId, cwd, homeDir, opts?.model || this.model, this.permissionMode)
 			this.spawnProcess(s, { resume: false })
 			this.sessions.set(sessionId, s)
 			return Promise.resolve({ sessionId })
@@ -187,6 +189,7 @@ export class TclaudeAgentPort implements AgentPort {
 			s.ready = true
 			this.emit(s, { type: 'session.ready', data: { sessionId } })
 		}
+		emitModelConfirmed(s, port => this.emit(s, port))
 		emitModelSwitchFailedIfNeeded(s, port => this.emit(s, port))
 		return {
 			close: (): void => {

@@ -61,7 +61,17 @@ export class RolesService {
 	update(id: string, req: RoleRequest): RoleView {
 		const prev = this.resolve(id)
 		const icon = req.icon ?? prev.icon
-		const f = validateRole({ ...req, id: prev.id, color: req.color ?? prev.color, ...(typeof icon === 'string' ? { icon } : {}) })
+		// model/runtime: без значения остаются прежними, null (для model ещё и пустая строка) — убираются
+		const model = req.model === undefined ? prev.model : req.model
+		const runtime = req.runtime === undefined ? prev.runtime : req.runtime
+		const f = validateRole({
+			...req,
+			id: prev.id,
+			color: req.color ?? prev.color,
+			...(typeof icon === 'string' ? { icon } : {}),
+			model: model ?? null,
+			runtime: runtime ?? null,
+		})
 		this.assertNameFree(f.name, prev.id)
 		const role: RoleView = { ...this.view(f, prev.package === true), createdAt: prev.createdAt, updatedAt: this.isoNow() }
 		this.put(role)
@@ -117,8 +127,11 @@ export class RolesService {
 			(parsed.description ?? '') === role.description &&
 			parsed.instructions.replace(/\n*$/, '') === role.instructions.replace(/\n*$/, '') &&
 			(parsed.color ?? role.color) === role.color &&
-			(parsed.icon ?? null) === (role.icon ?? null)
-		return same ? role : this.update(role.id, { ...parsed, id: role.id })
+			(parsed.icon ?? null) === (role.icon ?? null) &&
+			(parsed.model ?? null) === (role.model ?? null) &&
+			(parsed.runtime ?? null) === (role.runtime ?? null)
+		// model/runtime без строки в role.md — убираются (файл — источник правды), а не сохраняются прежними
+		return same ? role : this.update(role.id, { ...parsed, id: role.id, model: parsed.model ?? null, runtime: parsed.runtime ?? null })
 	}
 
 	/** role.md в папке роли повторяет роль: открыв папку в редакторе, видно и описание, и скрипты. */

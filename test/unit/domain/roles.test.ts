@@ -38,6 +38,8 @@ describe('роли: домен', () => {
 			instructions: 'считай',
 			color: roleColor('Аналитик'),
 			icon: null,
+			model: null,
+			runtime: null,
 			packageDir: null,
 		})
 		assert.equal(validateRole({ name: 'R', instructions: 'i', packageDir: ' /a/b ' }).packageDir, '/a/b')

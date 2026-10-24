@@ -12,10 +12,11 @@
  *
  * emit() принимает нативные SessionEvent и нормализует их в контрактные события порта (sessionEventToPortEvent).
  */
-import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, PortSubscribeOptions } from '../../src/application/agent-port'
-import { sessionEventToPortEvent } from '../../src/application/agent-port'
+import type { AgentPort, Capabilities, Envelope, PortEvent, PortSubscription, PortSubscribeOptions, SessionCreateOptions } from '../../src/application/agent-port'
+import { modelConfirmEvent, sessionEventToPortEvent } from '../../src/application/agent-port'
 import type { SessionEvent } from '../../src/application/ports'
-import { NessyBusyError } from '../../src/domain/errors'
+import { AppError, NessyBusyError } from '../../src/domain/errors'
+import { modelMatches } from '../../src/domain/models'
 import { ScenarioPlayer, type FakeSession } from './fake-agent-port-scenarios'
 
 const delay = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms))
@@ -28,10 +29,18 @@ export interface FakeAgentPortOptions {
 	autoRespond?: boolean
 	/** шаг между событиями сценария, мс (по умолчанию 10). */
 	stepMs?: number
+	/** переопределить capability-флаги (по умолчанию все true) */
+	capabilities?: Partial<Capabilities>
+	/** сообщать фактическую модель (как system/init): подтверждение на подписке и результат смены; по умолчанию нет */
+	reportModel?: boolean
+	/** модель порта по умолчанию, когда сессия создана без модели (с reportModel) */
+	defaultModel?: string | null
+	/** фактическая модель по запрошенной (рантайм молча подставляет другую); по умолчанию — запрошенная как есть */
+	actualModelOf?: (requested: string | null) => string | null
 }
 
 export class FakeAgentPort implements AgentPort {
-	readonly capabilities: Capabilities = { streamText: true, midTurn: true, permissionVote: true, setModel: true }
+	readonly capabilities: Capabilities
 
 	// ---------- контроль теста ----------
 	prompts: string[] = []
@@ -41,6 +50,9 @@ export class FakeAgentPort implements AgentPort {
 	restored: string[] = []
 	midTurns: string[] = []
 	created = 0
+	/** модели, с которыми создавались сессии (null — без модели), и модели, запрошенные через modelSet */
+	createdModels: Array<string | null> = []
+	modelSets: string[] = []
 	/** id созданных в этом порту сессий в порядке создания (для тестов, где id не должны хардкодиться — счётчик общий на процесс). */
 	createdIds: string[] = []
 	subscribedFrom: Array<{ sessionId: string; lastSeq: number | null }> = []
@@ -55,6 +67,11 @@ export class FakeAgentPort implements AgentPort {
 	private seq = 0
 	private readonly autoRespond: boolean
 	private readonly stepMs: number
+	private readonly reportModel: boolean
+	private readonly defaultModel: string | null
+	private readonly actualModelOf: (requested: string | null) => string | null
+	/** запрошенная модель по сессии */
+	private readonly models = new Map<string, string | null>()
 	private readonly scenarios: ScenarioPlayer
 	private readonly sessions = new Map<string, FakeSession>()
 	/** сессии, созданные в этом порту (живут и после закрытия — для резюма; в новом порту их нет). */
@@ -62,13 +79,17 @@ export class FakeAgentPort implements AgentPort {
 
 	constructor(opts: FakeAgentPortOptions = {}) {
 		this.autoRespond = opts.autoRespond ?? true
+		this.capabilities = { streamText: true, midTurn: true, permissionVote: true, setModel: true, ...opts.capabilities }
+		this.reportModel = opts.reportModel ?? false
+		this.defaultModel = opts.defaultModel ?? null
+		this.actualModelOf = opts.actualModelOf ?? (m => m)
 		this.stepMs = opts.stepMs ?? 10
 		// в autoRespond-режиме (интеграция/conformance) mid-turn в идущий ход принимается, как у настоящего рантайма
 		this.acceptMidTurn = opts.autoRespond ?? true
 		this.scenarios = new ScenarioPlayer((s, port) => this.emitPort(s, port), this.stepMs)
 	}
 
-	async sessionCreate(): Promise<{ sessionId: string }> {
+	async sessionCreate(_cwd?: string, opts?: SessionCreateOptions): Promise<{ sessionId: string }> {
 		if (this.failCreate > 0) {
 			this.failCreate--
 			throw new Error('nessy недоступен')
@@ -83,6 +104,8 @@ export class FakeAgentPort implements AgentPort {
 		this.createdIds.push(sessionId)
 		this.sessions.set(sessionId, { id: sessionId, subscriber: null, ready: false, permissions: new Map(), hang: false, named: false })
 		this.known.add(sessionId)
+		this.createdModels.push(opts?.model ?? null)
+		this.models.set(sessionId, opts?.model ?? null)
 		return { sessionId }
 	}
 
@@ -158,7 +181,15 @@ export class FakeAgentPort implements AgentPort {
 
 	async modelSet(sessionId: string, model: string): Promise<void> {
 		await delay(0)
-		if (this.autoRespond) this.emitPort(this.ensure(sessionId), { type: 'model.switched', data: { model } })
+		if (!this.capabilities.setModel) throw new AppError(501, 'model_not_supported', 'смена модели недоступна')
+		this.modelSets.push(model)
+		this.models.set(sessionId, model)
+		if (!this.autoRespond) return
+		const s = this.ensure(sessionId)
+		const actual = this.reportModel ? this.actualModelOf(model) : model
+		if (actual !== null && !modelMatches(model, actual))
+			this.emitPort(s, { type: 'model.switch_failed', data: { expected: model, actual, message: `рантайм выбрал ${actual}` } })
+		else this.emitPort(s, { type: 'model.switched', data: { model } })
 	}
 
 	subscribe(sessionId: string, opts: PortSubscribeOptions): PortSubscription {
@@ -168,12 +199,23 @@ export class FakeAgentPort implements AgentPort {
 		if (!s.ready) {
 			s.ready = true
 			opts.onEvent(this.wrap(sessionId, { type: 'session.ready', data: { sessionId } }))
+			if (this.reportModel) this.confirmModel(s)
 		}
 		return {
 			close(): void {
 				if (s.subscriber === opts.onEvent) s.subscriber = null
 			},
 		}
+	}
+
+	/** Как system/init: фактическая модель сессии и, при расхождении с запрошенной, model.switch_failed. */
+	private confirmModel(s: FakeSession): void {
+		const requested = this.models.get(s.id) ?? null
+		const actual = this.actualModelOf(requested ?? this.defaultModel)
+		if (actual === null) return
+		this.emitPort(s, modelConfirmEvent(actual))
+		if (requested !== null && !modelMatches(requested, actual))
+			this.emitPort(s, { type: 'model.switch_failed', data: { expected: requested, actual, message: `рантайм выбрал ${actual}` } })
 	}
 
 	/** Прислать нативные SessionEvent всем подписанным сессиям; нормализуются в события порта. */

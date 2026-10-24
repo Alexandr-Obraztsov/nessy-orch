@@ -12,6 +12,7 @@ import type { RolePresetSource } from './application/ports'
 import type { SpaceFactory } from './application/ports'
 import type { AppInstance } from './app.types'
 import type { Config } from './infrastructure/config/config.types'
+import { buildRuntimeCatalog } from './infrastructure/config/runtime-catalog'
 import { FileRolePackages } from './infrastructure/persistence/role-packages'
 import { FileRolePresets } from './infrastructure/persistence/role-presets'
 import { FileStore } from './infrastructure/persistence/file-store'
@@ -25,6 +26,7 @@ export function buildApp(config: Config, version: string, overrides: { spaceFact
 		settings: config,
 		store,
 		rolePackages: new FileRolePackages(path.join(config.home, 'role-packages')),
+		runtimes: buildRuntimeCatalog(config),
 		spaceFactory:
 			overrides.spaceFactory ??
 			((init, listener) => {

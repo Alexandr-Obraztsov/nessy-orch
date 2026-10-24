@@ -1,6 +1,7 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
 import type {
 	AttachRequest,
+	ModelRequest,
 	RoleRequest,
 	RuntimeId,
 	SendRequest,
@@ -85,6 +86,11 @@ export function parseRoleRequest(b: unknown): RoleRequest {
 	if (icon !== undefined && typeof icon !== 'string') throw new AppError(400, 'bad_request', 'icon — строка')
 	const packageDir = b['packageDir']
 	if (packageDir !== undefined && typeof packageDir !== 'string') throw new AppError(400, 'bad_request', 'packageDir — строка')
+	const model = b['model']
+	if (model !== undefined && model !== null && typeof model !== 'string') throw new AppError(400, 'bad_request', 'model — строка или null')
+	const rawRuntime = b['runtime']
+	// пустая строка и null убирают рантайм роли; остальное — известный рантайм
+	const runtime = rawRuntime === '' || rawRuntime === null ? null : optRuntime(rawRuntime)
 	const out = {
 		name: b['name'],
 		instructions: b['instructions'],
@@ -92,6 +98,8 @@ export function parseRoleRequest(b: unknown): RoleRequest {
 		color,
 		icon,
 		id,
+		...(model !== undefined ? { model } : {}),
+		...(runtime !== undefined ? { runtime } : {}),
 		...(packageDir ? { packageDir } : {}),
 	}
 	return out as RoleRequest
@@ -104,6 +112,12 @@ export function parsePlanRequest(b: unknown): { from?: string; entries: unknown[
 	if (from !== undefined && typeof from !== 'string') throw new AppError(400, 'bad_request', 'from — строка')
 	const out = { from, entries: b['entries'] }
 	return out as { from?: string; entries: unknown[] }
+}
+
+/** Смена модели агента: model — непустая строка (формат проверяет домен). */
+export function parseModelRequest(b: unknown): ModelRequest {
+	if (!isObject(b) || typeof b['model'] !== 'string' || !b['model'].trim()) throw new AppError(400, 'bad_request', 'нужно поле model (непустая строка)')
+	return { model: b['model'].trim() }
 }
 
 /** Решение по разрешению: всё, кроме явного `approve: false`, — разрешить. */

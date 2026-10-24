@@ -110,7 +110,7 @@ public enum Numbers {
 	/// Счётчики агента одной строкой: «1 ход · 4 вызова · 2,8 тыс. токенов».
 	public static func statsLine(_ s: AgentStats) -> String {
 		var p = [count(s.turns, "ход", "хода", "ходов"), count(s.toolCalls, "вызов", "вызова", "вызовов")]
-		if let t = s.tokens { p.append("\(compact(t.total)) токенов") }
+		if let t = s.tokens, t.total > 0 { p.append("\(compact(t.total)) токенов") }
 		return p.joined(separator: " · ")
 	}
 }

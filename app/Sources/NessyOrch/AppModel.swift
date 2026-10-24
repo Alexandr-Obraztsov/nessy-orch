@@ -380,8 +380,18 @@ final class AppModel {
 	func saveRole(id: String?, _ d: RoleDraft) async -> RoleView? {
 		do {
 			let t = d.trimmed
-			return try await store.client.saveRole(id: id, name: t.name, description: t.description, instructions: t.instructions, color: t.color, icon: t.icon)
+			// PUT заменяет роль целиком: пустая модель/рантайм у существующей роли передаётся как "" (убрать), у новой — не передаётся
+			let m: String? = t.model.isEmpty && id == nil ? nil : t.model
+			let r: String? = t.runtime.isEmpty && id == nil ? nil : t.runtime
+			return try await store.client.saveRole(id: id, name: t.name, description: t.description, instructions: t.instructions, color: t.color, icon: t.icon, model: m, runtime: r)
 		} catch { flash("Роль не сохранена: \(error.localizedDescription)", error: true); return nil }
+	}
+	/// Сменить модель живого агента; итог придёт событием агента, ошибки (409/502) — читаемым текстом.
+	func setModel(_ a: AgentView, to modelId: String) {
+		Task {
+			do { try await store.client.setModel(agent: a.id, model: modelId); flash("Модель: запрошена \(RuntimeLogic.shortModel(modelId) ?? modelId)") }
+			catch { flash(error.localizedDescription, error: true) }
+		}
 	}
 	func deleteRole(_ id: String) async -> Bool {
 		do { try await store.client.deleteRole(id); return true }

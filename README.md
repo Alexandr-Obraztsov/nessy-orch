@@ -10,9 +10,9 @@
 
 ## Возможности
 
-- **Пространства (spaces).** Пространство = каталог-воркспейс + процесс `nessy serve`, который запускает оркестратор
-  (managed), либо уже запущенный демон по URL (external). Порты выделяются автоматически.
-- **Агенты.** Каждый агент — независимая сессия nessy (`sessionScope: thread`). Статусы простые: `starting`,
+- **Пространства (spaces).** Пространство = каталог-воркспейс. Агент в нём работает через рантайм: `nessy-sdk`
+  (встроенный, по умолчанию) или `tclaude` (локальный Claude Code); выбор — `spawn --runtime`.
+- **Агенты.** Каждый агент — независимая сессия рантайма. Статусы простые: `starting`,
   `working`, `idle`, `error`. У агента есть очередь сообщений: сообщения агентов друг другу ждут своей очереди,
   а сообщение работающему агенту его не прерывает: оно уходит в идущий ход (агент увидит его между шагами), не приняли — встаёт в очередь (`send --interrupt` — прервать и доставить первым).
   Очередь переживает рестарт.
@@ -33,13 +33,13 @@
   ожидания (`409 deadlock`), проверка `Host`/`Origin` (защита от DNS-rebinding и CSRF из браузера).
 - **Права.** По умолчанию запросы прав подтверждаются автоматически (с записью в журнал агента). При
   `ORCH_AUTO_APPROVE=0` запросы ждут решения в приложении или через API.
-- **Устойчивость.** Падение `nessy serve` или рестарт оркестратора — сессия агента восстанавливается при следующем
+- **Устойчивость.** Падение процесса агента или рестарт оркестратора — сессия агента восстанавливается при следующем
   обращении. Состояние и роли пишутся атомарно в `~/.nessy-orch/`.
-- **CLI** — единый бинарь `nessy-orch`: предсказуемый вывод, `--json`, блокирующий (`--wait`) и фоновый режимы.
+- **CLI** — единый бинарь `nessy-orch`: предсказуемый вывод, `--json`, блокирующий и фоновый (`--no-wait`) режимы.
 
 ## Быстрый старт
 
-Нужен Node.js ≥ 20 и установленный `nessy` (по умолчанию `~/.local/bin/nessy`).
+Нужен Node.js ≥ 20; рантайм `nessy-sdk` ставится как зависимость npm, для `tclaude` нужен `tclaude` в PATH (или `TCLAUDE_PATH`).
 
 ```sh
 cd ~/Projects/nessy-orch
@@ -60,8 +60,8 @@ bin/nessy-orch uninstall
 ```
 
 Сервис стартует через login shell пользователя (`zsh -lic`), поэтому получает то же окружение, что и терминал:
-`PATH`, прокси, корпоративные сертификаты, токены из `~/.zprofile` и `~/.zshrc`. Без них канал nessy
-(`nessy-acp-agent`) не может стартовать, и создание сессии падает с `AcpSessionBridge newSession timeout`.
+`PATH`, прокси, корпоративные сертификаты, токены из `~/.zprofile` и `~/.zshrc`. Без них рантайм агента
+не может стартовать, и создание сессии падает по таймауту.
 После изменения этих настроек перезапустите сервис: `launchctl kickstart -k gui/$(id -u)/com.nessy.orch`.
 Не запускайте второй экземпляр руками, пока работает сервис: выберите один способ.
 
@@ -75,7 +75,7 @@ bin/nessy-orch feed -n 20
 
 ### Демо без настоящего nessy
 
-В комплекте есть фейковый `nessy serve`: он повторяет контракт API и отвечает по простым правилам. Этого хватает,
+В комплекте есть фейковый агент: он повторяет контракт `AgentPort` и отвечает по простым правилам. Этого хватает,
 чтобы посмотреть интерфейс и прогнать тесты.
 
 ```sh
@@ -130,29 +130,28 @@ defaults write com.nessy.orch.app serverURL "http://127.0.0.1:4338"   # друг
 
 ## CLI
 
-```text
-nessy-orch session new "<заголовок>" [--owner X] [--id slug]   # один раз на разговор: id и ссылка nessy-orch://session/<id>
-nessy-orch session ls [--all] | session show <id> | session sources <id> | session reopen <id> | session rm <id>
-nessy-orch session done <id> [--summary "…" | --summary-file F]
-nessy-orch spawn [--session S] [--space S] [--name N] [--title "заголовок"] [--role R] [--no-wait] [--timeout СЕК] "задача"   # ждёт ответ и печатает его (в фоне)
-nessy-orch send <агент|you> "текст" [--no-wait] [--interrupt] [--timeout СЕК] [--from ID]   # ждёт ответ (агент с --from по умолчанию не ждёт)
-nessy-orch wait <агент> [--timeout СЕК]   # дождаться, пока агент освободится, и вывести его последний ответ (код 3 — ещё работает)
-nessy-orch ask <путь|space> "задача" [--session S]   # spawn в другом каталоге
-nessy-orch ls [--all] [--session S] | show <агент> | watch <агент> | cancel <агент> | kill <агент>
-nessy-orch archive <агент> | restore <агент>
-nessy-orch plan <агент> | plan --from <свой id> "- [x] …" "- [~] …" "- [ ] …" [--clear]   # план агента: показать | опубликовать (агент сам)
-nessy-orch role ls | role add <имя> --instructions "…" | --file <путь> [--description D] [--id ID] [--color 0..360|blue|синий] [--icon SF-Symbol] | role show <id> | role rm <id>
-nessy-orch role set <id> [--name N] [--description D] [--instructions "…" | --file путь] [--color …] [--icon …]   # частичная правка
-nessy-orch role import [путь] [--force] [--dry-run]   # роли из markdown-файлов (по умолчанию roles/); role export <id> [--out файл]
-nessy-orch feed [-n 30] [--follow]
-nessy-orch space add <путь> [--name N] [--url URL] | space ls | space rm <имя> [--force]
-nessy-orch . | nessy-orch app [папка]   # открыть приложение с терминалом в этой папке (nessy-orch ~/proj тоже работает)
-nessy-orch status | open [<id сессии>] | install [--print] | uninstall
-```
+Один бинарь `nessy-orch` (`bin/nessy-orch`). Справка: `nessy-orch --help`. Алиасов и старых форм нет.
 
-Полезный результат (ответ агента, JSON) выводится в stdout, служебные сообщения — в stderr. Флаг `--json` есть у всех
-команд. `send` работающему агенту его не прерывает (`--interrupt` — прервать). `ls` скрывает агентов в архиве,
-`ls --all` показывает всех. `--session` у `spawn`, `ask`, `ls` по умолчанию берётся из `NESSY_ORCH_SESSION`.
+| Команда | Что делает |
+|---|---|
+| `spawn [--session S] [--name N] [--title "…"] [--role R] [--runtime nessy-sdk\|tclaude] [--model M] [--no-wait] [--timeout СЕК] "задача"` | Создать агента и отправить задачу; ждёт ответ и печатает его (код 3 — не дождались, дальше `wait`). Запускать в фоне |
+| `send <агент\|you> "текст" [--no-wait] [--interrupt] [--timeout СЕК] [--from ID]` | Сообщение агенту; ждёт ответ (агент с `--from` по умолчанию не ждёт). Работающего агента не прерывает, `--interrupt` — прервать |
+| `wait <агент> [--timeout СЕК]` | Дождаться, пока агент освободится, и вывести его последний ответ |
+| `ask <путь\|space> "задача" [--session S]` | `spawn` в другом каталоге |
+| `ls [--all] [--session S]` | Дерево агентов: рантайм, модель (`запрошено X` — рантайм подставил другую), статус, контекст % (архив — только с `--all`) |
+| `show <агент>` · `plan <агент>` · `plan --from <id> "- [x] …" "- [~] …" "- [ ] …" [--clear]` | События агента; план (показать или опубликовать от агента) |
+| `model <агент> <модель>` · `runtime ls` | Сменить модель свободного агента (409 `model_switch_unsupported` — рантайм не умеет, `busy` — агент занят, 502 `model_switch_failed`); каталог рантаймов: доступность, модель по умолчанию, модели, возможности |
+| `cancel <агент>` · `kill <агент>` · `archive <агент>` · `restore <агент>` | Прервать ход, удалить, убрать в архив, вернуть |
+| `session new "<заголовок>" [--owner X] [--id slug]` · `ls [--all]` · `show <id>` · `sources <id>` · `done <id> [--summary "…"]` · `reopen <id>` · `rm <id>` | Сессии (`session new` — один раз на разговор вне приложения) |
+| `role ls` · `show <id>` · `add <имя> --instructions "…"\|--file F [--description D] [--id ID] [--color 0..360] [--icon SF] [--model M] [--runtime nessy-sdk\|tclaude]` · `update <id> [те же флаги]` · `rm <id>` · `import [путь] [--force] [--dry-run]` | Роли (`--model ""` / `--runtime ""` убирают значение); `import` грузит markdown-пресеты (по умолчанию `roles/`) |
+| `space add <путь> [--name N] [--url URL]` · `space ls` · `space rm <имя>` | Пространства |
+| `feed [-n 30] [--follow]` | Общая лента сообщений |
+| `status` · `open [<id сессии>]` · `app [папка]` (или `nessy-orch .`) | Состояние оркестратора; открыть приложение (на сессии / с терминалом в папке) |
+| `install [--print] [--ensure]` · `uninstall` | Служба launchd (из обычного терминала) |
+| `hook start` | Хук SessionStart плагина Claude Code; руками не вызывается |
+
+Полезный результат (ответ агента, JSON) выводится в stdout, служебные сообщения — в stderr. Флаг `--json` есть у большинства
+команд. `--session` у `spawn`, `ask`, `ls` по умолчанию берётся из `NESSY_ORCH_SESSION`. Переменные: `ORCH_PORT`, `NESSY_ORCH_TOKEN`, `NO_COLOR`.
 `session rm` отказывает (`409 session_busy`), пока в сессии работают агенты; агенты удалённой сессии остаются вне сессий.
 
 ## Плагин для Claude Code
@@ -238,10 +237,6 @@ nessy-orch, Claude не выполняет задачу сам, а проход�
 |---|---|---|
 | `ORCH_PORT` | `4337` | Порт API |
 | `NESSY_ORCH_HOME` | `~/.nessy-orch` | Состояние, журналы, логи |
-| `NESSY_BIN` | `~/.local/bin/nessy` | Исполняемый файл nessy |
-| `NESSY_SERVE_ARGS` | — | Дополнительные аргументы `nessy serve` |
-| `SERVE_BASE_PORT` | `4360` | Начало пула портов для `nessy serve` |
-| `MAX_SESSIONS` | `32` | `--max-sessions` демона пространства (живых сессий; закрытые по простою не считаются) |
 | (авто) | `<home>/token` | Токен оператора (0600): приложение и терминал главного агента (`NESSY_ORCH_TOKEN`). Без него изменения API недоступны, агентам остаются команды от своего имени по ключу из вводной (`docs/api.md`, «Доступ») |
 | `ORCH_MAX_DEPTH` | `2` | Глубина порождения: агент оператора — 0; агент, запущенный агентом, — 1 и т. д. Глубже — `429 depth_exceeded` |
 | `ORCH_MAX_ACTIVE` | `12` | Сколько агентов сессии работают одновременно (`429 too_many_active`) |
@@ -249,15 +244,18 @@ nessy-orch, Claude не выполняет задачу сам, а проход�
 | `ORCH_MAX_SESSIONS` | `10` | Сколько сессий хранить: лишние давние (без работающих агентов, 30 мин без активности) удаляются при создании новой |
 | `ORCH_AGENT_TTL_MIN` | `360` | Через сколько минут простоя завершённый (архивный) агент удаляется автоматически (`0` — не удалять) |
 | `ORCH_IDLE_CLOSE_SEC` | `120` | Через сколько секунд простоя закрывать сессию nessy агента (контекст сохраняется, сообщение поднимает её; `0` — не закрывать) |
+| `ORCH_SDK_MODEL` | — | Модель рантайма `nessy-sdk` (верифицируется по `system/init`) |
+| `ORCH_SDK_PERMISSION_MODE` | — | Режим прав `nessy-sdk`: `default`, `plan`, `auto-edit`, `auto` |
+| `TCLAUDE_PATH` | `tclaude` | Исполняемый файл tclaude |
+| `ORCH_TCLAUDE_MODEL`, `ORCH_TCLAUDE_PERMISSION_MODE` | — | Модель и режим прав рантайма `tclaude` |
 | `ORCH_AUTO_APPROVE` | `1` | Автоподтверждение прав агентов |
 | `ORCH_TURN_RETRIES` | `2` | Сколько раз повторять поручение, если ход агента оборвался ошибкой nessy (`0` — не повторять) |
 | `ORCH_MAX_HOPS` | `8` | Максимальная длина цепочки агент → агент |
 | `ORCH_RATE_LIMIT` | `30` | Сообщений на пару в минуту |
-| `ORCH_HEALTH_TIMEOUT_MS` | `60000` | Ожидание готовности `nessy serve` |
 | `ORCH_WARM_SESSIONS` | `2` | Заранее созданных сессий nessy на пространство (быстрый запуск агентов; `0` — выключено) |
 | `ORCH_SEED_ROLES` | `1` | Заливать готовые роли из `roles/` (все при первом запуске, потом только новые; роль-пакет — папка с `role.md`, см. [roles/README.md](roles/README.md)) |
 
-Логи: `~/.nessy-orch/logs/space-<имя>.log` (serve). При запуске через launchd лог оркестратора пишется в `orch.{out,err}.log`.
+При запуске через launchd лог оркестратора пишется в `~/.nessy-orch/logs/orch.{out,err}.log`.
 
 ## Архитектура
 
@@ -274,19 +272,20 @@ src/
     agent/               агент: очередь, ход, журнал событий
     services/            spaces / messaging / agents / roles / sessions / sources
   infrastructure/        адаптеры портов
-    nessy/               клиент nessy serve и чистый маппер событий — единственное место, знающее протокол nessy
+    nessy/               адаптер AgentPort поверх nessy-sdk — единственное место, знающее протокол nessy
+    tclaude/             адаптер AgentPort поверх headless tclaude
     persistence/         state.json, roles.json и sessions.json (атомарно) + JSONL-журналы (события агентов, лента, sources/<сессия>.jsonl)
-    process/             запуск и контроль процессов nessy serve
+    process/             пространства: SdkSpace, TclaudeSpace
     sse/, config/        SSE-парсер и форматтер, загрузка конфигурации
   interfaces/
     http/                HTTP-сервер: роутер, guard (Host/Origin), валидация тел, SSE, routes/*
-    cli/                 CLI: аргументы, клиент API, форматирование, commands/*, launchd
+    cli/                 CLI: main, dispatch, flags, commands/*, transport (HTTP/SSE), форматирование, launchd
 app/                     нативное приложение macOS (SwiftPM): NessyKit (модель, API, SSE, состояние) и NessyOrch (SwiftUI)
 test/
   unit/                  lib, domain, application, infrastructure, interfaces
   integration/           api, messaging, lifecycle, archive, roles, role-presets, plan, streams, persistence, sessions
-  support/               тестовый стенд, фейковый nessy serve
-docs/                    требования, контракт nessy serve (ACP), дизайн приложения, исследование аналогов
+  support/               тестовый стенд, фейковый AgentPort
+docs/                    требования, контракт nessy (ACP), дизайн приложения, исследование аналогов
 ```
 
 Подробнее: [docs/requirements.md](docs/requirements.md), [docs/contract/README.md](docs/contract/README.md).
@@ -312,13 +311,7 @@ npm run check          # typecheck + lint + test
 - Форматы `nessy/error` и `prompt_cancelled` взяты из референсного кода nessy и живьём ещё не проверены.
 - Аутентификации нет, доступ только с loopback.
 
-### Если сессии не создаются (newSession timeout)
+### Если сессии не создаются (таймаут)
 
-Почти всегда это окружение: nessy запущен без прокси, сертификатов или токенов, которые есть в терминале.
-Проверьте, что оркестратор запущен из обычного терминала или сервисом через `install` (login shell), а не из-под
-Claude Code. Проверка без оркестратора:
-
-```sh
-~/.local/bin/nessy serve --port 4399 --hostname 127.0.0.1 --no-web --workspace <каталог> &
-curl -s -XPOST 127.0.0.1:4399/session -H 'content-type: application/json' -d '{"cwd":"<каталог>","sessionScope":"thread"}'
-```
+Почти всегда это окружение: рантайм запущен без прокси, сертификатов или токенов, которые есть в терминале.
+Проверьте, что оркестратор запущен из обычного терминала или сервисом через `install` (login shell), а не из-под Claude Code.

@@ -11,11 +11,13 @@ import type { Hub } from './hub'
 import type { OrchestratorDeps } from './orchestrator.types'
 import type { RolePackagePort, StorePort } from './ports'
 import type { Registry } from './registry'
+import { builtinRuntimes } from './runtime-catalog'
 import { SessionPool } from './session-pool'
 import { AgentsService } from './services/agents.service'
 import type { ServiceContext } from './services/context.types'
 import { MessagingService } from './services/messaging.service'
 import { RolesService } from './services/roles.service'
+import { RuntimesService } from './services/runtimes.service'
 import { SpacesService } from './services/spaces.service'
 import { SessionsService } from './services/sessions.service'
 import { SourcesService } from './services/sources.service'
@@ -59,6 +61,7 @@ export interface OrchestratorAssembly {
 	rolesSvc: RolesService
 	sessionsSvc: SessionsService
 	sourcesSvc: SourcesService
+	runtimesSvc: RuntimesService
 }
 
 export function assembleOrchestrator(deps: OrchestratorDeps, host: OrchestratorHost): OrchestratorAssembly {
@@ -106,5 +109,6 @@ export function assembleOrchestrator(deps: OrchestratorDeps, host: OrchestratorH
 	const sessionsSvc = new SessionsService(ctx, deps.sessionSuffix)
 	const sourcesSvc = new SourcesService(ctx, sessionsSvc)
 	const agentsSvc = new AgentsService(ctx, spacesSvc, messaging, rolesSvc, sessionsSvc)
-	return { store, startedAt, feed, pool, ctx, spacesSvc, messaging, agentsSvc, rolesSvc, sessionsSvc, sourcesSvc }
+	const runtimesSvc = new RuntimesService(ctx, deps.runtimes ?? (() => builtinRuntimes()))
+	return { store, startedAt, feed, pool, ctx, spacesSvc, messaging, agentsSvc, rolesSvc, sessionsSvc, sourcesSvc, runtimesSvc }
 }

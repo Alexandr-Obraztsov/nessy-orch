@@ -29,28 +29,93 @@ struct RoleChip: View {
 	}
 }
 
-/// Капсула рантайма агента (nessy-sdk/tclaude) и, если задана, модель. Нет рантайма (старые снимки) — не рисуется.
+/// Капсула рантайма: значок и название («nessy», «Claude Code»). Нет рантайма — nessy. Модель — отдельно (`ModelLine`, `ModelMenu`).
 struct RuntimeBadge: View {
 	var runtime: String?
-	var model: String?
+
+	private var symbol: String {
+		switch RuntimeLogic.id(runtime) {
+		case "nessy-sdk": "sparkle"
+		case "tclaude": "terminal"
+		default: "cpu"
+		}
+	}
+
 	var body: some View {
-		if let runtime, !runtime.isEmpty {
-			let label = [runtime, model].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: " · ")
-			if !label.isEmpty {
-				HStack(spacing: 4) {
-					Image(systemName: "cpu").font(.system(size: 9, weight: .semibold))
-					Text(label).font(DS.Typography.caption.weight(.medium)).lineLimit(1)
+		HStack(spacing: 4) {
+			Image(systemName: symbol).font(.system(size: 9, weight: .semibold))
+			Text(RuntimeLogic.name(runtime)).font(DS.Typography.caption.weight(.medium)).lineLimit(1)
+		}
+		.foregroundStyle(DS.Palette.textSecondary)
+		.padding(.horizontal, 6).padding(.vertical, 1)
+		.background(DS.Palette.hover, in: Capsule())
+		.help("Рантайм: \(RuntimeLogic.name(runtime))")
+	}
+}
+
+/// Модель агента тихой строкой: короткая форма и, если запрошена другая или не подтверждена, пометка «запрошена X» с иконкой. Нет модели — не рисуется.
+struct ModelLine: View {
+	var agent: AgentView
+
+	var body: some View {
+		if let c = RuntimeLogic.modelCaption(agent) {
+			HStack(spacing: 4) {
+				Image(systemName: "cube").font(.system(size: 9, weight: .medium))
+				Text(c.text).lineLimit(1)
+				if let r = c.requested {
+					Image(systemName: "exclamationmark.triangle").font(.system(size: 9, weight: .semibold))
+					Text("запрошена \(r)").lineLimit(1).foregroundStyle(DS.Palette.textTertiary)
 				}
-				.foregroundStyle(DS.Palette.textSecondary)
-				.padding(.horizontal, 6).padding(.vertical, 1)
-				.background(DS.Palette.hover, in: Capsule())
-				.help(model.map { "Рантайм \(runtime), модель \($0)" } ?? "Рантайм \(runtime)")
 			}
+			.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+			.frame(maxWidth: .infinity, alignment: .leading)
+			.help(c.help)
+			.accessibilityElement(children: .ignore)
+			.accessibilityLabel(c.requested.map { "модель \(c.text), запрошена \($0)" } ?? "модель \(c.text)")
+		}
+	}
+}
+
+/// Меню «Модель» в шапке агента: модели его рантайма, текущая отмечена. Рантайм не умеет менять модель — просто строка модели; занятому агенту меню недоступно.
+struct ModelMenu: View {
+	@Environment(AppModel.self) private var model
+	var agent: AgentView
+	@State private var hover = false
+
+	var body: some View {
+		let info = model.store.runtimeInfo(of: agent)
+		if RuntimeLogic.supportsModelSwitch(info) {
+			let options = RuntimeLogic.modelOptions(info, current: agent.model)
+			let busy = RuntimeLogic.isBusy(agent)
+			Menu {
+				ForEach(options, id: \.id) { m in
+					Button { model.setModel(agent, to: m.id) } label: {
+						if RuntimeLogic.isSelected(m, current: agent.model) { Label(m.label, systemImage: "checkmark") } else { Text(m.label) }
+					}
+				}
+			} label: {
+				HStack(spacing: 3) {
+					Text(RuntimeLogic.shortModel(agent.model) ?? "Модель").lineLimit(1)
+					if RuntimeLogic.modelCaption(agent)?.requested != nil { Image(systemName: "exclamationmark.triangle").font(.system(size: 9, weight: .semibold)) }
+					Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+				}
+				.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+				.padding(.horizontal, 6).padding(.vertical, 1)
+				.background(hover && !busy ? DS.Palette.hover : .clear, in: Capsule())
+			}
+			.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+			.disabled(busy || model.isOffline)
+			.onHover { hover = $0 }
+			.help(busy ? "Модель меняется, когда агент закончил ход и очередь пуста" : (RuntimeLogic.modelCaption(agent)?.help ?? "Сменить модель"))
+		} else if let c = RuntimeLogic.modelCaption(agent) {
+			ModelLine(agent: agent).fixedSize().help(c.help)
 		}
 	}
 }
 
 extension AppModel {
+	/// Рантайм агента для показа: свой, иначе пространства, иначе nessy-sdk.
+	func runtimeId(of a: AgentView) -> String { RuntimeLogic.id(of: a, spaces: store.spaces) }
 	/// Роль агента для показа: имя, иконка, оттенок. Нет роли — nil; неизвестная роль — серая с её названием.
 	func roleInfo(of a: AgentView) -> (name: String, icon: String?, hue: Double, description: String)? {
 		guard let id = a.role else { return nil }

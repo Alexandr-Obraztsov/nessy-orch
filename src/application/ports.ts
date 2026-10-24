@@ -2,7 +2,20 @@
  * Порты прикладного слоя: что ядру нужно от внешнего мира (nessy, процессы, хранилище, часы, id).
  * Только типы — реализации живут в infrastructure/ и подключаются в src/main.ts.
  */
-import type { AgentEvent, Message, PlanEntry, RoleView, RuntimeId, SpaceStatus, SpaceView, SessionView, SourceView, ToolStatus } from '../../shared/types'
+import type {
+	AgentEvent,
+	Message,
+	PlanEntry,
+	RoleView,
+	RuntimeCapabilities,
+	RuntimeId,
+	RuntimeModel,
+	SpaceStatus,
+	SpaceView,
+	SessionView,
+	SourceView,
+	ToolStatus,
+} from '../../shared/types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
 import type { AgentPort } from './agent-port'
 import type { PersistedState } from './persisted.types'
@@ -83,6 +96,20 @@ export interface SpaceRuntime {
 	killSync(): void
 	toJSON(): SpaceView
 }
+
+/** Описание рантайма из конфигурации и окружения (до добавления моделей, встреченных у агентов). */
+export interface RuntimeDescriptor {
+	id: RuntimeId
+	label: string
+	defaultModel: string | null
+	/** подтверждённые модели рантайма */
+	models: RuntimeModel[]
+	capabilities: RuntimeCapabilities
+	available: boolean
+}
+
+/** Источник описаний рантаймов: вызывается на каждый `GET /runtimes` (доступность бинаря может меняться). */
+export type RuntimeCatalogSource = () => RuntimeDescriptor[]
 
 export type SpaceFactory = (init: SpaceInit, listener: SpaceListener) => SpaceRuntime
 

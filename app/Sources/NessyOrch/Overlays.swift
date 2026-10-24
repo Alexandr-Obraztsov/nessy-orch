@@ -148,7 +148,10 @@ struct RolesView: View {
 				HStack(spacing: DS.Metrics.s3) {
 					RoleIconTile(icon: r.icon, hue: r.color)
 					VStack(alignment: .leading, spacing: 2) {
-						Text(r.name).font(.body.weight(.medium)).lineLimit(1)
+						HStack(spacing: DS.Metrics.s2) {
+							Text(r.name).font(.body.weight(.medium)).lineLimit(1)
+							if let m = RuntimeLogic.shortModel(r.model) { Text(m).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary).lineLimit(1).layoutPriority(-1) }
+						}
 						Text(r.description.isEmpty ? "Без описания" : r.description)
 							.font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary).lineLimit(1)
 					}
@@ -196,6 +199,8 @@ struct RolesView: View {
 							}
 						}
 
+						modelRow
+
 						// у существующей роли — вкладки «Инструкции» и «Файлы» (скрипты, шаблоны, справочники): файлы правятся здесь же
 						if let r = current, !isNew {
 							Picker("", selection: $tab) {
@@ -228,6 +233,46 @@ struct RolesView: View {
 					.padding(.horizontal, DS.Metrics.s8).padding(.top, DS.Metrics.s4).padding(.bottom, DS.Metrics.s4)
 				}
 				.scrollEdgeEffectStyle(.soft, for: .bottom)
+			}
+		}
+	}
+
+	/// Рантайм черновика из каталога (пусто — nessy-sdk): от него зависит список моделей.
+	private var draftRuntime: RuntimeInfo? { RuntimeLogic.info(draft.runtime, in: model.store.runtimes) }
+
+	/// Модель и рантайм роли: меню из каталога плюс свободный ввод; пусто — по умолчанию.
+	private var modelRow: some View {
+		HStack(alignment: .top, spacing: DS.Metrics.s5) {
+			section("Модель субагента") {
+				HStack(spacing: DS.Metrics.s2) {
+					TextField("по умолчанию", text: $draft.model).textFieldStyle(.plain).font(.body)
+					Menu {
+						Button { draft.model = "" } label: { if draft.model.isEmpty { Label("По умолчанию", systemImage: "checkmark") } else { Text("По умолчанию") } }
+						Divider()
+						ForEach(RuntimeLogic.modelOptions(draftRuntime, current: nil), id: \.id) { m in
+							Button { draft.model = m.id } label: { if draft.model == m.id { Label(m.label, systemImage: "checkmark") } else { Text(m.label) } }
+						}
+					} label: { Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .semibold)) }
+						.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).foregroundStyle(DS.Palette.textSecondary).fixedSize()
+						.disabled(RuntimeLogic.modelOptions(draftRuntime).isEmpty)
+				}
+				.padding(.horizontal, DS.Metrics.s3).padding(.vertical, DS.Metrics.s2)
+				.background(DS.Palette.surface, in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous))
+				.overlay(RoundedRectangle(cornerRadius: DS.Metrics.groupRadius, style: .continuous).stroke(DS.Palette.separator, lineWidth: DS.Metrics.hairline))
+			}
+			if model.store.runtimes.count > 1 {
+				section("Рантайм") {
+					Menu {
+						Button { draft.runtime = "" } label: { if draft.runtime.isEmpty { Label("Как у пространства", systemImage: "checkmark") } else { Text("Как у пространства") } }
+						Divider()
+						ForEach(model.store.runtimes.filter(\.available)) { r in
+							Button { draft.runtime = r.id } label: { if draft.runtime == r.id { Label(RuntimeLogic.name(r.id), systemImage: "checkmark") } else { Text(RuntimeLogic.name(r.id)) } }
+						}
+					} label: {
+						Text(draft.runtime.isEmpty ? "Как у пространства" : RuntimeLogic.name(draft.runtime)).font(.body)
+					}
+					.menuStyle(.button).fixedSize()
+				}
 			}
 		}
 	}
