@@ -1,4 +1,4 @@
-import type { Clock, IdGenerator, RolePackagePort, RuntimeCatalogSource, SpaceFactory, StorePort } from './ports'
+import type { Clock, IdGenerator, LearningStorePort, PlaybookStorePort, RolePackagePort, RuntimeCatalogSource, SpaceFactory, StorePort } from './ports'
 import type { OrchSettings } from './settings.types'
 
 export interface OrchestratorDeps {
@@ -15,4 +15,8 @@ export interface OrchestratorDeps {
 	rolePackages?: RolePackagePort
 	/** описания рантаймов для `GET /runtimes`; по умолчанию — встроенные без дефолтных моделей */
 	runtimes?: RuntimeCatalogSource
+	/** хранилище фонового обучения; без него обучение выключено (learning = null) */
+	learningStore?: LearningStorePort
+	/** хранилище плейбуков; без него обучение работает как на этапе 1 (кейсы без плейбуков) */
+	playbookStore?: PlaybookStorePort
 }

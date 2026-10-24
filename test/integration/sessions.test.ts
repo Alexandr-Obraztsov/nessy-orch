@@ -108,14 +108,27 @@ describe('чат Claude ↔ сессия: attach и хук SessionStart', () => 
 		await h?.close()
 	})
 
+	let lastHookOut = ''
 	const hook = (port: number, session: string, stdin: object, extra: NodeJS.ProcessEnv = {}): Promise<number | null> =>
 		new Promise(resolve => {
 			const p = spawn(process.execPath, [CLI_MAIN, 'hook', 'start'], {
 				env: { ...process.env, ORCH_PORT: String(port), NO_COLOR: '1', NESSY_ORCH_SESSION: session, ...extra },
 			})
-			p.on('close', code => resolve(code))
+			let out = ''
+			p.stdout.on('data', (d: Buffer) => (out += d.toString()))
+			p.on('close', code => {
+				lastHookOut = out
+				resolve(code)
+			})
 			p.stdin.end(JSON.stringify(stdin))
 		})
+	/** additionalContext из ответа хука (пусто, если хук ничего не вывел). */
+	const hookContext = (): string => {
+		if (!lastHookOut.trim()) return ''
+		const j = JSON.parse(lastHookOut) as { hookSpecificOutput: { hookEventName: string; additionalContext: string } }
+		assert.equal(j.hookSpecificOutput.hookEventName, 'SessionStart')
+		return j.hookSpecificOutput.additionalContext
+	}
 
 	it('attach: чат уже привязан — та же сессия; новый чат (/clear) — новая сессия в той же папке, прежняя получает successor', T, async () => {
 		h = await startHarness()
@@ -145,15 +158,91 @@ describe('чат Claude ↔ сессия: attach и хук SessionStart', () => 
 		const envFile = path.join(hh.base, 'claude-env')
 		assert.equal(await hook(hh.port, first.id, { session_id: 'chat-bbbb-0001', cwd: '/tmp/hook-proj', source: 'startup' }, { CLAUDE_ENV_FILE: envFile }), 0)
 		assert.ok(!fs.existsSync(envFile), 'сессия та же — переменную менять незачем')
+		assert.match(hookContext(), /загрузи скилл nessy:nessy-orch/, 'в приложении хук велит загрузить скилл оркестратора')
+		assert.match(hookContext(), new RegExp(first.id))
 		assert.equal(await hook(hh.port, first.id, { session_id: 'chat-bbbb-0002', cwd: '/tmp/hook-proj', source: 'clear' }, { CLAUDE_ENV_FILE: envFile }), 0)
 		const created = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.chatId === 'chat-bbbb-0002')
 		assert.ok(created)
 		assert.match(fs.readFileSync(envFile, 'utf8'), new RegExp(`export NESSY_ORCH_SESSION='${created.id}'`))
 		assert.equal((await hh.api<SessionView>('GET', `/sessions/${first.id}`)).body.successor, created.id)
+		assert.match(hookContext(), new RegExp(created.id), 'после /clear в указании id новой сессии')
+		// оркестратор недоступен: привязки нет, но указание загрузить скилл всё равно приходит
+		assert.equal(await hook(1, first.id, { session_id: 'chat-bbbb-0004', source: 'compact' }), 0)
+		assert.match(hookContext(), /загрузи скилл nessy:nessy-orch/)
 		// без переменной окружения (вне приложения) и без чата хук молчит
 		assert.equal(await hook(hh.port, '', { session_id: 'chat-bbbb-0003' }, { CLAUDE_ENV_FILE: envFile }), 0)
+		assert.equal(hookContext(), '', 'вне приложения в контекст ничего не добавляется')
 		assert.ok(!(await hh.api<SessionView[]>('GET', '/sessions')).body.some(x => x.chatId === 'chat-bbbb-0003'))
 	})
+
+	it('hook prompt: оркестратор недоступен или нет переменной — пустой stdout, код 0, быстрее 2 с', T, async () => {
+		const run = (session: string): Promise<{ code: number | null; out: string; ms: number }> =>
+			new Promise(resolve => {
+				const t0 = Date.now()
+				const p = spawn(process.execPath, [CLI_MAIN, 'hook', 'prompt'], { env: { ...process.env, ORCH_PORT: '1', NO_COLOR: '1', NESSY_ORCH_SESSION: session } })
+				let out = ''
+				p.stdout.on('data', (d: Buffer) => (out += d.toString()))
+				p.on('close', code => resolve({ code, out, ms: Date.now() - t0 }))
+				p.stdin.end(JSON.stringify({ prompt: 'реализуй aff пакет' }))
+			})
+		for (const session of ['s-x', '']) {
+			const r = await run(session)
+			assert.equal(r.code, 0)
+			assert.equal(r.out, '')
+			assert.ok(r.ms < 2000, `хук уложился: ${r.ms} мс`)
+		}
+	})
+
+	it('hook start: transcript_path из stdin записывается в сессию чата', T, async () => {
+		const hh = h
+		assert.ok(hh)
+		assert.equal(
+			await hook(
+				hh.port,
+				'',
+				{ session_id: 'chat-tp-0001', cwd: '/tmp/tp-proj', transcript_path: '/tmp/tp-proj/chat-tp-0001.jsonl', source: 'startup' },
+				{ NESSY_ORCH_SESSION: 'x' },
+			),
+			0,
+		)
+		const s = (await hh.api<SessionView[]>('GET', '/sessions')).body.find(x => x.chatId === 'chat-tp-0001')
+		assert.ok(s)
+		assert.equal(s.transcriptPath, '/tmp/tp-proj/chat-tp-0001.jsonl')
+		assert.equal((await hh.api<SessionView>('GET', `/sessions/${s.id}`)).body.transcriptPath, '/tmp/tp-proj/chat-tp-0001.jsonl')
+	})
+
+	it(
+		'hook agent: первый Agent в ходе отклоняется с напоминанием, повтор в том же ходе проходит, новый ход — снова напоминание; вне приложения молчит',
+		T,
+		async () => {
+			const agentHook = (session: string, stdin: object): Promise<string> =>
+				new Promise(resolve => {
+					const p = spawn(process.execPath, [CLI_MAIN, 'hook', 'agent'], { env: { ...process.env, NO_COLOR: '1', NESSY_ORCH_SESSION: session } })
+					let out = ''
+					p.stdout.on('data', (d: Buffer) => (out += d.toString()))
+					p.on('close', code => {
+						assert.equal(code, 0)
+						resolve(out)
+					})
+					p.stdin.end(JSON.stringify(stdin))
+				})
+			const chat = `chat-agent-${process.pid}-${Date.now()}`
+			const call = (turn: string): object => ({
+				session_id: chat,
+				prompt_id: turn,
+				tool_name: 'Agent',
+				tool_input: { subagent_type: 'Explore', prompt: 'найди' },
+			})
+			const first = JSON.parse(await agentHook('s-1', call('turn-1'))) as {
+				hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string }
+			}
+			assert.equal(first.hookSpecificOutput.permissionDecision, 'deny')
+			assert.match(first.hookSpecificOutput.permissionDecisionReason, /nessy-orch spawn/)
+			assert.equal((await agentHook('s-1', call('turn-1'))).trim(), '', 'повтор в том же ходе проходит')
+			assert.match(await agentHook('s-1', call('turn-2')), /"deny"/, 'новый ход — снова напоминание')
+			assert.equal((await agentHook('', call('turn-3'))).trim(), '', 'вне приложения хук не вмешивается')
+		},
+	)
 })
 
 describe('CLI: spawn и send ждут результат сами, wait, --no-wait', () => {

@@ -30,4 +30,6 @@ export interface HarnessOptions {
 	base?: string
 	/** фабрика пространств вместо фейковой по умолчанию (для реальных рантаймов) */
 	spaceFactory?: SpaceFactory
+	/** false — стенд не читает блоки событий за фейкового агента-сборщика (по умолчанию читает) */
+	autoRead?: boolean
 }

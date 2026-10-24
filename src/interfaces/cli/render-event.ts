@@ -55,5 +55,8 @@ export function renderStreamEvent(ev: StreamEvent): string {
 			return `${dim('сессия')} ${bold(ev.session.id)} ${dim(ev.session.status)}`
 		case 'session_removed':
 			return `${dim('сессия удалена')} ${bold(ev.id)}`
+		default:
+			// события фонового обучения (learning_*): отдельной строки не получают
+			return dim(ev.t)
 	}
 }

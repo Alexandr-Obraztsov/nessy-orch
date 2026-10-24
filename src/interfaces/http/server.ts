@@ -24,6 +24,8 @@ import { assertAllowed, assertLocalClient, identify } from './guard'
 import { sendJson } from './respond'
 import { Router } from './router'
 import { registerAgentRoutes } from './routes/agents.routes'
+import { registerLearningHintRoutes } from './routes/learning-hint.routes'
+import { registerLearningRoutes } from './routes/learning.routes'
 import { registerMessageRoutes } from './routes/messages.routes'
 import { registerRoleRoutes } from './routes/roles.routes'
 import { registerSpaceRoutes } from './routes/spaces.routes'
@@ -39,6 +41,8 @@ export function buildRouter(): Router {
 	registerMessageRoutes(r)
 	registerRoleRoutes(r)
 	registerSessionRoutes(r)
+	registerLearningRoutes(r)
+	registerLearningHintRoutes(r)
 	return r
 }
 
@@ -74,7 +78,7 @@ export function createServer(orch: Orchestrator, opts: ServerOptions): http.Serv
 			}
 			const status = e instanceof AppError ? e.status : 500
 			const code = e instanceof AppError ? e.code : 'internal'
-			sendJson(res, status, { error: errMsg(e), code })
+			sendJson(res, status, { ...(e instanceof AppError ? e.extra : undefined), error: errMsg(e), code })
 		})
 	})
 }

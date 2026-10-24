@@ -23,6 +23,16 @@ export class MessagingService {
 		return this.ctx.feed.append({ from: SYSTEM, to: about ?? SYSTEM, kind: 'event', text })
 	}
 
+	/** Лента: все сообщения или только касающиеся агента `opts.agent`; `since` — после seq, `limit` — последние. */
+	list(opts: { agent?: string; since?: number; limit?: number } = {}): Message[] {
+		const involving = opts.agent ? this.ctx.registry.resolveAgent(opts.agent).id : undefined
+		return this.ctx.feed.list({
+			...(involving !== undefined ? { involving } : {}),
+			...(opts.since !== undefined ? { since: opts.since } : {}),
+			...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+		})
+	}
+
 	/**
 	 * Записать сообщение в ленту и доставить адресату. Единая точка входа для всех маршрутов.
 	 * interrupt — прервать текущий ход адресата и доставить сообщение вне очереди.

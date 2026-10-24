@@ -9,6 +9,8 @@ struct AgentPanel: View {
 	var agentId: String
 	@State private var chat: ChatModel?
 	@State private var planOpen = false
+	/// после сообщения остановившемуся агенту чат остаётся на экране (итог не возвращается поверх)
+	@State private var continued = false
 	@Environment(\.sessionWindow) private var win
 	private var agent: AgentView? { model.store.agents[agentId] }
 
@@ -21,7 +23,7 @@ struct AgentPanel: View {
 					// и гасит/размывает чат у их краёв (scrollEdgeEffectStyle .soft). Раскрытые карточки выступают за
 					// свёрнутую высоту и ложатся поверх чата, не сдвигая его.
 					Group {
-						if a.isFinished {
+						if a.isFinished && !continued {
 							ResultContent(agent: a, chat: chat, goal: goal)
 						} else {
 							ChatContent(agent: a, chat: chat, goal: goal)
@@ -34,7 +36,7 @@ struct AgentPanel: View {
 						VStack(spacing: DS.Metrics.s2) {
 							PlanBlock(agent: a, expanded: $planOpen, cap: geo.size.height * 0.3)
 								.padding(.horizontal, DS.Metrics.s3)
-							AgentComposer(agent: a, onEscape: collapseCards)
+							AgentComposer(agent: a, onEscape: collapseCards, onSend: { withAnimation(DS.Motion.fade) { continued = true } })
 						}
 						.fixedSize(horizontal: false, vertical: true)
 						.zIndex(1)
@@ -53,6 +55,7 @@ struct AgentPanel: View {
 		.task(id: agentId) {
 			// для снимков: `-debug.planOpen YES` раскрывает план сразу
 			planOpen = UserDefaults.standard.bool(forKey: "debug.planOpen")
+			continued = false
 			chat?.stop()
 			let c = ChatModel(ref: agentId)
 			chat = c

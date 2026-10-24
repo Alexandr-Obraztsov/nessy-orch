@@ -2,13 +2,17 @@ import SwiftUI
 import NessyKit
 
 struct SettingsView: View {
+	/// вкладка помнится: окно «Фон» открывает настройки сразу на «Фоне»
+	@AppStorage("settings.tab") private var tab = "general"
+
 	var body: some View {
-		TabView {
-			GeneralSettings().tabItem { Label("Основные", systemImage: "gearshape") }
-			TerminalSettings().tabItem { Label("Терминал", systemImage: "terminal") }
-			HotkeySettings().tabItem { Label("Клавиши", systemImage: "keyboard") }
-			NotificationSettings().tabItem { Label("Уведомления", systemImage: "bell") }
-			ServerSettings().tabItem { Label("Сервер", systemImage: "server.rack") }
+		TabView(selection: $tab) {
+			GeneralSettings().tabItem { Label("Основные", systemImage: "gearshape") }.tag("general")
+			TerminalSettings().tabItem { Label("Терминал", systemImage: "terminal") }.tag("terminal")
+			HotkeySettings().tabItem { Label("Клавиши", systemImage: "keyboard") }.tag("keys")
+			NotificationSettings().tabItem { Label("Уведомления", systemImage: "bell") }.tag("notify")
+			LearningSettingsView().tabItem { Label("Фон", systemImage: "graduationcap") }.tag("background")
+			ServerSettings().tabItem { Label("Сервер", systemImage: "server.rack") }.tag("server")
 		}
 		.frame(width: 540, height: 520)
 		// кнопки настроек — нейтральные (светлый текст на сером), а не синие: синий в интерфейсе один, акцентный, для переключателей и выбора

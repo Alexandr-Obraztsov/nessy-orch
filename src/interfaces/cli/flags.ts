@@ -38,6 +38,14 @@ export const ROLE_FLAGS: FlagSpec = {
 
 export const SPACE_FLAGS: FlagSpec = { bool: ['json', 'help', 'force'], value: ['name', 'url'] }
 
+/** learn: --session, --revert <id записи журнала>, --limit */
+export const LEARN_FLAGS: FlagSpec = { bool: ['json', 'help', 'all'], value: ['session', 'revert', 'limit'], short: { a: 'all' } }
+
+/** case: --file, --final, --cards; --from/--key — от имени агента-сборщика (`case draft`) */
+export const CASE_FLAGS: FlagSpec = { bool: ['json', 'help', 'final', 'cards'], value: ['file', 'from', 'key'] }
+
+export const PLAYBOOK_FLAGS: FlagSpec = { bool: ['json', 'help', 'cards'], value: ['reason', 'version'] }
+
 export const HOOK_FLAGS: FlagSpec = { bool: ['help'] }
 
 /** install: --print — только вывести plist, --ensure — ничего не делать, если служба уже актуальна */

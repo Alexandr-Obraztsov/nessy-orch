@@ -4,7 +4,7 @@ import AppKit
 /// Настраиваемые горячие клавиши приложения: переключение проектов, панель агентов, терминал проекта, роли, новая сессия, открытие папки.
 /// Хранятся в UserDefaults («hotkey.<действие>» = «клавиша|модификаторы»); значения по умолчанию — ниже.
 enum HotkeyAction: String, CaseIterable, Identifiable {
-	case togglePanel, toggleShell, newShellTab, closeShellTab, nextShellTab, prevShellTab, expandShell, roles, nextProject, prevProject, newTerminal, openFolder
+	case togglePanel, toggleShell, newShellTab, closeShellTab, nextShellTab, prevShellTab, expandShell, roles, background, nextProject, prevProject, newTerminal, openFolder
 	var id: String { rawValue }
 
 	var title: String {
@@ -17,6 +17,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 		case .prevShellTab: "Предыдущий терминал блока"
 		case .expandShell: "Развернуть / свернуть терминал"
 		case .roles: "Роли агентов"
+		case .background: "Фон: обучение"
 		case .nextProject: "Следующий проект"
 		case .prevProject: "Предыдущий проект"
 		case .newTerminal: "Новая сессия в этой папке"
@@ -34,6 +35,7 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
 		case .prevShellTab: Hotkey(key: "[", mods: [.command, .option])
 		case .expandShell: Hotkey(key: "e", mods: [.command, .option])
 		case .roles: Hotkey(key: "r", mods: [.command, .shift])
+		case .background: Hotkey(key: "b", mods: [.command, .shift])
 		case .nextProject: Hotkey(key: "]", mods: [.command, .shift])
 		case .prevProject: Hotkey(key: "[", mods: [.command, .shift])
 		case .newTerminal: Hotkey(key: "n", mods: [.command])

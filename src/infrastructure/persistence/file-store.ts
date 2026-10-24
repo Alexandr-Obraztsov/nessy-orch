@@ -115,6 +115,8 @@ export class FileStore implements StorePort {
 			lead: null,
 			chatId: typeof x.chatId === 'string' ? x.chatId : legacyChatId(x),
 			cwd: typeof x.cwd === 'string' ? x.cwd : null,
+			transcriptPath: typeof x.transcriptPath === 'string' ? x.transcriptPath : null,
+			...(x.service === true ? { service: true } : {}),
 		}))
 	}
 

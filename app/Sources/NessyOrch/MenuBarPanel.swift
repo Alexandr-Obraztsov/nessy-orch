@@ -81,6 +81,23 @@ struct MenuBarPanel: View {
 				}
 			}
 
+			// фоновое обучение: одна строка с числом заданий в процессе
+			let learning = model.store.learning
+			if learning.available, learning.settings?.enabled == true {
+				Button { model.openBackground(); NSApp.activate() } label: {
+					HStack(spacing: DS.Metrics.s2) {
+						Image(systemName: "graduationcap").foregroundStyle(DS.Palette.textSecondary)
+						Text(learning.running.isEmpty ? "Фон: ничего не в процессе" : "Фон: \(learning.running.count) в процессе")
+						Spacer(minLength: DS.Metrics.s2)
+						Image(systemName: "chevron.right").font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.textTertiary)
+					}
+					.font(DS.Typography.secondary)
+					.padding(DS.Metrics.s3).frame(maxWidth: .infinity, alignment: .leading)
+					.contentShape(Rectangle())
+				}
+				.buttonStyle(.plain).dsGroup()
+			}
+
 			let sessions = Array(model.store.activeSessions.prefix(5))
 			if !sessions.isEmpty {
 				section("Сессии", count: sessions.count) {

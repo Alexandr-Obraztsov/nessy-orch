@@ -77,7 +77,8 @@ final class SessionWindowModel {
 	func owns(_ id: String) -> Bool { sessionChain.contains(id) }
 
 	var session: SessionView? { currentSessionId.flatMap { app.store.session($0) } }
-	var agents: [AgentView] { currentSessionId.map { app.store.agents(inSession: $0) } ?? [] }
+	/// агенты вкладки без скрытых (в архиве)
+	var agents: [AgentView] { currentSessionId.map { app.store.agents(inSession: $0).filter { !$0.archived } } ?? [] }
 	/// карточка открытого агента — только если он в показываемой сессии (после /resume или /clear панель возвращается к списку)
 	var openAgent: AgentView? { openAgentId.flatMap { app.store.agents[$0] }.flatMap { $0.session == currentSessionId ? $0 : nil } }
 	var targetAgent: AgentView? { openAgent ?? selectedAgentId.flatMap { app.store.agents[$0] }.flatMap { $0.session == currentSessionId ? $0 : nil } }
@@ -533,6 +534,7 @@ private struct WindowBar: View {
 					if let win = model.activeWindow {
 						BarIcon(systemImage: win.shellOpen ? "terminal.fill" : "terminal", help: (win.shellOpen ? "Скрыть терминал проекта" : "Терминал проекта") + " (\(Hotkeys.shared.display(.toggleShell)))") { win.toggleShell() }
 					}
+					// кнопок в полосе не больше трёх (layout-v2.md): окно «Фон» открывается из меню и по ⇧⌘B
 					BarIcon(systemImage: "person.text.rectangle", help: "Роли агентов (\(Hotkeys.shared.display(.roles)))") { openWindow(id: "roles") }
 					BarIcon(systemImage: "sidebar.right", help: "Панель агентов (\(Hotkeys.shared.display(.togglePanel)))") { model.toggleAgents() }
 					SettingsButton()
@@ -557,6 +559,8 @@ private struct WindowBar: View {
 private struct BarIcon: View {
 	var systemImage: String
 	var help: String
+	/// число поверх значка (ошибки и ожидание вас); 0 — без значка
+	var badge = 0
 	var action: () -> Void
 	@State private var hover = false
 	var body: some View {
@@ -564,11 +568,19 @@ private struct BarIcon: View {
 			Image(systemName: systemImage).font(.system(size: 14, weight: .medium)).frame(width: 30, height: 26)
 				.background(hover ? DS.Palette.hover : .clear, in: Capsule())
 				.contentShape(Capsule())
+				.overlay(alignment: .topTrailing) {
+					if badge > 0 {
+						DSCount(value: badge).font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+							.padding(.horizontal, 4).frame(minWidth: 14, minHeight: 14)
+							.background(DS.Palette.accent, in: Capsule())
+							.offset(x: 2, y: -2).allowsHitTesting(false)
+					}
+				}
 		}
 		.buttonStyle(.plain).focusEffectDisabled()
 		.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
 		.onHover { hover = $0 }
-		.help(help).accessibilityLabel(help)
+		.help(help).accessibilityLabel(badge > 0 ? "\(help), требует внимания: \(badge)" : help)
 	}
 }
 

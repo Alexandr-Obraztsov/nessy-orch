@@ -4,11 +4,15 @@
  */
 import type {
 	AgentEvent,
+	ChatMessage,
+	JournalEntry,
+	LearningSettings,
 	Message,
 	PlanEntry,
 	RoleView,
 	RuntimeCapabilities,
 	RuntimeId,
+	ReviewReport,
 	RuntimeModel,
 	SpaceStatus,
 	SpaceView,
@@ -18,6 +22,9 @@ import type {
 } from '../../shared/types'
 import type { PermissionOption, RolePresetFile } from '../domain/types'
 import type { AgentPort } from './agent-port'
+import type { PlaybookFiles } from '../domain/playbook.types'
+import type { RawEvent } from '../domain/learning.types'
+import type { CaseState, JobState, LearningMeta, PlaybookState, TranscriptCursor } from './learning/learning.types'
 import type { PersistedState } from './persisted.types'
 
 // ---------- nessy ----------
@@ -114,6 +121,82 @@ export type RuntimeCatalogSource = () => RuntimeDescriptor[]
 export type SpaceFactory = (init: SpaceInit, listener: SpaceListener) => SpaceRuntime
 
 // ---------- хранилище ----------
+export interface LearningStorePort {
+	readonly casesDir: string
+	/** Создать каталог кейсов (cwd служебной сессии «Фон»). */
+	ensureCasesDir(): void
+	/** Нет файла — raw undefined, mtimeMs 0; разбирает сервис (parseLearningSettings + defaultOn). */
+	loadSettings(): { raw: unknown; mtimeMs: number }
+	settingsMtime(): number
+	saveSettings(s: LearningSettings): void
+	/** По каталогам cases, файл state.json; битый — пропуск с предупреждением. */
+	loadCases(): CaseState[]
+	/** state.json + case.md (frontmatter из CaseView). */
+	saveCase(c: CaseState): void
+	removeCase(id: string): void
+	readSummary(id: string): string
+	/** false — запись не удалась (диск); вызывающий курсор не двигает */
+	writeSummary(id: string, text: string): boolean
+	readNotes(id: string): string
+	writeNotes(id: string, text: string): void
+	/** Черновик описания (`draft.md`) от агента-сборщика; пустой текст удаляет файл. false — запись не удалась. */
+	writeDraft(id: string, text: string): boolean
+	readDraft(id: string): string
+	/** false — запись не удалась */
+	appendRaw(id: string, events: readonly RawEvent[]): boolean
+	/** События с `n` в диапазоне; при повторе `n` (обрыв сбора) берётся последняя запись. */
+	readRaw(id: string, fromN: number, toN?: number): RawEvent[]
+	/** Убирает из raw/events.jsonl события с `n >= nextN` (хвост незавершённого сбора). */
+	truncateRaw(id: string, nextN: number): void
+	/**
+	 * Ответ фонового агента. Кейсовый subject (`c-…`) — `cases/<id>/runs/<name>.md`,
+	 * остальные (`g-…`, `p-…`, `all`, `judge:…`) — `learning/runs/<subject без ':'>/<name>.md`; `name` — `<job.id>-<k>`.
+	 */
+	writeRun(subject: string, name: string, text: string): void
+	/** Ответы агентов задания (`<jobId>-<k>`), по порядку `k`; нет каталога — пусто. */
+	readRuns(subject: string, jobId: string): Array<{ name: string; text: string }>
+	/** Путь транскрипта лежит внутри `dir` (с учётом symlink: realpath). */
+	isAllowedTranscript(file: string, dir: string): boolean
+	loadMeta(): LearningMeta | null
+	saveMeta(m: LearningMeta): void
+	/** Читает только целые строки с курсора и дописывает их в raw/transcript-<chatId>.jsonl. */
+	copyTranscript(id: string, chatId: string, cur: TranscriptCursor): { text: string; next: TranscriptCursor }
+	loadJobs(): JobState[]
+	saveJobs(jobs: readonly JobState[]): void
+	/** <root>/learning/prompts/<name>.md */
+	readPrompt(name: string): string
+	/** Сырые события кейса (`raw/`) переезжают в скрытый архив `<home>/learning/archive/<id>/`; `at` — время архивации, мс. Сам кейс не удаляется. */
+	archiveRaw(id: string, at: number): void
+	/** Стирает из архива всё, что заархивировано не позже `before` (мс); возвращает id стёртого. */
+	purgeArchive(before: number): string[]
+}
+
+/** Хранилище плейбуков: git-репозиторий на плейбук, ревью, журнал, чаты и плагин `nessy-playbooks`. */
+export interface PlaybookStorePort {
+	readonly playbooksDir: string
+	loadPlaybooks(): PlaybookState[]
+	/** пишет playbook.json и файлы, git commit; возвращает номер версии */
+	savePlaybook(p: PlaybookState, files: PlaybookFiles, message: string): number
+	/** пишет только playbook.json, без git-коммита и новой версии (поле `cases`); следующий `savePlaybook` закоммитит */
+	saveState(p: PlaybookState): void
+	readFiles(id: string): PlaybookFiles
+	versions(id: string): Array<{ version: number; ts: string; message: string }>
+	restoreVersion(id: string, version: number): { state: PlaybookState; files: PlaybookFiles } | null
+	removePlaybook(id: string): void
+	readNotes(id: string): string
+	writeNotes(id: string, text: string): void
+	saveReview(r: ReviewReport): void
+	loadReviews(id: string): ReviewReport[]
+	appendJournal(e: JournalEntry): void
+	/** последние `limit` записей, старые первыми; `before` — id записи: страница старее неё */
+	loadJournal(limit: number, before?: string): JournalEntry[]
+	updateJournal(e: JournalEntry): void
+	appendChat(subject: string, m: ChatMessage): void
+	loadChat(subject: string, limit: number): ChatMessage[]
+	/** перезаписывает плагин nessy-playbooks целиком */
+	publish(active: ReadonlyArray<{ id: string; files: PlaybookFiles }>, version: string): void
+}
+
 export interface StorePort {
 	loadState(): PersistedState
 	/** Отложенная атомарная запись состояния. */

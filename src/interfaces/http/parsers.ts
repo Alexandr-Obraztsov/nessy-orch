@@ -1,6 +1,7 @@
 /** Проверка и разбор тел запросов (вход — unknown). */
 import type {
 	AttachRequest,
+	LearningSignal,
 	ModelRequest,
 	RoleRequest,
 	RuntimeId,
@@ -149,10 +150,11 @@ export function parseSessionRequest(b: unknown): SessionRequest {
 /** Привязка чата Claude к сессии: chatId обязателен, cwd и from — необязательные строки. */
 export function parseAttachRequest(b: unknown): AttachRequest {
 	if (!isObject(b) || typeof b['chatId'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле chatId (строка)')
-	const { cwd, from } = b
+	const { cwd, from, transcriptPath } = b
 	if (cwd !== undefined && typeof cwd !== 'string') throw new AppError(400, 'bad_request', 'cwd — строка')
 	if (from !== undefined && typeof from !== 'string') throw new AppError(400, 'bad_request', 'from — строка')
-	return { chatId: b['chatId'], ...(cwd ? { cwd } : {}), ...(from ? { from } : {}) }
+	if (transcriptPath !== undefined && typeof transcriptPath !== 'string') throw new AppError(400, 'bad_request', 'transcriptPath — строка')
+	return { chatId: b['chatId'], ...(cwd ? { cwd } : {}), ...(from ? { from } : {}), ...(transcriptPath ? { transcriptPath } : {}) }
 }
 
 /** Правка сессии: title — строка, status — active|done, summary — строка или null. */
@@ -176,4 +178,88 @@ export function parseSessionPatch(b: unknown): SessionPatch {
 export function parseSessionStatus(v: unknown): SessionStatus {
 	if (!isSessionStatus(v)) throw new AppError(400, 'bad_request', 'status — active или done')
 	return v
+}
+
+/** Запуск сбора: `session` — id сессии или кейса (нет — все открытые кейсы). */
+export function parseLearningRun(b: unknown): { session?: string } {
+	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
+	const s = b['session']
+	if (s !== undefined && (typeof s !== 'string' || s === '')) throw new AppError(400, 'bad_request', 'session — непустая строка')
+	return s === undefined ? {} : { session: s }
+}
+
+/** Тело `POST /learning/signal`: `{event: 'activity' | 'end', session, chatId?, transcriptPath?}`. */
+export function parseLearningSignal(b: unknown): LearningSignal {
+	if (!isObject(b)) throw new AppError(400, 'bad_request', 'ожидается JSON-объект')
+	const event = b['event']
+	if (event !== 'activity' && event !== 'end') throw new AppError(400, 'bad_request', 'event — activity или end')
+	const session = b['session']
+	if (typeof session !== 'string' || session === '') throw new AppError(400, 'bad_request', 'session — непустая строка')
+	const opt = (k: string): string | undefined => {
+		const v = b[k]
+		if (v === undefined) return undefined
+		if (typeof v !== 'string') throw new AppError(400, 'bad_request', `${k} — строка`)
+		return v === '' ? undefined : v
+	}
+	const chatId = opt('chatId')
+	const transcriptPath = opt('transcriptPath')
+	return { event, session, ...(chatId ? { chatId } : {}), ...(transcriptPath ? { transcriptPath } : {}) }
+}
+
+/** Тело с одной строкой: `{text}` (заметки, чат); пустая строка допустима, если `allowEmpty`. */
+export function parseTextBody(b: unknown, allowEmpty = false): string {
+	if (!isObject(b) || typeof b['text'] !== 'string' || (!allowEmpty && b['text'].trim() === ''))
+		throw new AppError(400, 'bad_request', 'нужно поле text (строка)')
+	return b['text']
+}
+
+/** Тело `PUT /learning/cases/:id/summary`: `{text, base}`, `base` — sha1 (hex) описания, против которого правили. */
+export function parseSummaryPut(b: unknown): { text: string; base: string } {
+	if (!isObject(b) || typeof b['text'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле text (строка)')
+	const base = b['base']
+	if (typeof base !== 'string' || !/^[0-9a-f]{40}$/.test(base)) throw new AppError(400, 'bad_request', 'нужно поле base (sha1 hex описания)')
+	return { text: b['text'], base }
+}
+
+/** Причина отказа: `{reason}`, необязательная. */
+export function parseReason(b: unknown): string {
+	if (!isObject(b)) return ''
+	return typeof b['reason'] === 'string' ? b['reason'] : ''
+}
+
+/** Статус плейбука вручную: `{status}`. */
+export function parsePlaybookStatus(b: unknown): string {
+	if (!isObject(b) || typeof b['status'] !== 'string') throw new AppError(400, 'bad_request', 'нужно поле status (строка)')
+	return b['status']
+}
+
+/** Номер версии для отката: `{version}` — целое от 1. */
+export function parseVersion(b: unknown): number {
+	if (!isObject(b) || typeof b['version'] !== 'number' || !Number.isInteger(b['version']) || b['version'] < 1)
+		throw new AppError(400, 'bad_request', 'нужно поле version (целое от 1)')
+	return b['version']
+}
+
+const bad = (what: string): AppError => new AppError(400, 'bad_request', what)
+
+/** Тело `PUT /learning/playbooks/:id/markdown`: `{text, baseVersion}`; `baseVersion` — целое от 1 (версия, на которой правили). */
+export function parsePlaybookMarkdown(b: unknown): { text: string; baseVersion: number } {
+	if (!isObject(b) || typeof b['text'] !== 'string') throw bad('нужно поле text (строка)')
+	const baseVersion = b['baseVersion']
+	if (typeof baseVersion !== 'number' || !Number.isInteger(baseVersion) || baseVersion < 1) throw bad('baseVersion — целое от 1 (версия, на которой правили)')
+	return { text: b['text'], baseVersion }
+}
+
+/** Границы событий кейса: `from` (по умолчанию 0) и необязательный `to`; целые от 0, `from <= to`. */
+export function parseRawRange(from: string | null, to: string | null): { from: number; to?: number } {
+	const num = (v: string, name: string): number => {
+		const n = Number(v)
+		if (v.trim() === '' || !Number.isInteger(n) || n < 0) throw bad(`${name} — целое от 0`)
+		return n
+	}
+	const a = from === null ? 0 : num(from, 'from')
+	if (to === null) return { from: a }
+	const z = num(to, 'to')
+	if (z < a) throw bad('to не меньше from')
+	return { from: a, to: z }
 }

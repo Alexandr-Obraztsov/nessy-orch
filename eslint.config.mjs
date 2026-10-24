@@ -120,4 +120,16 @@ export default tseslint.config(
 			],
 		},
 	},
+	{
+		// «Фон» пришёл из develop крупными файлами; разбиение по модулям — отдельная задача (лимит для него снят временно)
+		files: [
+			'src/application/learning/**/*.ts',
+			'src/domain/learning-*.ts',
+			'src/domain/summary-gate.ts',
+			'src/infrastructure/persistence/learning-store.ts',
+			'src/infrastructure/persistence/playbook-store.ts',
+			'test/**/learning*.test.ts',
+		],
+		rules: { 'max-lines': 'off' },
+	},
 )

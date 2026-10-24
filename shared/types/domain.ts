@@ -105,6 +105,10 @@ export interface SessionView {
 	cwd?: string | null
 	/** после `/clear` или `/resume` внутри Claude вкладка продолжается в другой сессии (чат другой): id её; вкладка идёт по цепочке к последней */
 	successor?: string | null
+	/** абсолютный путь к транскрипту (jsonl) чата Claude из хука; null — путь неизвестен */
+	transcriptPath?: string | null
+	/** служебная сессия (фоновое обучение): не входит в списки, граф и уборку */
+	service?: boolean
 }
 
 export interface AgentView {

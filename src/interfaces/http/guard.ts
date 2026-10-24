@@ -35,7 +35,7 @@ export function identify(req: http.IncomingMessage, token: string | undefined): 
 }
 
 /** Маршруты, которые агент может вызвать от своего имени (остальное меняющее — только оператору). */
-const AGENT_ROUTES = new Set(['POST /agents', 'POST /agents/:ref/send', 'POST /agents/:ref/plan', 'DELETE /agents/:ref/plan'])
+const AGENT_ROUTES = new Set(['POST /agents', 'POST /agents/:ref/send', 'POST /agents/:ref/plan', 'DELETE /agents/:ref/plan', 'POST /learning/cases/:id/draft'])
 
 /** Чтение ленты/потока/истории/графа требует операторский токен ИЛИ агентский ключ: без авторизации любой локальный
  *  процесс (в т.ч. SDK-ребёнок без токена) прочитал бы весь чат и граф агентов. /health остаётся открытым. */

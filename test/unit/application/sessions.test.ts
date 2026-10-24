@@ -7,6 +7,7 @@ import { beforeEach, describe, it } from 'node:test'
 import type { HubEvent, SessionView } from '../../../shared/types'
 import { Orchestrator } from '../../../src/application/orchestrator'
 import { AppError } from '../../../src/domain/errors'
+import { FileStore } from '../../../src/infrastructure/persistence/file-store'
 import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 
 interface Ctx {
@@ -211,6 +212,52 @@ describe('сессии: сервис', () => {
 		)
 		assert.equal(next.orch.getAgent('keeper').session, t.id)
 		assert.equal(next.orch.getAgent('old').session, null)
+		await next.orch.shutdown()
+	})
+
+	it('attach: transcriptPath пишется в сессию и переживает load() из FileStore; относительный путь → 400', () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sess-tp-'))
+		try {
+			const fileStore = new FileStore(home)
+			const orch = setup(fileStore as unknown as MemoryStore).orch
+			const s = orch.attachSession({ chatId: 'chat-tp-1', cwd: '/tmp/p', transcriptPath: '/t/1.jsonl' })
+			assert.equal(s.transcriptPath, '/t/1.jsonl')
+			assert.equal(orch.attachSession({ chatId: 'chat-tp-1', transcriptPath: '/t/2.jsonl' }).transcriptPath, '/t/2.jsonl', 'тот же чат: путь обновляется')
+			assert.equal(
+				code(() => orch.attachSession({ chatId: 'chat-tp-2', transcriptPath: 'rel' })),
+				'400 bad_request',
+			)
+			assert.equal(new FileStore(home).loadSessions().find(x => x.id === s.id)?.transcriptPath, '/t/2.jsonl')
+			// не .jsonl — путь молча игнорируется, хук не падает
+			assert.equal(orch.attachSession({ chatId: 'chat-tp-1', transcriptPath: '/etc/passwd' }).transcriptPath, '/t/2.jsonl')
+			assert.equal(orch.attachSession({ chatId: 'chat-tp-3', transcriptPath: '/etc/passwd' }).transcriptPath ?? null, null)
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true })
+		}
+	})
+
+	it('служебная сессия: ensureService идемпотентна, вне списков и графа, события нет, spawn работает, удалить нельзя', async () => {
+		const a = ctx.orch.ensureServiceSession('background', 'Фон', '/tmp/bg')
+		const b = ctx.orch.ensureServiceSession('background', 'Другое', '/tmp/other')
+		assert.deepEqual(b, a)
+		assert.equal(a.service, true)
+		assert.equal(ctx.store.sessions.filter(x => x.id === 'background').length, 1, 'на диск сохранена')
+		assert.deepEqual(
+			ctx.orch.listSessions().map(x => x.id),
+			[],
+		)
+		assert.deepEqual(ctx.orch.graph().sessions, [])
+		assert.equal(ctx.orch.getSession('background').id, 'background')
+		assert.ok(!ctx.hub.some(e => e.t === 'session' && e.session.id === 'background'), 'в шину не публикуется')
+		const ag = await ctx.orch.spawn({ space: 'main', name: 'bg1', session: 'background' })
+		assert.equal(ag.agent.session, 'background')
+		assert.equal(
+			code(() => ctx.orch.removeSession('background')),
+			'409 service_session',
+		)
+		const next = setup(ctx.store)
+		assert.deepEqual(next.orch.listSessions(), [])
+		assert.equal(next.orch.getSession('background').service, true, 'после перезапуска остаётся служебной')
 		await next.orch.shutdown()
 	})
 })

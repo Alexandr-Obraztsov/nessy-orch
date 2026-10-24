@@ -30,11 +30,24 @@ export const HELP = `nessy-orch — оркестратор агентов nessy
 ЛЕНТА
   feed [-n 30] [--follow]   общая лента сообщений
 
+ФОНОВОЕ ОБУЧЕНИЕ (оркестратор сам собирает кейсы из сессий; настройки — ~/.nessy-orch/learning.json)
+  learn [status]       настройки, очередь заданий, кейсы       learn on | off [--session S]   включить/выключить (в целом или для сессии)
+  learn run [--session S]   собрать описание сейчас (сессии или кейса; без --session — все открытые кейсы)
+  case ls [--cards]    кейсы        case show <id>   шапка и summary.md        case rm <id>   удалить кейс
+  case rebuild <id>    пересобрать описание заново      case note <id> "<текст>"   заметки пользователя кейса
+  case read <id>   следующий блок событий кейса (агент-сборщик; следующий — только после принятого draft; протокол в stderr)
+  case draft <id> [--file F] [--final] [--from A --key K]   сдать полное описание за блок (иначе stdin), --final — итоговая консолидация
+  playbook ls [--cards] | show <id>    плейбуки, которые обучение собрало из кейсов (статусы: draft, review, trial, active, disabled, archived)
+  playbook review <id>       запустить авто-ревью            playbook approve <id> | reject <id> [--reason R]   ручное решение
+  playbook revert <id> --version N   откат к версии (новой версией)      playbook rm <id>   удалить      playbook note <id> "<текст>"   заметки
+  playbook edits <id>        правки улучшателя, ждущие решения (авто-ревью выключено)      playbook accept <id> <hash> | reject <id> <hash>   принять / отклонить правку
+  learn journal [--limit N] [--revert <id>]   журнал автоматических решений и откат одной команды
+
 СЛУЖЕБНОЕ
   status               состояние оркестратора
   open [<id сессии>]   открыть сессию в приложении       .  |  app [папка]   открыть приложение с терминалом в папке
   install [--print] [--ensure] | uninstall   служба launchd (вне песочницы)
-  hook start           хук SessionStart плагина Claude Code (вызывает сам плагин)
+  hook start | agent | prompt | stop | end   хуки плагина Claude Code (SessionStart, PreToolUse на Agent, UserPromptSubmit, Stop, SessionEnd; вызывает сам плагин)
 
 ОБЩИЕ ФЛАГИ: --json (машинный вывод), --help
 Переменные: ORCH_PORT (по умолчанию 4337), NESSY_ORCH_SESSION, NO_COLOR`

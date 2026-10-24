@@ -24,3 +24,16 @@ export function uniqueName(name: string, taken: (n: string) => boolean): string 
 	while (taken(`${name}-${i}`)) i++
 	return `${name}-${i}`
 }
+
+const TRANSLIT: Record<string, string> = {
+	а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm',
+	н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sch',
+	ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+}
+
+/** Латинский slug из названия (кириллица транслитерируется), до 40 знаков; пусто → fallback. */
+export function slugify(text: string, fallback: string): string {
+	const latin = Array.from(text.toLowerCase(), ch => TRANSLIT[ch] ?? ch).join('')
+	const slug = latin.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
+	return slug || fallback
+}

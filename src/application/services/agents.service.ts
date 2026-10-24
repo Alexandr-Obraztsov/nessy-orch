@@ -39,7 +39,8 @@ export class AgentsService {
 		return dir ? role.instructions.split('{{role_dir}}').join(dir) : role.instructions
 	}
 
-	async spawn(req: SpawnRequest): Promise<SpawnResponse> {
+	/** `onCreated` — id нового агента сразу после создания, до ожидания ответа (фоновое обучение отменяет по нему). */
+	async spawn(req: SpawnRequest, onCreated?: (agentId: string) => void): Promise<SpawnResponse> {
 		const { registry } = this.ctx
 		const from = registry.resolveSender(req.from)
 		const parent = req.parent ?? from
@@ -68,6 +69,7 @@ export class AgentsService {
 			`агент создан в пространстве «${space.name}» (${space.path})${role ? `, роль «${role.name}»` : ''}${session ? `, сессия «${session}»` : ''}`,
 		)
 		agent.publishNode()
+		onCreated?.(id)
 		this.messaging.postEvent(`${registry.labelOf(from)} создал агента ${registry.labelOf(id)}`, id)
 
 		let res: SendResponse | undefined

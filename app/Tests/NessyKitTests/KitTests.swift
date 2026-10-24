@@ -216,7 +216,7 @@ struct TitleTests {
 @MainActor
 @Suite("Хранилище")
 struct StoreTests {
-	func store() -> OrchStore { OrchStore(defaults: UserDefaults(suiteName: "test-\(UUID())")!) }
+	func store() -> OrchStore { OrchStore(learning: FakeLearning.empty(), defaults: UserDefaults(suiteName: "test-\(UUID())")!) }
 
 	func snapshot(agents: [String]) -> StreamEvent {
 		let json = #"{"t":"snapshot","rev":1,"spaces":[],"agents":[\#(agents.joined(separator: ","))],"roles":[],"sessions":[{"id":"t1","title":"T","owner":null,"status":"active","summary":null,"createdAt":"2026-10-10T10:00:00Z","updatedAt":"2026-10-10T10:00:00Z"}],"messages":[]}"#

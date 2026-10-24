@@ -5,6 +5,7 @@
  */
 import { spawn } from 'node:child_process'
 import type { Envelope, PortEvent } from '../../src/application/agent-port'
+import { lookupScenario, playOps } from './fake-agent-port-external'
 
 /** Сессия фейкового порта: подписчик, состояние разрешений и «зависшего» хода. */
 export interface FakeSession {
@@ -53,11 +54,25 @@ export class ScenarioPlayer {
 				.split('\n')
 				.filter(l => l && !l.startsWith('[nessy-orch]'))
 				.pop() ?? text
-		const body = t.trim()
+		let body = t.trim()
+		// внешний сценарий из fake-scenarios.json — только для промптов без собственной «#»-команды
+		const external = /^#(fail|error|slow|long|tools|plan|shell|perm|work|relay|hang|cancel)/.test(body) ? null : lookupScenario(text)
 		if (!s.named) {
-			// первый промпт: имя сессии (displayName) из тела запроса, как у настоящего рантайма
+			// первый промпт: имя сессии (displayName) из тела запроса (или ключа внешнего сценария), как у настоящего рантайма
 			s.named = true
-			this.emit(s, { type: 'session.meta', data: { displayName: body.slice(0, 40) } })
+			this.emit(s, { type: 'session.meta', data: { displayName: (external ? external.key : body).slice(0, 40) } })
+		}
+		if (external) {
+			if (typeof external.scenario === 'string') body = external.scenario
+			else {
+				const ops = external.scenario
+				const done = (): void => {
+					this.emit(s, { type: 'context.usage', data: { used: 100, size: 524_000 } })
+					finish()
+				}
+				setTimeout(() => playOps(this.emit, s, ops, 0, done), this.stepMs)
+				return
+			}
 		}
 		if (body.startsWith('#hang') || body.startsWith('#cancel')) {
 			s.hang = true // держим ход открытым до promptCancel

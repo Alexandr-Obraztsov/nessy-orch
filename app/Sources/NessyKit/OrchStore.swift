@@ -29,6 +29,8 @@ public struct AttentionEvent: Sendable, Equatable {
 @Observable
 public final class OrchStore {
 	public let client: OrchClient
+	/// фоновое обучение: отдельное состояние, события `learning_*` и `snapshot` пересылаются ему
+	public let learning: LearningStore
 	public private(set) var daemon: DaemonState = .connecting
 	public private(set) var spaces: [SpaceView] = []
 	public private(set) var roles: [RoleView] = []
@@ -50,6 +52,8 @@ public final class OrchStore {
 
 	/// Подписчик уведомлений (приложение показывает баннеры).
 	public var onAttention: ((AttentionEvent) -> Void)?
+	/// папка данных оркестратора (`status().home`); `nil`, пока статус не получен
+	public private(set) var serverHome: String?
 
 	private var stream: SSEStream?
 	private var primed = false
@@ -57,8 +61,10 @@ public final class OrchStore {
 	private let defaults: UserDefaults
 	private static let seenKey = "seenReplies"
 
-	public init(client: OrchClient = OrchClient(), defaults: UserDefaults = .standard) {
+	/// `learning` — источник данных обучения; по умолчанию `client` (тесты подставляют заглушку, чтобы не ходить в сеть).
+	public init(client: OrchClient = OrchClient(), learning: (any LearningSource)? = nil, defaults: UserDefaults = .standard) {
 		self.client = client
+		self.learning = LearningStore(source: learning ?? client)
 		self.defaults = defaults
 		self.seenReplies = Set(defaults.stringArray(forKey: Self.seenKey) ?? [])
 	}
@@ -73,8 +79,8 @@ public final class OrchStore {
 			onState: { [weak self] st in Task { @MainActor in self?.streamState(st) } },
 			onOpen: { },
 			onData: { [weak self] d in
-				let ev = StreamEvent.decode(d)
-				Task { @MainActor in self?.apply(ev) }
+				let (ev, rev) = StreamEvent.decodeWithRev(d)
+				Task { @MainActor in self?.apply(ev, rev: rev) }
 			}
 		)
 		pollTask = Task { [weak self] in
@@ -105,6 +111,7 @@ public final class OrchStore {
 			if case .online = daemon { wasOnline = true } else { wasOnline = false }
 			daemon = .online(version: s.version)
 			if !wasOnline || runtimes.isEmpty { await refreshRuntimes() }
+			serverHome = s.home
 		} catch let e as APIError where e.isOffline {
 			daemon = .offline(e.message)
 		} catch {}
@@ -121,7 +128,7 @@ public final class OrchStore {
 
 	// MARK: применение событий
 
-	public func apply(_ e: StreamEvent) {
+	public func apply(_ e: StreamEvent, rev: Int? = nil) {
 		lastEventAt = Date()
 		switch e {
 		case .snapshot(let s):
@@ -138,6 +145,9 @@ public final class OrchStore {
 			if case .online = daemon {} else { daemon = .online(version: "") }
 			if primed { for a in s.agents { detect(old: old[a.id], new: a) } }
 			primed = true
+			learning.apply(e, rev: rev)
+		case .learningJob, .learningCase, .learningCaseRemoved, .learningSettings, .learningPlaybook, .learningPlaybookRemoved, .learningJournal, .learningChat:
+			learning.apply(e, rev: rev)
 		case .message(let m):
 			messages.append(m)
 			if messages.count > 2000 { messages.removeFirst(messages.count - 2000) }

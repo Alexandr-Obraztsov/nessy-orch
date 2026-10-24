@@ -22,6 +22,8 @@ mkdir -p "$ORCH/bin" "$ORCH/dist"
 cp -R "$ROOT/dist/src" "$ORCH/dist/src"
 cp -R "$ROOT/dist/shared" "$ORCH/dist/shared"
 cp -R "$ROOT/roles" "$ORCH/roles"
+# промпты фоновых агентов обучения (читаются из <root>/learning/prompts)
+cp -R "$ROOT/learning" "$ORCH/learning"
 cp "$ROOT/package.json" "$ORCH/package.json"
 # плагин nessy — самодостаточный (скилл, команды, хуки сессий и CLI в bin/ с собранным кодом): приложение копирует его в ~/.claude/skills/nessy,
 # и Claude Code подхватывает его как плагин при любом запуске claude. Версия содержит номер сборки — по ней приложение обновляет копию.

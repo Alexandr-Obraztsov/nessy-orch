@@ -91,6 +91,14 @@ struct AgentsListView: View {
 						if sections.count > 1 || sec.group == .failed {
 							DSGroupHeader(title: sec.group.title, count: sec.agents.count,
 										  expanded: collapsible ? Binding(get: { expanded }, set: { if sec.group == .failed { failedExpanded = $0 } else { doneExpanded = $0 } }) : nil)
+								.overlay(alignment: .trailing) {
+									// у «Ошибок» — скрыть все разом
+									if sec.group == .failed {
+										Button("Скрыть все") { model.hide(all: sec.agents) }
+											.buttonStyle(.plain).font(DS.Typography.caption).foregroundStyle(DS.Palette.textSecondary)
+											.padding(.horizontal, DS.Metrics.s1).help("Убрать агентов с ошибкой из списка")
+									}
+								}
 						}
 						if expanded {
 							VStack(spacing: 0) {
@@ -195,6 +203,19 @@ struct AgentRow: View {
 		.contextMenu {
 			Button("Открыть") { if compact { model.reveal(agent: a.id) } else { win?.open(agent: a.id) } }
 			if a.canStop { Button("Остановить") { model.stop(a) }.disabled(model.isOffline) }
+			if a.state == .error { Button("Перезапустить") { model.restart(a) }.disabled(model.isOffline) }
+			if a.isFinished { Button("Скрыть") { model.hide(a) }.disabled(model.isOffline) }
+		}
+		// у агента с ошибкой при наведении — «перезапустить» и «скрыть» прямо на карточке
+		.overlay(alignment: .topTrailing) {
+			if hovering, a.state == .error, !compact {
+				HStack(spacing: 2) {
+					RowAction(symbol: "arrow.clockwise", help: "Перезапустить") { model.restart(a) }
+					RowAction(symbol: "eye.slash", help: "Скрыть") { model.hide(a) }
+				}
+				.padding(.top, DS.Metrics.s2).padding(.trailing, DS.Metrics.s2)
+				.transition(.opacity)
+			}
 		}
 		.accessibilityElement(children: .ignore)
 		.accessibilityLabel(accessibilityText)
@@ -361,5 +382,22 @@ struct AgentHeaderRow: View {
 		}
 		.padding(.leading, DS.Metrics.s2).padding(.trailing, 96)
 		.frame(height: SessionWindowModel.rowHeight)
+	}
+}
+
+/// Маленькая кнопка-значок поверх карточки агента.
+private struct RowAction: View {
+	var symbol: String
+	var help: String
+	var action: () -> Void
+	@State private var hover = false
+	var body: some View {
+		Button(action: action) {
+			Image(systemName: symbol).font(.system(size: 11, weight: .semibold)).frame(width: 22, height: 22)
+				.foregroundStyle(hover ? DS.Palette.textPrimary : DS.Palette.textSecondary)
+				.background(hover ? DS.Palette.border : DS.Palette.hover, in: Circle())
+				.contentShape(Circle())
+		}
+		.buttonStyle(.plain).focusEffectDisabled().onHover { hover = $0 }.help(help).accessibilityLabel(help)
 	}
 }

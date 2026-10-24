@@ -1,8 +1,11 @@
 /** Не держим много сессий: сверх лимита давние простаивающие удаляются вместе с агентами; свежие и работающие остаются. */
 import assert from 'node:assert/strict'
+import * as fs from 'node:fs'
 import * as os from 'node:os'
+import * as path from 'node:path'
 import { describe, it } from 'node:test'
 import { Orchestrator } from '../../../src/application/orchestrator'
+import { FileLearningStore } from '../../../src/infrastructure/persistence/learning-store'
 import { FakeAgentPort, FakeSpace, MemoryStore } from '../../support/memory-store'
 
 function setup(maxSessions: number) {
@@ -48,5 +51,38 @@ describe('уборка сессий', () => {
 		const b = orch.createSession({ title: 'Другая' })
 		await orch.pruneSessions(b.id)
 		assert.equal(orch.listSessions().length, 2)
+	})
+
+	it('сессия с незакрытым кейсом обучения не удаляется, после ready удаляется', async () => {
+		const clock = { t: Date.now() }
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), 'prune-learn-'))
+		const orch = new Orchestrator({
+			settings: { home, autoApprove: true, maxHops: 8, rateLimitPerMinute: 30, cliPath: 'nessy-orch', idleCloseMs: 0, maxSessions: 1 },
+			store: new MemoryStore(),
+			clock: { now: () => clock.t },
+			spaceFactory: init => new FakeSpace(init.name, init.path, new FakeAgentPort({ autoRespond: false })),
+			learningStore: new FileLearningStore(home, path.resolve(__dirname, '..', '..', '..', '..')),
+		})
+		const learning = orch.learning
+		assert.ok(learning)
+		const protectedIds = new Set<string>()
+		learning.isProtected = id => protectedIds.has(id)
+		const a = orch.createSession({ title: 'Старая' })
+		protectedIds.add(a.id)
+		clock.t += 3_600_000
+		const b = orch.createSession({ title: 'Новая' })
+		await orch.pruneSessions(b.id)
+		assert.ok(
+			orch.listSessions().some(x => x.id === a.id),
+			'кейс не ready — сессия остаётся',
+		)
+		protectedIds.clear()
+		await orch.pruneSessions(b.id)
+		assert.deepEqual(
+			orch.listSessions().map(x => x.id),
+			[b.id],
+			'кейс ready — сессия удалена',
+		)
+		fs.rmSync(home, { recursive: true, force: true })
 	})
 })

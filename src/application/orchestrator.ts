@@ -32,9 +32,10 @@ import { checkSender } from './authorize-sender'
 import type { Agent } from './agent/agent'
 import type { AgentHost } from './agent/agent.types'
 import { Hub } from './hub'
+import { createLearning } from './learning/create-learning'
+import type { LearningService } from './learning/learning.service'
 import { assembleOrchestrator } from './orchestrator.assembly'
 import type { OrchestratorDeps } from './orchestrator.types'
-import type { SpaceRuntime } from './ports'
 import { restoreAgents, snapshotState } from './orchestrator-state'
 import { Registry } from './registry'
 import type { AgentsService } from './services/agents.service'
@@ -47,7 +48,7 @@ import type { SourcesService } from './services/sources.service'
 import type { SpacesService } from './services/spaces.service'
 import type { Feed } from './feed'
 import type { SessionPool } from './session-pool'
-import type { StorePort } from './ports'
+import type { SpaceRuntime, StorePort } from './ports'
 import { SessionPruner } from './session-pruner'
 import { buildStatus } from './status'
 
@@ -61,6 +62,8 @@ export class Orchestrator implements AgentHost {
 	readonly store: StorePort
 	readonly feed: Feed
 	readonly startedAt: number
+	/** фоновое обучение; null — хранилище не подключено (тесты, встраивание) */
+	readonly learning: LearningService | null
 
 	private readonly spacesSvc: SpacesService
 	private readonly messaging: MessagingService
@@ -94,7 +97,8 @@ export class Orchestrator implements AgentHost {
 		this.sourcesSvc = built.sourcesSvc
 		this.runtimesSvc = built.runtimesSvc
 		this.agentsSvc = built.agentsSvc
-		this.pruner = new SessionPruner(this.registry, this.ctx, this.sessionsSvc, this.agentsSvc, id => this.removeSession(id))
+		this.learning = createLearning(deps, { ctx: this.ctx, hub: this.hub, registry: this.registry, feed: this.feed, sessions: this.sessionsSvc, ops: this })
+		this.pruner = new SessionPruner(this.registry, this.ctx, this.sessionsSvc, this.agentsSvc, this)
 	}
 
 	// ---------- загрузка / сохранение ----------
@@ -105,6 +109,7 @@ export class Orchestrator implements AgentHost {
 		this.feed.load(st.msgSeq)
 		for (const s of st.spaces) this.registry.spaces.set(s.name, this.spacesSvc.make(s))
 		restoreAgents(st.agents, this.registry, this.sessionsSvc, this.ctx.agentDeps)
+		this.learning?.load()
 	}
 
 	/**
@@ -113,6 +118,7 @@ export class Orchestrator implements AgentHost {
 	 * оставив запущенный nessy serve.
 	 */
 	start(): void {
+		this.learning?.start()
 		for (const a of this.registry.agents.values()) a.resumeQueue()
 		// пространства, где уже есть агенты, прогреваем сразу: serve и заготовки сессий будут готовы к первому spawn
 		for (const name of new Set([...this.registry.agents.values()].map(a => a.space))) this.pool.warm(name)
@@ -137,6 +143,7 @@ export class Orchestrator implements AgentHost {
 	async shutdown(): Promise<void> {
 		this.shuttingDown = true
 		if (this.gcTimer) clearInterval(this.gcTimer)
+		await this.learning?.stop()
 		await this.pool.closeAll()
 		for (const a of this.registry.agents.values()) a.detach()
 		this.feed.close()
@@ -192,8 +199,8 @@ export class Orchestrator implements AgentHost {
 		return this.registry.resolveAgent(ref).toJSON()
 	}
 
-	spawn(req: SpawnRequest): Promise<SpawnResponse> {
-		return this.agentsSvc.spawn(req)
+	spawn(req: SpawnRequest, onCreated?: (agentId: string) => void): Promise<SpawnResponse> {
+		return this.agentsSvc.spawn(req, onCreated)
 	}
 
 	removeAgent(ref: string): Promise<void> {
@@ -277,7 +284,7 @@ export class Orchestrator implements AgentHost {
 
 	// ---------- сессии ----------
 	listSessions(status?: SessionStatus): SessionView[] {
-		return this.sessionsSvc.list(status)
+		return this.sessionsSvc.list({ ...(status ? { status } : {}) })
 	}
 
 	getSession(id: string): SessionView {
@@ -303,6 +310,16 @@ export class Orchestrator implements AgentHost {
 		return this.pruner.prune(keepId)
 	}
 
+	/** Сессию разбирает фоновое обучение (незакрытый кейс): уборка её не трогает. */
+	isSessionProtected(id: string): boolean {
+		return this.learning?.isProtected(id) ?? false
+	}
+
+	/** Служебная сессия (фоновое обучение): создаётся при первом вызове, в списки и граф не входит. */
+	ensureServiceSession(id: string, title: string, cwd: string): SessionView {
+		return this.sessionsSvc.ensureService(id, title, cwd)
+	}
+
 	/** Чат Claude начался или сменился: сессия этого чата (создаётся, если её нет) и переход вкладки к ней. */
 	attachSession(req: AttachRequest): SessionView {
 		return this.sessionsSvc.attach(req)
@@ -321,10 +338,8 @@ export class Orchestrator implements AgentHost {
 
 	/** Агенты: все или только сессии `session` (неизвестная сессия → 404 no_session). */
 	listAgents(session?: string): AgentView[] {
-		const all = [...this.registry.agents.values()].map(a => a.toJSON())
-		if (session === undefined) return all
-		const id = this.sessionsSvc.resolve(session).id
-		return all.filter(a => a.session === id)
+		const id = session === undefined ? undefined : this.sessionsSvc.resolve(session).id
+		return [...this.registry.agents.values()].map(a => a.toJSON()).filter(a => id === undefined || a.session === id)
 	}
 
 	authorizeSender(from: string | undefined, caller: { operator: boolean; agentKey: string | null }): void {
@@ -341,12 +356,7 @@ export class Orchestrator implements AgentHost {
 	}
 
 	listMessages(opts: { agent?: string; since?: number; limit?: number } = {}): Message[] {
-		const involving = opts.agent ? this.registry.resolveAgent(opts.agent).id : undefined
-		return this.feed.list({
-			...(involving !== undefined ? { involving } : {}),
-			...(opts.since !== undefined ? { since: opts.since } : {}),
-			...(opts.limit !== undefined ? { limit: opts.limit } : {}),
-		})
+		return this.messaging.list(opts)
 	}
 
 	/**
@@ -360,13 +370,10 @@ export class Orchestrator implements AgentHost {
 	/** Вкладка закрыта: работающие агенты сессии останавливаются (без хозяина они жгли бы токены); сессия и ответы остаются. */
 	async sessionClosed(id: string): Promise<{ cancelled: number }> {
 		const session = this.sessionsSvc.resolve(id).id
-		let cancelled = 0
-		for (const a of this.registry.agents.values()) {
-			if (a.session !== session || !a.isBusy) continue
-			cancelled++
-			await a.cancel()
-		}
-		return { cancelled }
+		const busy = [...this.registry.agents.values()].filter(a => a.session === session && a.isBusy)
+		for (const a of busy) await a.cancel()
+		this.learning?.onSessionClosed(session)
+		return { cancelled: busy.length }
 	}
 
 	// ---------- чтение ----------

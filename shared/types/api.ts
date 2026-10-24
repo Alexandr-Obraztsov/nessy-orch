@@ -129,6 +129,8 @@ export interface AttachRequest {
 	cwd?: string
 	/** сессия, из которой пришёл вызов (`NESSY_ORCH_SESSION`): её `successor` указывает на результат */
 	from?: string
+	/** абсолютный путь к транскрипту чата (`transcript_path` хука) */
+	transcriptPath?: string
 }
 
 export interface SessionPatch {
@@ -162,4 +164,6 @@ export interface StatusResponse {
 export interface ApiError {
 	error: string
 	code: string
+	/** у 409 `stale` правки плейбука — текущая версия */
+	version?: number
 }

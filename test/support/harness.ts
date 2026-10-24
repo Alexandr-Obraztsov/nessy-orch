@@ -1,5 +1,5 @@
 /**
- * Стенд интеграционных тестов: настоящее приложение (buildApp) + фейковый nessy serve,
+ * Стенд интеграционных тестов: настоящее приложение (buildApp) + фейковый AgentPort,
  * свой каталог состояния, свой порт API и свой диапазон портов serve.
  * close() обязательно вызывать в after(): останавливает HTTP, агентов и процессы serve.
  */
@@ -13,9 +13,11 @@ import type { Config } from '../../src/infrastructure/config/config.types'
 import { FakeAgentPort } from './fake-agent-port'
 import { FakeSpace } from './memory-store'
 import { request, SseClient } from './http-client'
+import { drainReads } from './read-blocks'
+import { repoRoot } from './repo-root'
 import type { Harness, HarnessOptions } from './support.types'
 
-const ROOT = path.resolve(__dirname, '..', '..', '..')
+const ROOT = repoRoot()
 const CLI = path.join(ROOT, 'bin', 'nessy-orch')
 
 function freeApiPort(): Promise<number> {
@@ -51,7 +53,9 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 			rateLimitPerMinute: 30,
 			cliPath: CLI,
 			seedRoles: false,
+			learningDefaultOn: false,
 			rolesDir: path.join(base, 'roles'),
+			playbooksPluginDir: path.join(base, 'plugin', 'nessy-playbooks'),
 			...opts.config,
 		}
 		// пространства ядра в интеграционных тестах держат FakeAgentPort (serve-путь удалён): HTTP/CLI-поверхность настоящая,
@@ -72,6 +76,16 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 	process.env['FAKE_NESSY_CLI'] = `ORCH_PORT=${port} NO_COLOR=1 ${process.execPath} ${CLI}`
 
 	const started = app
+	// фейковый агент-сборщик читать сессию не умеет: за него блоки событий читает стенд (как `nessy-orch case read`)
+	const reader = setInterval(() => {
+		if (opts.autoRead === false) return
+		try {
+			drainReads(started.orch.learning ?? null)
+		} catch {
+			// кейс или задание исчезли между проверкой и чтением
+		}
+	}, 3)
+	reader.unref()
 	let closed = false
 	return {
 		app: started,
@@ -85,6 +99,7 @@ export async function startHarness(opts: HarnessOptions = {}): Promise<Harness> 
 		close: async ({ keepFiles = false } = {}) => {
 			if (closed) return
 			closed = true
+			clearInterval(reader)
 			await started.close()
 			if (!keepFiles) fs.rmSync(base, { recursive: true, force: true })
 		},

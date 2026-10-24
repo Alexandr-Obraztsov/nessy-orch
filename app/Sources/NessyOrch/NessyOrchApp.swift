@@ -30,6 +30,16 @@ struct NessyOrchApp: App {
 		}
 		.defaultSize(width: 920, height: 680)
 
+		WindowGroup("Плейбук", id: "playbook", for: String.self) { $id in
+			PlaybookWindow(id: id).environment(model).tint(DS.Palette.accent)
+		}
+		.defaultSize(width: 920, height: 680)
+
+		Window("Фон", id: "background") {
+			BackgroundWindow().environment(model).tint(DS.Palette.accent)
+		}
+		.defaultSize(width: 1100, height: 720)
+
 		MenuBarExtra {
 			MenuBarPanel().environment(model).tint(DS.Palette.accent)
 		} label: {
@@ -91,6 +101,7 @@ struct AppCommands: Commands {
 		CommandMenu("Сессия") {
 			Button("Перейти к…") { model.showPalette = true }.keyboardShortcut("k")
 			Button("Роли…") { openWindow(id: "roles") }.keyboardShortcut(Hotkeys.shared.shortcut(.roles))
+			Button("Фон…") { model.openBackground() }.keyboardShortcut(Hotkeys.shared.shortcut(.background))
 		}
 		CommandMenu("Агент") {
 			Button("Остановить ход") { if let a = model.targetAgent { model.stop(a) } }
@@ -117,8 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 		NSApp.servicesProvider = self
 		NSUpdateDynamicServices()
 		FinderSupport.autoInstallOnce()
-		// светлой темы нет: приложение всегда тёмное
-		NSApp.appearance = NSAppearance(named: .darkAqua)
+		// светлой темы нет: приложение всегда тёмное (для снимков: `-debug.appearance light` включает светлую)
+		NSApp.appearance = NSAppearance(named: UserDefaults.standard.string(forKey: "debug.appearance") == "light" ? .aqua : .darkAqua)
 		// для снимков: `-debug.menuPreview YES` — панель menu bar в обычном окне (открыть её без клика нельзя)
 		if UserDefaults.standard.bool(forKey: "debug.menuPreview") {
 			let w = NSWindow(contentRect: NSRect(x: 80, y: 120, width: 320, height: 480), styleMask: [.titled, .closable], backing: .buffered, defer: false)

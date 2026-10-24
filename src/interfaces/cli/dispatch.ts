@@ -5,6 +5,7 @@ import type { Ctx } from './ctx'
 import { agentCommands } from './commands/agents'
 import { feedCommands } from './commands/feed'
 import { hookCommands } from './commands/hook'
+import { learningCommands } from './commands/learning'
 import { roleCommands } from './commands/roles'
 import { serviceCommands } from './commands/service'
 import { sessionCommands } from './commands/sessions'
@@ -14,7 +15,7 @@ import { HELP } from './help'
 import { isPathArg } from './launch'
 import type { Transport } from './transport'
 
-const COMMANDS: CommandTable = { ...agentCommands, ...sessionCommands, ...roleCommands, ...spaceCommands, ...feedCommands, ...hookCommands, ...serviceCommands }
+const COMMANDS: CommandTable = { ...agentCommands, ...sessionCommands, ...roleCommands, ...spaceCommands, ...feedCommands, ...hookCommands, ...learningCommands, ...serviceCommands }
 export interface RunOptions {
 	cwd: string
 	env: NodeJS.ProcessEnv

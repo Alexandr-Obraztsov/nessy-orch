@@ -9,7 +9,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 
 /** Что копируем из корня сервера (dist/test и исходники не нужны). */
-const ENTRIES = ['dist', 'bin', 'roles', 'package.json', 'VERSION']
+const ENTRIES = ['dist', 'bin', 'roles', 'learning', 'package.json', 'VERSION']
 
 export const runtimeDir = (home: string = os.homedir()): string => path.join(home, '.nessy-orch', 'runtime')
 

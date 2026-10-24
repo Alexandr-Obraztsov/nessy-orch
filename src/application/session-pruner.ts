@@ -20,7 +20,8 @@ export class SessionPruner {
 		private readonly ctx: ServiceContext,
 		private readonly sessionsSvc: SessionsService,
 		private readonly agentsSvc: AgentsService,
-		private readonly removeSession: (id: string) => void,
+		/** удаление сессии и «под защитой ли она» (её разбирает фоновое обучение: при уборке не удаляется) */
+		private readonly host: { removeSession(id: string): void; isSessionProtected(id: string): boolean },
 	) {}
 
 	/**
@@ -41,7 +42,13 @@ export class SessionPruner {
 		const lastActivity = (s: SessionView): number => Math.max(Date.parse(s.updatedAt), ...agentsOf(s.id).map(a => Date.parse(a.lastActivityAt)))
 		const candidates = this.sessionsSvc
 			.list()
-			.filter(s => s.id !== keepId && agentsOf(s.id).every(a => !a.isBusy && a.queue.length === 0) && now - lastActivity(s) > SESSION_FRESH_MS)
+			.filter(
+				s =>
+					s.id !== keepId &&
+					!this.host.isSessionProtected(s.id) &&
+					agentsOf(s.id).every(a => !a.isBusy && a.queue.length === 0) &&
+					now - lastActivity(s) > SESSION_FRESH_MS,
+			)
 			.sort((a, b) => lastActivity(a) - lastActivity(b))
 		let removed = 0
 		for (const s of candidates) {
@@ -49,7 +56,7 @@ export class SessionPruner {
 			if (!this.sessionsSvc.has(s.id)) continue
 			for (const a of agentsOf(s.id)) await this.agentsSvc.remove(a.id).catch(() => undefined)
 			try {
-				this.removeSession(s.id)
+				this.host.removeSession(s.id)
 				removed++
 			} catch {
 				/* сессия снова занята — пропускаем */

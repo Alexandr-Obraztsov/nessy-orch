@@ -83,60 +83,76 @@ struct SettingsButton: View {
 	}
 }
 
-/// Нет открытых проектов: «Последние сессии» (продолжить чат агента) и отдельно «Папки» (новый чат в папке).
+/// Нет открытых проектов: колонки «Проекты» (недавние папки) и «Сессии» (продолжить чат агента). Пустая колонка не показывается;
+/// нет ни того, ни другого — одна кнопка «Открыть папку». Блок компактный и по центру, длинные списки прокручиваются внутри.
 struct NoProjectView: View {
 	@Environment(AppModel.self) private var model
 
 	private var folders: [String] {
-		model.recentProjects.filter { FileManager.default.fileExists(atPath: $0) }.prefix(6).map { $0 }
+		model.recentProjects.filter { FileManager.default.fileExists(atPath: $0) }.prefix(12).map { $0 }
 	}
 
 	var body: some View {
-		let sessions = model.recentSessions
-		GeometryReader { geo in
-		ScrollView {
-			VStack(spacing: DS.Metrics.s3) {
-				Image(systemName: "folder.badge.plus").font(.system(size: 34, weight: .light)).foregroundStyle(DS.Palette.textTertiary)
-				Text("Проект не открыт").font(DS.Typography.panelTitle).foregroundStyle(DS.Palette.textPrimary)
-				Text("Продолжите прошлую сессию или откройте папку — в ней сразу запустится агент.")
-					.font(DS.Typography.secondary).foregroundStyle(DS.Palette.textSecondary).multilineTextAlignment(.center)
-				Button("Открыть папку…") { model.openFolderPanel() }
-					.buttonStyle(.plain).foregroundStyle(DS.Palette.accentText).font(DS.Typography.secondary.weight(.medium))
-					.padding(.top, DS.Metrics.s1)
-				Text(Hotkeys.shared.display(.openFolder)).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
-				if !sessions.isEmpty {
-					group("Последние сессии") {
-						ForEach(Array(sessions.enumerated()), id: \.element.id) { i, s in
-							if i > 0 { DSSeparator(leading: DS.Metrics.s3) }
-							RecentSessionRow(session: s) { model.show(session: s.id) }
+		let sessions = model.recentSessions(limit: 12)
+		let hasFolders = !folders.isEmpty, hasSessions = !sessions.isEmpty
+		VStack(spacing: DS.Metrics.s6) {
+			Image(systemName: "terminal").font(.system(size: 30, weight: .light)).foregroundStyle(DS.Palette.textTertiary)
+			if hasFolders || hasSessions {
+				HStack(alignment: .top, spacing: DS.Metrics.s5) {
+					if hasFolders {
+						column("Проекты") {
+							ForEach(Array(folders.enumerated()), id: \.element) { i, dir in
+								if i > 0 { DSSeparator(leading: 56) }
+								RecentRow(dir: dir) { model.openTerminal(dir: dir) }
+							}
+						}
+					}
+					if hasSessions {
+						column("Сессии") {
+							ForEach(Array(sessions.enumerated()), id: \.element.id) { i, s in
+								if i > 0 { DSSeparator(leading: 56) }
+								RecentSessionRow(session: s) { model.show(session: s.id) }
+							}
 						}
 					}
 				}
-				if !folders.isEmpty {
-					group("Папки") {
-						ForEach(Array(folders.enumerated()), id: \.element) { i, dir in
-							if i > 0 { DSSeparator(leading: DS.Metrics.s3) }
-							RecentRow(dir: dir) { model.openTerminal(dir: dir) }
-						}
-					}
-				}
+				.frame(maxWidth: hasFolders && hasSessions ? 900 : 460)
 			}
-			// по центру окна и по вертикали (под шапкой), а не прижато к верху
-			.frame(maxWidth: .infinity, minHeight: geo.size.height - DS.Metrics.s6)
-			.padding(.horizontal, DS.Metrics.s6).padding(.top, DS.Metrics.s6)
+			Button { model.openFolderPanel() } label: {
+				Label("Открыть папку", systemImage: "folder.badge.plus").font(DS.Typography.secondary.weight(.medium))
+					.padding(.horizontal, DS.Metrics.s4).frame(height: DS.Metrics.button)
+					.background(DS.Palette.surface, in: Capsule())
+					.overlay(Capsule().strokeBorder(DS.Palette.border, lineWidth: DS.Metrics.hairline))
+					.contentShape(Capsule())
+			}
+			.buttonStyle(.plain).foregroundStyle(DS.Palette.textPrimary)
+			.help("Открыть папку (\(Hotkeys.shared.display(.openFolder)))")
 		}
-		.scrollBounceBehavior(.basedOnSize)
-		}
+		.padding(DS.Metrics.s6)
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 	}
 
-	private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
-		VStack(alignment: .leading, spacing: DS.Metrics.s1) {
-			Text(title).font(DS.Typography.caption.weight(.semibold)).foregroundStyle(DS.Palette.textTertiary).padding(.horizontal, DS.Metrics.s3)
-			VStack(spacing: 0, content: content).dsGroup()
+	/// Колонка со списком в группе; высокий список прокручивается (не выше ~6 строк).
+	private func column<R: View>(_ title: String, @ViewBuilder rows: () -> R) -> some View {
+		let list = VStack(spacing: 0, content: rows)
+		return VStack(alignment: .leading, spacing: DS.Metrics.s2) {
+			Text(title).font(DS.Typography.groupTitle).foregroundStyle(DS.Palette.textSecondary).padding(.horizontal, DS.Metrics.s3)
+			ViewThatFits(in: .vertical) {
+				list.dsGroup()
+				ScrollView { list }.frame(maxHeight: 330).dsGroup()
+			}
 		}
-		.frame(maxWidth: 460)
-		.padding(.top, DS.Metrics.s5)
+		.frame(maxWidth: .infinity, alignment: .topLeading)
+	}
+}
+
+/// Плитка значка строки: единая для папок и сессий.
+private struct RowTile: View {
+	var systemImage: String
+	var body: some View {
+		Image(systemName: systemImage).font(.system(size: 14, weight: .medium)).foregroundStyle(DS.Palette.textSecondary)
+			.frame(width: 32, height: 32)
+			.background(DS.Palette.hover, in: RoundedRectangle(cornerRadius: DS.Metrics.groupRadius - 2, style: .continuous))
 	}
 }
 
@@ -159,7 +175,7 @@ private struct RecentSessionRow: View {
 	var body: some View {
 		Button(action: action) {
 			HStack(spacing: DS.Metrics.s3) {
-				Image(systemName: "bubble.left").foregroundStyle(DS.Palette.textSecondary)
+				RowTile(systemImage: "bubble.left")
 				VStack(alignment: .leading, spacing: 1) {
 					Text(session.title).font(DS.Typography.secondary.weight(.medium)).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
 					if !dir.isEmpty {
@@ -170,7 +186,7 @@ private struct RecentSessionRow: View {
 				Spacer(minLength: DS.Metrics.s2)
 				Text(sub).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary).lineLimit(1)
 			}
-			.padding(.horizontal, DS.Metrics.s3).frame(height: 46)
+			.padding(.horizontal, DS.Metrics.s3).frame(height: 56)
 			.background(hover ? DS.Palette.hover : .clear)
 			.contentShape(Rectangle())
 		}
@@ -187,13 +203,15 @@ private struct RecentRow: View {
 	var body: some View {
 		Button(action: action) {
 			HStack(spacing: DS.Metrics.s3) {
-				Image(systemName: "folder").foregroundStyle(DS.Palette.textSecondary)
-				Text(Projects.name(ofPath: dir)).font(DS.Typography.secondary.weight(.medium)).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
+				RowTile(systemImage: "folder")
+				VStack(alignment: .leading, spacing: 1) {
+					Text(Projects.name(ofPath: dir)).font(DS.Typography.secondary.weight(.medium)).foregroundStyle(DS.Palette.textPrimary).lineLimit(1)
+					Text(dir.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
+						.lineLimit(1).truncationMode(.head)
+				}
 				Spacer(minLength: DS.Metrics.s2)
-				Text(dir.replacingOccurrences(of: NSHomeDirectory(), with: "~")).font(DS.Typography.caption).foregroundStyle(DS.Palette.textTertiary)
-					.lineLimit(1).truncationMode(.head)
 			}
-			.padding(.horizontal, DS.Metrics.s3).frame(height: 38)
+			.padding(.horizontal, DS.Metrics.s3).frame(height: 56)
 			.background(hover ? DS.Palette.hover : .clear)
 			.contentShape(Rectangle())
 		}

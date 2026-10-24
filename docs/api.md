@@ -17,7 +17,7 @@
 - **Ошибки:** статус ≥ 400, тело `{ "error": "<текст>", "code": "<код>" }`. Коды: `bad_request`, `bad_json`, `bad_path`,
   `bad_from`, `empty_text`, `self_send`, `space_required` (все 400), `no_space` (404), `space_exists` (409),
   `space_busy` (409), `no_agent` (404), `ambiguous_agent` (409), `name_taken` (409), `busy` (409, архив работающего агента),
-  `no_role` (404), `role_exists` (409), `hop_limit` (429), `rate_limit` (429),
+  `no_role` (404), `role_exists` (409), `no_case` (404), `stale` (409), `no_job` (404), `lint` (400), `no_candidate` (404), `case_busy` (409), `job_not_failed` (409), `learning_unavailable` (503), `no_playbook` (404), `playbook_busy` (409), `hop_limit` (429), `rate_limit` (429),
   `deadlock` (409), `nessy_error` (502), `too_large` (413, тело > 5 МБ), `bad_host`/`bad_origin`/`forbidden` (403),
   `not_found` (404), `internal` (500). Пустое тело запроса читается как `{}`.
 - **Ссылка на агента `:ref`** — id (`a-7f3k`) или уникальное имя (без учёта регистра). Особое значение `you` допустимо
@@ -215,6 +215,88 @@
 Рантайм молча подставляет другую модель, когда запрошенной нет: тогда `model` — фактическая, а `modelRequested` — запрошенная (UI показывает
 предупреждение); при совпадении (с учётом псевдонимов: `opus` ≈ `claude-opus-*`) `modelRequested: null`.
 
+## Фоновое обучение
+
+Типы — `shared/types/learning.ts`. Не-`GET` маршруты — только оператору (`403 operator_required`). Нет хранилища обучения — `503 learning_unavailable`.
+
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| GET | `/learning` | — | `LearningView {settings, jobs[], cases[], playbooks[], journal[] (последние 300), rev}` (кейсы по свежести); `rev` — номер шины (`hub.rev`) на момент сборки ответа: клиент после `refresh` применяет накопленные за это время события `learning_*` только с `rev` больше него |
+| PATCH | `/learning/settings` | частичный `LearningSettings` | `LearningSettings`; пишет `<home>/learning.json` (правка файла руками подхватывается при ближайшем сигнале), событие `learning_settings`; неверный тип поля — `400 bad_request`, числа ограничиваются: `idleMin` 5–10080 (120), `maxAgents` 1–6 (2), `retrySec` 5–3600 (60), `stallMin` 0–720 (20; 0 — сторож выключен), `blockEvents` 10–400 (80), `blockChars` 4000–200000 (40000), `archiveDays` 0–365 (30) |
+| POST | `/learning/signal` | `{event: 'activity' \| 'end', session, chatId?, transcriptPath?}` | `{ok:true}` быстро и синхронно, без ожидания работы агентов: сигнал хуков плагина (`Stop`/`UserPromptSubmit` → `activity`, `SessionEnd` → `end`; CLI `nessy-orch hook stop\|end`). Заводит кейс цепочки, запоминает путь транскрипта, ставит `lastActivityAt`; `end` — сессия закончена, ставит `close`. Обучение выключено, сессия отключена или с надгробием — `{ok:true}` без действия. Неверное тело — `400 bad_request` |
+| POST | `/learning/run` | `{session?}` | `JobView[]`: итоговое задание `close` по сессии или кейсу (`404 no_case`); без `session` — по всем незакрытым кейсам. Работает и при выключенном обучении |
+| GET | `/learning/jobs/:id` | — | `JobDetail {job: JobView, runs: [{name, text}]}`: ответы агентов задания из `runs/` (`name` = `<jobId>-<k>`, по порядку `k`); `404 no_job`. `JobView.agentId` заполняется сразу при запуске агента, а не по его ответу |
+| POST | `/learning/jobs/:id/cancel` | — | `JobView`: остановить задание любого вида. `queued` → сразу `done` с `note: 'остановлено'`; `running` → флаг отмены и отмена агента, обработчик ничего не пишет (ответ агента в `runs/` не сохраняется, описание/плейбук не меняются), задание становится `done` с `note: 'остановлено'` **после** возврата обработчика (ждёт повтора после ошибки — сразу), без повторов и без `error`. Завершённое — без изменений; `404 no_job` |
+| POST | `/learning/jobs/:id/retry` | — | `JobView`; `404 no_job`, `409 job_not_failed`. Фоновые задания в `error` не переходят: провал — задание остаётся `running`, `attempts++`, `JobView.error` — последняя ошибка, повтор через `retrySec` (см. «Очередь и состояния»); кейс из-за провала в `error` не уходит. `JobView.title` — название сессии (= имя и заголовок агента-сборщика), `JobView.progress` `{read, total}` — для идущего `collect`/`close`: принятые события этого задания / события к обработке на его старте; `JobView.phase` — `reading` (агент читает блок) или `summarizing` (блок выдан, описание ещё не принято), у прочих заданий null |
+| GET | `/learning/cases/:id` | — | `CaseDetail` = `CaseView` + `summary` (summary.md), `summaryHash` (sha1 hex текста `summary.md`; пустое описание — sha1 пустой строки), `notes` (notes.md), `draft` (черновик сборщика `draft.md`, пусто — нет) и `progress` (`{read, total}` идущего сбора или null); `404 no_case` |
+| DELETE | `/learning/cases/:id` | — | `{ok:true}`; удаляет кейс, `raw/` и его ждущие задания, событие `learning_case_removed`; идёт задание кейса — `409 case_busy`. id корня цепочки и сессий кейса пишутся в надгробие (`<home>/learning/meta.json`, `removed`): кейс сам не воскресает. Вернуть обучение для такой сессии: `PATCH /learning/settings` с `disabledSessions`, где сессия была и перестала быть (`nessy-orch learn off --session S`, затем `learn on --session S`), либо ручной запуск (`POST /learning/run {session}`) / разбор прошлого — они надгробие снимают |
+| GET | `/learning/cases/:id/raw?from=&to=` | — | `RawEvent[]` (`n`, `ts`, `kind`, `from`, `to`, `text`, `ref`) из `raw/events.jsonl` с `n` от `from` (по умолчанию 0) до `to` включительно (без `to` — до конца), не больше 500 событий: якорь «открыть место в сессии»; `from`/`to` не целые от 0 — `400 bad_request`; `404 no_case` |
+| GET | `/learning/cases/:id/read` | — | `CaseReadBlock {text, header, card, from, until, total, remaining, done}`: **строгий протокол**: следующий блок после принятого описания — не больше `blockEvents` событий и `blockChars` знаков из настроек (по умолчанию 80 и 40000; одно событие берётся всегда; `maxChars` не принимается). `header` — `BLOCK k (n a–b), events x/total acknowledged`, `card` — карточка протокола (чек-лист). Пока описание выданного блока не принято — `409 summary_required` (текст: `Block n a–b has no accepted summary yet. Submit the updated summary with 'nessy-orch case draft' …`). Все блоки приняты — `done: true`, пустой `text`, в `card` инструкция сдать `case draft --final`. Нет идущего задания — `409 no_job`; `404 no_case`. Публикует `learning_job`. Открыт всем (GET) — агент-сборщик зовёт `nessy-orch case read <id>` |
+| POST | `/learning/cases/:id/draft[?final=1]` | `{text, from?}` | `CaseDraftResult {ok, final, accepted:{from,until}, remaining, message}`: **полное** описание за выданный блок (`?final=1` — итоговая консолидация, только после `done`; иначе `409 not_done`; без выданного блока — `409 no_block`). Сервер проверяет описание без LLM (`domain/summary-gate`): R1 якоря в `[1, until]`, R2 покрытие событий блока якорем или `### Skipped` с причиной ≥ 3 слов, R3 прогресс, R4 плотность (≥ ⌈событий/6⌉ пунктов), R5 без воды, R6 идентификаторы блока (тикеты, MR, URL, пути, числа ≥ 3 цифр), R7 поправки пользователя цитатами с якорем, R8 без копий 200+ знаков, R9 структура (`### Plan/Actions/Sources/User corrections/Open questions/Skipped`); `--final` — R1, R5, R9 и сохранение ≥ 90 % якорей прежнего описания (`F1`). Отказ — `422 rejected`, текст `REJECTED (attempt N/3): <коды и детали, все сразу>. Fix only the listed items. …`; третий отказ по блоку снимает агента, задание — провал с повтором, принятые блоки сохраняются. Принято — `summary.md` и `coveredUntil` обновляются сразу (чекпоинт), публикуются `learning_case`/`learning_job`. Оператор — без `from`; агент — `from` (свой id) + ключ в `X-Agent-Key`, и только сборщик идущего задания этого кейса (иначе `403 not_collector`). Итог сохраняет сервер; ответ агента не разбирается. `404 no_case` |
+| PUT | `/learning/cases/:id/summary` | `{text, base}` | `{ok:true}`: правка описания руками — пишет `summary.md` целиком, курсор сборщика не трогает. `base` — sha1 (hex) описания, против которого правили (`CaseDetail.summaryHash`); не совпал с текущим — `409 stale`; нет `base` или не sha1 hex — `400 bad_request`. После записи `goals` кейса пересобираются из текста (`## Goal: … (type: …)`); `title` не меняется — это название сессии, обновляется `updatedAt`, публикуется `learning_case`. По кейсу идёт задание — `409 case_busy`; `404 no_case` |
+| POST | `/learning/cases/:id/collector/stop` | — | `{ok:true}`: отмена всех `collect`/`close` кейса тем же механизмом, что `POST /learning/jobs/:id/cancel` (`queued` — сразу `done`, `running` — после возврата обработчика). Кейс **не** запечатывается и не удаляется: `closing` → `collecting`, остальные статусы без изменений. Заданий сборки нет — ничего не меняется; `404 no_case` |
+| GET | `/learning/cases/:id/impact` | — | `CaseImpact {rules: [{playbookId, ruleId, text, evidenceLeft}]}`: правила (`active`/`candidate`) всех плейбуков, у которых кейс среди `evidence`; `evidenceLeft` — число других известных кейсов в доказательствах правила (для диалога удаления); `404 no_case` |
+| POST | `/learning/cases/:id/rebuild` | — | `JobView`: сбрасывает `coveredUntil` и `summary.md`, ставит `close`; `409 case_busy` |
+
+### Очередь и состояния обучения
+
+Работа ставится **по событиям**, опроса нет. Единственные таймеры — одноразовые и из настроек: срок простоя сессии (`idleMin`, один таймер на ближайший срок, пересчёт на сигналах, настройках и старте), повтор после ошибки (`retrySec`, по одному на задание) и сторож (`stallMin`, при `0` таймера нет).
+
+**Задание** (`JobView.status`): только `queued` → `running` → `done` (`error` в типе остался для старых файлов, новых не бывает). Полей `retryAt` и `waiting` нет.
+
+| Переход | Когда |
+|---|---|
+| (новое) → `queued` | постановка; у объекта уже ждёт задание — дополняется, второго не заводится |
+| `queued` → `running` | **сразу и синхронно** при постановке, окончании задания, смене `maxAgents` и после сигнала, если есть слот (`maxAgents`); очередь FIFO, одно задание на объект. Задание, которому мешает замок (правка кейса/плейбука, идущее задание того же объекта), остаётся `queued` и уступает место следующему |
+| `running` → `done` | обработчик закончил (или остановка пользователем, `note: 'остановлено'`) |
+| `running` → `running` (ошибка) | агент упал, ответил ошибкой, протокол исчерпан, нет прогресса или сработал сторож: задание **остаётся `running` и держит слот**, `attempts++`, `error` — причина; ошибка попадает в журнал (`warn`) и в диалог агента системным событием. Через `retrySec` (по умолчанию 60 с) повтор: живому свободному агенту уходит сообщение `Previous attempt failed: <причина>. Continue from the last accepted summary…`, иначе стартует новый агент. Повторов без предела; принятые чекпоинты сохраняются |
+| `running` → `queued` | остановка сервиса / рестарт — без траты попытки, агент прежнего запуска убирается |
+
+**Сторож.** Нет событий агента `stallMin` минут (по умолчанию 20; `0` — не снимать вовсе): агент отменяется, попытка считается проваленной (строка выше). Смотрит только на активность агента, не на время задания.
+
+**Кейс** (`CaseView.status`): `collecting` ⇄ `closing` → `ready`, плюс `error` (сам ничего не запускает). Сессия **закончена**, когда пришёл `SessionEnd`, закрыта вкладка (`POST /sessions/:id/closed`) или в ней не было работы `idleMin` минут. Тогда читаются события (лента и транскрипт по курсорам) и ставится одно итоговое задание `close`; кейс без событий удаляется.
+
+| Статус | Событие | Действие |
+|---|---|---|
+| (нет) | `activity` по свежей цепочке | кейс `collecting` без событий; `lastActivityAt` |
+| `collecting` | `activity` | `lastActivityAt = now`, таймер простоя пересчитан |
+| `collecting` | `end`, закрытие вкладки или истёк срок простоя | ingest, `close` → `closing` (нет событий — кейс удалён) |
+| `closing` | `close` завершён | `ready` (если за время сбора в сессии снова работали — остаётся `collecting`); отмена задания — обратно `collecting`; `closing` без задания самолечится в `collecting` |
+| `ready` | `activity` | `collecting` |
+| любой | `POST /learning/run`, `rebuild` | `close` сразу |
+
+При старте сервиса один проход восстановления: идущие задания вернулись в очередь, `closing` без задания — в `collecting`, события открытых кейсов дочитаны по курсорам, таймер простоя пересчитан. `intervalMin` и `autoReview.intervalMin` в настройках оставлены для совместимости файла и типов.
+
+### Плейбуки, журнал, заметки, чат
+
+Плейбук — скилл, который обучение собирает из ≥ 3 кейсов одной задачи; статусы `draft → review → trial → active` (и `disabled`, `archived`). Ошибки: `no_playbook` (404), `no_rule` (404), `no_version` (404), `no_journal` (404), `already_reverted`/`not_revertible` (409), `no_edit` (404, правки с таким хэшем в `pendingEdits` нет), `stale_edit` (409, правка больше не применяется к текущему тексту — снимается), `playbook_busy` (409, по плейбуку идёт или ждёт задание, в том числе при принятии правки), `bad_status` (409), `playbooks_unavailable` (503). `PlaybookView.tools` — `[{name, description, content}]`: скрипты `tools/<name>` (их создаёт сборщик, в `SKILL.md` раздел «Tools» с командой `bash tools/<name>`; при публикации в `nessy-playbooks` получают exec-бит); документ и улучшатель их не меняют. Типы — `PlaybookView`, `PlaybookDetail`, `JournalEntry`, `ChatMessage`.
+
+| Метод | Путь | Тело | Ответ |
+|---|---|---|---|
+| GET | `/learning/playbooks` | — | `PlaybookView[]` |
+| GET | `/learning/playbooks/:id` | — | `PlaybookDetail` = `PlaybookView` + `markdown` (документ плейбука целиком) + `fileTexts` (все файлы плейбука из хранилища: `SKILL.md`, `stages/*`, `rules.md`, `tools/*`, `notes.md`, `CHANGELOG.md`; не `files` — так называется список ключевых файлов), `notes`, `changelog`, `versions[]`, `reviews[]` (отчёты ревью по версиям) |
+| PUT | `/learning/playbooks/:id/markdown` | `{text, baseVersion}` | `PlaybookDetail`: сохранение документа плейбука (`PlaybookDetail.markdown`: frontmatter `name/description/title/taskType`, разделы `## Parameters`, `## Sources`, `## Key files`, `## Steps` (этапы `### N. Название` с `role/where/produces/done when/gate` и шаблоном в кодовом заборе), `## Rules` (+ `### Candidates`), `## Behavior`, `## Tools` (только чтение), `## Based on` (только чтение), `## Notes`; незнакомые разделы уходят в заметки). Правила сверяются по маркерам `<!-- r-id stage:N -->`: текст изменился — то же правило (счётчики и доказательства целы), маркер пропал — архив, строка без маркера — новое активное правило (`up 2`, `down 0`, `author: user`, в журнале `rule_activated`), строка без маркера в `### Candidates` — кандидат. `baseVersion` (целое от 1) не равна текущей — `409 stale` с `{error, code:'stale', version}`; ошибки разбора (нет `description`, нет этапов, битый frontmatter) и критичные замечания `lintPlaybook` без строгих доказательств — `400 lint` (замечания в `error` через перевод строки); идёт или ждёт задание плейбука — `409 playbook_busy`. Успех: новая версия, запись журнала `edit` с `report {version}` (откат — `journal/:id/revert`) |
+| POST | `/learning/playbooks/:id/review` | — | `JobView`: ручной запуск ревью |
+| POST | `/learning/playbooks/:id/approve` | — | `PlaybookView`: одобрение → `trial`; `trial.before` — среднее число поправок на кейс до плейбука |
+| POST | `/learning/playbooks/:id/reject` | `{reason?}` | `PlaybookView`: плейбук `disabled`, причина в журнале |
+| POST | `/learning/playbooks/:id/status` | `{status}` | `PlaybookView`; `status` — `active`, `disabled` или `archived` (иначе `400`) |
+| POST | `/learning/playbooks/:id/revert` | `{version}` | `PlaybookView`: файлы версии `version` новой версией, статус остаётся |
+| POST | `/learning/playbooks/:id/edits/:hash/accept` | — | `PlaybookView`: принять правку из `pendingEdits` (`autoReview: false`) — применяется к текущему состоянию, новая версия, запись журнала `edit` |
+| POST | `/learning/playbooks/:id/edits/:hash/reject` | — | `PlaybookView`: отклонить правку — снимается из `pendingEdits`, хэш уходит в `rejectedEdits` |
+| DELETE | `/learning/playbooks/:id` | — | `{ok:true}`; идёт или ждёт задание плейбука — `409 playbook_busy` |
+| PUT | `/learning/playbooks/:id/notes` · `/learning/cases/:id/notes` | `{text}` | `{ok:true}`: заметки пользователя (`notes.md`); автоматически не переписываются, уходят следующим сборщикам, судьям и ревьюерам объекта |
+| GET | `/learning/journal?limit=&before=` | — | `JournalEntry[]` (старые первыми): каждое автоматическое решение с отчётом и все события фонового обучения (`kind: 'log'`, `level` `info`/`warn`/`error`, `summary` — фраза для человека; `revertible: false`, `report: null`). `before` — id записи: страница старее неё. Файл `learning/journal.jsonl` хранит последние 5000 записей (при 6000 обрезается) |
+| POST | `/learning/journal/:id/revert` | — | `JournalEntry` (запись `reverted`): откат статуса, правила или версии; повторный — `409 already_reverted` |
+| GET | `/learning/chat/:subject` | — | `ChatMessage[]` чата кейса (`c-…`) или плейбука (`p-…`); `?limit=` |
+| POST | `/learning/chat/:subject` | `{text}` | `ChatMessage` (сообщение пользователя); ставится задание `edit:<subject>`, агент-редактор отвечает ещё одним `ChatMessage`. У кейса меняется только `summary.md`; у плейбука — поля плейбука, выходит новая версия (журнал `edit`). Постоянная инструкция («всегда проверяй X») дописывается в `notes.md` строкой `- <дата>: <текст>` |
+| POST | `/learning/hint` | `{session, prompt}` | `{playbook: {id, skill, title} \| null}`: подсказка плейбука для хука UserPromptSubmit. Подсказываются только `trial`/`active`, один раз на цепочку сессий и не уже загруженный кейсу. Приоритет: подсказка сборщика (в кейсе появилась цель с типом = `taskType` плейбука), затем BM25 по тексту запроса и целям кейса, порог `HINT_MIN_SCORE = 2.5` (индекс добит пустыми документами до 10, чтобы оценка не зависела от числа плейбуков). `skill` = `nessy-playbooks:<id>`. Обучение недоступно или выключено — `{playbook: null}`; нет `session`/`prompt` (строки) — `400 bad_request`. Подсказанное запоминается в `CaseState.hinted` (переживает рестарт) |
+
+Новые события `GET /stream`: `learning_playbook` (upsert `PlaybookView`), `learning_playbook_removed`, `learning_journal`, `learning_chat` (`subject`, `message`). Активные плейбуки (`trial`, `active`) публикуются как плагин `nessy-playbooks` (`ORCH_PLAYBOOKS_PLUGIN_DIR`, по умолчанию `~/.claude/skills/nessy-playbooks`). Ответы агентов (`runs/`) отдаёт `GET /learning/jobs/:id`. Ответы агентов не-кейсовых заданий лежат в `<home>/learning/runs/<объект>/<задание>-<k>.md`, кейсовых — в `cases/<id>/runs/`.
+
+События `GET /stream`: `{"t":"learning_case","rev":…,"case":CaseView}` (upsert),
+`{"t":"learning_case_removed","rev":…,"id"}`, `{"t":"learning_job","rev":…,"job":JobView}` (upsert), `{"t":"learning_settings","rev":…,"settings":LearningSettings}`.
+Служебная сессия `background` (агенты-сборщики) в списки и снапшот не попадает.
+
 ## Сообщения
 
 | Метод | Путь | Ответ |
@@ -241,6 +323,7 @@
 {"t":"role_removed","rev":49,"id":"reviewer"}
 {"t":"session","rev":50,"session":{…SessionView}}
 {"t":"session_removed","rev":51,"id":"fix-ci-3f2a"}
+{"t":"learning_case","rev":52,"case":{…CaseView}}   // также learning_case_removed, learning_job, learning_settings — см. «Фоновое обучение»
 ```
 
 Правила клиента: при **каждом (пере)подключении** приходит новый `snapshot` — состояние заменяется целиком. События чата

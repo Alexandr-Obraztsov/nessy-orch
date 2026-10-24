@@ -218,6 +218,10 @@ struct AgentComposer: View {
 	@Environment(\.sessionWindow) private var win
 	var agent: AgentView
 	var onEscape: () -> Bool = { false }
+	/// сообщение отправлено (панель агента переключается на чат)
+	var onSend: () -> Void = {}
+	/// сообщение сразу прерывает ход агента (чат фонового агента); у обычных агентов — нет
+	var interrupt = false
 	@State private var fieldH: CGFloat = 20
 
 	private var draft: Binding<String> {
@@ -273,6 +277,7 @@ struct AgentComposer: View {
 
 	private func submit() {
 		guard canSend else { return }
-		model.send(to: agent, text: draft.wrappedValue)
+		model.send(to: agent, text: draft.wrappedValue, interrupt: interrupt)
+		onSend()
 	}
 }

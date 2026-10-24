@@ -115,7 +115,8 @@ extension AppModel {
 	// MARK: отладочные флаги (для снимков и проверки; на обычную работу не влияют)
 
 	/// `-debug.terminalDir <путь>` — открыть окно-терминал в папке; `-debug.openSession <id>` — окно сессии;
-	/// `-debug.terminalCommand "<команда>"` — терминалы выполняют команду и остаются в оболочке.
+	/// `-debug.terminalCommand "<команда>"` — терминалы выполняют команду и остаются в оболочке;
+	/// `-debug.openBackground <раздел>` — окно «Фон»; `-debug.appearance light|dark` — тема приложения.
 	func runDebugLaunchOnce() {
 		guard !debugLaunched else { return }
 		debugLaunched = true
@@ -125,10 +126,13 @@ extension AppModel {
 	func runDebugLaunch() {
 		let d = UserDefaults.standard
 		Task { @MainActor in
+			// `-debug.openBackground work|cases|playbooks|journal` — окно «Фон» на разделе (без ожидания снимка)
+			if let s = d.string(forKey: "debug.openBackground") { openBackground(BackgroundSection(rawValue: s) ?? .work) }
 			// ждём первый снимок оркестратора
 			for _ in 0..<40 where store.sessions.isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
 			if let dir = d.string(forKey: "debug.terminalDir") { openTerminal(dir: dir) }
 			if let s = d.string(forKey: "debug.openSession") { show(session: s) }
+			// `-debug.openBackground work|cases|playbooks|journal` — окно «Фон» на разделе
 		}
 	}
 }
